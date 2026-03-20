@@ -64,6 +64,14 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Server Sync") {
+                    NavigationLink {
+                        SyncSettingsView()
+                    } label: {
+                        Label("Server Sync", systemImage: "icloud.and.arrow.up")
+                    }
+                }
+
                 Section("Data") {
                     Button {
                         Task { await refreshAllSnapshots() }

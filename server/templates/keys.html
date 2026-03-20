@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}API Keys — AnxietyScope Admin{% endblock %}
+{% block content %}
+<h1>API Keys</h1>
+
+{% if new_key %}
+<div class="card" style="border: 2px solid #0071e3;">
+    <h2>New API Key Created</h2>
+    <p>Copy this key now — it won't be shown again:</p>
+    <div class="key-display">{{ new_key }}</div>
+    <p class="mt-1" style="font-size: 0.85rem; color: #6e6e73;">Paste this into the iOS app: Settings &rarr; Server Sync &rarr; API Key</p>
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>Create New Key</h2>
+    <form method="post" style="display: flex; gap: 0.5rem; align-items: center;">
+        <input type="text" name="label" placeholder="Key label (e.g. iPhone, iPad)" required style="flex: 1;">
+        <button type="submit" class="btn btn-primary">Create</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Existing Keys</h2>
+    {% if api_keys %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Prefix</th>
+                    <th>Label</th>
+                    <th>Created</th>
+                    <th>Last Used</th>
+                    <th>Requests</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for key in api_keys %}
+                <tr{% if not key.is_active %} style="opacity: 0.5;"{% endif %}>
+                    <td><code>{{ key.key_prefix }}...</code></td>
+                    <td>{{ key.label }}</td>
+                    <td>{{ key.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>{{ key.last_used_at.strftime('%Y-%m-%d %H:%M') if key.last_used_at else "Never" }}</td>
+                    <td>{{ key.request_count }}</td>
+                    <td>{{ "Active" if key.is_active else "Revoked" }}</td>
+                    <td>
+                        {% if key.is_active %}
+                        <form method="post" action="{{ url_for('admin.revoke_key', key_id=key.id) }}" class="inline"
+                              onsubmit="return confirm('Revoke this key?');">
+                            <button type="submit" class="btn btn-danger btn-sm">Revoke</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="color: #6e6e73;">No API keys yet. Create one to start syncing.</p>
+    {% endif %}
+</div>
+{% endblock %}

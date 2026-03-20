@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AnxietyScope Admin{% endblock %}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f7; color: #1d1d1f; line-height: 1.5; }
+        .container { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
+        nav { background: #1d1d1f; color: #f5f5f7; padding: 0.75rem 1rem; display: flex; align-items: center; gap: 1.5rem; }
+        nav a { color: #f5f5f7; text-decoration: none; font-size: 0.9rem; }
+        nav a:hover { text-decoration: underline; }
+        nav .brand { font-weight: 600; font-size: 1rem; margin-right: auto; }
+        h1 { font-size: 1.5rem; margin-bottom: 1rem; }
+        h2 { font-size: 1.2rem; margin-bottom: 0.75rem; }
+        .card { background: #fff; border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+        .stat { text-align: center; }
+        .stat .value { font-size: 2rem; font-weight: 700; color: #0071e3; }
+        .stat .label { font-size: 0.85rem; color: #6e6e73; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #e5e5e7; }
+        th { font-weight: 600; background: #fafafa; position: sticky; top: 0; }
+        td { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .btn { display: inline-block; padding: 0.5rem 1rem; border-radius: 6px; border: none; cursor: pointer; font-size: 0.9rem; text-decoration: none; }
+        .btn-primary { background: #0071e3; color: #fff; }
+        .btn-primary:hover { background: #0066cc; }
+        .btn-danger { background: #ff3b30; color: #fff; }
+        .btn-danger:hover { background: #d63029; }
+        .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.8rem; }
+        input[type="text"], input[type="password"] { padding: 0.5rem 0.75rem; border: 1px solid #d2d2d7; border-radius: 6px; font-size: 0.9rem; width: 100%; }
+        input[type="text"]:focus, input[type="password"]:focus { outline: none; border-color: #0071e3; box-shadow: 0 0 0 3px rgba(0,113,227,0.15); }
+        .flash { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
+        .flash-error { background: #fff0f0; color: #ff3b30; }
+        .flash-success { background: #f0fff0; color: #28a745; }
+        .key-display { background: #f5f5f7; padding: 0.75rem; border-radius: 6px; font-family: monospace; word-break: break-all; margin: 0.5rem 0; }
+        .tabs { display: flex; gap: 0.25rem; margin-bottom: 1rem; flex-wrap: wrap; }
+        .tab { padding: 0.4rem 0.8rem; border-radius: 6px; text-decoration: none; color: #1d1d1f; font-size: 0.85rem; }
+        .tab:hover { background: #e5e5e7; }
+        .tab.active { background: #0071e3; color: #fff; }
+        .table-wrap { overflow-x: auto; }
+        form.inline { display: inline; }
+        .mb-1 { margin-bottom: 0.5rem; }
+        .mt-1 { margin-top: 0.5rem; }
+    </style>
+</head>
+<body>
+    {% block nav %}
+    <nav>
+        <span class="brand">AnxietyScope</span>
+        <a href="{{ url_for('admin.dashboard') }}">Dashboard</a>
+        <a href="{{ url_for('admin.keys') }}">API Keys</a>
+        <a href="{{ url_for('admin.data') }}">Data</a>
+        <form action="{{ url_for('admin.logout') }}" method="post" class="inline" style="margin-left: auto;">
+            <button type="submit" class="btn btn-sm" style="background: transparent; color: #f5f5f7; border: 1px solid #555;">Logout</button>
+        </form>
+    </nav>
+    {% endblock %}
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>
