@@ -1,10 +1,3 @@
-//
-//  AnxietyScopeApp.swift
-//  AnxietyScope
-//
-//  Created by Chris Henderson on 3/19/26.
-//
-
 import SwiftUI
 import SwiftData
 
@@ -12,7 +5,12 @@ import SwiftData
 struct AnxietyScopeApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            AnxietyEntry.self,
+            MedicationDefinition.self,
+            MedicationDose.self,
+            CPAPSession.self,
+            BarometricReading.self,
+            HealthSnapshot.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -26,6 +24,10 @@ struct AnxietyScopeApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onAppear {
+                    PhoneConnectivityManager.shared.modelContainer = sharedModelContainer
+                    PhoneConnectivityManager.shared.activate()
+                }
         }
         .modelContainer(sharedModelContainer)
     }
