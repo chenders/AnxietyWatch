@@ -6,14 +6,91 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		833536172F6D0C0100B45286 /* AnxietyScopeWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 8335360D2F6D0BFF00B45286 /* AnxietyScopeWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		839563792F6D2DF3002DA90A /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 839563782F6D2DF3002DA90A /* WidgetKit.framework */; };
+		8395637B2F6D2DF3002DA90A /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8395637A2F6D2DF3002DA90A /* SwiftUI.framework */; };
+		839563862F6D2DF4002DA90A /* AnxietyScopeWatchWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 839563762F6D2DF3002DA90A /* AnxietyScopeWatchWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		833536152F6D0C0100B45286 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 833535F12F6D0B3D00B45286 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8335360C2F6D0BFF00B45286;
+			remoteInfo = "AnxietyScopeWatch Watch App";
+		};
+		839563842F6D2DF4002DA90A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 833535F12F6D0B3D00B45286 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 839563752F6D2DF3002DA90A;
+			remoteInfo = AnxietyScopeWatchWidgetsExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		8335361B2F6D0C0100B45286 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				833536172F6D0C0100B45286 /* AnxietyScopeWatch Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8395638B2F6D2DF4002DA90A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				839563862F6D2DF4002DA90A /* AnxietyScopeWatchWidgetsExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		833535F92F6D0B3D00B45286 /* AnxietyScope.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AnxietyScope.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8335360D2F6D0BFF00B45286 /* AnxietyScopeWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AnxietyScopeWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		839563762F6D2DF3002DA90A /* AnxietyScopeWatchWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AnxietyScopeWatchWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		839563782F6D2DF3002DA90A /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		8395637A2F6D2DF3002DA90A /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		8395638C2F6D2EE7002DA90A /* AnxietyScopeWatchWidgetsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AnxietyScopeWatchWidgetsExtension.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		839563872F6D2DF4002DA90A /* Exceptions for "AnxietyScopeWatchWidgets" folder in "AnxietyScopeWatchWidgetsExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 839563752F6D2DF3002DA90A /* AnxietyScopeWatchWidgetsExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		833535FB2F6D0B3D00B45286 /* AnxietyScope */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = AnxietyScope;
+			sourceTree = "<group>";
+		};
+		8335360E2F6D0BFF00B45286 /* AnxietyScopeWatch Watch App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "AnxietyScopeWatch Watch App";
+			sourceTree = "<group>";
+		};
+		8395637C2F6D2DF3002DA90A /* AnxietyScopeWatchWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				839563872F6D2DF4002DA90A /* Exceptions for "AnxietyScopeWatchWidgets" folder in "AnxietyScopeWatchWidgetsExtension" target */,
+			);
+			path = AnxietyScopeWatchWidgets;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,13 +103,33 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		8335360A2F6D0BFF00B45286 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		839563732F6D2DF3002DA90A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8395637B2F6D2DF3002DA90A /* SwiftUI.framework in Frameworks */,
+				839563792F6D2DF3002DA90A /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		833535F02F6D0B3D00B45286 = {
 			isa = PBXGroup;
 			children = (
+				8395638C2F6D2EE7002DA90A /* AnxietyScopeWatchWidgetsExtension.entitlements */,
 				833535FB2F6D0B3D00B45286 /* AnxietyScope */,
+				8335360E2F6D0BFF00B45286 /* AnxietyScopeWatch Watch App */,
+				8395637C2F6D2DF3002DA90A /* AnxietyScopeWatchWidgets */,
+				839563772F6D2DF3002DA90A /* Frameworks */,
 				833535FA2F6D0B3D00B45286 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,8 +138,19 @@
 			isa = PBXGroup;
 			children = (
 				833535F92F6D0B3D00B45286 /* AnxietyScope.app */,
+				8335360D2F6D0BFF00B45286 /* AnxietyScopeWatch Watch App.app */,
+				839563762F6D2DF3002DA90A /* AnxietyScopeWatchWidgetsExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		839563772F6D2DF3002DA90A /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				839563782F6D2DF3002DA90A /* WidgetKit.framework */,
+				8395637A2F6D2DF3002DA90A /* SwiftUI.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -55,10 +163,12 @@
 				833535F52F6D0B3D00B45286 /* Sources */,
 				833535F62F6D0B3D00B45286 /* Frameworks */,
 				833535F72F6D0B3D00B45286 /* Resources */,
+				8335361B2F6D0C0100B45286 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				833536162F6D0C0100B45286 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				833535FB2F6D0B3D00B45286 /* AnxietyScope */,
@@ -69,6 +179,52 @@
 			productName = AnxietyScope;
 			productReference = 833535F92F6D0B3D00B45286 /* AnxietyScope.app */;
 			productType = "com.apple.product-type.application";
+		};
+		8335360C2F6D0BFF00B45286 /* AnxietyScopeWatch Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 833536182F6D0C0100B45286 /* Build configuration list for PBXNativeTarget "AnxietyScopeWatch Watch App" */;
+			buildPhases = (
+				833536092F6D0BFF00B45286 /* Sources */,
+				8335360A2F6D0BFF00B45286 /* Frameworks */,
+				8335360B2F6D0BFF00B45286 /* Resources */,
+				8395638B2F6D2DF4002DA90A /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				839563852F6D2DF4002DA90A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				8335360E2F6D0BFF00B45286 /* AnxietyScopeWatch Watch App */,
+			);
+			name = "AnxietyScopeWatch Watch App";
+			packageProductDependencies = (
+			);
+			productName = "AnxietyScopeWatch Watch App";
+			productReference = 8335360D2F6D0BFF00B45286 /* AnxietyScopeWatch Watch App.app */;
+			productType = "com.apple.product-type.application";
+		};
+		839563752F6D2DF3002DA90A /* AnxietyScopeWatchWidgetsExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 839563882F6D2DF4002DA90A /* Build configuration list for PBXNativeTarget "AnxietyScopeWatchWidgetsExtension" */;
+			buildPhases = (
+				839563722F6D2DF3002DA90A /* Sources */,
+				839563732F6D2DF3002DA90A /* Frameworks */,
+				839563742F6D2DF3002DA90A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				8395637C2F6D2DF3002DA90A /* AnxietyScopeWatchWidgets */,
+			);
+			name = AnxietyScopeWatchWidgetsExtension;
+			packageProductDependencies = (
+			);
+			productName = AnxietyScopeWatchWidgetsExtension;
+			productReference = 839563762F6D2DF3002DA90A /* AnxietyScopeWatchWidgetsExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -81,6 +237,12 @@
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					833535F82F6D0B3D00B45286 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					8335360C2F6D0BFF00B45286 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					839563752F6D2DF3002DA90A = {
 						CreatedOnToolsVersion = 26.3;
 					};
 				};
@@ -100,12 +262,28 @@
 			projectRoot = "";
 			targets = (
 				833535F82F6D0B3D00B45286 /* AnxietyScope */,
+				8335360C2F6D0BFF00B45286 /* AnxietyScopeWatch Watch App */,
+				839563752F6D2DF3002DA90A /* AnxietyScopeWatchWidgetsExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		833535F72F6D0B3D00B45286 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8335360B2F6D0BFF00B45286 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		839563742F6D2DF3002DA90A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +300,34 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		833536092F6D0BFF00B45286 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		839563722F6D2DF3002DA90A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		833536162F6D0C0100B45286 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8335360C2F6D0BFF00B45286 /* AnxietyScopeWatch Watch App */;
+			targetProxy = 833536152F6D0C0100B45286 /* PBXContainerItemProxy */;
+		};
+		839563852F6D2DF4002DA90A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 839563752F6D2DF3002DA90A /* AnxietyScopeWatchWidgetsExtension */;
+			targetProxy = 839563842F6D2DF4002DA90A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		833536042F6D0B3F00B45286 /* Debug */ = {
@@ -249,10 +454,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = AnxietyScope/AnxietyScope.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "AnxietyScope reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "AnxietyScope uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -265,6 +475,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.waitingforthefuture.AnxietyScope;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -280,10 +491,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = AnxietyScope/AnxietyScope.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "AnxietyScope reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "AnxietyScope uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -296,6 +512,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.waitingforthefuture.AnxietyScope;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -303,6 +520,146 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		833536192F6D0C0100B45286 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "AnxietyScopeWatch Watch App/AnxietyScopeWatch Watch App.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7GPLS9UF3W;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = AnxietyScopeWatch;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "AnxietyScope reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "AnxietyScope uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = org.waitingforthefuture.AnxietyScope;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.waitingforthefuture.AnxietyScope.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		8335361A2F6D0C0100B45286 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "AnxietyScopeWatch Watch App/AnxietyScopeWatch Watch App.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7GPLS9UF3W;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = AnxietyScopeWatch;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "AnxietyScope reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "AnxietyScope uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = org.waitingforthefuture.AnxietyScope;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.waitingforthefuture.AnxietyScope.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
+		839563892F6D2DF4002DA90A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = AnxietyScopeWatchWidgetsExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7GPLS9UF3W;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AnxietyScopeWatchWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AnxietyScopeWatchWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.waitingforthefuture.AnxietyScope.watchkitapp.AnxietyScopeWatchWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		8395638A2F6D2DF4002DA90A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = AnxietyScopeWatchWidgetsExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7GPLS9UF3W;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AnxietyScopeWatchWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AnxietyScopeWatchWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.waitingforthefuture.AnxietyScope.watchkitapp.AnxietyScopeWatchWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
 			};
 			name = Release;
 		};
@@ -323,6 +680,24 @@
 			buildConfigurations = (
 				833536072F6D0B3F00B45286 /* Debug */,
 				833536082F6D0B3F00B45286 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		833536182F6D0C0100B45286 /* Build configuration list for PBXNativeTarget "AnxietyScopeWatch Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				833536192F6D0C0100B45286 /* Debug */,
+				8335361A2F6D0C0100B45286 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		839563882F6D2DF4002DA90A /* Build configuration list for PBXNativeTarget "AnxietyScopeWatchWidgetsExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				839563892F6D2DF4002DA90A /* Debug */,
+				8395638A2F6D2DF4002DA90A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
