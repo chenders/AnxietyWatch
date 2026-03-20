@@ -1,0 +1,102 @@
+import SwiftUI
+import SwiftData
+
+struct JournalListView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \AnxietyEntry.timestamp, order: .reverse)
+    private var entries: [AnxietyEntry]
+    @State private var showingAddEntry = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(entries) { entry in
+                    NavigationLink {
+                        JournalEntryDetailView(entry: entry)
+                    } label: {
+                        JournalEntryRow(entry: entry)
+                    }
+                }
+                .onDelete(perform: deleteEntries)
+            }
+            .navigationTitle("Journal")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingAddEntry = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+            .sheet(isPresented: $showingAddEntry) {
+                AddJournalEntryView()
+            }
+            .overlay {
+                if entries.isEmpty {
+                    ContentUnavailableView(
+                        "No Entries Yet",
+                        systemImage: "book",
+                        description: Text("Tap + to log your first anxiety entry")
+                    )
+                }
+            }
+        }
+    }
+
+    private func deleteEntries(offsets: IndexSet) {
+        for index in offsets {
+            modelContext.delete(entries[index])
+        }
+    }
+}
+
+// MARK: - Row
+
+struct JournalEntryRow: View {
+    let entry: AnxietyEntry
+
+    var body: some View {
+        HStack(spacing: 12) {
+            SeverityBadge(severity: entry.severity)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.timestamp, format: .dateTime.month().day().hour().minute())
+                    .font(.subheadline.bold())
+                if !entry.notes.isEmpty {
+                    Text(entry.notes)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                if !entry.tags.isEmpty {
+                    Text(entry.tags.joined(separator: ", "))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Severity Badge
+
+struct SeverityBadge: View {
+    let severity: Int
+
+    var body: some View {
+        Text("\(severity)")
+            .font(.headline.bold())
+            .foregroundStyle(.white)
+            .frame(width: 36, height: 36)
+            .background(color, in: .circle)
+    }
+
+    private var color: Color {
+        switch severity {
+        case 1...3: return .green
+        case 4...6: return .yellow
+        case 7...8: return .orange
+        default: return .red
+        }
+    }
+}

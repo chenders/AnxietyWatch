@@ -1,0 +1,48 @@
+import Foundation
+import SwiftData
+
+@Model
+final class CPAPSession {
+    var id: UUID
+    var date: Date
+    /// Apnea-Hypopnea Index — events per hour
+    var ahi: Double
+    var totalUsageMinutes: Int
+    /// 95th percentile leak rate in L/min
+    var leakRate95th: Double
+    var pressureMin: Double
+    var pressureMax: Double
+    var pressureMean: Double
+    var obstructiveEvents: Int
+    var centralEvents: Int
+    var hypopneaEvents: Int
+    /// "sd_card" or "resmed_cloud"
+    var importSource: String
+
+    init(
+        date: Date,
+        ahi: Double,
+        totalUsageMinutes: Int,
+        leakRate95th: Double,
+        pressureMin: Double,
+        pressureMax: Double,
+        pressureMean: Double,
+        obstructiveEvents: Int,
+        centralEvents: Int,
+        hypopneaEvents: Int,
+        importSource: String
+    ) {
+        self.id = UUID()
+        self.date = date
+        self.ahi = ahi
+        self.totalUsageMinutes = totalUsageMinutes
+        self.leakRate95th = leakRate95th
+        self.pressureMin = pressureMin
+        self.pressureMax = pressureMax
+        self.pressureMean = pressureMean
+        self.obstructiveEvents = obstructiveEvents
+        self.centralEvents = centralEvents
+        self.hypopneaEvents = hypopneaEvents
+        self.importSource = importSource
+    }
+}
