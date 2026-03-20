@@ -35,7 +35,7 @@ This is a **multi-language monorepo** with two distinct components:
 
 - **SwiftData models:** Use `@Model` macro. One model per file in `Models/`.
 - **HealthKit:** ALL HealthKit interaction goes through `HealthKitManager` actor. Never query HealthKit directly from views.
-- **Concurrency:** Use async/await and structured concurrency throughout. No completion handlers.
+- **Concurrency:** Use async/await and structured concurrency throughout. When system APIs only provide callbacks (e.g., CoreMotion, some HealthKit APIs), wrap them using continuations rather than exposing completion handlers in app code.
 - **Error handling:** Use typed errors where practical. Never force-unwrap optionals from external data (HealthKit, CPAP files, network responses).
 - **Views:** Keep views small and composable. Extract subviews when a view exceeds ~100 lines. Use `@Observable` view models for complex screens.
 - **Naming:** Follow Swift API Design Guidelines. Descriptive names, no abbreviations except well-known ones: HR, HRV, AHI, BP, SpO2.
@@ -45,7 +45,7 @@ This is a **multi-language monorepo** with two distinct components:
 ## Python Coding Conventions (server/)
 
 - **Line length:** 120 characters max.
-- **SQL:** Always use parameterized queries (`%s` placeholders with psycopg2). Never use f-strings for user-supplied values in SQL.
+- **SQL:** Always parameterize user-supplied values (`%s` placeholders with psycopg2). Never interpolate user input into SQL strings (no f-strings, `%` formatting, or `.format()` with user data). If you need dynamic table or column names, only interpolate identifiers selected from a strict server-side allowlist, never directly from user input.
 - **Auth:** API endpoints use Bearer token auth with SHA-256 hashed keys stored in PostgreSQL. Admin pages use session-based auth with `hmac.compare_digest` for password comparison.
 - **Upserts:** All sync operations use `INSERT ... ON CONFLICT ... DO UPDATE` for idempotency.
 - **Error responses:** Never leak internal error details (stack traces, DB connection strings) to API clients.
@@ -76,6 +76,6 @@ The iOS app's `SyncService` POSTs JSON to the server's `/api/sync` endpoint. The
 - Don't add external Swift package dependencies without strong justification.
 - Don't use Core Data — this project uses SwiftData exclusively.
 - Don't query HealthKit from views — always go through `HealthKitManager`.
-- Don't use completion handlers — use async/await.
+- Don't expose completion handlers in app code — use async/await, wrapping callback-based system APIs with continuations.
 - Don't use an ORM in the server — raw SQL with psycopg2 is intentional.
 - Don't store secrets in code or commit `.env` files.
