@@ -14,9 +14,10 @@ This is a personal project — single user, never published to the App Store.
 
 This is a **multi-language monorepo** with two distinct components:
 
-### iOS/watchOS App (`AnxietyScope/`)
+### iOS App and watchOS Targets (Xcode project)
+- **Directories:** iOS app sources live under `AnxietyScope/`. watchOS app and widget targets live in top-level directories `AnxietyScopeWatch Watch App/` and `AnxietyScopeWatchWidgets/`. When adding new files, place iOS code under `AnxietyScope/` and watchOS code under the appropriate watch-specific directory.
 - **Language:** Swift 5.9+
-- **UI:** SwiftUI (iOS 17+, watchOS 10+)
+- **UI:** SwiftUI (target OS versions must match the Xcode project deployment targets)
 - **Persistence:** SwiftData (`@Model` macro, not Core Data)
 - **Charts:** Swift Charts framework
 - **Health data:** HealthKit framework
