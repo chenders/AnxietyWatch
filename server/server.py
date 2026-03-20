@@ -18,6 +18,7 @@ from flask import Flask, g, jsonify, request
 def create_app(test_config=None):
     app = Flask(__name__)
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key")
+    app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 
     if test_config:
         app.config.update(test_config)
@@ -146,9 +147,10 @@ def create_app(test_config=None):
             )
 
             db.commit()
-        except Exception as e:
+        except Exception:
             db.rollback()
-            return jsonify({"error": str(e)}), 500
+            app.logger.exception("Sync failed")
+            return jsonify({"error": "Internal server error"}), 500
 
         return jsonify({"status": "ok", "counts": counts})
 
@@ -187,8 +189,7 @@ def create_app(test_config=None):
             cur.execute(
                 """INSERT INTO medication_doses (timestamp, medication_name, dose_mg, notes)
                    VALUES (%s, %s, %s, %s)
-                   ON CONFLICT (timestamp) DO UPDATE SET
-                       medication_name = EXCLUDED.medication_name,
+                   ON CONFLICT (timestamp, medication_name) DO UPDATE SET
                        dose_mg = EXCLUDED.dose_mg,
                        notes = EXCLUDED.notes""",
                 (d["timestamp"], d["medicationName"], d["doseMg"], d.get("notes")),
@@ -377,8 +378,8 @@ def create_app(test_config=None):
             db = get_db()
             db.cursor().execute("SELECT 1")
             return jsonify({"status": "ok"})
-        except Exception as e:
-            return jsonify({"status": "error", "detail": str(e)}), 500
+        except Exception:
+            return jsonify({"status": "error"}), 500
 
     return app
 
