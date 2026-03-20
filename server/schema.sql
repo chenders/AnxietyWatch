@@ -27,10 +27,11 @@ CREATE TABLE IF NOT EXISTS medication_definitions (
 );
 
 CREATE TABLE IF NOT EXISTS medication_doses (
-    timestamp       TIMESTAMPTZ NOT NULL PRIMARY KEY,
+    timestamp       TIMESTAMPTZ NOT NULL,
     medication_name TEXT NOT NULL,
     dose_mg         DOUBLE PRECISION NOT NULL,
-    notes           TEXT
+    notes           TEXT,
+    PRIMARY KEY (timestamp, medication_name)
 );
 
 CREATE TABLE IF NOT EXISTS cpap_sessions (
@@ -84,11 +85,5 @@ CREATE TABLE IF NOT EXISTS sync_log (
     api_key_id      INTEGER REFERENCES api_keys(id)
 );
 
--- Indexes for common query patterns
-CREATE INDEX IF NOT EXISTS idx_anxiety_entries_timestamp ON anxiety_entries (timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_medication_doses_timestamp ON medication_doses (timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_barometric_readings_timestamp ON barometric_readings (timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_health_snapshots_date ON health_snapshots (date DESC);
-CREATE INDEX IF NOT EXISTS idx_cpap_sessions_date ON cpap_sessions (date DESC);
+-- Indexes for common query patterns (only on non-PK / non-UNIQUE columns)
 CREATE INDEX IF NOT EXISTS idx_sync_log_received_at ON sync_log (received_at DESC);
-CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys (key_hash);
