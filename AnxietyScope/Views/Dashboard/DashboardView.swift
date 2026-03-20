@@ -33,6 +33,7 @@ struct DashboardView: View {
                 barometer.startMonitoring()
                 saveBarometricReading()
                 sendStatsToWatch()
+                await autoSync()
             }
         }
     }
@@ -179,6 +180,12 @@ struct DashboardView: View {
         if let rem = snapshot.sleepREMMin { parts.append("REM \(rem)m") }
         if let core = snapshot.sleepCoreMin { parts.append("Core \(core)m") }
         return parts.isEmpty ? "Last night" : parts.joined(separator: " · ")
+    }
+
+    private func autoSync() async {
+        let sync = SyncService.shared
+        guard sync.autoSyncEnabled, sync.isConfigured else { return }
+        await sync.sync(modelContext: modelContext)
     }
 
     private func sendStatsToWatch() {

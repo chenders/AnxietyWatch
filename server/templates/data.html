@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Data Browser — AnxietyScope Admin{% endblock %}
+{% block content %}
+<h1>Data Browser</h1>
+
+<div class="tabs">
+    {% for key, info in tables.items() %}
+    <a href="{{ url_for('admin.data', table=key) }}" class="tab {% if key == current_table %}active{% endif %}">
+        {{ info.label }}
+    </a>
+    {% endfor %}
+</div>
+
+<div class="card">
+    {% if rows %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    {% for col in columns %}
+                    <th>{{ col }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    {% for col in columns %}
+                    <td title="{{ row[col] }}">{{ row[col] }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="mt-1" style="font-size: 0.85rem; color: #6e6e73;">Showing {{ rows|length }} of up to {{ limit }} rows.</p>
+    {% else %}
+    <p style="color: #6e6e73;">No data in {{ tables[current_table].label }}.</p>
+    {% endif %}
+</div>
+{% endblock %}

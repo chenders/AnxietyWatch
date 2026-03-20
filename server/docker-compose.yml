@@ -1,0 +1,44 @@
+services:
+  anxietyscope-db:
+    image: postgres:16-alpine
+    container_name: anxietyscope-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-anxietyscope}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-anxietyscope}
+    ports:
+      - "127.0.0.1:5439:5432"
+    volumes:
+      - anxietyscope-pgdata:/var/lib/postgresql/data
+    networks:
+      - anxietyscope-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-anxietyscope}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  anxietyscope-app:
+    image: ghcr.io/chenders/anxietyscope-server:latest
+    build: .
+    container_name: anxietyscope-app
+    restart: unless-stopped
+    depends_on:
+      anxietyscope-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://anxietyscope:${POSTGRES_PASSWORD}@anxietyscope-db:5432/anxietyscope}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+    ports:
+      - "0.0.0.0:8081:8080"
+    networks:
+      - anxietyscope-net
+
+volumes:
+  anxietyscope-pgdata:
+
+networks:
+  anxietyscope-net:
+    driver: bridge
