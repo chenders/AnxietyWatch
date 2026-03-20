@@ -1,6 +1,7 @@
 """Admin blueprint — login, API key management, data browser."""
 
 import hashlib
+import hmac
 import os
 import secrets
 from functools import wraps
@@ -43,7 +44,7 @@ def login():
     if request.method == "POST":
         password = request.form.get("password", "")
         admin_password = os.environ.get("ADMIN_PASSWORD", "")
-        if admin_password and password == admin_password:
+        if admin_password and hmac.compare_digest(password, admin_password):
             session["admin"] = True
             return redirect(url_for("admin.dashboard"))
         flash("Invalid password.", "error")
@@ -120,7 +121,8 @@ def keys():
         "FROM api_keys ORDER BY created_at DESC"
     )
     api_keys = cur.fetchall()
-    return render_template("keys.html", api_keys=api_keys, new_key=request.args.get("new_key"))
+    new_key = session.pop("new_key", None)
+    return render_template("keys.html", api_keys=api_keys, new_key=new_key)
 
 
 @admin_bp.route("/keys", methods=["POST"])
@@ -143,7 +145,8 @@ def create_key():
     )
     db.commit()
 
-    return redirect(url_for("admin.keys", new_key=raw_key))
+    session["new_key"] = raw_key
+    return redirect(url_for("admin.keys"))
 
 
 @admin_bp.route("/keys/<int:key_id>/revoke", methods=["POST"])

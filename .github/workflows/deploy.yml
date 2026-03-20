@@ -49,14 +49,12 @@ jobs:
       - name: Write .env
         working-directory: server
         run: |
-          cat > .env <<EOF
-          ADMIN_PASSWORD=${{ secrets.ANXIETYSCOPE_ADMIN_PASSWORD }}
-          SECRET_KEY=${{ secrets.ANXIETYSCOPE_SECRET_KEY }}
-          POSTGRES_USER=anxietyscope
-          POSTGRES_PASSWORD=${{ secrets.ANXIETYSCOPE_DB_PASSWORD }}
-          POSTGRES_DB=anxietyscope
-          DATABASE_URL=postgresql://anxietyscope:${{ secrets.ANXIETYSCOPE_DB_PASSWORD }}@anxietyscope-db:5432/anxietyscope
-          EOF
+          echo "ADMIN_PASSWORD=${{ secrets.ANXIETYSCOPE_ADMIN_PASSWORD }}" > .env
+          echo "SECRET_KEY=${{ secrets.ANXIETYSCOPE_SECRET_KEY }}" >> .env
+          echo "POSTGRES_USER=anxietyscope" >> .env
+          echo "POSTGRES_PASSWORD=${{ secrets.ANXIETYSCOPE_DB_PASSWORD }}" >> .env
+          echo "POSTGRES_DB=anxietyscope" >> .env
+          echo "DATABASE_URL=postgresql://anxietyscope:${{ secrets.ANXIETYSCOPE_DB_PASSWORD }}@anxietyscope-db:5432/anxietyscope" >> .env
 
       - name: Pull and deploy
         working-directory: server

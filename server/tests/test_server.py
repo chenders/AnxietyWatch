@@ -1,7 +1,6 @@
 """Tests for AnxietyScope sync server."""
 
 import hashlib
-import json
 import os
 
 import psycopg2
@@ -141,7 +140,10 @@ def test_sync_anxiety_entries(client):
         "syncType": "incremental",
         "exportDate": "2025-03-20T12:00:00Z",
         "anxietyEntries": [
-            {"timestamp": "2025-03-20T10:00:00Z", "severity": 7, "notes": "Feeling anxious", "tags": ["work", "morning"]},
+            {
+                "timestamp": "2025-03-20T10:00:00Z", "severity": 7,
+                "notes": "Feeling anxious", "tags": ["work", "morning"],
+            },
             {"timestamp": "2025-03-20T14:00:00Z", "severity": 3, "notes": "Better now", "tags": []},
         ],
         "medicationDefinitions": [],
@@ -375,7 +377,7 @@ def test_admin_login_wrong_password(client):
     assert b"Invalid password" in resp.data
 
 
-def test_admin_create_and_revoke_key(client):
+def test_admin_create_and_revoke_key(client, app):
     os.environ["ADMIN_PASSWORD"] = "testpass"
     # Login
     client.post("/admin/login", data={"password": "testpass"})
@@ -383,8 +385,14 @@ def test_admin_create_and_revoke_key(client):
     resp = client.post("/admin/keys", data={"label": "Test Device"}, follow_redirects=True)
     assert resp.status_code == 200
     assert b"Test Device" in resp.data
-    # Revoke key (key id=2 since test fixture creates id=1)
-    resp = client.post("/admin/keys/2/revoke", follow_redirects=True)
+    # Find the new key's ID from DB
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute("SELECT id FROM api_keys WHERE label = 'Test Device'")
+        key_id = cur.fetchone()[0]
+    # Revoke it
+    resp = client.post(f"/admin/keys/{key_id}/revoke", follow_redirects=True)
     assert resp.status_code == 200
     assert b"Revoked" in resp.data
 
