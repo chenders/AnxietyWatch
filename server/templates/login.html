@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Login — AnxietyScope Admin{% endblock %}
+{% block nav %}
+<nav>
+    <span class="brand">AnxietyScope</span>
+</nav>
+{% endblock %}
+{% block content %}
+<div style="max-width: 360px; margin: 4rem auto;">
+    <div class="card">
+        <h1>Admin Login</h1>
+        <form method="post">
+            <div class="mb-1">
+                <input type="password" name="password" placeholder="Admin password" autofocus required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%;">Login</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

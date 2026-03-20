@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — AnxietyScope Admin{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="grid">
+    {% for item in counts %}
+    <div class="card stat">
+        <div class="value">{{ item.count }}</div>
+        <div class="label">{{ item.label }}</div>
+    </div>
+    {% endfor %}
+    <div class="card stat">
+        <div class="value">{{ active_keys }}</div>
+        <div class="label">Active API Keys</div>
+    </div>
+    <div class="card stat">
+        <div class="value">{{ db_size }}</div>
+        <div class="label">Database Size</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Last Sync</h2>
+    {% if last_sync %}
+    <table>
+        <tr><th>Received</th><td>{{ last_sync.received_at }}</td></tr>
+        <tr><th>Type</th><td>{{ last_sync.sync_type }}</td></tr>
+        <tr><th>Device</th><td>{{ last_sync.device_name or "—" }}</td></tr>
+        <tr><th>Records</th><td>{{ last_sync.record_counts }}</td></tr>
+    </table>
+    {% else %}
+    <p style="color: #6e6e73;">No syncs received yet.</p>
+    {% endif %}
+</div>
+{% endblock %}
