@@ -1,0 +1,392 @@
+"""AnxietyScope Sync Server — receives data from the iOS app and stores it in PostgreSQL."""
+
+import hashlib
+import json
+import os
+from datetime import datetime, timezone
+from functools import wraps
+
+import psycopg2
+import psycopg2.extras
+from flask import Flask, g, jsonify, request
+
+# ---------------------------------------------------------------------------
+# App factory
+# ---------------------------------------------------------------------------
+
+
+def create_app(test_config=None):
+    app = Flask(__name__)
+    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key")
+
+    if test_config:
+        app.config.update(test_config)
+
+    # Register admin blueprint
+    from admin import admin_bp
+    app.register_blueprint(admin_bp)
+
+    # ---------------------------------------------------------------------------
+    # Database helpers
+    # ---------------------------------------------------------------------------
+
+    def get_db():
+        if "db" not in g:
+            dsn = app.config.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
+            if not dsn:
+                raise RuntimeError("DATABASE_URL not configured")
+            g.db = psycopg2.connect(dsn)
+            g.db.autocommit = False
+        return g.db
+
+    @app.teardown_appcontext
+    def close_db(exc):
+        db = g.pop("db", None)
+        if db is not None:
+            if exc:
+                db.rollback()
+            db.close()
+
+    def init_db():
+        """Apply schema.sql to the database."""
+        schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
+        with open(schema_path) as f:
+            sql = f.read()
+        db = get_db()
+        db.cursor().execute(sql)
+        db.commit()
+
+    @app.cli.command("init-db")
+    def init_db_command():
+        with app.app_context():
+            init_db()
+            print("Database initialized.")
+
+    # Auto-initialize on first request
+    with app.app_context():
+        try:
+            init_db()
+        except Exception:
+            pass  # DB may not be available yet during testing/building
+
+    # Make get_db available to admin blueprint
+    app.get_db = get_db
+
+    # ---------------------------------------------------------------------------
+    # Auth
+    # ---------------------------------------------------------------------------
+
+    def require_api_key(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            auth = request.headers.get("Authorization", "")
+            if not auth.startswith("Bearer "):
+                return jsonify({"error": "Missing Authorization header"}), 401
+
+            token = auth[7:]
+            key_hash = hashlib.sha256(token.encode()).hexdigest()
+
+            db = get_db()
+            cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(
+                "SELECT id, is_active FROM api_keys WHERE key_hash = %s",
+                (key_hash,),
+            )
+            row = cur.fetchone()
+
+            if not row or not row["is_active"]:
+                return jsonify({"error": "Invalid or revoked API key"}), 401
+
+            # Update usage stats
+            cur.execute(
+                "UPDATE api_keys SET last_used_at = NOW(), request_count = request_count + 1 WHERE id = %s",
+                (row["id"],),
+            )
+            db.commit()
+
+            g.api_key_id = row["id"]
+            return f(*args, **kwargs)
+
+        return decorated
+
+    # ---------------------------------------------------------------------------
+    # POST /api/sync
+    # ---------------------------------------------------------------------------
+
+    @app.route("/api/sync", methods=["POST"])
+    @require_api_key
+    def sync():
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"error": "Invalid JSON payload"}), 400
+
+        db = get_db()
+        cur = db.cursor()
+        counts = {}
+
+        try:
+            counts["anxiety_entries"] = _upsert_anxiety_entries(cur, data.get("anxietyEntries", []))
+            counts["medication_definitions"] = _upsert_medication_definitions(
+                cur, data.get("medicationDefinitions", []))
+            counts["medication_doses"] = _upsert_medication_doses(cur, data.get("medicationDoses", []))
+            counts["cpap_sessions"] = _upsert_cpap_sessions(cur, data.get("cpapSessions", []))
+            counts["health_snapshots"] = _upsert_health_snapshots(cur, data.get("healthSnapshots", []))
+            counts["barometric_readings"] = _upsert_barometric_readings(cur, data.get("barometricReadings", []))
+
+            # Log the sync
+            cur.execute(
+                """INSERT INTO sync_log (sync_type, device_name, record_counts, api_key_id)
+                   VALUES (%s, %s, %s, %s)""",
+                (
+                    data.get("syncType", "unknown"),
+                    data.get("deviceName"),
+                    json.dumps(counts),
+                    g.api_key_id,
+                ),
+            )
+
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            return jsonify({"error": str(e)}), 500
+
+        return jsonify({"status": "ok", "counts": counts})
+
+    # ---------------------------------------------------------------------------
+    # Upsert helpers
+    # ---------------------------------------------------------------------------
+
+    def _upsert_anxiety_entries(cur, entries):
+        for e in entries:
+            cur.execute(
+                """INSERT INTO anxiety_entries (timestamp, severity, notes, tags)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (timestamp) DO UPDATE SET
+                       severity = EXCLUDED.severity,
+                       notes = EXCLUDED.notes,
+                       tags = EXCLUDED.tags""",
+                (e["timestamp"], e["severity"], e.get("notes", ""), json.dumps(e.get("tags", []))),
+            )
+        return len(entries)
+
+    def _upsert_medication_definitions(cur, defs):
+        for d in defs:
+            cur.execute(
+                """INSERT INTO medication_definitions (name, default_dose_mg, category, is_active)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (name) DO UPDATE SET
+                       default_dose_mg = EXCLUDED.default_dose_mg,
+                       category = EXCLUDED.category,
+                       is_active = EXCLUDED.is_active""",
+                (d["name"], d["defaultDoseMg"], d.get("category", ""), d.get("isActive", True)),
+            )
+        return len(defs)
+
+    def _upsert_medication_doses(cur, doses):
+        for d in doses:
+            cur.execute(
+                """INSERT INTO medication_doses (timestamp, medication_name, dose_mg, notes)
+                   VALUES (%s, %s, %s, %s)
+                   ON CONFLICT (timestamp) DO UPDATE SET
+                       medication_name = EXCLUDED.medication_name,
+                       dose_mg = EXCLUDED.dose_mg,
+                       notes = EXCLUDED.notes""",
+                (d["timestamp"], d["medicationName"], d["doseMg"], d.get("notes")),
+            )
+        return len(doses)
+
+    def _upsert_cpap_sessions(cur, sessions):
+        for s in sessions:
+            cur.execute(
+                """INSERT INTO cpap_sessions (date, ahi, total_usage_minutes, leak_rate_95th,
+                       pressure_min, pressure_max, pressure_mean,
+                       obstructive_events, central_events, hypopnea_events, import_source)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (date) DO UPDATE SET
+                       ahi = EXCLUDED.ahi,
+                       total_usage_minutes = EXCLUDED.total_usage_minutes,
+                       leak_rate_95th = EXCLUDED.leak_rate_95th,
+                       pressure_min = EXCLUDED.pressure_min,
+                       pressure_max = EXCLUDED.pressure_max,
+                       pressure_mean = EXCLUDED.pressure_mean,
+                       obstructive_events = EXCLUDED.obstructive_events,
+                       central_events = EXCLUDED.central_events,
+                       hypopnea_events = EXCLUDED.hypopnea_events,
+                       import_source = EXCLUDED.import_source""",
+                (
+                    s["date"], s["ahi"], s["totalUsageMinutes"], s["leakRate95th"],
+                    s["pressureMin"], s["pressureMax"], s["pressureMean"],
+                    s.get("obstructiveEvents", 0), s.get("centralEvents", 0),
+                    s.get("hypopneaEvents", 0), s.get("importSource", "sd_card"),
+                ),
+            )
+        return len(sessions)
+
+    def _upsert_health_snapshots(cur, snapshots):
+        for s in snapshots:
+            cur.execute(
+                """INSERT INTO health_snapshots (
+                       date, hrv_avg, hrv_min, resting_hr,
+                       sleep_duration_min, sleep_deep_min, sleep_rem_min, sleep_core_min, sleep_awake_min,
+                       skin_temp_deviation, respiratory_rate, spo2_avg,
+                       steps, active_calories, exercise_minutes,
+                       environmental_sound_avg, bp_systolic, bp_diastolic, blood_glucose_avg)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (date) DO UPDATE SET
+                       hrv_avg = EXCLUDED.hrv_avg,
+                       hrv_min = EXCLUDED.hrv_min,
+                       resting_hr = EXCLUDED.resting_hr,
+                       sleep_duration_min = EXCLUDED.sleep_duration_min,
+                       sleep_deep_min = EXCLUDED.sleep_deep_min,
+                       sleep_rem_min = EXCLUDED.sleep_rem_min,
+                       sleep_core_min = EXCLUDED.sleep_core_min,
+                       sleep_awake_min = EXCLUDED.sleep_awake_min,
+                       skin_temp_deviation = EXCLUDED.skin_temp_deviation,
+                       respiratory_rate = EXCLUDED.respiratory_rate,
+                       spo2_avg = EXCLUDED.spo2_avg,
+                       steps = EXCLUDED.steps,
+                       active_calories = EXCLUDED.active_calories,
+                       exercise_minutes = EXCLUDED.exercise_minutes,
+                       environmental_sound_avg = EXCLUDED.environmental_sound_avg,
+                       bp_systolic = EXCLUDED.bp_systolic,
+                       bp_diastolic = EXCLUDED.bp_diastolic,
+                       blood_glucose_avg = EXCLUDED.blood_glucose_avg""",
+                (
+                    s["date"], s.get("hrvAvg"), s.get("hrvMin"), s.get("restingHR"),
+                    s.get("sleepDurationMin"), s.get("sleepDeepMin"), s.get("sleepREMMin"),
+                    s.get("sleepCoreMin"), s.get("sleepAwakeMin"),
+                    s.get("skinTempDeviation"), s.get("respiratoryRate"), s.get("spo2Avg"),
+                    s.get("steps"), s.get("activeCalories"), s.get("exerciseMinutes"),
+                    s.get("environmentalSoundAvg"), s.get("bpSystolic"), s.get("bpDiastolic"),
+                    s.get("bloodGlucoseAvg"),
+                ),
+            )
+        return len(snapshots)
+
+    def _upsert_barometric_readings(cur, readings):
+        for r in readings:
+            cur.execute(
+                """INSERT INTO barometric_readings (timestamp, pressure_kpa, relative_altitude_m)
+                   VALUES (%s, %s, %s)
+                   ON CONFLICT (timestamp) DO UPDATE SET
+                       pressure_kpa = EXCLUDED.pressure_kpa,
+                       relative_altitude_m = EXCLUDED.relative_altitude_m""",
+                (r["timestamp"], r["pressureKPa"], r["relativeAltitudeM"]),
+            )
+        return len(readings)
+
+    # ---------------------------------------------------------------------------
+    # GET /api/data
+    # ---------------------------------------------------------------------------
+
+    @app.route("/api/data", methods=["GET"])
+    @require_api_key
+    def get_all_data():
+        db = get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        since = request.args.get("since")
+
+        result = {}
+        for entity in ENTITY_QUERIES:
+            result[entity] = _query_entity(cur, entity, since)
+
+        result["exportDate"] = datetime.now(timezone.utc).isoformat()
+        return jsonify(result)
+
+    @app.route("/api/data/<entity>", methods=["GET"])
+    @require_api_key
+    def get_entity_data(entity):
+        if entity not in ENTITY_QUERIES:
+            return jsonify({"error": f"Unknown entity: {entity}"}), 404
+
+        db = get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        since = request.args.get("since")
+
+        rows = _query_entity(cur, entity, since)
+        return jsonify({entity: rows, "exportDate": datetime.now(timezone.utc).isoformat()})
+
+    # Entity query config: {name: (table, time_column, order_column)}
+    ENTITY_QUERIES = {
+        "anxietyEntries": ("anxiety_entries", "timestamp", "timestamp"),
+        "medicationDefinitions": ("medication_definitions", None, "name"),
+        "medicationDoses": ("medication_doses", "timestamp", "timestamp"),
+        "cpapSessions": ("cpap_sessions", "date", "date"),
+        "healthSnapshots": ("health_snapshots", "date", "date"),
+        "barometricReadings": ("barometric_readings", "timestamp", "timestamp"),
+    }
+
+    def _query_entity(cur, entity, since=None):
+        table, time_col, order_col = ENTITY_QUERIES[entity]
+        if since and time_col:
+            cur.execute(
+                f"SELECT * FROM {table} WHERE {time_col} >= %s ORDER BY {order_col} DESC",
+                (since,),
+            )
+        else:
+            cur.execute(f"SELECT * FROM {table} ORDER BY {order_col} DESC")
+        rows = cur.fetchall()
+        # Serialize dates/datetimes to ISO strings
+        return [_serialize_row(r) for r in rows]
+
+    def _serialize_row(row):
+        result = {}
+        for k, v in row.items():
+            if isinstance(v, (datetime,)):
+                result[k] = v.isoformat()
+            elif hasattr(v, "isoformat"):  # date objects
+                result[k] = v.isoformat()
+            else:
+                result[k] = v
+        return result
+
+    # ---------------------------------------------------------------------------
+    # GET /api/status
+    # ---------------------------------------------------------------------------
+
+    @app.route("/api/status", methods=["GET"])
+    @require_api_key
+    def status():
+        db = get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        counts = {}
+        for entity, (table, _, _) in ENTITY_QUERIES.items():
+            cur.execute(f"SELECT COUNT(*) AS count FROM {table}")
+            counts[entity] = cur.fetchone()["count"]
+
+        # Last sync
+        cur.execute("SELECT received_at, sync_type, device_name FROM sync_log ORDER BY received_at DESC LIMIT 1")
+        last_sync = cur.fetchone()
+        if last_sync:
+            last_sync = _serialize_row(last_sync)
+
+        return jsonify({
+            "status": "ok",
+            "counts": counts,
+            "lastSync": last_sync,
+        })
+
+    # ---------------------------------------------------------------------------
+    # Health check (no auth)
+    # ---------------------------------------------------------------------------
+
+    @app.route("/health", methods=["GET"])
+    def health():
+        try:
+            db = get_db()
+            db.cursor().execute("SELECT 1")
+            return jsonify({"status": "ok"})
+        except Exception as e:
+            return jsonify({"status": "error", "detail": str(e)}), 500
+
+    return app
+
+
+# ---------------------------------------------------------------------------
+# Standalone entry point
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    app = create_app()
+    app.run(host="0.0.0.0", port=8080, debug=True)
