@@ -44,6 +44,41 @@ actor HealthKitManager {
         try await healthStore.requestAuthorization(toShare: [], read: allReadTypes)
     }
 
+    // MARK: - Clinical Records Authorization
+
+    /// Request access to clinical health records (lab results).
+    /// This shows a separate system dialog from the standard HealthKit authorization.
+    func requestClinicalAuthorization() async throws {
+        guard isAvailable else { return }
+        let clinicalType = HKClinicalType(.labResultRecord)
+        try await healthStore.requestAuthorization(toShare: [], read: [clinicalType])
+    }
+
+    // MARK: - Clinical Records Queries
+
+    /// Query all clinical lab result records from HealthKit Health Records.
+    func queryClinicalLabResults(since startDate: Date? = nil) async throws -> [HKClinicalRecord] {
+        guard isAvailable else { return [] }
+        let type = HKClinicalType(.labResultRecord)
+        let predicate = startDate.map { HKQuery.predicateForSamples(withStart: $0, end: nil) }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+            ) { _, results, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: (results as? [HKClinicalRecord]) ?? [])
+                }
+            }
+            healthStore.execute(query)
+        }
+    }
+
     // MARK: - Statistics Queries
 
     /// Average of a discrete quantity type over a date range.
@@ -144,6 +179,71 @@ actor HealthKitManager {
 
         guard let sample else { return nil }
         return (sample.endDate, sample.quantity.doubleValue(for: unit))
+    }
+
+    // MARK: - History Discovery
+
+    /// Finds the date of the oldest HRV sample in HealthKit.
+    /// Used to determine how far back to backfill snapshots.
+    func oldestSampleDate() async throws -> Date? {
+        guard isAvailable else { return nil }
+        let type = HKQuantityType(.heartRateVariabilitySDNN)
+
+        let sample: HKQuantitySample? = try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: nil,
+                limit: 1,
+                sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+            ) { _, results, error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume(returning: results?.first as? HKQuantitySample) }
+            }
+            healthStore.execute(query)
+        }
+        return sample?.startDate
+    }
+
+    // MARK: - Observer Queries
+
+    /// Types worth observing — these change frequently and drive dashboard/trends updates.
+    private var observedSampleTypes: [HKSampleType] {
+        [
+            HKQuantityType(.heartRateVariabilitySDNN),
+            HKQuantityType(.restingHeartRate),
+            HKQuantityType(.stepCount),
+            HKQuantityType(.activeEnergyBurned),
+            HKQuantityType(.appleExerciseTime),
+            HKCategoryType(.sleepAnalysis),
+        ]
+    }
+
+    private var activeObserverQueries: [HKObserverQuery] = []
+
+    /// Start long-running observer queries that fire when HealthKit receives new samples.
+    /// Call this once at app launch. The `onUpdate` closure fires from an arbitrary thread
+    /// whenever any observed type gets new data (e.g., Watch syncs a new HRV reading).
+    func startObserving(onUpdate: @Sendable @escaping () -> Void) {
+        guard isAvailable else { return }
+
+        for query in activeObserverQueries {
+            healthStore.stop(query)
+        }
+        activeObserverQueries.removeAll()
+
+        for type in observedSampleTypes {
+            let query = HKObserverQuery(sampleType: type, predicate: nil) { _, completionHandler, error in
+                if error == nil {
+                    onUpdate()
+                }
+                completionHandler()
+            }
+            healthStore.execute(query)
+            activeObserverQueries.append(query)
+
+            // Request background delivery so the app is woken when new data arrives
+            healthStore.enableBackgroundDelivery(for: type, frequency: .immediate) { _, _ in }
+        }
     }
 
     // MARK: - Sleep Analysis

@@ -4,6 +4,11 @@ import SwiftData
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var healthKitRequested = false
+    @State private var clinicalRecordsRequested = false
+    @State private var isRebuilding = false
+    @State private var rebuildProgress = 0
+    @State private var rebuildTotal = 0
+    @State private var showRebuildConfirmation = false
     @Query private var allMeds: [MedicationDefinition]
 
     var body: some View {
@@ -23,6 +28,33 @@ struct SettingsView: View {
                             .foregroundStyle(.green)
                     }
                     Text("HealthKit does not reveal which permissions were granted. The app gracefully handles missing data.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Clinical Records") {
+                    Button {
+                        Task {
+                            do {
+                                try await HealthKitManager.shared.requestClinicalAuthorization()
+                                clinicalRecordsRequested = true
+                            } catch {
+                                // Authorization failed or was cancelled — don't show checkmark
+                            }
+                        }
+                    } label: {
+                        Label("Connect Health Records", systemImage: "cross.case.fill")
+                    }
+                    if clinicalRecordsRequested {
+                        Label("Clinical records access requested", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    }
+                    NavigationLink {
+                        LabResultsView()
+                    } label: {
+                        Label("Lab Results", systemImage: "flask.fill")
+                    }
+                    Text("Requires a linked hospital in Apple Health. Go to Health app → Browse → Health Records to connect your provider.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -74,9 +106,34 @@ struct SettingsView: View {
 
                 Section("Data") {
                     Button {
-                        Task { await refreshAllSnapshots() }
+                        Task { await refreshTodaySnapshot() }
                     } label: {
-                        Label("Rebuild Today's Health Snapshot", systemImage: "arrow.clockwise")
+                        Label("Refresh Today's Snapshot", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(isRebuilding)
+
+                    Button {
+                        showRebuildConfirmation = true
+                    } label: {
+                        if isRebuilding {
+                            HStack {
+                                ProgressView()
+                                Text("Rebuilding… \(rebuildProgress)/\(rebuildTotal) days")
+                                    .monospacedDigit()
+                            }
+                        } else {
+                            Label("Rebuild All History", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                        }
+                    }
+                    .disabled(isRebuilding)
+                    .confirmationDialog(
+                        "Rebuild all health snapshots from your full HealthKit history? This may take a few minutes.",
+                        isPresented: $showRebuildConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Rebuild All") {
+                            Task { await rebuildAllSnapshots() }
+                        }
                     }
                 }
 
@@ -95,11 +152,33 @@ struct SettingsView: View {
         }
     }
 
-    private func refreshAllSnapshots() async {
+    private func refreshTodaySnapshot() async {
         let aggregator = SnapshotAggregator(
             healthKit: HealthKitManager.shared,
             modelContext: modelContext
         )
         try? await aggregator.aggregateDay(.now)
+    }
+
+    private func rebuildAllSnapshots() async {
+        let calendar = Calendar.current
+        let oldestDate = try? await HealthKitManager.shared.oldestSampleDate()
+        let startDate = oldestDate ?? calendar.date(byAdding: .day, value: -90, to: .now)!
+        let totalDays = max(1, (calendar.dateComponents([.day], from: startDate, to: .now).day ?? 90) + 1)
+
+        isRebuilding = true
+        rebuildTotal = totalDays
+        rebuildProgress = 0
+
+        let aggregator = SnapshotAggregator(
+            healthKit: HealthKitManager.shared,
+            modelContext: modelContext
+        )
+        for offset in 0..<totalDays {
+            let date = calendar.date(byAdding: .day, value: offset, to: startDate)!
+            try? await aggregator.aggregateDay(date)
+            rebuildProgress = offset + 1
+        }
+        isRebuilding = false
     }
 }

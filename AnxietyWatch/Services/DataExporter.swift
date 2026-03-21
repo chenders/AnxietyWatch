@@ -20,6 +20,7 @@ enum DataExporter {
         let cpapSessions: [CPAPSessionDTO]
         let healthSnapshots: [HealthSnapshotDTO]
         let barometricReadings: [BarometricReadingDTO]
+        let clinicalLabResults: [ClinicalLabResultDTO]
     }
 
     static func exportJSON(from context: ModelContext, start: Date? = nil, end: Date? = nil) throws -> Data {
@@ -88,6 +89,14 @@ enum DataExporter {
         }
         files.append(("barometric_readings.csv", Data(csv.utf8)))
 
+        // Clinical lab results
+        csv = "effective_date,loinc_code,test_name,value,unit,ref_range_low,ref_range_high,interpretation,source\n"
+        for r in bundle.clinicalLabResults {
+            csv += "\(r.effectiveDate),\(r.loincCode),\"\(escapeCsv(r.testName))\",\(r.value),\"\(r.unit)\","
+            csv += "\(opt(r.referenceRangeLow)),\(opt(r.referenceRangeHigh)),\(opt(r.interpretation)),\"\(escapeCsv(r.sourceName ?? ""))\"\n"
+        }
+        files.append(("clinical_lab_results.csv", Data(csv.utf8)))
+
         return files
     }
 
@@ -100,6 +109,7 @@ enum DataExporter {
         let cpap = try context.fetch(FetchDescriptor<CPAPSession>(sortBy: [SortDescriptor(\.date)]))
         let snapshots = try context.fetch(FetchDescriptor<HealthSnapshot>(sortBy: [SortDescriptor(\.date)]))
         let barometric = try context.fetch(FetchDescriptor<BarometricReading>(sortBy: [SortDescriptor(\.timestamp)]))
+        let labResults = try context.fetch(FetchDescriptor<ClinicalLabResult>(sortBy: [SortDescriptor(\.effectiveDate)]))
 
         func inRange(_ date: Date) -> Bool {
             if let s = start, date < s { return false }
@@ -145,6 +155,14 @@ enum DataExporter {
             barometricReadings: barometric.filter { inRange($0.timestamp) }.map { b in
                 BarometricReadingDTO(timestamp: isoFormatter.string(from: b.timestamp),
                                      pressureKPa: b.pressureKPa, relativeAltitudeM: b.relativeAltitudeM)
+            },
+            clinicalLabResults: labResults.filter { inRange($0.effectiveDate) }.map { r in
+                ClinicalLabResultDTO(
+                    effectiveDate: isoFormatter.string(from: r.effectiveDate),
+                    loincCode: r.loincCode, testName: r.testName,
+                    value: r.value, unit: r.unit,
+                    referenceRangeLow: r.referenceRangeLow, referenceRangeHigh: r.referenceRangeHigh,
+                    interpretation: r.interpretation, sourceName: r.sourceName)
             }
         )
     }
@@ -186,5 +204,11 @@ enum DataExporter {
     }
     struct BarometricReadingDTO: Codable {
         let timestamp: String; let pressureKPa: Double; let relativeAltitudeM: Double
+    }
+    struct ClinicalLabResultDTO: Codable {
+        let effectiveDate: String; let loincCode: String; let testName: String
+        let value: Double; let unit: String
+        let referenceRangeLow: Double?; let referenceRangeHigh: Double?
+        let interpretation: String?; let sourceName: String?
     }
 }
