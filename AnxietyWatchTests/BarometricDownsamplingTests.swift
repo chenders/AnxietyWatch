@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AnxietyScope
+@testable import AnxietyWatch
 
 /// Tests for BarometricTrendChart downsampling logic.
 struct BarometricDownsamplingTests {
@@ -9,8 +9,8 @@ struct BarometricDownsamplingTests {
     /// Replicates the downsampling logic from BarometricTrendChart.
     private func downsample(_ readings: [BarometricReading], maxPoints: Int = 500) -> [BarometricReading] {
         guard readings.count > maxPoints else { return readings }
-        let stride = readings.count / maxPoints
-        return Swift.stride(from: 0, to: readings.count, by: stride).map { readings[$0] }
+        let stride = Int(ceil(Double(readings.count) / Double(maxPoints)))
+        return Array(Swift.stride(from: 0, to: readings.count, by: stride).map { readings[$0] }.prefix(maxPoints))
     }
 
     private func makeReadings(count: Int) -> [BarometricReading] {

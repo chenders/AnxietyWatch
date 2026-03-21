@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 import Testing
 
-@testable import AnxietyScope
+@testable import AnxietyWatch
 
 /// Tests that CPAPSession dates are normalized to midnight,
 /// matching HealthSnapshot behavior for consistent filtering.

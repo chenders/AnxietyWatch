@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 import Testing
 
-@testable import AnxietyScope
+@testable import AnxietyWatch
 
 /// Tests that model date normalization behaves consistently across all types.
 struct ModelNormalizationTests {

@@ -7,14 +7,17 @@
 ## Commands
 
 ```bash
-# Build iOS app
-xcodebuild build -scheme AnxietyScope -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+# Build iOS app (use generic destination to avoid hardcoding simulator names)
+xcodebuild build -scheme AnxietyWatch -destination 'generic/platform=iOS Simulator'
 
 # Run iOS unit tests
-xcodebuild test -scheme AnxietyScope -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:AnxietyScopeTests
+xcodebuild test -scheme AnxietyWatch -destination 'generic/platform=iOS Simulator' -only-testing:AnxietyWatchTests
 
 # Build watchOS app
-xcodebuild build -scheme "AnxietyScopeWatch Watch App" -destination 'platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)'
+xcodebuild build -scheme "AnxietyWatch Watch App" -destination 'generic/platform=watchOS Simulator'
+
+# (Optional) List available destinations:
+# xcodebuild -scheme AnxietyWatch -showdestinations
 
 # Sync server (Python/Flask + PostgreSQL)
 cd server && pip install -r requirements.txt
@@ -23,8 +26,8 @@ cd server && flake8 --max-line-length=120       # lint server code
 docker compose -f server/docker-compose.yml up  # run with Docker
 ```
 
-**Xcode schemes:** `AnxietyScope`, `AnxietyScopeWatch Watch App`, `AnxietyScopeWatchWidgetsExtension`
-**Test target:** `AnxietyScopeTests` (unit tests for date filtering, baselines, model normalization)
+**Xcode schemes:** `AnxietyWatch`, `AnxietyWatch Watch App`, `AnxietyWatchWidgets`
+**Test target:** `AnxietyWatchTests` (unit tests for date filtering, baselines, model normalization)
 
 ## Project Overview
 
@@ -42,7 +45,7 @@ See `REQUIREMENTS.md` for full specification, data model, and build plan.
 - **Barometric data**: Core Motion (`CMAltimeter`)
 - **Watch communication**: WatchConnectivity framework
 - **PDF generation**: PDFKit or Core Graphics
-- **External Swift packages**: allowed when they provide clear value (testing, utilities, etc.)
+- **No external Swift package dependencies unless absolutely necessary** — prefer Apple frameworks
 
 ## Project Structure
 
@@ -143,8 +146,8 @@ It requires the `NSMotionUsageDescription` key in Info.plist. Readings are only 
 - **Stack**: Python 3.12, Flask 3, PostgreSQL 16, Gunicorn
 - **Docker**: `docker compose -f server/docker-compose.yml up` — exposes app on port 8081, Postgres on 127.0.0.1:5439
 - **Admin UI**: Blueprint in `server/admin.py`, templates in `server/templates/`
-- **Auth**: API key via `ADMIN_PASSWORD` env var; session cookie with `SameSite=Strict`
-- **Required env vars** (set in `.env` or environment): `POSTGRES_PASSWORD`, `ADMIN_PASSWORD`, `SECRET_KEY`
+- **Auth**: API requests use Bearer tokens whose SHA-256 hashes are stored in the `api_keys` table; the admin UI uses `ADMIN_PASSWORD` for login and a session cookie with `SameSite=Strict`
+- **Required env vars** (set in `.env` or environment): `POSTGRES_PASSWORD`, `ADMIN_PASSWORD` (admin UI login), `SECRET_KEY`
 - **Schema**: `server/schema.sql`
 - **Tests**: `server/tests/` — run with `pytest` (needs `DATABASE_URL` pointing to a test Postgres)
 
@@ -155,8 +158,8 @@ Three GitHub Actions workflows in `.github/workflows/`:
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
 | `ci.yml` | Push/PR to main touching `server/**` | Lint (flake8) + pytest against Postgres |
-| `deploy.yml` | — | Server deployment |
-| `release.yml` | — | Release workflow |
+| `deploy.yml` | Push to `main`/`master` touching `server/**` | Server deployment |
+| `release.yml` | Tag pushes (e.g. version tags) | Release workflow |
 
 CI only covers the Python sync server. There is no automated iOS build/test pipeline yet.
 

@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 import Testing
 
-@testable import AnxietyScope
+@testable import AnxietyWatch
 
 /// Tests for BaselineCalculator — rolling baselines, deviation detection,
 /// and the startOfDay cutoff fix.
