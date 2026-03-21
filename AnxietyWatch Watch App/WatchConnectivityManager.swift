@@ -39,7 +39,7 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
         }
     }
 
-    private static let appGroup = "group.org.waitingforthefuture.AnxietyScope.watch"
+    private static let appGroup = "group.org.waitingforthefuture.AnxietyWatch.watch"
 
     private func loadContext() {
         let ctx = WCSession.default.receivedApplicationContext

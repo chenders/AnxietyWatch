@@ -1,6 +1,6 @@
 # DATA_AND_REPORTS.md — Data Export, Claude Analysis, and Clinical Reports
 
-This document describes how to get data out of AnxietyScope for analysis on larger displays, AI-assisted pattern detection, and data-driven psychiatric care.
+This document describes how to get data out of AnxietyWatch for analysis on larger displays, AI-assisted pattern detection, and data-driven psychiatric care.
 
 ---
 
