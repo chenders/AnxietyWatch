@@ -1,4 +1,4 @@
-# AnxietyWatch — Requirements & Specification
+# Anxiety Watch — Requirements & Specification
 
 ## Purpose
 

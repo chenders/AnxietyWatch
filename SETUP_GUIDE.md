@@ -1,4 +1,4 @@
-# SETUP_GUIDE.md — Getting AnxietyWatch Onto Your Devices
+# SETUP_GUIDE.md — Getting Anxiety Watch Onto Your Devices
 
 This guide covers how to build, sign, and install a personal iOS/watchOS app on your own devices without publishing to the App Store. It also covers the Apple Developer Program, provisioning, and common pitfalls.
 
@@ -112,7 +112,7 @@ TestFlight is Apple's official beta testing platform. Even for personal use, it'
 3. Choose **TestFlight & App Store** (don't worry — uploading to TestFlight does NOT put it on the App Store)
 4. Follow the prompts to upload to App Store Connect
 5. Go to https://appstoreconnect.apple.com
-6. Navigate to **My Apps → AnxietyWatch → TestFlight**
+6. Navigate to **My Apps → Anxiety Watch → TestFlight**
 7. The build will appear after processing (usually 10-30 minutes)
 8. Under **Internal Testing**, create a group and add yourself
 9. You'll receive an email/notification to install via the TestFlight app on your iPhone
@@ -140,7 +140,7 @@ The watchOS app installs **automatically** when you install the iOS app, as long
 3. Automatic app installation is enabled on the Watch:
    - On your iPhone, open the **Watch** app
    - Go to **General → Automatic App Install** — make sure it's on
-   - Or manually find AnxietyWatch in the Watch app and tap **Install**
+   - Or manually find Anxiety Watch in the Watch app and tap **Install**
 
 **For development/debugging on the Watch:**
 1. In Xcode's device dropdown, you'll see your Watch listed under your iPhone
@@ -254,7 +254,7 @@ Fill these in for your reference:
 ### "Untrusted Developer" on iPhone
 Settings → General → VPN & Device Management → tap your certificate → Trust
 
-### "Could not launch AnxietyWatch" — device is locked
+### "Could not launch Anxiety Watch" — device is locked
 Unlock your iPhone before running from Xcode.
 
 ### HealthKit authorization sheet doesn't appear
@@ -266,7 +266,7 @@ Unlock your iPhone before running from Xcode.
 - Ensure watchOS deployment target matches your Watch's OS version
 - Check that the Watch app is listed as a dependency of the iOS app
 - Restart the Watch (hold side button → Power Off → Power On)
-- In the Watch app on iPhone, scroll to AnxietyWatch and tap Install manually
+- In the Watch app on iPhone, scroll to Anxiety Watch and tap Install manually
 
 ### "No signing certificate" or provisioning errors
 - Xcode → Settings → Accounts → your team → Manage Certificates

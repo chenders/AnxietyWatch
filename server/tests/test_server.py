@@ -1,4 +1,4 @@
-"""Tests for AnxietyScope sync server."""
+"""Tests for Anxiety Watch sync server."""
 
 import hashlib
 import os

@@ -1,4 +1,4 @@
--- AnxietyScope Sync Server — PostgreSQL Schema
+-- Anxiety Watch Sync Server — PostgreSQL Schema
 -- Applied automatically on app startup via init_db()
 
 CREATE TABLE IF NOT EXISTS api_keys (
