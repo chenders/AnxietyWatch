@@ -10,8 +10,9 @@ struct BarometricTrendChart: View {
     private var displayReadings: [BarometricReading] {
         let maxPoints = 500
         guard readings.count > maxPoints else { return readings }
-        let stride = readings.count / maxPoints
-        return Swift.stride(from: 0, to: readings.count, by: stride).map { readings[$0] }
+        // Ceiling division guarantees stride > 1, so output never exceeds maxPoints
+        let stride = Int(ceil(Double(readings.count) / Double(maxPoints)))
+        return Array(Swift.stride(from: 0, to: readings.count, by: stride).map { readings[$0] }.prefix(maxPoints))
     }
 
     var body: some View {

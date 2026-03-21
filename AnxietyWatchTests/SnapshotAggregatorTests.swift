@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AnxietyScope
+@testable import AnxietyWatch
 
 /// Tests the overnight window calculation used by SnapshotAggregator.
 /// The fix changed sleep queries from midnight-to-midnight to noon-to-noon
@@ -23,14 +23,23 @@ struct SnapshotAggregatorTests {
 
     @Test("Overnight window spans noon-to-noon (24 hours)")
     func overnightWindowIs24Hours() {
-        let today = Calendar.current.startOfDay(for: .now)
+        // Use UTC to avoid DST edge cases where a "day" isn't 86400 seconds
+        var utcCalendar = Calendar.current
+        utcCalendar.timeZone = TimeZone(identifier: "UTC")!
+        let today = utcCalendar.startOfDay(for: .now)
         guard let window = overnightWindow(for: today) else {
             Issue.record("Failed to compute overnight window")
             return
         }
 
-        let duration = window.end.timeIntervalSince(window.start)
-        #expect(duration == 24 * 60 * 60, "Window should be exactly 24 hours")
+        // Verify via calendar components instead of raw seconds
+        let startComponents = utcCalendar.dateComponents([.hour], from: window.start)
+        let endComponents = utcCalendar.dateComponents([.hour], from: window.end)
+        #expect(startComponents.hour == 12, "Window should start at noon")
+        #expect(endComponents.hour == 12, "Window should end at noon")
+
+        let dayDiff = utcCalendar.dateComponents([.day], from: window.start, to: window.end)
+        #expect(dayDiff.day == 1, "Window should span exactly 1 calendar day")
     }
 
     @Test("Overnight window for March 14 starts at noon March 13")
@@ -158,8 +167,9 @@ struct SnapshotAggregatorTests {
         let today = calendar.startOfDay(for: .now)
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
 
-        let duration = tomorrow.timeIntervalSince(today)
-        #expect(duration == 24 * 60 * 60)
+        // Use calendar components instead of raw seconds (avoids DST flakiness)
+        let dayDiff = calendar.dateComponents([.day], from: today, to: tomorrow)
+        #expect(dayDiff.day == 1, "Midnight-to-midnight should span 1 calendar day")
 
         // Steps logged at 2 PM today are within the daytime window
         let afternoon = calendar.date(byAdding: .hour, value: 14, to: today)!

@@ -16,7 +16,8 @@ struct SnapshotAggregator {
         // Noon-to-noon window captures a full overnight sleep period in one day's snapshot.
         // Sleep for "March 13" typically runs ~11 PM Mar 13 to ~7 AM Mar 14.
         // Querying noon Mar 13 to noon Mar 14 gets the whole night.
-        guard let overnightStart = calendar.date(byAdding: .hour, value: 12, to: calendar.startOfDay(for: calendar.date(byAdding: .day, value: -1, to: start)!)),
+        guard let previousDay = calendar.date(byAdding: .day, value: -1, to: start),
+              let overnightStart = calendar.date(byAdding: .hour, value: 12, to: calendar.startOfDay(for: previousDay)),
               let overnightEnd = calendar.date(byAdding: .hour, value: 12, to: start)
         else { return }
 
