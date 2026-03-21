@@ -4,6 +4,31 @@
 
 **MANDATORY: Never push directly to `main`.** Always create a new feature branch based on `main` unless explicitly instructed otherwise. Use `git checkout -b <branch-name> main` for new work.
 
+## Commands
+
+```bash
+# Build iOS app (use generic destination to avoid hardcoding simulator names)
+xcodebuild build -scheme AnxietyWatch -destination 'generic/platform=iOS Simulator'
+
+# Run iOS unit tests
+xcodebuild test -scheme AnxietyWatch -destination 'generic/platform=iOS Simulator' -only-testing:AnxietyWatchTests
+
+# Build watchOS app
+xcodebuild build -scheme "AnxietyWatch Watch App" -destination 'generic/platform=watchOS Simulator'
+
+# (Optional) List available destinations:
+# xcodebuild -scheme AnxietyWatch -showdestinations
+
+# Sync server (Python/Flask + PostgreSQL)
+cd server && pip install -r requirements.txt
+cd server && python -m pytest tests/           # run server tests
+cd server && flake8 --max-line-length=120       # lint server code
+docker compose -f server/docker-compose.yml up  # run with Docker
+```
+
+**Xcode targets** (no shared schemes are checked in — open the project in Xcode once to auto-generate schemes, or use `-project ... -target ...` for headless builds): `AnxietyWatch`, `AnxietyWatch Watch App`, `AnxietyWatchWidgets`
+**Test target:** `AnxietyWatchTests` (unit tests for date filtering, baselines, model normalization)
+
 ## Project Overview
 
 **Anxiety Watch** is a personal iOS + watchOS app for anxiety tracking. It combines subjective journaling with objective physiological data from HealthKit, an AirSense 11 CPAP, and smart blood pressure monitors. Single user, never published to App Store.
@@ -38,31 +63,35 @@ AnxietyWatch/
 │   │   ├── BarometricReading.swift
 │   │   └── HealthSnapshot.swift
 │   ├── Services/
-│   │   ├── HealthKitManager.swift   # Actor — all HealthKit reads
-│   │   ├── BarometerService.swift   # CMAltimeter wrapper
-│   │   ├── CPAPImporter.swift       # SD card data parser
-│   │   ├── SnapshotAggregator.swift # Daily HealthKit → HealthSnapshot
-│   │   ├── ReportGenerator.swift    # PDF clinical reports
-│   │   └── DataExporter.swift       # JSON/CSV export
+│   │   ├── HealthKitManager.swift       # Actor — all HealthKit reads
+│   │   ├── BarometerService.swift       # CMAltimeter wrapper
+│   │   ├── CPAPImporter.swift           # SD card data parser
+│   │   ├── SnapshotAggregator.swift     # Daily HealthKit → HealthSnapshot
+│   │   ├── BaselineCalculator.swift     # Rolling personal baselines
+│   │   ├── SyncService.swift            # Talks to sync server
+│   │   ├── PhoneConnectivityManager.swift # WatchConnectivity (phone side)
+│   │   ├── ReportGenerator.swift        # PDF clinical reports
+│   │   └── DataExporter.swift           # JSON/CSV export
 │   ├── Views/
 │   │   ├── Dashboard/
 │   │   ├── Journal/
 │   │   ├── Medications/
-│   │   ├── Trends/
+│   │   ├── Trends/                      # 7 chart views + TrendsView + ChartCard
 │   │   ├── CPAP/
-│   │   ├── Reports/
-│   │   └── Settings/
+│   │   ├── Reports/                     # ExportView
+│   │   └── Settings/                    # SettingsView + SyncSettingsView
 │   └── Utilities/
 │       ├── Extensions/
+│       ├── ShareSheet.swift
 │       └── Constants.swift
 ├── AnxietyWatch Watch App/          # watchOS app target
 │   ├── AnxietyWatchApp.swift
 │   ├── QuickLogView.swift
 │   ├── CurrentStatsView.swift
 │   └── WatchConnectivityManager.swift
-├── Shared/                          # Code shared between iOS and watchOS
-│   ├── Models/                      # Shared model types
-│   └── WatchConnectivityManager.swift
+├── AnxietyWatchWidgets/             # watchOS widget extension
+├── server/                          # Python sync server (see Sync Server section)
+├── .github/workflows/               # CI/CD (see below)
 ├── REQUIREMENTS.md
 ├── CLAUDE.md
 └── SETUP_GUIDE.md
@@ -82,25 +111,7 @@ AnxietyWatch/
 ## HealthKit Notes
 
 ### Authorization
-Request authorization for ALL needed types at once on first launch. The user will see a single HealthKit permission sheet. Types needed:
-
-**Read types:**
-- `HKQuantityTypeIdentifier.heartRateVariabilitySDNN`
-- `HKQuantityTypeIdentifier.heartRate`
-- `HKQuantityTypeIdentifier.restingHeartRate`
-- `HKQuantityTypeIdentifier.respiratoryRate`
-- `HKQuantityTypeIdentifier.oxygenSaturation`
-- `HKQuantityTypeIdentifier.appleSleepingWristTemperature`
-- `HKQuantityTypeIdentifier.stepCount`
-- `HKQuantityTypeIdentifier.activeEnergyBurned`
-- `HKQuantityTypeIdentifier.appleExerciseTime`
-- `HKQuantityTypeIdentifier.environmentalAudioExposure`
-- `HKQuantityTypeIdentifier.bloodPressureSystolic`
-- `HKQuantityTypeIdentifier.bloodPressureDiastolic`
-- `HKQuantityTypeIdentifier.bloodGlucose`
-- `HKCategoryTypeIdentifier.sleepAnalysis`
-
-**Important**: HealthKit does NOT tell you whether the user denied a specific type. `authorizationStatus` returns `.notDetermined` OR `.sharingDenied`, but for read permissions it always returns `.notDetermined` even if denied (privacy protection). Design the app to gracefully handle missing data for any metric.
+Request authorization for ALL needed read types at once on first launch (see `HealthKitManager.swift` for the full list). **Gotcha**: HealthKit does NOT tell you whether the user denied a specific read type — `authorizationStatus` always returns `.notDetermined` for reads, even if denied (privacy protection). Design the app to gracefully handle missing data for any metric.
 
 ### Querying
 - Use `HKStatisticsQuery` for single-value aggregations (daily average HR, total steps)
@@ -109,20 +120,7 @@ Request authorization for ALL needed types at once on first launch. The user wil
 - Use `HKObserverQuery` + background delivery for real-time updates (optional, not needed for V1)
 
 ### Sleep Analysis
-Sleep stages in watchOS 9+ / iOS 16+:
-- `.asleepREM` — REM sleep
-- `.asleepDeep` — Deep (slow wave) sleep
-- `.asleepCore` — Light (core) sleep
-- `.awake` — Awake periods during sleep session
-- `.inBed` — Total time in bed
-
-### Units
-- HRV: milliseconds (`HKUnit.secondUnit(with: .milli)`)
-- Heart rate: bpm (`HKUnit.count().unitDivided(by: .minute())`)
-- Blood pressure: mmHg (`HKUnit.millimeterOfMercury()`)
-- SpO2: percent (`HKUnit.percent()`)
-- Temperature: celsius (`HKUnit.degreeCelsius()`)
-- Blood glucose: mg/dL (`HKUnit.gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci))`)
+Sleep stages (watchOS 9+ / iOS 16+): `.asleepREM`, `.asleepDeep`, `.asleepCore`, `.awake`, `.inBed`. See `HealthKitManager.swift` for unit constructors.
 
 ## CPAP Data Notes
 
@@ -140,6 +138,30 @@ For V1, focus on daily summary data (AHI, leak, usage, pressure stats). Detailed
 - `pressure` — atmospheric pressure in kPa
 
 It requires the `NSMotionUsageDescription` key in Info.plist. Readings are only available while the app is running or during background tasks. Store readings in SwiftData since they aren't persisted by the system.
+
+## Sync Server
+
+`server/` contains a Flask + PostgreSQL sync server that receives data from the iOS app's `SyncService`. Deployed via Docker.
+
+- **Stack**: Python 3.12, Flask 3, PostgreSQL 16, Gunicorn
+- **Docker**: `docker compose -f server/docker-compose.yml up` — exposes app on port 8081, Postgres on 127.0.0.1:5439
+- **Admin UI**: Blueprint in `server/admin.py`, templates in `server/templates/`
+- **Auth**: API requests use Bearer tokens whose SHA-256 hashes are stored in the `api_keys` table; the admin UI uses `ADMIN_PASSWORD` for login and a session cookie with `SameSite=Strict`
+- **Required env vars** (set in `.env` or environment): `POSTGRES_PASSWORD`, `ADMIN_PASSWORD` (admin UI login), `SECRET_KEY`
+- **Schema**: `server/schema.sql`
+- **Tests**: `server/tests/` — run with `pytest` (needs `DATABASE_URL` pointing to a test Postgres)
+
+## CI/CD
+
+Three GitHub Actions workflows in `.github/workflows/`:
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `ci.yml` | Push/PR to main touching `server/**` | Lint (flake8) + pytest against Postgres |
+| `deploy.yml` | Push to `main`/`master` touching `server/**` | Server deployment |
+| `release.yml` | Tag pushes (e.g. version tags) | Release workflow |
+
+CI only covers the Python sync server. There is no automated iOS build/test pipeline yet.
 
 ## Key Design Principles
 
@@ -162,3 +184,7 @@ NSLocationWhenInUseUsageDescription — "Anxiety Watch optionally tags journal e
 - HealthKit data can be simulated in the iOS Simulator but is limited. Test on a real device with actual Apple Watch data whenever possible.
 - For CPAP data testing, sample OSCAR-compatible data files can be found in the OSCAR project's test fixtures.
 - The watchOS simulator cannot generate real HealthKit data. Test Watch complications and quick-log on actual hardware.
+
+## Known Gaps
+
+- **No `.gitignore`** — the repo has no `.gitignore`. One should be added covering Xcode build artifacts, `.DS_Store`, `server/__pycache__`, `server/.env`, etc.

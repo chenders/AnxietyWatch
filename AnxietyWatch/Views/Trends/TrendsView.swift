@@ -23,7 +23,8 @@ struct TrendsView: View {
     }
 
     private var startDate: Date {
-        Calendar.current.date(byAdding: .day, value: -timeRange.days, to: .now)!
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -timeRange.days, to: .now)!
+        return Calendar.current.startOfDay(for: daysAgo)
     }
 
     private var snapshots: [HealthSnapshot] {

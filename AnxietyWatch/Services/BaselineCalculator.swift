@@ -16,7 +16,8 @@ enum BaselineCalculator {
         from snapshots: [HealthSnapshot],
         windowDays: Int = Constants.baselineWindowDays
     ) -> BaselineResult? {
-        let cutoff = Calendar.current.date(byAdding: .day, value: -windowDays, to: .now)!
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: .now)!
+        let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
             .compactMap(\.hrvAvg)
@@ -29,7 +30,8 @@ enum BaselineCalculator {
         from snapshots: [HealthSnapshot],
         windowDays: Int = Constants.baselineWindowDays
     ) -> BaselineResult? {
-        let cutoff = Calendar.current.date(byAdding: .day, value: -windowDays, to: .now)!
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: .now)!
+        let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
             .compactMap(\.restingHR)
@@ -43,7 +45,8 @@ enum BaselineCalculator {
         days: Int = 3,
         keyPath: KeyPath<HealthSnapshot, Double?>
     ) -> Double? {
-        let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: .now)!
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -days, to: .now)!
+        let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
             .compactMap { $0[keyPath: keyPath] }

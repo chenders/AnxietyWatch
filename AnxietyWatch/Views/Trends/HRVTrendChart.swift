@@ -62,7 +62,7 @@ struct HRVTrendChart: View {
 
                 // Anxiety entries as vertical markers
                 ForEach(entries) { entry in
-                    RuleMark(x: .value("Date", entry.timestamp, unit: .hour))
+                    RuleMark(x: .value("Date", entry.timestamp, unit: .day))
                         .foregroundStyle(anxietyColor(entry.severity).opacity(0.25))
                         .lineStyle(StrokeStyle(lineWidth: 2))
                         .annotation(position: .top, spacing: 0) {
