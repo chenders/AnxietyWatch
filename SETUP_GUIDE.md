@@ -1,4 +1,4 @@
-# SETUP_GUIDE.md — Getting AnxietyScope Onto Your Devices
+# SETUP_GUIDE.md — Getting Anxiety Watch Onto Your Devices
 
 This guide covers how to build, sign, and install a personal iOS/watchOS app on your own devices without publishing to the App Store. It also covers the Apple Developer Program, provisioning, and common pitfalls.
 
@@ -50,7 +50,7 @@ This is what you want for a personal-use app you'll run every day:
 Claude Code will scaffold this, but for reference:
 1. File → New → Project
 2. Choose **iOS → App**
-3. Product Name: `AnxietyScope`
+3. Product Name: `AnxietyWatch`
 4. Team: Select your developer team
 5. Organization Identifier: `com.yourname` (e.g., `com.chrisdev`)
 6. Interface: **SwiftUI**
@@ -61,12 +61,12 @@ Claude Code will scaffold this, but for reference:
 ### Add the watchOS Target
 1. File → New → Target
 2. Choose **watchOS → App**
-3. Product Name: `AnxietyScopeWatch`
+3. Product Name: `AnxietyWatch Watch App`
 4. Make sure "Watch app for existing iOS app" is selected and your iOS app is the companion
-5. Embed in companion: `AnxietyScope`
+5. Embed in companion: `AnxietyWatch`
 
 ### Enable HealthKit
-1. Select the **AnxietyScope** iOS target in the project navigator
+1. Select the **AnxietyWatch** iOS target in the project navigator
 2. Go to **Signing & Capabilities**
 3. Click **+ Capability**
 4. Add **HealthKit**
@@ -112,7 +112,7 @@ TestFlight is Apple's official beta testing platform. Even for personal use, it'
 3. Choose **TestFlight & App Store** (don't worry — uploading to TestFlight does NOT put it on the App Store)
 4. Follow the prompts to upload to App Store Connect
 5. Go to https://appstoreconnect.apple.com
-6. Navigate to **My Apps → AnxietyScope → TestFlight**
+6. Navigate to **My Apps → Anxiety Watch → TestFlight**
 7. The build will appear after processing (usually 10-30 minutes)
 8. Under **Internal Testing**, create a group and add yourself
 9. You'll receive an email/notification to install via the TestFlight app on your iPhone
@@ -140,7 +140,7 @@ The watchOS app installs **automatically** when you install the iOS app, as long
 3. Automatic app installation is enabled on the Watch:
    - On your iPhone, open the **Watch** app
    - Go to **General → Automatic App Install** — make sure it's on
-   - Or manually find AnxietyScope in the Watch app and tap **Install**
+   - Or manually find Anxiety Watch in the Watch app and tap **Install**
 
 **For development/debugging on the Watch:**
 1. In Xcode's device dropdown, you'll see your Watch listed under your iPhone
@@ -149,7 +149,7 @@ The watchOS app installs **automatically** when you install the iOS app, as long
 4. First-time Watch deployment may take several minutes
 
 **Troubleshooting Watch installation:**
-- If the Watch app doesn't appear, check that the watchOS target's bundle ID follows the pattern `com.yourname.AnxietyScope.watchkitapp`
+- If the Watch app doesn't appear, check that the watchOS target's bundle ID follows the pattern `com.yourname.AnxietyWatch.watchkitapp`
 - Restart both devices if deployment fails
 - Make sure both iPhone and Watch are on the same Wi-Fi network during development
 
@@ -186,7 +186,7 @@ If you ever see signing errors:
 
 ### Typical Workflow
 
-1. **Open your terminal** in the project directory (the folder containing `AnxietyScope.xcodeproj`)
+1. **Open your terminal** in the project directory (the folder containing `AnxietyWatch.xcodeproj`)
 2. **Run Claude Code** — it will automatically read `CLAUDE.md` and `REQUIREMENTS.md` for context
 3. **Ask Claude Code to implement features** from the build plan in `REQUIREMENTS.md`
 4. **Build and test in Xcode** — switch to Xcode to run on your device
@@ -226,8 +226,8 @@ After placing `REQUIREMENTS.md` and `CLAUDE.md` in your project root:
 
 Fill these in for your reference:
 
-- **Bundle ID (iOS):** `com._________.AnxietyScope`
-- **Bundle ID (watchOS):** `com._________.AnxietyScope.watchkitapp`
+- **Bundle ID (iOS):** `com._________.AnxietyWatch`
+- **Bundle ID (watchOS):** `com._________.AnxietyWatch.watchkitapp`
 - **Team ID:** (found in Apple Developer portal → Membership)
 - **iPhone UDID:** (found in Finder when iPhone is connected, or Xcode → Window → Devices)
 - **Apple Watch UDID:** (found in Xcode → Window → Devices, listed under your iPhone)
@@ -254,7 +254,7 @@ Fill these in for your reference:
 ### "Untrusted Developer" on iPhone
 Settings → General → VPN & Device Management → tap your certificate → Trust
 
-### "Could not launch AnxietyScope" — device is locked
+### "Could not launch Anxiety Watch" — device is locked
 Unlock your iPhone before running from Xcode.
 
 ### HealthKit authorization sheet doesn't appear
@@ -266,7 +266,7 @@ Unlock your iPhone before running from Xcode.
 - Ensure watchOS deployment target matches your Watch's OS version
 - Check that the Watch app is listed as a dependency of the iOS app
 - Restart the Watch (hold side button → Power Off → Power On)
-- In the Watch app on iPhone, scroll to AnxietyScope and tap Install manually
+- In the Watch app on iPhone, scroll to Anxiety Watch and tap Install manually
 
 ### "No signing certificate" or provisioning errors
 - Xcode → Settings → Accounts → your team → Manage Certificates

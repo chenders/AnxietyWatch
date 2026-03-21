@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 
 @main
-struct AnxietyScopeApp: App {
+struct AnxietyWatchApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             AnxietyEntry.self,

@@ -33,7 +33,7 @@ struct CurrentStatsView: View {
                 && connectivity.hrvAvg == nil
                 && connectivity.restingHR == nil
             {
-                Text("Open AnxietyScope on iPhone to sync stats")
+                Text("Open Anxiety Watch on iPhone to sync stats")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

@@ -4,17 +4,17 @@
 <dict>
 	<key>SchemeUserState</key>
 	<dict>
-		<key>AnxietyScope.xcscheme_^#shared#^_</key>
+		<key>AnxietyWatch.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
 			<integer>0</integer>
 		</dict>
-		<key>AnxietyScopeWatch Watch App.xcscheme_^#shared#^_</key>
+		<key>AnxietyWatch Watch App.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
 			<integer>1</integer>
 		</dict>
-		<key>AnxietyScopeWatchWidgetsExtension.xcscheme_^#shared#^_</key>
+		<key>AnxietyWatchWidgetsExtension.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
 			<integer>2</integer>
