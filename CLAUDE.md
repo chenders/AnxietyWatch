@@ -137,7 +137,7 @@ It requires the `NSMotionUsageDescription` key in Info.plist. Readings are only 
 `server/` contains a Flask + PostgreSQL sync server that receives data from the iOS app's `SyncService`. Deployed via Docker.
 
 - **Stack**: Python 3.12, Flask 3, PostgreSQL 16, Gunicorn
-- **Docker**: `docker compose -f server/docker-compose.yml up` — exposes app on port 8081, Postgres on 127.0.0.1:5439
+- **Docker**: `docker compose --env-file server/.env -f server/docker-compose.yml up` — exposes app on port 8081, Postgres on 127.0.0.1:5439
 - **Admin UI**: Blueprint in `server/admin.py`, templates in `server/templates/`
 - **Auth**: API requests use Bearer tokens whose SHA-256 hashes are stored in the `api_keys` table; the admin UI uses `ADMIN_PASSWORD` for login and a session cookie with `SameSite=Strict`
 - **Required env vars** (set in `.env` or environment): `POSTGRES_PASSWORD`, `ADMIN_PASSWORD` (admin UI login), `SECRET_KEY`
