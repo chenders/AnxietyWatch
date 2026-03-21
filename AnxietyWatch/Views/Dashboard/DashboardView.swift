@@ -11,6 +11,8 @@ struct DashboardView: View {
     private var recentSnapshots: [HealthSnapshot]
     @Query(sort: \CPAPSession.date, order: .reverse)
     private var recentCPAP: [CPAPSession]
+    @Query(sort: \ClinicalLabResult.effectiveDate, order: .reverse)
+    private var recentLabResults: [ClinicalLabResult]
 
     private let barometer = BarometerService.shared
 
@@ -21,6 +23,7 @@ struct DashboardView: View {
                     baselineAlert
                     anxietySection
                     healthSection
+                    labResultsSection
                     cpapSection
                     barometricSection
                     medicationSection
@@ -159,7 +162,55 @@ struct DashboardView: View {
         }
     }
 
+    @ViewBuilder
+    private var labResultsSection: some View {
+        let latestPerTest = latestLabResultPerTest
+        if !latestPerTest.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                NavigationLink {
+                    LabResultsView()
+                } label: {
+                    HStack {
+                        Text("Lab Results")
+                            .font(.headline)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                ForEach(latestPerTest, id: \.loincCode) { result in
+                    if let def = LabTestRegistry.definition(for: result.loincCode) {
+                        LabResultMetricCard(
+                            testName: def.shortName,
+                            value: result.value,
+                            unit: result.unit,
+                            normalRangeLow: result.referenceRangeLow ?? def.normalRangeLow,
+                            normalRangeHigh: result.referenceRangeHigh ?? def.normalRangeHigh
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Helpers
+
+    /// Returns the most recent lab result for each unique test, limited to 4 for dashboard space.
+    private var latestLabResultPerTest: [ClinicalLabResult] {
+        var seen = Set<String>()
+        var results: [ClinicalLabResult] = []
+        for result in recentLabResults {
+            guard LabTestRegistry.isTracked(result.loincCode),
+                  !seen.contains(result.loincCode) else { continue }
+            seen.insert(result.loincCode)
+            results.append(result)
+            if results.count >= 4 { break }
+        }
+        return results
+    }
 
     private var todaySnapshot: HealthSnapshot? {
         let startOfDay = Calendar.current.startOfDay(for: .now)
