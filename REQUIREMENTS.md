@@ -1,4 +1,4 @@
-# AnxietyScope — Requirements & Specification
+# AnxietyWatch — Requirements & Specification
 
 ## Purpose
 
