@@ -51,11 +51,11 @@ AnxietyWatch/
 │   └── Utilities/
 │       ├── Extensions/
 │       └── Constants.swift
-├── AnxietyWatch/               # watchOS app target
+├── AnxietyWatch Watch App/          # watchOS app target
 │   ├── AnxietyWatchApp.swift
 │   ├── QuickLogView.swift
 │   ├── CurrentStatsView.swift
-│   └── ComplicationProvider.swift
+│   └── WatchConnectivityManager.swift
 ├── Shared/                          # Code shared between iOS and watchOS
 │   ├── Models/                      # Shared model types
 │   └── WatchConnectivityManager.swift
