@@ -1,4 +1,4 @@
-"""AnxietyScope Sync Server — receives data from the iOS app and stores it in PostgreSQL."""
+"""Anxiety Watch Sync Server — receives data from the iOS app and stores it in PostgreSQL."""
 
 import hashlib
 import json
