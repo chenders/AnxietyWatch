@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**AnxietyScope** is a personal iOS + watchOS app for anxiety tracking. It combines subjective journaling with objective physiological data from HealthKit, an AirSense 11 CPAP, and smart blood pressure monitors. Single user, never published to App Store.
+**Anxiety Watch** is a personal iOS + watchOS app for anxiety tracking. It combines subjective journaling with objective physiological data from HealthKit, an AirSense 11 CPAP, and smart blood pressure monitors. Single user, never published to App Store.
 
 See `REQUIREMENTS.md` for full specification, data model, and build plan.
 
@@ -21,10 +21,10 @@ See `REQUIREMENTS.md` for full specification, data model, and build plan.
 ## Project Structure
 
 ```
-AnxietyScope/
-├── AnxietyScope/                    # iOS app target
+AnxietyWatch/
+├── AnxietyWatch/                    # iOS app target
 │   ├── App/
-│   │   ├── AnxietyScopeApp.swift    # @main entry point
+│   │   ├── AnxietyWatchApp.swift    # @main entry point
 │   │   └── ContentView.swift        # Tab-based root view
 │   ├── Models/                      # SwiftData @Model classes
 │   │   ├── AnxietyEntry.swift
@@ -51,11 +51,11 @@ AnxietyScope/
 │   └── Utilities/
 │       ├── Extensions/
 │       └── Constants.swift
-├── AnxietyScopeWatch/               # watchOS app target
-│   ├── AnxietyScopeWatchApp.swift
+├── AnxietyWatch Watch App/          # watchOS app target
+│   ├── AnxietyWatchApp.swift
 │   ├── QuickLogView.swift
 │   ├── CurrentStatsView.swift
-│   └── ComplicationProvider.swift
+│   └── WatchConnectivityManager.swift
 ├── Shared/                          # Code shared between iOS and watchOS
 │   ├── Models/                      # Shared model types
 │   └── WatchConnectivityManager.swift
@@ -148,9 +148,9 @@ It requires the `NSMotionUsageDescription` key in Info.plist. Readings are only 
 ## Info.plist Keys Required
 
 ```
-NSHealthShareUsageDescription — "AnxietyScope reads health data to track anxiety patterns and correlate physiological signals with your journal entries."
-NSMotionUsageDescription — "AnxietyScope uses barometric pressure data to correlate atmospheric changes with anxiety patterns."
-NSLocationWhenInUseUsageDescription — "AnxietyScope optionally tags journal entries with location to help identify environmental anxiety triggers." (optional, only if location tagging is implemented)
+NSHealthShareUsageDescription — "Anxiety Watch reads health data to track anxiety patterns and correlate physiological signals with your journal entries."
+NSMotionUsageDescription — "Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns."
+NSLocationWhenInUseUsageDescription — "Anxiety Watch optionally tags journal entries with location to help identify environmental anxiety triggers." (optional, only if location tagging is implemented)
 ```
 
 ## Testing Notes

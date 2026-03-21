@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct AnxietyScopeWatchApp: App {
+struct AnxietyWatchApp: App {
     private let connectivity = WatchConnectivityManager.shared
 
     var body: some Scene {

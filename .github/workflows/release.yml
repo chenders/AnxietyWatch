@@ -31,8 +31,8 @@ jobs:
           context: server
           push: true
           tags: |
-            ghcr.io/chenders/anxietyscope-server:${{ steps.version.outputs.version }}
-            ghcr.io/chenders/anxietyscope-server:latest
+            ghcr.io/chenders/anxietywatch-server:${{ steps.version.outputs.version }}
+            ghcr.io/chenders/anxietywatch-server:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
