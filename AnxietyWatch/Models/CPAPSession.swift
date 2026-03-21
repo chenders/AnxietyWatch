@@ -33,7 +33,8 @@ final class CPAPSession {
         importSource: String
     ) {
         self.id = UUID()
-        self.date = date
+        // Normalize to start of day so filtering aligns with HealthSnapshot
+        self.date = Calendar.current.startOfDay(for: date)
         self.ahi = ahi
         self.totalUsageMinutes = totalUsageMinutes
         self.leakRate95th = leakRate95th

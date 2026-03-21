@@ -30,7 +30,7 @@ struct HeartRateTrendChart: View {
 
                 // Anxiety overlay
                 ForEach(entries) { entry in
-                    RuleMark(x: .value("Date", entry.timestamp, unit: .hour))
+                    RuleMark(x: .value("Date", entry.timestamp, unit: .day))
                         .foregroundStyle(anxietyColor(entry.severity).opacity(0.2))
                         .lineStyle(StrokeStyle(lineWidth: 2))
                 }
