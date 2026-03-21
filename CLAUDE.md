@@ -1,5 +1,9 @@
 # CLAUDE.md — Project Context for Claude Code
 
+## Git Workflow
+
+**MANDATORY: Never push directly to `main`.** Always create a new feature branch based on `main` unless explicitly instructed otherwise. Use `git checkout -b <branch-name> main` for new work.
+
 ## Project Overview
 
 **Anxiety Watch** is a personal iOS + watchOS app for anxiety tracking. It combines subjective journaling with objective physiological data from HealthKit, an AirSense 11 CPAP, and smart blood pressure monitors. Single user, never published to App Store.
