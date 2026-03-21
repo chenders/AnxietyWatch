@@ -11,8 +11,8 @@ struct SnapshotAggregatorTests {
     // MARK: - Overnight window calculation
 
     /// Replicates the noon-to-noon window logic from SnapshotAggregator.
-    private func overnightWindow(for date: Date) -> (start: Date, end: Date)? {
-        let calendar = Calendar.current
+    /// Accepts a calendar parameter so tests can use a consistent timezone.
+    private func overnightWindow(for date: Date, calendar: Calendar = .current) -> (start: Date, end: Date)? {
         let start = calendar.startOfDay(for: date)
         guard let previousDayStart = calendar.date(byAdding: .day, value: -1, to: start),
               let overnightStart = calendar.date(byAdding: .hour, value: 12, to: calendar.startOfDay(for: previousDayStart)),
@@ -23,11 +23,11 @@ struct SnapshotAggregatorTests {
 
     @Test("Overnight window spans noon-to-noon (24 hours)")
     func overnightWindowIs24Hours() {
-        // Use UTC to avoid DST edge cases where a "day" isn't 86400 seconds
+        // Use UTC so computation and assertions use the same DST-free calendar
         var utcCalendar = Calendar.current
         utcCalendar.timeZone = TimeZone(identifier: "UTC")!
         let today = utcCalendar.startOfDay(for: .now)
-        guard let window = overnightWindow(for: today) else {
+        guard let window = overnightWindow(for: today, calendar: utcCalendar) else {
             Issue.record("Failed to compute overnight window")
             return
         }
