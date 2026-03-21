@@ -34,9 +34,6 @@ actor HealthKitManager {
             types.insert(HKQuantityType(id))
         }
         types.insert(HKCategoryType(.sleepAnalysis))
-        if HKHealthStore.isHealthDataAvailable() {
-            types.insert(HKClinicalType(.labResultRecord))
-        }
         return types
     }
 
