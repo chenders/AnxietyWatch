@@ -10,8 +10,12 @@ struct BaselineCalculatorTests {
 
     // MARK: - Helpers
 
+    /// Fixed reference date so all snapshots in a test are anchored to the same point,
+    /// avoiding flakiness if a test runs across midnight.
+    private let referenceDate = Date.now
+
     private func makeSnapshot(daysAgo: Int, hrvAvg: Double?) -> HealthSnapshot {
-        let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: .now)!
+        let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: referenceDate)!
         let snapshot = HealthSnapshot(date: date)
         snapshot.hrvAvg = hrvAvg
         return snapshot
