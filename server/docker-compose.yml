@@ -1,44 +1,44 @@
 services:
-  anxietyscope-db:
+  anxietywatch-db:
     image: postgres:16-alpine
-    container_name: anxietyscope-db
+    container_name: anxietywatch-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-anxietyscope}
+      POSTGRES_USER: ${POSTGRES_USER:-anxietywatch}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:-anxietyscope}
+      POSTGRES_DB: ${POSTGRES_DB:-anxietywatch}
     ports:
       - "127.0.0.1:5439:5432"
     volumes:
-      - anxietyscope-pgdata:/var/lib/postgresql/data
+      - anxietywatch-pgdata:/var/lib/postgresql/data
     networks:
-      - anxietyscope-net
+      - anxietywatch-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-anxietyscope}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-anxietywatch}"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  anxietyscope-app:
-    image: ghcr.io/chenders/anxietyscope-server:latest
+  anxietywatch-app:
+    image: ghcr.io/chenders/anxietywatch-server:latest
     build: .
-    container_name: anxietyscope-app
+    container_name: anxietywatch-app
     restart: unless-stopped
     depends_on:
-      anxietyscope-db:
+      anxietywatch-db:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://anxietyscope:${POSTGRES_PASSWORD}@anxietyscope-db:5432/anxietyscope}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://anxietywatch:${POSTGRES_PASSWORD}@anxietywatch-db:5432/anxietywatch}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
     ports:
       - "0.0.0.0:8081:8080"
     networks:
-      - anxietyscope-net
+      - anxietywatch-net
 
 volumes:
-  anxietyscope-pgdata:
+  anxietywatch-pgdata:
 
 networks:
-  anxietyscope-net:
+  anxietywatch-net:
     driver: bridge

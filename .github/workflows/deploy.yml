@@ -35,8 +35,8 @@ jobs:
           context: server
           push: true
           tags: |
-            ghcr.io/chenders/anxietyscope-server:latest
-            ghcr.io/chenders/anxietyscope-server:sha-${{ github.sha }}
+            ghcr.io/chenders/anxietywatch-server:latest
+            ghcr.io/chenders/anxietywatch-server:sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -49,12 +49,12 @@ jobs:
       - name: Write .env
         working-directory: server
         run: |
-          echo "ADMIN_PASSWORD=${{ secrets.ANXIETYSCOPE_ADMIN_PASSWORD }}" > .env
-          echo "SECRET_KEY=${{ secrets.ANXIETYSCOPE_SECRET_KEY }}" >> .env
-          echo "POSTGRES_USER=anxietyscope" >> .env
-          echo "POSTGRES_PASSWORD=${{ secrets.ANXIETYSCOPE_DB_PASSWORD }}" >> .env
-          echo "POSTGRES_DB=anxietyscope" >> .env
-          echo "DATABASE_URL=postgresql://anxietyscope:${{ secrets.ANXIETYSCOPE_DB_PASSWORD }}@anxietyscope-db:5432/anxietyscope" >> .env
+          echo "ADMIN_PASSWORD=${{ secrets.ANXIETYWATCH_ADMIN_PASSWORD }}" > .env
+          echo "SECRET_KEY=${{ secrets.ANXIETYWATCH_SECRET_KEY }}" >> .env
+          echo "POSTGRES_USER=anxietywatch" >> .env
+          echo "POSTGRES_PASSWORD=${{ secrets.ANXIETYWATCH_DB_PASSWORD }}" >> .env
+          echo "POSTGRES_DB=anxietywatch" >> .env
+          echo "DATABASE_URL=postgresql://anxietywatch:${{ secrets.ANXIETYWATCH_DB_PASSWORD }}@anxietywatch-db:5432/anxietywatch" >> .env
 
       - name: Pull and deploy
         working-directory: server
