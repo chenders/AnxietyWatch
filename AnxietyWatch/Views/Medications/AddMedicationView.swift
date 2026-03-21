@@ -9,7 +9,7 @@ struct AddMedicationView: View {
     @State private var defaultDoseMg: Double = 0
     @State private var category = ""
 
-    private let categories = ["SSRI", "SNRI", "Benzodiazepine", "Beta Blocker", "Supplement", "Other"]
+    private let categories = ["SSRI", "SNRI", "Benzodiazepine", "Beta Blocker", "Z-Drug", "Supplement", "Other"]
 
     var body: some View {
         NavigationStack {
