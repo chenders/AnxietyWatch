@@ -22,7 +22,7 @@ xcodebuild build -scheme "AnxietyWatch Watch App" -destination 'generic/platform
 # Sync server (Python/Flask + PostgreSQL)
 cd server && pip install -r requirements.txt
 cd server && python -m pytest tests/           # run server tests
-cd server && flake8 --max-line-length=120       # lint server code
+cd server && flake8 . --max-line-length=120 --exclude=__pycache__  # lint server code (matches CI)
 docker compose -f server/docker-compose.yml up  # run with Docker
 ```
 
@@ -181,4 +181,4 @@ NSLocationWhenInUseUsageDescription — "Anxiety Watch optionally tags journal e
 
 ## Known Gaps
 
-- **No `.gitignore`** — the repo has no `.gitignore`. One should be added covering Xcode build artifacts, `.DS_Store`, `server/__pycache__`, `server/.env`, etc.
+- **No top-level `.gitignore`** — the repo has no root `.gitignore`. One should be added covering Xcode build artifacts, `.DS_Store`, `server/__pycache__`, `server/.env`, etc. Note that `server/.gitignore` already exists for server-specific files.
