@@ -26,7 +26,7 @@ cd server && flake8 --max-line-length=120       # lint server code
 docker compose -f server/docker-compose.yml up  # run with Docker
 ```
 
-**Xcode schemes:** `AnxietyWatch`, `AnxietyWatch Watch App`, `AnxietyWatchWidgets`
+**Xcode targets** (no shared schemes are checked in — open the project in Xcode once to auto-generate schemes, or use `-project ... -target ...` for headless builds): `AnxietyWatch`, `AnxietyWatch Watch App`, `AnxietyWatchWidgets`
 **Test target:** `AnxietyWatchTests` (unit tests for date filtering, baselines, model normalization)
 
 ## Project Overview
