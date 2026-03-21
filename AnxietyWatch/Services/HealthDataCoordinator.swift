@@ -39,7 +39,7 @@ final class HealthDataCoordinator {
         // Ask HealthKit how far back data goes
         let oldestDate = try? await HealthKitManager.shared.oldestSampleDate()
         let startDate = oldestDate ?? calendar.date(byAdding: .day, value: -90, to: .now)!
-        let totalDays = max(1, calendar.dateComponents([.day], from: startDate, to: .now).day ?? 90)
+        let totalDays = max(1, (calendar.dateComponents([.day], from: startDate, to: .now).day ?? 90) + 1)
 
         isBackfilling = true
         backfillTotal = totalDays
@@ -52,7 +52,7 @@ final class HealthDataCoordinator {
         )
 
         for offset in 0..<totalDays {
-            let date = calendar.date(byAdding: .day, value: -offset, to: .now)!
+            let date = calendar.date(byAdding: .day, value: offset, to: startDate)!
             try? await aggregator.aggregateDay(date)
             backfillProgress = offset + 1
         }
