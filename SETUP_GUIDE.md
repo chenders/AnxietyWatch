@@ -61,7 +61,7 @@ Claude Code will scaffold this, but for reference:
 ### Add the watchOS Target
 1. File → New → Target
 2. Choose **watchOS → App**
-3. Product Name: `AnxietyWatch`
+3. Product Name: `AnxietyWatch Watch App`
 4. Make sure "Watch app for existing iOS app" is selected and your iOS app is the companion
 5. Embed in companion: `AnxietyWatch`
 
