@@ -15,7 +15,7 @@ from server import create_app  # noqa: E402
 
 DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
-    os.environ.get("DATABASE_URL", "postgresql://anxietyscope:anxietyscope@localhost:5432/anxietyscope_test"),
+    os.environ.get("DATABASE_URL", "postgresql://anxietywatch:anxietywatch@localhost:5432/anxietywatch_test"),
 )
 
 TEST_API_KEY = "test-key-for-pytest-12345678"
