@@ -14,6 +14,7 @@ struct ExportView: View {
     @Query private var allDefinitions: [MedicationDefinition]
     @Query(sort: \HealthSnapshot.date) private var allSnapshots: [HealthSnapshot]
     @Query(sort: \CPAPSession.date) private var allCPAP: [CPAPSession]
+    @Query(sort: \ClinicalLabResult.effectiveDate) private var allLabResults: [ClinicalLabResult]
 
     var body: some View {
         Form {
@@ -113,6 +114,7 @@ struct ExportView: View {
         let filteredDoses = allDoses.filter { $0.timestamp >= startDate && $0.timestamp <= endDate }
         let filteredSnapshots = allSnapshots.filter { $0.date >= startDate && $0.date <= endDate }
         let filteredCPAP = allCPAP.filter { $0.date >= startDate && $0.date <= endDate }
+        let filteredLabs = allLabResults.filter { $0.effectiveDate >= startDate && $0.effectiveDate <= endDate }
 
         let data = ReportGenerator.generatePDF(
             entries: filteredEntries,
@@ -120,6 +122,7 @@ struct ExportView: View {
             definitions: allDefinitions,
             snapshots: filteredSnapshots,
             cpapSessions: filteredCPAP,
+            labResults: filteredLabs,
             start: startDate,
             end: endDate
         )

@@ -28,6 +28,13 @@
 			remoteGlobalIDString = 839563752F6D2DF3002DA90A;
 			remoteInfo = AnxietyWatchWidgetsExtension;
 		};
+		83BB00012F6E100000B45286 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 833535F12F6D0B3D00B45286 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 833535F82F6D0B3D00B45286;
+			remoteInfo = AnxietyWatch;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -62,6 +69,7 @@
 		839563782F6D2DF3002DA90A /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		8395637A2F6D2DF3002DA90A /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		8395638C2F6D2EE7002DA90A /* AnxietyWatchWidgetsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AnxietyWatchWidgetsExtension.entitlements; sourceTree = "<group>"; };
+		83BB00022F6E100000B45286 /* AnxietyWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnxietyWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -93,6 +101,11 @@
 			path = AnxietyWatchWidgets;
 			sourceTree = "<group>";
 		};
+		83BB00032F6E100000B45286 /* AnxietyWatchTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = AnxietyWatchTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -119,6 +132,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		83BB00042F6E100000B45286 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -127,6 +147,7 @@
 			children = (
 				8395638C2F6D2EE7002DA90A /* AnxietyWatchWidgetsExtension.entitlements */,
 				833535FB2F6D0B3D00B45286 /* AnxietyWatch */,
+				83BB00032F6E100000B45286 /* AnxietyWatchTests */,
 				8335360E2F6D0BFF00B45286 /* AnxietyWatch Watch App */,
 				8395637C2F6D2DF3002DA90A /* AnxietyWatchWidgets */,
 				839563772F6D2DF3002DA90A /* Frameworks */,
@@ -138,6 +159,7 @@
 			isa = PBXGroup;
 			children = (
 				833535F92F6D0B3D00B45286 /* AnxietyWatch.app */,
+				83BB00022F6E100000B45286 /* AnxietyWatchTests.xctest */,
 				8335360D2F6D0BFF00B45286 /* AnxietyWatch Watch App.app */,
 				839563762F6D2DF3002DA90A /* AnxietyWatchWidgetsExtension.appex */,
 			);
@@ -226,6 +248,29 @@
 			productReference = 839563762F6D2DF3002DA90A /* AnxietyWatchWidgetsExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		83BB00052F6E100000B45286 /* AnxietyWatchTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 83BB000C2F6E100000B45286 /* Build configuration list for PBXNativeTarget "AnxietyWatchTests" */;
+			buildPhases = (
+				83BB00062F6E100000B45286 /* Sources */,
+				83BB00042F6E100000B45286 /* Frameworks */,
+				83BB00072F6E100000B45286 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				83BB00082F6E100000B45286 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				83BB00032F6E100000B45286 /* AnxietyWatchTests */,
+			);
+			name = AnxietyWatchTests;
+			packageProductDependencies = (
+			);
+			productName = AnxietyWatchTests;
+			productReference = 83BB00022F6E100000B45286 /* AnxietyWatchTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -245,6 +290,10 @@
 					839563752F6D2DF3002DA90A = {
 						CreatedOnToolsVersion = 26.3;
 					};
+					83BB00052F6E100000B45286 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = 833535F82F6D0B3D00B45286;
+					};
 				};
 			};
 			buildConfigurationList = 833535F42F6D0B3D00B45286 /* Build configuration list for PBXProject "AnxietyWatch" */;
@@ -262,6 +311,7 @@
 			projectRoot = "";
 			targets = (
 				833535F82F6D0B3D00B45286 /* AnxietyWatch */,
+				83BB00052F6E100000B45286 /* AnxietyWatchTests */,
 				8335360C2F6D0BFF00B45286 /* AnxietyWatch Watch App */,
 				839563752F6D2DF3002DA90A /* AnxietyWatchWidgetsExtension */,
 			);
@@ -284,6 +334,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		839563742F6D2DF3002DA90A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		83BB00072F6E100000B45286 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -314,6 +371,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		83BB00062F6E100000B45286 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -326,6 +390,11 @@
 			isa = PBXTargetDependency;
 			target = 839563752F6D2DF3002DA90A /* AnxietyWatchWidgetsExtension */;
 			targetProxy = 839563842F6D2DF4002DA90A /* PBXContainerItemProxy */;
+		};
+		83BB00082F6E100000B45286 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 833535F82F6D0B3D00B45286 /* AnxietyWatch */;
+			targetProxy = 83BB00012F6E100000B45286 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -462,10 +531,12 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Anxiety Watch";
+				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "Anxiety Watch reads clinical lab results (thyroid, cortisol, vitamins) to identify biomarkers that may influence anxiety.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Anxiety Watch reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UIBackgroundModes = "health-update";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -500,10 +571,12 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Anxiety Watch";
+				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "Anxiety Watch reads clinical lab results (thyroid, cortisol, vitamins) to identify biomarkers that may influence anxiety.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Anxiety Watch reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UIBackgroundModes = "health-update";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -665,6 +738,48 @@
 			};
 			name = Release;
 		};
+		83BB00092F6E100000B45286 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7GPLS9UF3W;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.waitingforthefuture.AnxietyWatchTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AnxietyWatch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AnxietyWatch";
+			};
+			name = Debug;
+		};
+		83BB000A2F6E100000B45286 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7GPLS9UF3W;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.waitingforthefuture.AnxietyWatchTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AnxietyWatch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AnxietyWatch";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -700,6 +815,15 @@
 			buildConfigurations = (
 				839563892F6D2DF4002DA90A /* Debug */,
 				8395638A2F6D2DF4002DA90A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		83BB000C2F6E100000B45286 /* Build configuration list for PBXNativeTarget "AnxietyWatchTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				83BB00092F6E100000B45286 /* Debug */,
+				83BB000A2F6E100000B45286 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
