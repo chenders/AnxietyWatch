@@ -10,6 +10,7 @@ enum ReportGenerator {
         definitions: [MedicationDefinition],
         snapshots: [HealthSnapshot],
         cpapSessions: [CPAPSession],
+        labResults: [ClinicalLabResult] = [],
         start: Date,
         end: Date
     ) -> Data {
@@ -147,6 +148,40 @@ enum ReportGenerator {
                 let avgSys = sys.reduce(0, +) / Double(sys.count)
                 let avgDia = dia.reduce(0, +) / Double(dia.count)
                 cursor.drawBody(String(format: "Average: %.0f/%.0f mmHg", avgSys, avgDia))
+                cursor.y += 12
+            }
+
+            // -- Lab Results --
+            if !labResults.isEmpty {
+                cursor.ensureSpace(100)
+                cursor.drawSectionHeader("Clinical Lab Results")
+
+                // Latest value per test
+                var seen = Set<String>()
+                let latestPerTest = labResults
+                    .sorted { $0.effectiveDate > $1.effectiveDate }
+                    .filter { seen.insert($0.loincCode).inserted }
+
+                for result in latestPerTest {
+                    let def = LabTestRegistry.definition(for: result.loincCode)
+                    let name = def?.shortName ?? result.testName
+                    let refLow = result.referenceRangeLow ?? def?.normalRangeLow
+                    let refHigh = result.referenceRangeHigh ?? def?.normalRangeHigh
+
+                    var line = String(format: "%@: %.1f %@", name, result.value, result.unit)
+                    if let low = refLow, let high = refHigh {
+                        line += String(format: " (ref: %.1f–%.1f)", low, high)
+                    }
+                    if result.value < (refLow ?? -.infinity) {
+                        line += " ▼ LOW"
+                    } else if result.value > (refHigh ?? .infinity) {
+                        line += " ▲ HIGH"
+                    }
+                    line += " — \(shortDate(result.effectiveDate))"
+
+                    cursor.ensureSpace(22)
+                    cursor.drawBody(line)
+                }
                 cursor.y += 12
             }
 
