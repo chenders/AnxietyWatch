@@ -143,7 +143,7 @@ struct InlineView: View {
         } else if let anxiety = entry.lastAnxiety {
             Text("Anxiety \(anxiety)/10")
         } else {
-            Text("AnxietyWatch")
+            Text("Anxiety Watch")
         }
     }
 }
@@ -158,7 +158,7 @@ struct AnxietyWatchWidgets: Widget {
             WidgetEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("AnxietyWatch")
+        .configurationDisplayName("Anxiety Watch")
         .description("Current HRV and last anxiety rating")
         .supportedFamilies([
             .accessoryCircular,

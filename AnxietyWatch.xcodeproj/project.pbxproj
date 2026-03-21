@@ -461,8 +461,9 @@
 				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "AnxietyWatch reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "AnxietyWatch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
+				INFOPLIST_KEY_CFBundleDisplayName = "Anxiety Watch";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Anxiety Watch reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -498,8 +499,9 @@
 				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "AnxietyWatch reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "AnxietyWatch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
+				INFOPLIST_KEY_CFBundleDisplayName = "Anxiety Watch";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Anxiety Watch reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -534,9 +536,9 @@
 				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = AnxietyWatch;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "AnxietyWatch reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "AnxietyWatch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
+				INFOPLIST_KEY_CFBundleDisplayName = "Anxiety Watch";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Anxiety Watch reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = org.waitingforthefuture.AnxietyWatch;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -570,9 +572,9 @@
 				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = AnxietyWatch;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "AnxietyWatch reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
-				INFOPLIST_KEY_NSMotionUsageDescription = "AnxietyWatch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
+				INFOPLIST_KEY_CFBundleDisplayName = "Anxiety Watch";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Anxiety Watch reads health data to track anxiety patterns and correlate physiological signals with your journal entries.";
+				INFOPLIST_KEY_NSMotionUsageDescription = "Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = org.waitingforthefuture.AnxietyWatch;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -606,7 +608,7 @@
 				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnxietyWatchWidgets/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = AnxietyWatchWidgets;
+				INFOPLIST_KEY_CFBundleDisplayName = "Anxiety Watch Widgets";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -640,7 +642,7 @@
 				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnxietyWatchWidgets/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = AnxietyWatchWidgets;
+				INFOPLIST_KEY_CFBundleDisplayName = "Anxiety Watch Widgets";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
