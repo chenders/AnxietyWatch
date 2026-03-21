@@ -16,7 +16,7 @@ struct ClinicalRecordImporter {
 
         // Fetch existing UUIDs for deduplication
         let existing = try modelContext.fetch(FetchDescriptor<ClinicalLabResult>())
-        let existingUUIDs = Set(existing.map(\.healthKitSampleUUID))
+        var existingUUIDs = Set(existing.map(\.healthKitSampleUUID))
 
         var importedCount = 0
 
@@ -43,6 +43,7 @@ struct ClinicalRecordImporter {
                 healthKitSampleUUID: sampleUUID
             )
             modelContext.insert(labResult)
+            existingUUIDs.insert(sampleUUID)
             importedCount += 1
         }
 
