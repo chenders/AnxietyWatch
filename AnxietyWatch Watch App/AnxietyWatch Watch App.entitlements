@@ -6,7 +6,7 @@
 	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.groundeffectsoftware.AnxietyScope.watch</string>
+		<string>group.com.groundeffectsoftware.AnxietyWatch.watch</string>
 	</array>
 </dict>
 </plist>
