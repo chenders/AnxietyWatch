@@ -23,7 +23,7 @@ xcodebuild build -scheme "AnxietyWatch Watch App" -destination 'generic/platform
 cd server && pip install -r requirements.txt
 cd server && python -m pytest tests/           # run server tests
 cd server && flake8 . --max-line-length=120 --exclude=__pycache__  # lint server code (matches CI)
-docker compose -f server/docker-compose.yml up  # run with Docker
+docker compose --env-file server/.env -f server/docker-compose.yml up  # run server with Docker
 ```
 
 **Xcode targets** (no shared schemes are checked in — open the project in Xcode once to auto-generate schemes, or use `-project ... -target ...` for headless builds): `AnxietyWatch`, `AnxietyWatch Watch App`, `AnxietyWatchWidgets`
@@ -75,7 +75,6 @@ AnxietyScope/
 │   │   ├── Reports/                     # ExportView
 │   │   └── Settings/                    # SettingsView + SyncSettingsView
 │   └── Utilities/
-│       ├── Extensions/
 │       ├── ShareSheet.swift
 │       └── Constants.swift
 ├── AnxietyScopeWatch Watch App/         # watchOS app target (note space in name)
@@ -114,7 +113,7 @@ Request authorization for ALL needed read types at once on first launch (see `He
 - Use `HKObserverQuery` + background delivery for real-time updates (optional, not needed for V1)
 
 ### Sleep Analysis
-Sleep stages (watchOS 9+ / iOS 16+): `.asleepREM`, `.asleepDeep`, `.asleepCore`, `.awake`, `.inBed`. See `HealthKitManager.swift` for unit constructors.
+Sleep stages (watchOS 9+ / iOS 16+): `.asleepREM`, `.asleepDeep`, `.asleepCore`, `.awake`, `.inBed`. See call sites (e.g., `SnapshotAggregator.swift`) for unit constructors.
 
 ## CPAP Data Notes
 
