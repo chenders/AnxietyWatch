@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 import Testing
 
-@testable import AnxietyScope
+@testable import AnxietyWatch
 
 /// Tests that date filtering in TrendsView correctly includes boundary-day data.
 /// These validate the fix for the critical startDate off-by-one bug where
