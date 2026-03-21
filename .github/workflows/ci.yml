@@ -26,19 +26,19 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: anxietyscope
+          POSTGRES_USER: anxietywatch
           POSTGRES_PASSWORD: testpass
-          POSTGRES_DB: anxietyscope_test
+          POSTGRES_DB: anxietywatch_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U anxietyscope"
+          --health-cmd "pg_isready -U anxietywatch"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 5
     env:
-      DATABASE_URL: postgresql://anxietyscope:testpass@localhost:5432/anxietyscope_test
-      TEST_DATABASE_URL: postgresql://anxietyscope:testpass@localhost:5432/anxietyscope_test
+      DATABASE_URL: postgresql://anxietywatch:testpass@localhost:5432/anxietywatch_test
+      TEST_DATABASE_URL: postgresql://anxietywatch:testpass@localhost:5432/anxietywatch_test
       ADMIN_PASSWORD: testpass
       SECRET_KEY: test-secret
     steps:
@@ -58,6 +58,6 @@ jobs:
         with:
           context: server
           push: false
-          tags: anxietyscope-server:test
+          tags: anxietywatch-server:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
