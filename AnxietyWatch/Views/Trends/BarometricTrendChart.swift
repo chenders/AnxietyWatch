@@ -6,10 +6,19 @@ struct BarometricTrendChart: View {
     let readings: [BarometricReading]
     let entries: [AnxietyEntry]
 
+    /// Cap chart points to avoid rendering thousands of raw CMAltimeter samples
+    private var displayReadings: [BarometricReading] {
+        let maxPoints = 500
+        guard readings.count > maxPoints else { return readings }
+        // Ceiling division guarantees stride > 1, so output never exceeds maxPoints
+        let stride = Int(ceil(Double(readings.count) / Double(maxPoints)))
+        return Array(Swift.stride(from: 0, to: readings.count, by: stride).map { readings[$0] }.prefix(maxPoints))
+    }
+
     var body: some View {
         ChartCard(title: "Barometric Pressure", isEmpty: readings.isEmpty) {
             Chart {
-                ForEach(readings) { reading in
+                ForEach(displayReadings) { reading in
                     LineMark(
                         x: .value("Time", reading.timestamp, unit: .hour),
                         y: .value("kPa", reading.pressureKPa)
