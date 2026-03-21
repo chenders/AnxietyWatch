@@ -50,18 +50,12 @@ See `REQUIREMENTS.md` for full specification, data model, and build plan.
 ## Project Structure
 
 ```
-AnxietyWatch/
-├── AnxietyWatch/                    # iOS app target
+AnxietyScope/
+├── AnxietyScope/                        # iOS app target
 │   ├── App/
-│   │   ├── AnxietyWatchApp.swift    # @main entry point
-│   │   └── ContentView.swift        # Tab-based root view
-│   ├── Models/                      # SwiftData @Model classes
-│   │   ├── AnxietyEntry.swift
-│   │   ├── MedicationDose.swift
-│   │   ├── MedicationDefinition.swift
-│   │   ├── CPAPSession.swift
-│   │   ├── BarometricReading.swift
-│   │   └── HealthSnapshot.swift
+│   │   ├── AnxietyScopeApp.swift        # @main entry point
+│   │   └── ContentView.swift            # Tab-based root view
+│   ├── Models/                          # SwiftData @Model classes
 │   ├── Services/
 │   │   ├── HealthKitManager.swift       # Actor — all HealthKit reads
 │   │   ├── BarometerService.swift       # CMAltimeter wrapper
@@ -84,8 +78,8 @@ AnxietyWatch/
 │       ├── Extensions/
 │       ├── ShareSheet.swift
 │       └── Constants.swift
-├── AnxietyWatch Watch App/          # watchOS app target
-│   ├── AnxietyWatchApp.swift
+├── AnxietyScopeWatch Watch App/         # watchOS app target (note space in name)
+│   ├── AnxietyScopeWatchApp.swift
 │   ├── QuickLogView.swift
 │   ├── CurrentStatsView.swift
 │   └── WatchConnectivityManager.swift
