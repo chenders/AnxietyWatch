@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**AnxietyWatch** is a personal iOS + watchOS app for anxiety tracking. It combines subjective journaling with objective physiological data from HealthKit, an AirSense 11 CPAP, and smart blood pressure monitors. Single user, never published to App Store.
+**Anxiety Watch** is a personal iOS + watchOS app for anxiety tracking. It combines subjective journaling with objective physiological data from HealthKit, an AirSense 11 CPAP, and smart blood pressure monitors. Single user, never published to App Store.
 
 See `REQUIREMENTS.md` for full specification, data model, and build plan.
 
@@ -148,9 +148,9 @@ It requires the `NSMotionUsageDescription` key in Info.plist. Readings are only 
 ## Info.plist Keys Required
 
 ```
-NSHealthShareUsageDescription — "AnxietyWatch reads health data to track anxiety patterns and correlate physiological signals with your journal entries."
-NSMotionUsageDescription — "AnxietyWatch uses barometric pressure data to correlate atmospheric changes with anxiety patterns."
-NSLocationWhenInUseUsageDescription — "AnxietyWatch optionally tags journal entries with location to help identify environmental anxiety triggers." (optional, only if location tagging is implemented)
+NSHealthShareUsageDescription — "Anxiety Watch reads health data to track anxiety patterns and correlate physiological signals with your journal entries."
+NSMotionUsageDescription — "Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns."
+NSLocationWhenInUseUsageDescription — "Anxiety Watch optionally tags journal entries with location to help identify environmental anxiety triggers." (optional, only if location tagging is implemented)
 ```
 
 ## Testing Notes
