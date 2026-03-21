@@ -4,7 +4,7 @@ import WidgetKit
 // MARK: - Shared Constants
 
 enum SharedData {
-    static let appGroup = "group.org.waitingforthefuture.AnxietyScope.watch"
+    static let appGroup = "group.org.waitingforthefuture.AnxietyWatch.watch"
 
     static var shared: UserDefaults? {
         UserDefaults(suiteName: appGroup)
@@ -143,22 +143,22 @@ struct InlineView: View {
         } else if let anxiety = entry.lastAnxiety {
             Text("Anxiety \(anxiety)/10")
         } else {
-            Text("AnxietyScope")
+            Text("AnxietyWatch")
         }
     }
 }
 
 // MARK: - Widget
 
-struct AnxietyScopeWatchWidgets: Widget {
-    let kind = "AnxietyScopeWatchWidgets"
+struct AnxietyWatchWidgets: Widget {
+    let kind = "AnxietyWatchWidgets"
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: StatsTimelineProvider()) { entry in
             WidgetEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("AnxietyScope")
+        .configurationDisplayName("AnxietyWatch")
         .description("Current HRV and last anxiety rating")
         .supportedFamilies([
             .accessoryCircular,
@@ -187,7 +187,7 @@ struct WidgetEntryView: View {
 }
 
 #Preview(as: .accessoryRectangular) {
-    AnxietyScopeWatchWidgets()
+    AnxietyWatchWidgets()
 } timeline: {
     StatsEntry(date: .now, lastAnxiety: 6, hrvAvg: 42, restingHR: 62)
 }
