@@ -35,8 +35,12 @@ struct SettingsView: View {
                 Section("Clinical Records") {
                     Button {
                         Task {
-                            try? await HealthKitManager.shared.requestClinicalAuthorization()
-                            clinicalRecordsRequested = true
+                            do {
+                                try await HealthKitManager.shared.requestClinicalAuthorization()
+                                clinicalRecordsRequested = true
+                            } catch {
+                                // Authorization failed or was cancelled — don't show checkmark
+                            }
                         }
                     } label: {
                         Label("Connect Health Records", systemImage: "cross.case.fill")
@@ -160,7 +164,7 @@ struct SettingsView: View {
         let calendar = Calendar.current
         let oldestDate = try? await HealthKitManager.shared.oldestSampleDate()
         let startDate = oldestDate ?? calendar.date(byAdding: .day, value: -90, to: .now)!
-        let totalDays = max(1, calendar.dateComponents([.day], from: startDate, to: .now).day ?? 90)
+        let totalDays = max(1, (calendar.dateComponents([.day], from: startDate, to: .now).day ?? 90) + 1)
 
         isRebuilding = true
         rebuildTotal = totalDays
@@ -171,7 +175,7 @@ struct SettingsView: View {
             modelContext: modelContext
         )
         for offset in 0..<totalDays {
-            let date = calendar.date(byAdding: .day, value: -offset, to: .now)!
+            let date = calendar.date(byAdding: .day, value: offset, to: startDate)!
             try? await aggregator.aggregateDay(date)
             rebuildProgress = offset + 1
         }
