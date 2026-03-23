@@ -88,7 +88,8 @@ final class HealthDataCoordinator {
     }
 
     /// Debounce rapid-fire observer callbacks (e.g., Watch syncing multiple types at once).
-    /// Waits 5 seconds after the last update before re-aggregating today's snapshot.
+    /// Waits 5 seconds after the last update before re-aggregating today's snapshot
+    /// and checking for new clinical records.
     private func scheduleRefresh() {
         pendingRefreshTask?.cancel()
         pendingRefreshTask = Task {
@@ -101,6 +102,8 @@ final class HealthDataCoordinator {
                 modelContext: context
             )
             try? await aggregator.aggregateDay(.now)
+
+            await importClinicalRecordsIfNeeded()
         }
     }
 }
