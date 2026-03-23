@@ -80,11 +80,21 @@
 			);
 			target = 839563752F6D2DF3002DA90A /* AnxietyWatchWidgetsExtension */;
 		};
+		83AA00012F6D0B3D00B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatch" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 833535F82F6D0B3D00B45286 /* AnxietyWatch */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		833535FB2F6D0B3D00B45286 /* AnxietyWatch */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				83AA00012F6D0B3D00B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatch" target */,
+			);
 			path = AnxietyWatch;
 			sourceTree = "<group>";
 		};
@@ -536,7 +546,8 @@
 				INFOPLIST_KEY_NSMotionUsageDescription = "Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UIBackgroundModes = "health-update";
+				INFOPLIST_FILE = AnxietyWatch/Info.plist;
+				INFOPLIST_KEY_UIBackgroundModes = "fetch health-update";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -576,7 +587,8 @@
 				INFOPLIST_KEY_NSMotionUsageDescription = "Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UIBackgroundModes = "health-update";
+				INFOPLIST_FILE = AnxietyWatch/Info.plist;
+				INFOPLIST_KEY_UIBackgroundModes = "fetch health-update";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
