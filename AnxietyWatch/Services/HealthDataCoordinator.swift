@@ -165,6 +165,9 @@ final class HealthDataCoordinator {
     /// Request the system schedule a background refresh. The system decides exactly when
     /// to run it based on app usage patterns, battery, connectivity, etc.
     func scheduleBackgroundRefresh() {
+        // Cancel any existing pending request to avoid hitting tooManyPendingTaskRequests
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundRefreshIdentifier)
+
         let request = BGAppRefreshTaskRequest(identifier: Self.backgroundRefreshIdentifier)
         request.earliestBeginDate = Calendar.current.date(byAdding: .hour, value: 6, to: .now)
         do {
