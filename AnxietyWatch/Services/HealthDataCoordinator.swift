@@ -8,6 +8,7 @@ final class HealthDataCoordinator {
     private let modelContainer: ModelContainer
     private var hasSetupObservers = false
     private var pendingRefreshTask: Task<Void, Never>?
+    private var lastClinicalImport: Date = .distantPast
 
     /// Exposed so the UI can show backfill progress.
     var isBackfilling = false
@@ -66,8 +67,13 @@ final class HealthDataCoordinator {
     // MARK: - Clinical Records Import
 
     /// Silently imports any new clinical lab results from HealthKit Health Records.
-    /// Runs every launch; deduplication in ClinicalRecordImporter handles repeat imports.
+    /// Throttled to at most once per hour since clinical records rarely change.
+    /// Deduplication in ClinicalRecordImporter handles repeat imports.
     private func importClinicalRecordsIfNeeded() async {
+        let now = Date.now
+        guard now.timeIntervalSince(lastClinicalImport) >= 3600 else { return }
+        lastClinicalImport = now
+
         let context = ModelContext(modelContainer)
         let importer = ClinicalRecordImporter(
             healthKit: HealthKitManager.shared,
@@ -123,6 +129,7 @@ final class HealthDataCoordinator {
                 relativeAltitudeM: altitude
             )
             context.insert(reading)
+            try? context.save()
         }
         BarometerService.shared.startMonitoring()
     }
