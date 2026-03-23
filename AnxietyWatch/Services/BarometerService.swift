@@ -11,11 +11,19 @@ final class BarometerService {
     private var lastSavedTime: Date?
 
     /// Called whenever a new reading is worth persisting.
+    /// Always invoked on the main actor (from `startRelativeAltitudeUpdates` on `.main` queue).
     var onSignificantChange: ((Double, Double) -> Void)?
 
     var currentPressureKPa: Double?
     var currentRelativeAltitude: Double?
     private(set) var isMonitoring = false
+
+    // MARK: - Capture Thresholds
+
+    /// Minimum pressure change (kPa) to trigger a save.
+    static let significantPressureChangeKPa = 0.05
+    /// Minimum interval (seconds) between saves, even without pressure change.
+    static let minimumSaveIntervalSeconds: TimeInterval = 900
 
     var isAvailable: Bool {
         CMAltimeter.isRelativeAltitudeAvailable()
@@ -43,13 +51,14 @@ final class BarometerService {
         isMonitoring = false
     }
 
-    /// Save a reading when pressure changes by >= 0.05 kPa or at least 15 minutes have elapsed.
+    /// Save a reading when pressure changes significantly or enough time has elapsed.
     private func captureIfSignificant(pressure: Double, altitude: Double) {
         let now = Date.now
         let timeSinceLastSave = lastSavedTime.map { now.timeIntervalSince($0) } ?? .infinity
         let pressureDelta = lastSavedPressure.map { abs(pressure - $0) } ?? .infinity
 
-        guard pressureDelta >= 0.05 || timeSinceLastSave >= 900 else { return }
+        guard pressureDelta >= Self.significantPressureChangeKPa
+           || timeSinceLastSave >= Self.minimumSaveIntervalSeconds else { return }
 
         lastSavedPressure = pressure
         lastSavedTime = now

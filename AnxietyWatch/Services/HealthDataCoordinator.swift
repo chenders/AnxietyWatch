@@ -18,11 +18,13 @@ final class HealthDataCoordinator {
         self.modelContainer = modelContainer
     }
 
-    /// Call once at app launch. Backfills history if needed, imports clinical records, then starts live observers.
+    /// Call once at app launch. Backfills history if needed, imports clinical records,
+    /// starts live observers, and wires up barometer persistence.
     func setupIfNeeded() async {
         await backfillIfNeeded()
         await importClinicalRecordsIfNeeded()
         await startObserving()
+        startBarometerPersistence()
     }
 
     // MARK: - Backfill
@@ -92,7 +94,7 @@ final class HealthDataCoordinator {
     /// and checking for new clinical records.
     private func scheduleRefresh() {
         pendingRefreshTask?.cancel()
-        pendingRefreshTask = Task {
+        pendingRefreshTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled else { return }
 
@@ -105,5 +107,23 @@ final class HealthDataCoordinator {
 
             await importClinicalRecordsIfNeeded()
         }
+    }
+
+    // MARK: - Barometer Persistence
+
+    /// Wires BarometerService to persist significant readings into SwiftData.
+    /// Runs for the app's lifetime via the coordinator, not tied to any view.
+    private func startBarometerPersistence() {
+        let container = modelContainer
+        // Called on main actor (BarometerService uses .main queue for altimeter updates)
+        BarometerService.shared.onSignificantChange = { pressure, altitude in
+            let context = ModelContext(container)
+            let reading = BarometricReading(
+                pressureKPa: pressure,
+                relativeAltitudeM: altitude
+            )
+            context.insert(reading)
+        }
+        BarometerService.shared.startMonitoring()
     }
 }
