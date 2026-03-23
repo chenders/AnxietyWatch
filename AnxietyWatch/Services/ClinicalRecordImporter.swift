@@ -14,8 +14,10 @@ struct ClinicalRecordImporter {
     func importLabResults() async throws -> Int {
         let records = try await healthKit.queryClinicalLabResults()
 
-        // Fetch existing UUIDs for deduplication
-        let existing = try modelContext.fetch(FetchDescriptor<ClinicalLabResult>())
+        // Fetch only existing UUIDs for deduplication (avoids hydrating full objects)
+        var descriptor = FetchDescriptor<ClinicalLabResult>()
+        descriptor.propertiesToFetch = [\.healthKitSampleUUID]
+        let existing = try modelContext.fetch(descriptor)
         var existingUUIDs = Set(existing.map(\.healthKitSampleUUID))
 
         var importedCount = 0
