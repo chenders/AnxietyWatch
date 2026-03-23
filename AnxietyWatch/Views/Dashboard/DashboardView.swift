@@ -33,6 +33,13 @@ struct DashboardView: View {
             .navigationTitle("Dashboard")
             .task {
                 await refreshSnapshot()
+                barometer.onSignificantChange = { [modelContext] pressure, altitude in
+                    let reading = BarometricReading(
+                        pressureKPa: pressure,
+                        relativeAltitudeM: altitude
+                    )
+                    modelContext.insert(reading)
+                }
                 barometer.startMonitoring()
                 saveBarometricReading()
                 sendStatsToWatch()
