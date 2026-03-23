@@ -200,14 +200,15 @@ struct DashboardView: View {
 
     /// Returns the most recent lab result for each unique test from the last 7 days, limited to 4 for dashboard space.
     private var latestLabResultPerTest: [ClinicalLabResult] {
-        let oneWeekAgo = Calendar.current.startOfDay(
-            for: Calendar.current.date(byAdding: .day, value: -7, to: .now)!
-        )
+        let calendar = Calendar.current
+        let weekAgoBase = calendar.date(byAdding: .day, value: -7, to: .now) ?? .now
+        let oneWeekAgo = calendar.startOfDay(for: weekAgoBase)
         var seen = Set<String>()
         var results: [ClinicalLabResult] = []
         for result in recentLabResults {
-            guard result.effectiveDate >= oneWeekAgo,
-                  LabTestRegistry.isTracked(result.loincCode),
+            // Sorted descending by effectiveDate — once we hit an older result, we're done
+            if result.effectiveDate < oneWeekAgo { break }
+            guard LabTestRegistry.isTracked(result.loincCode),
                   !seen.contains(result.loincCode) else { continue }
             seen.insert(result.loincCode)
             results.append(result)
