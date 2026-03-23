@@ -33,15 +33,7 @@ struct DashboardView: View {
             .navigationTitle("Dashboard")
             .task {
                 await refreshSnapshot()
-                barometer.onSignificantChange = { [modelContext] pressure, altitude in
-                    let reading = BarometricReading(
-                        pressureKPa: pressure,
-                        relativeAltitudeM: altitude
-                    )
-                    modelContext.insert(reading)
-                }
                 barometer.startMonitoring()
-                saveBarometricReading()
                 sendStatsToWatch()
                 await autoSync()
             }
@@ -252,15 +244,6 @@ struct DashboardView: View {
             hrvAvg: todaySnapshot?.hrvAvg,
             restingHR: todaySnapshot?.restingHR
         )
-    }
-
-    private func saveBarometricReading() {
-        guard let pressure = barometer.currentPressureKPa else { return }
-        let reading = BarometricReading(
-            pressureKPa: pressure,
-            relativeAltitudeM: barometer.currentRelativeAltitude ?? 0
-        )
-        modelContext.insert(reading)
     }
 
     private func severityColor(_ severity: Int) -> Color {
