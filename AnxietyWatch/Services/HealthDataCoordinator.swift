@@ -91,7 +91,8 @@ final class HealthDataCoordinator {
         guard let daysBetween = calendar.dateComponents([.day], from: lastDate, to: today).day,
               daysBetween > 1 else { return }
 
-        let daysToFill = min(daysBetween, 90)
+        // Cap to avoid excessive work; fill at most 90 missed days
+        let cappedGap = min(daysBetween, 91)
 
         let aggregator = SnapshotAggregator(
             healthKit: HealthKitManager.shared,
@@ -100,7 +101,8 @@ final class HealthDataCoordinator {
 
         // Fill from the day after the last snapshot up to today (exclusive — today
         // is handled by the observer and view .task refreshes).
-        for offset in 1..<daysToFill {
+        for offset in 1..<cappedGap {
+            if Task.isCancelled { return }
             guard let date = calendar.date(byAdding: .day, value: offset, to: lastDate) else { continue }
             try? await aggregator.aggregateDay(date)
         }
@@ -152,8 +154,11 @@ final class HealthDataCoordinator {
             forTaskWithIdentifier: Self.backgroundRefreshIdentifier,
             using: nil
         ) { [weak self] task in
-            guard let task = task as? BGAppRefreshTask else { return }
-            self?.handleBackgroundRefresh(task)
+            guard let self, let task = task as? BGAppRefreshTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            self.handleBackgroundRefresh(task)
         }
     }
 
@@ -174,6 +179,7 @@ final class HealthDataCoordinator {
 
         let workTask = Task {
             await fillGaps()
+            guard !Task.isCancelled else { return }
 
             let context = ModelContext(modelContainer)
             let aggregator = SnapshotAggregator(
@@ -189,7 +195,7 @@ final class HealthDataCoordinator {
 
         Task {
             _ = await workTask.result
-            task.setTaskCompleted(success: true)
+            task.setTaskCompleted(success: !workTask.isCancelled)
         }
     }
 
