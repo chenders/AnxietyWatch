@@ -1,3 +1,4 @@
+import BackgroundTasks
 import SwiftUI
 import SwiftData
 
@@ -24,6 +25,13 @@ struct AnxietyWatchApp: App {
 
     @State private var coordinator: HealthDataCoordinator?
 
+    // BGTask registration must happen before app finishes launching.
+    init() {
+        let coord = HealthDataCoordinator(modelContainer: sharedModelContainer)
+        _coordinator = State(initialValue: coord)
+        coord.registerBackgroundTask()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -36,9 +44,9 @@ struct AnxietyWatchApp: App {
                     PhoneConnectivityManager.shared.modelContainer = sharedModelContainer
                     PhoneConnectivityManager.shared.activate()
 
-                    let coord = HealthDataCoordinator(modelContainer: sharedModelContainer)
-                    coordinator = coord
+                    guard let coord = coordinator else { return }
                     await coord.setupIfNeeded()
+                    coord.scheduleBackgroundRefresh()
                 }
         }
         .modelContainer(sharedModelContainer)
