@@ -154,11 +154,18 @@ final class HealthDataCoordinator {
             forTaskWithIdentifier: Self.backgroundRefreshIdentifier,
             using: nil
         ) { [weak self] task in
-            guard let self, let task = task as? BGAppRefreshTask else {
+            guard let task = task as? BGAppRefreshTask else {
                 task.setTaskCompleted(success: false)
                 return
             }
-            self.handleBackgroundRefresh(task)
+
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    task.setTaskCompleted(success: false)
+                    return
+                }
+                self.handleBackgroundRefresh(task)
+            }
         }
     }
 
