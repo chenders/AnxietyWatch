@@ -200,7 +200,9 @@ struct DashboardView: View {
 
     /// Returns the most recent lab result for each unique test from the last 7 days, limited to 4 for dashboard space.
     private var latestLabResultPerTest: [ClinicalLabResult] {
-        let oneWeekAgo = Calendar.current.date(byAdding: .day, value: -7, to: .now)!
+        let oneWeekAgo = Calendar.current.startOfDay(
+            for: Calendar.current.date(byAdding: .day, value: -7, to: .now)!
+        )
         var seen = Set<String>()
         var results: [ClinicalLabResult] = []
         for result in recentLabResults {
