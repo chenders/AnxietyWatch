@@ -25,13 +25,14 @@ struct StatsEntry: TimelineEntry {
     let lastAnxiety: Int?
     let hrvAvg: Double?
     let restingHR: Double?
+    let lastUpdate: Date?
 }
 
 // MARK: - Timeline Provider
 
 struct StatsTimelineProvider: TimelineProvider {
     func placeholder(in context: Context) -> StatsEntry {
-        StatsEntry(date: .now, lastAnxiety: 5, hrvAvg: 42, restingHR: 62)
+        StatsEntry(date: .now, lastAnxiety: 5, hrvAvg: 42, restingHR: 62, lastUpdate: .now)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (StatsEntry) -> Void) {
@@ -40,8 +41,8 @@ struct StatsTimelineProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<StatsEntry>) -> Void) {
         let entry = readEntry()
-        // Refresh every 30 minutes; the watch app also triggers reloads when new data arrives
-        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 30, to: .now)!
+        // Refresh every 15 minutes; the watch app also triggers reloads when new data arrives
+        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: .now)!
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         completion(timeline)
     }
@@ -51,7 +52,8 @@ struct StatsTimelineProvider: TimelineProvider {
         let anxiety = defaults?.object(forKey: SharedData.Key.lastAnxiety) as? Int
         let hrv = defaults?.object(forKey: SharedData.Key.hrvAvg) as? Double
         let hr = defaults?.object(forKey: SharedData.Key.restingHR) as? Double
-        return StatsEntry(date: .now, lastAnxiety: anxiety, hrvAvg: hrv, restingHR: hr)
+        let lastUpdate = (defaults?.object(forKey: SharedData.Key.lastUpdate) as? TimeInterval).map { Date(timeIntervalSince1970: $0) }
+        return StatsEntry(date: .now, lastAnxiety: anxiety, hrvAvg: hrv, restingHR: hr, lastUpdate: lastUpdate)
     }
 }
 
@@ -88,36 +90,43 @@ struct RectangularView: View {
     let entry: StatsEntry
 
     var body: some View {
-        HStack(spacing: 12) {
-            if let hrv = entry.hrvAvg {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("HRV")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(String(format: "%.0f ms", hrv))
-                        .font(.headline)
-                        .foregroundStyle(.blue)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 12) {
+                if let hrv = entry.hrvAvg {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("HRV")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f ms", hrv))
+                            .font(.headline)
+                            .foregroundStyle(.blue)
+                    }
+                }
+                if let anxiety = entry.lastAnxiety {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Anxiety")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("\(anxiety)/10")
+                            .font(.headline)
+                            .foregroundStyle(severityColor(anxiety))
+                    }
+                }
+                if let hr = entry.restingHR {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("RHR")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.0f", hr))
+                            .font(.headline)
+                            .foregroundStyle(.red)
+                    }
                 }
             }
-            if let anxiety = entry.lastAnxiety {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Anxiety")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("\(anxiety)/10")
-                        .font(.headline)
-                        .foregroundStyle(severityColor(anxiety))
-                }
-            }
-            if let hr = entry.restingHR {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("RHR")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(String(format: "%.0f", hr))
-                        .font(.headline)
-                        .foregroundStyle(.red)
-                }
+            if let lastUpdate = entry.lastUpdate {
+                Text(lastUpdate, style: .relative)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
             }
         }
     }
@@ -189,5 +198,5 @@ struct WidgetEntryView: View {
 #Preview(as: .accessoryRectangular) {
     AnxietyWatchWidgets()
 } timeline: {
-    StatsEntry(date: .now, lastAnxiety: 6, hrvAvg: 42, restingHR: 62)
+    StatsEntry(date: .now, lastAnxiety: 6, hrvAvg: 42, restingHR: 62, lastUpdate: .now)
 }
