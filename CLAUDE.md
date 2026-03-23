@@ -22,8 +22,8 @@ xcodebuild build -scheme "AnxietyWatch Watch App" -destination 'generic/platform
 # Sync server (Python/Flask + PostgreSQL)
 cd server && pip install -r requirements.txt
 cd server && python -m pytest tests/           # run server tests
-cd server && flake8 --max-line-length=120       # lint server code
-docker compose -f server/docker-compose.yml up  # run with Docker
+cd server && flake8 . --max-line-length=120 --exclude=__pycache__  # lint server code (matches CI)
+docker compose --env-file server/.env -f server/docker-compose.yml up  # run server with Docker
 ```
 
 **Xcode targets** (no shared schemes are checked in — open the project in Xcode once to auto-generate schemes, or use `-project ... -target ...` for headless builds): `AnxietyWatch`, `AnxietyWatch Watch App`, `AnxietyWatchWidgets`
@@ -50,18 +50,12 @@ See `REQUIREMENTS.md` for full specification, data model, and build plan.
 ## Project Structure
 
 ```
-AnxietyWatch/
-├── AnxietyWatch/                    # iOS app target
+AnxietyScope/
+├── AnxietyScope/                        # iOS app target
 │   ├── App/
-│   │   ├── AnxietyWatchApp.swift    # @main entry point
-│   │   └── ContentView.swift        # Tab-based root view
-│   ├── Models/                      # SwiftData @Model classes
-│   │   ├── AnxietyEntry.swift
-│   │   ├── MedicationDose.swift
-│   │   ├── MedicationDefinition.swift
-│   │   ├── CPAPSession.swift
-│   │   ├── BarometricReading.swift
-│   │   └── HealthSnapshot.swift
+│   │   ├── AnxietyScopeApp.swift        # @main entry point
+│   │   └── ContentView.swift            # Tab-based root view
+│   ├── Models/                          # SwiftData @Model classes
 │   ├── Services/
 │   │   ├── HealthKitManager.swift       # Actor — all HealthKit reads
 │   │   ├── BarometerService.swift       # CMAltimeter wrapper
@@ -81,11 +75,10 @@ AnxietyWatch/
 │   │   ├── Reports/                     # ExportView
 │   │   └── Settings/                    # SettingsView + SyncSettingsView
 │   └── Utilities/
-│       ├── Extensions/
 │       ├── ShareSheet.swift
 │       └── Constants.swift
-├── AnxietyWatch Watch App/          # watchOS app target
-│   ├── AnxietyWatchApp.swift
+├── AnxietyScopeWatch Watch App/         # watchOS app target (note space in name)
+│   ├── AnxietyScopeWatchApp.swift
 │   ├── QuickLogView.swift
 │   ├── CurrentStatsView.swift
 │   └── WatchConnectivityManager.swift
@@ -120,7 +113,7 @@ Request authorization for ALL needed read types at once on first launch (see `He
 - Use `HKObserverQuery` + background delivery for real-time updates (optional, not needed for V1)
 
 ### Sleep Analysis
-Sleep stages (watchOS 9+ / iOS 16+): `.asleepREM`, `.asleepDeep`, `.asleepCore`, `.awake`, `.inBed`. See `HealthKitManager.swift` for unit constructors.
+Sleep stages (watchOS 9+ / iOS 16+): `.asleepREM`, `.asleepDeep`, `.asleepCore`, `.awake`, `.inBed`. See call sites (e.g., `SnapshotAggregator.swift`) for unit constructors.
 
 ## CPAP Data Notes
 
@@ -144,7 +137,7 @@ It requires the `NSMotionUsageDescription` key in Info.plist. Readings are only 
 `server/` contains a Flask + PostgreSQL sync server that receives data from the iOS app's `SyncService`. Deployed via Docker.
 
 - **Stack**: Python 3.12, Flask 3, PostgreSQL 16, Gunicorn
-- **Docker**: `docker compose -f server/docker-compose.yml up` — exposes app on port 8081, Postgres on 127.0.0.1:5439
+- **Docker**: `docker compose --env-file server/.env -f server/docker-compose.yml up` — exposes app on port 8081, Postgres on 127.0.0.1:5439
 - **Admin UI**: Blueprint in `server/admin.py`, templates in `server/templates/`
 - **Auth**: API requests use Bearer tokens whose SHA-256 hashes are stored in the `api_keys` table; the admin UI uses `ADMIN_PASSWORD` for login and a session cookie with `SameSite=Strict`
 - **Required env vars** (set in `.env` or environment): `POSTGRES_PASSWORD`, `ADMIN_PASSWORD` (admin UI login), `SECRET_KEY`
@@ -187,4 +180,4 @@ NSLocationWhenInUseUsageDescription — "Anxiety Watch optionally tags journal e
 
 ## Known Gaps
 
-- **No `.gitignore`** — the repo has no `.gitignore`. One should be added covering Xcode build artifacts, `.DS_Store`, `server/__pycache__`, `server/.env`, etc.
+- **No top-level `.gitignore`** — the repo has no root `.gitignore`. One should be added covering Xcode build artifacts, `.DS_Store`, `server/__pycache__`, `server/.env`, etc. Note that `server/.gitignore` already exists for server-specific files.
