@@ -35,7 +35,7 @@ docker compose --env-file server/.env -f server/docker-compose.yml up  # run ser
 ```
 
 **Xcode targets** (no shared schemes are checked in — open the project in Xcode once to auto-generate schemes, or use `-project ... -target ...` for headless builds): `AnxietyWatch`, `AnxietyWatch Watch App`, `AnxietyWatchWidgets`
-**Test target:** `AnxietyWatchTests` (unit tests for date filtering, baselines, model normalization)
+**Test target:** `AnxietyWatchTests` (unit tests — see Testing section below)
 
 ## Project Overview
 
@@ -200,12 +200,45 @@ NSMotionUsageDescription — "Anxiety Watch uses barometric pressure data to cor
 NSLocationWhenInUseUsageDescription — "Anxiety Watch optionally tags journal entries with location to help identify environmental anxiety triggers." (optional, only if location tagging is implemented)
 ```
 
-## Testing Notes
+## Testing
+
+### Expectations
+
+**All new or changed code must include tests.** When adding a feature or fixing a bug, add tests that cover the new/changed logic. Extract pure logic into testable helpers (see `TrendWindow`, `BarometerService.shouldCapture`) rather than burying it in views or private methods.
+
+### Framework
+
+- **Swift Testing** (`import Testing`) — use `@Test` macro, `#expect()` assertions. Do not use legacy XCTest for new tests.
+- In-memory `ModelContainer` for SwiftData isolation in tests.
+- Fixed reference dates for deterministic tests (avoid `Date.now` in assertions).
+
+### Running Tests
+
+```bash
+# Run all iOS unit tests
+xcodebuild test -scheme AnxietyWatch -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:AnxietyWatchTests
+
+# Run with code coverage
+xcodebuild test -scheme AnxietyWatch -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -enableCodeCoverage YES -resultBundlePath /tmp/coverage.xcresult
+xcrun xccov view --report /tmp/coverage.xcresult
+
+# Run server tests
+cd server && python -m pytest tests/
+```
+
+### Coverage Targets
+
+- **Overall iOS**: 25%+ (current baseline: ~15%)
+- **Services/**: 80%+ (core logic — the most testable and highest-value code)
+- **Long-term overall**: 40%+
+
+### Hardware Notes
 
 - HealthKit data can be simulated in the iOS Simulator but is limited. Test on a real device with actual Apple Watch data whenever possible.
 - For CPAP data testing, sample OSCAR-compatible data files can be found in the OSCAR project's test fixtures.
 - The watchOS simulator cannot generate real HealthKit data. Test Watch complications and quick-log on actual hardware.
 
-## Known Gaps
+### CI
 
-(None currently tracked.)
+- **iOS**: `.github/workflows/ios-ci.yml` — runs unit tests with coverage on push/PR (excludes server/ and docs/ changes)
+- **Server**: `.github/workflows/ci.yml` — flake8 lint + pytest on push/PR touching server/
