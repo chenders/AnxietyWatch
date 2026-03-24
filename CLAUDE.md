@@ -108,8 +108,12 @@ AnxietyWatch/
 ├── docs/                                # SERVER_SETUP.md and other docs
 ├── .github/workflows/                   # CI/CD (see below)
 ├── .github/copilot-instructions.md      # Copilot review instructions
+├── .gitignore
+├── .env.runners.example                 # Runner credential template
+├── docker-compose.runners.yml           # GitHub Actions runner config
 ├── AGENTS.md                            # Multi-agent tooling instructions
 ├── CLAUDE.md
+├── DATA_AND_REPORTS.md
 ├── REQUIREMENTS.md
 └── SETUP_GUIDE.md
 ```
