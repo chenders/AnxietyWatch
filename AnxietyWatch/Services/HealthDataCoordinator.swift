@@ -8,6 +8,7 @@ final class HealthDataCoordinator {
     private let modelContainer: ModelContainer
     private var hasSetupObservers = false
     private var pendingRefreshTask: Task<Void, Never>?
+    private var lastClinicalImport: Date = .distantPast
 
     /// Exposed so the UI can show backfill progress.
     var isBackfilling = false
@@ -18,8 +19,12 @@ final class HealthDataCoordinator {
         self.modelContainer = modelContainer
     }
 
-    /// Call once at app launch. Backfills history if needed, imports clinical records, then starts live observers.
+    /// Call once at app launch. Backfills history if needed, imports clinical records,
+    /// starts live observers, and wires up barometer persistence.
     func setupIfNeeded() async {
+        // Wire barometer persistence immediately so monitoring/persistence start at launch,
+        // even if backfill/import/observer setup take a while.
+        startBarometerPersistence()
         await backfillIfNeeded()
         await importClinicalRecordsIfNeeded()
         await startObserving()
@@ -64,14 +69,23 @@ final class HealthDataCoordinator {
     // MARK: - Clinical Records Import
 
     /// Silently imports any new clinical lab results from HealthKit Health Records.
-    /// Runs every launch; deduplication in ClinicalRecordImporter handles repeat imports.
+    /// Throttled to at most once per hour since clinical records rarely change.
+    /// Deduplication in ClinicalRecordImporter handles repeat imports.
     private func importClinicalRecordsIfNeeded() async {
+        let now = Date.now
+        guard now.timeIntervalSince(lastClinicalImport) >= 3600 else { return }
+
         let context = ModelContext(modelContainer)
         let importer = ClinicalRecordImporter(
             healthKit: HealthKitManager.shared,
             modelContext: context
         )
-        _ = try? await importer.importLabResults()
+        do {
+            try await importer.importLabResults()
+            lastClinicalImport = Date.now
+        } catch {
+            // Don't advance throttle on failure so we can retry soon
+        }
     }
 
     // MARK: - Live Observer Queries
@@ -88,10 +102,11 @@ final class HealthDataCoordinator {
     }
 
     /// Debounce rapid-fire observer callbacks (e.g., Watch syncing multiple types at once).
-    /// Waits 5 seconds after the last update before re-aggregating today's snapshot.
+    /// Waits 5 seconds after the last update before re-aggregating today's snapshot
+    /// and checking for new clinical records.
     private func scheduleRefresh() {
         pendingRefreshTask?.cancel()
-        pendingRefreshTask = Task {
+        pendingRefreshTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled else { return }
 
@@ -101,6 +116,27 @@ final class HealthDataCoordinator {
                 modelContext: context
             )
             try? await aggregator.aggregateDay(.now)
+
+            await importClinicalRecordsIfNeeded()
         }
+    }
+
+    // MARK: - Barometer Persistence
+
+    /// Wires BarometerService to persist significant readings into SwiftData.
+    /// Runs for the app's lifetime via the coordinator, not tied to any view.
+    private func startBarometerPersistence() {
+        let container = modelContainer
+        // Called on main actor (BarometerService uses .main queue for altimeter updates)
+        BarometerService.shared.onSignificantChange = { pressure, altitude in
+            let context = ModelContext(container)
+            let reading = BarometricReading(
+                pressureKPa: pressure,
+                relativeAltitudeM: altitude
+            )
+            context.insert(reading)
+            try? context.save()
+        }
+        BarometerService.shared.startMonitoring()
     }
 }
