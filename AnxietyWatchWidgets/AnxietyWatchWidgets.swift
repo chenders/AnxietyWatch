@@ -42,7 +42,8 @@ struct StatsTimelineProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<StatsEntry>) -> Void) {
         let entry = readEntry()
         // Refresh every 15 minutes; the watch app also triggers reloads when new data arrives
-        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: .now)!
+        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: .now)
+            ?? Date.now.addingTimeInterval(15 * 60)
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         completion(timeline)
     }

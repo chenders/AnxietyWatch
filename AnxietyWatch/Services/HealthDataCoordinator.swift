@@ -74,7 +74,6 @@ final class HealthDataCoordinator {
     private func importClinicalRecordsIfNeeded() async {
         let now = Date.now
         guard now.timeIntervalSince(lastClinicalImport) >= 3600 else { return }
-        lastClinicalImport = now
 
         let context = ModelContext(modelContainer)
         let importer = ClinicalRecordImporter(
@@ -82,6 +81,7 @@ final class HealthDataCoordinator {
             modelContext: context
         )
         _ = try? await importer.importLabResults()
+        lastClinicalImport = Date.now
     }
 
     // MARK: - Live Observer Queries
