@@ -58,20 +58,25 @@ struct TrendsView: View {
 
     // MARK: - Filtered Data
 
+    /// Current period uses inclusive end (end == now); past periods use exclusive end (end == midnight boundary).
+    private func inWindow(_ date: Date) -> Bool {
+        date >= windowStart && (isShowingCurrentPeriod ? date <= windowEnd : date < windowEnd)
+    }
+
     private var snapshots: [HealthSnapshot] {
-        allSnapshots.filter { $0.date >= windowStart && $0.date <= windowEnd }
+        allSnapshots.filter { inWindow($0.date) }
     }
 
     private var entries: [AnxietyEntry] {
-        allEntries.filter { $0.timestamp >= windowStart && $0.timestamp <= windowEnd }
+        allEntries.filter { inWindow($0.timestamp) }
     }
 
     private var cpapSessions: [CPAPSession] {
-        allCPAPSessions.filter { $0.date >= windowStart && $0.date <= windowEnd }
+        allCPAPSessions.filter { inWindow($0.date) }
     }
 
     private var barometricReadings: [BarometricReading] {
-        allBarometric.filter { $0.timestamp >= windowStart && $0.timestamp <= windowEnd }
+        allBarometric.filter { inWindow($0.timestamp) }
     }
 
     var body: some View {
