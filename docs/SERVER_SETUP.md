@@ -45,7 +45,7 @@ Group=docker
 WorkingDirectory=/opt/anxietywatch
 ExecStart=/usr/bin/docker compose up -d
 ExecStop=/usr/bin/docker compose down
-ExecReload=/usr/bin/docker compose pull && /usr/bin/docker compose up -d
+ExecReload=/bin/sh -c '/usr/bin/docker compose pull && /usr/bin/docker compose up -d'
 
 [Install]
 WantedBy=multi-user.target
@@ -69,7 +69,7 @@ Group=docker
 WorkingDirectory=/opt/github-runners-anxietywatch
 ExecStart=/usr/bin/docker compose up -d
 ExecStop=/usr/bin/docker compose down
-ExecReload=/usr/bin/docker compose pull && /usr/bin/docker compose up -d
+ExecReload=/bin/sh -c '/usr/bin/docker compose pull && /usr/bin/docker compose up -d'
 
 [Install]
 WantedBy=multi-user.target
