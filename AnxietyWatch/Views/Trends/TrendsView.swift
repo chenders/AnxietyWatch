@@ -38,12 +38,15 @@ struct TrendsView: View {
 
     // MARK: - Date Label
 
+    private static let windowDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
     private var windowLabel: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        let start = formatter.string(from: windowStart)
-        let end = formatter.string(from: windowEnd)
-        return "\(start) – \(end)"
+        let f = Self.windowDateFormatter
+        return "\(f.string(from: windowStart)) – \(f.string(from: windowEnd))"
     }
 
     // MARK: - Filtered Data
@@ -75,7 +78,7 @@ struct TrendsView: View {
                     }
                     .pickerStyle(.segmented)
                     .padding(.horizontal)
-                    .onChange(of: timeRange) { pageOffset = 0 }
+                    .onChange(of: timeRange) { _, _ in pageOffset = 0 }
 
                     // Navigation header
                     HStack {
@@ -131,7 +134,7 @@ struct TrendsView: View {
                 .padding(.vertical)
             }
             .navigationTitle("Trends")
-            .gesture(
+            .simultaneousGesture(
                 DragGesture(minimumDistance: 50)
                     .onEnded { value in
                         if value.translation.width > 50 {
