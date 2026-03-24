@@ -12,12 +12,18 @@ struct TrendWindow {
     ///   - pageOffset: 0 = current period, -1 = previous period, etc.
     init(now: Date, periodDays: Int, pageOffset: Int) {
         let calendar = Calendar.current
-        // Snap to start-of-next-day so the rightmost day is fully included
-        // (charts use unit: .day, so today's data point needs the full day in the domain).
-        let tomorrow = calendar.startOfDay(for: calendar.date(byAdding: .day, value: 1, to: now)!)
-        let end = calendar.date(byAdding: .day, value: pageOffset * periodDays, to: tomorrow)!
-        let start = calendar.date(byAdding: .day, value: -periodDays, to: end)!
-        self.start = start
-        self.end = end
+        if pageOffset == 0 {
+            // Current period ends at "now" so the chart's right edge is the present moment.
+            self.end = now
+            self.start = calendar.startOfDay(
+                for: calendar.date(byAdding: .day, value: -periodDays, to: now)!
+            )
+        } else {
+            // Past periods are snapped to day boundaries for clean, non-overlapping windows.
+            let tomorrow = calendar.startOfDay(for: calendar.date(byAdding: .day, value: 1, to: now)!)
+            let end = calendar.date(byAdding: .day, value: pageOffset * periodDays, to: tomorrow)!
+            self.end = end
+            self.start = calendar.date(byAdding: .day, value: -periodDays, to: end)!
+        }
     }
 }
