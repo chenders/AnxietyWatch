@@ -3,7 +3,7 @@ name: Deploy
 on:
   push:
     branches: [main, master]
-    paths: [server/**, .github/workflows/deploy.yml]
+    paths: [server/**, .github/workflows/deploy.yml, docker-compose.runners.yml, .env.runners.example]
   workflow_dispatch:
 
 concurrency:
