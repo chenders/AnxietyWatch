@@ -27,14 +27,19 @@ struct TrendsView: View {
 
     // MARK: - Window Calculation
 
-    private var window: TrendWindow {
-        TrendWindow(now: .now, periodDays: timeRange.days, pageOffset: pageOffset)
-    }
-
-    private var windowEnd: Date { window.end }
-    private var windowStart: Date { window.start }
-    private var dateRange: ClosedRange<Date> { window.start...window.end }
     private var isShowingCurrentPeriod: Bool { pageOffset == 0 }
+
+    /// Snapshot the window once per body evaluation to avoid recomputing from .now on every access.
+    private var windowState: (start: Date, end: Date, chartEnd: Date) {
+        let w = TrendWindow(now: .now, periodDays: timeRange.days, pageOffset: pageOffset)
+        if isShowingCurrentPeriod {
+            return (w.start, w.end, w.end)
+        } else {
+            // For past periods, end is exclusive (midnight). Chart domain uses the inclusive last day.
+            let inclusiveEnd = Calendar.current.date(byAdding: .day, value: -1, to: w.end) ?? w.end
+            return (w.start, w.end, inclusiveEnd)
+        }
+    }
 
     // MARK: - Date Label
 
@@ -44,42 +49,23 @@ struct TrendsView: View {
         return f
     }()
 
-    private var windowLabel: String {
-        let f = Self.windowDateFormatter
-        if isShowingCurrentPeriod {
-            // Current period ends at "now", so show today's date directly
-            return "\(f.string(from: windowStart)) – \(f.string(from: windowEnd))"
-        } else {
-            // Past periods have exclusive end (start of next day), subtract a day for display
-            let inclusiveEnd = Calendar.current.date(byAdding: .day, value: -1, to: windowEnd) ?? windowEnd
-            return "\(f.string(from: windowStart)) – \(f.string(from: inclusiveEnd))"
-        }
-    }
-
     // MARK: - Filtered Data
 
-    /// Current period uses inclusive end (end == now); past periods use exclusive end (end == midnight boundary).
-    private func inWindow(_ date: Date) -> Bool {
-        date >= windowStart && (isShowingCurrentPeriod ? date <= windowEnd : date < windowEnd)
-    }
-
-    private var snapshots: [HealthSnapshot] {
-        allSnapshots.filter { inWindow($0.date) }
-    }
-
-    private var entries: [AnxietyEntry] {
-        allEntries.filter { inWindow($0.timestamp) }
-    }
-
-    private var cpapSessions: [CPAPSession] {
-        allCPAPSessions.filter { inWindow($0.date) }
-    }
-
-    private var barometricReadings: [BarometricReading] {
-        allBarometric.filter { inWindow($0.timestamp) }
+    private func inWindow(_ date: Date, start: Date, end: Date) -> Bool {
+        date >= start && (isShowingCurrentPeriod ? date <= end : date < end)
     }
 
     var body: some View {
+        let ws = windowState
+        let f = Self.windowDateFormatter
+        let label = "\(f.string(from: ws.start)) – \(f.string(from: ws.chartEnd))"
+        let dateRange = ws.start...ws.chartEnd
+
+        let snapshots = allSnapshots.filter { inWindow($0.date, start: ws.start, end: ws.end) }
+        let entries = allEntries.filter { inWindow($0.timestamp, start: ws.start, end: ws.end) }
+        let cpapSessions = allCPAPSessions.filter { inWindow($0.date, start: ws.start, end: ws.end) }
+        let barometricReadings = allBarometric.filter { inWindow($0.timestamp, start: ws.start, end: ws.end) }
+
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
@@ -101,7 +87,7 @@ struct TrendsView: View {
 
                         Spacer()
 
-                        Text(windowLabel)
+                        Text(label)
                             .font(.subheadline.weight(.medium))
                             .monospacedDigit()
 
