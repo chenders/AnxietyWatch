@@ -151,12 +151,18 @@ Either push a change to `server/**` on main, or trigger manually:
 gh workflow run deploy.yml
 ```
 
-Or bootstrap manually on the server:
+Or bootstrap manually:
+
+**From your local machine** — copy the compose file to the server:
+
+```bash
+scp server/docker-compose.prod.yml deploy@megadude:/opt/anxietywatch/docker-compose.yml
+```
+
+**On the server** — create the .env and start the app:
 
 ```bash
 cd /opt/anxietywatch
-# Copy the prod compose file
-scp server/docker-compose.prod.yml deploy@megadude:/opt/anxietywatch/docker-compose.yml
 
 # Create .env manually (use the same values as the GitHub secrets)
 nano .env

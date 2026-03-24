@@ -52,7 +52,7 @@ services:
     networks:
       - anxietywatch-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3).close()"]
       interval: 30s
       timeout: 5s
       retries: 3
