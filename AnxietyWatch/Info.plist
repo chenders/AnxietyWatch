@@ -6,5 +6,10 @@
 	<array>
 		<string>org.waitingforthefuture.AnxietyWatch.refresh</string>
 	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>health-update</string>
+	</array>
 </dict>
 </plist>
