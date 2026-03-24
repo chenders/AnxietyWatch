@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AnxietySeverityChart: View {
     let entries: [AnxietyEntry]
+    let dateRange: ClosedRange<Date>
 
     var body: some View {
         ChartCard(title: "Anxiety Severity", isEmpty: entries.isEmpty) {
@@ -23,6 +24,7 @@ struct AnxietySeverityChart: View {
                     .interpolationMethod(.catmullRom)
                 }
             }
+            .chartXScale(domain: dateRange)
             .chartYScale(domain: 1...10)
             .chartYAxis {
                 AxisMarks(values: [1, 3, 5, 7, 10])
