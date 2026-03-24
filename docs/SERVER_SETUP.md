@@ -84,10 +84,10 @@ sudo systemctl daemon-reload
 
 ### 3. Open Firewall Port
 
-AnxietyWatch is LAN-only (no Cloudflare Tunnel). Open port 8081 for the iOS app:
+AnxietyWatch is LAN-only (no Cloudflare Tunnel). Open port 8081 for the iOS app, restricted to your LAN (replace the CIDR with your actual subnet):
 
 ```bash
-sudo ufw allow 8081/tcp comment 'AnxietyWatch sync server'
+sudo ufw allow from 192.168.1.0/24 to any port 8081 proto tcp comment 'AnxietyWatch sync server (LAN only)'
 ```
 
 ### 4. Create GitHub PAT for Runner

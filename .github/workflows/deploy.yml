@@ -52,14 +52,6 @@ jobs:
         run: |
           cp ${{ github.workspace }}/server/docker-compose.prod.yml /opt/anxietywatch/docker-compose.yml
 
-          # Update runner compose if the directory exists
-          if [ -d "/opt/github-runners-anxietywatch" ]; then
-            cp ${{ github.workspace }}/docker-compose.runners.yml /opt/github-runners-anxietywatch/docker-compose.yml
-            if [ ! -f "/opt/github-runners-anxietywatch/.env" ]; then
-              cp ${{ github.workspace }}/.env.runners.example /opt/github-runners-anxietywatch/.env.example
-            fi
-          fi
-
       - name: Write .env
         run: |
           cat > /opt/anxietywatch/.env << 'EOF'
