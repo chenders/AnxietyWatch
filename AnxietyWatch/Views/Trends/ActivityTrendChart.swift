@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ActivityTrendChart: View {
     let snapshots: [HealthSnapshot]
+    let dateRange: ClosedRange<Date>
 
     private var stepSnapshots: [HealthSnapshot] {
         snapshots.filter { $0.steps != nil }
@@ -17,6 +18,7 @@ struct ActivityTrendChart: View {
                 )
                 .foregroundStyle(.orange.gradient)
             }
+            .chartXScale(domain: dateRange)
             .frame(height: 180)
         }
     }

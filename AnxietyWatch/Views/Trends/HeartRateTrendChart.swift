@@ -4,6 +4,7 @@ import SwiftUI
 struct HeartRateTrendChart: View {
     let snapshots: [HealthSnapshot]
     let entries: [AnxietyEntry]
+    let dateRange: ClosedRange<Date>
 
     private var hrSnapshots: [HealthSnapshot] {
         snapshots.filter { $0.restingHR != nil }
@@ -35,6 +36,7 @@ struct HeartRateTrendChart: View {
                         .lineStyle(StrokeStyle(lineWidth: 2))
                 }
             }
+            .chartXScale(domain: dateRange)
             .frame(height: 200)
         }
     }
