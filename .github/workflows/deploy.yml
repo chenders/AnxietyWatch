@@ -3,7 +3,8 @@ name: Deploy
 on:
   push:
     branches: [main, master]
-    paths: [server/**, .github/workflows/deploy.yml]
+    paths: [server/**, .github/workflows/deploy.yml, docker-compose.runners.yml, .env.runners.example]
+  workflow_dispatch:
 
 concurrency:
   group: deploy
@@ -42,23 +43,54 @@ jobs:
 
   deploy:
     needs: build-and-push
-    runs-on: self-hosted
+    runs-on: anxietywatch
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
-      - name: Write .env
-        working-directory: server
+      - name: Copy production configs
         run: |
-          echo "ADMIN_PASSWORD=${{ secrets.ANXIETYWATCH_ADMIN_PASSWORD }}" > .env
-          echo "SECRET_KEY=${{ secrets.ANXIETYWATCH_SECRET_KEY }}" >> .env
-          echo "POSTGRES_USER=anxietywatch" >> .env
-          echo "POSTGRES_PASSWORD=${{ secrets.ANXIETYWATCH_DB_PASSWORD }}" >> .env
-          echo "POSTGRES_DB=anxietywatch" >> .env
-          echo "DATABASE_URL=postgresql://anxietywatch:${{ secrets.ANXIETYWATCH_DB_PASSWORD }}@anxietywatch-db:5432/anxietywatch" >> .env
+          cp ${{ github.workspace }}/server/docker-compose.prod.yml /opt/anxietywatch/docker-compose.yml
+
+      - name: Write .env
+        run: |
+          cat > /opt/anxietywatch/.env << 'EOF'
+          ADMIN_PASSWORD=${{ secrets.ANXIETYWATCH_ADMIN_PASSWORD }}
+          SECRET_KEY=${{ secrets.ANXIETYWATCH_SECRET_KEY }}
+          POSTGRES_USER=anxietywatch
+          POSTGRES_PASSWORD=${{ secrets.ANXIETYWATCH_DB_PASSWORD }}
+          POSTGRES_DB=anxietywatch
+          DATABASE_URL=postgresql://anxietywatch:${{ secrets.ANXIETYWATCH_DB_PASSWORD }}@anxietywatch-db:5432/anxietywatch
+          EOF
+          chmod 600 /opt/anxietywatch/.env
 
       - name: Pull and deploy
-        working-directory: server
+        working-directory: /opt/anxietywatch
         run: |
           docker compose pull
-          docker compose up -d --remove-orphans
-          docker compose ps
+          docker compose up -d --remove-orphans --wait --wait-timeout 60
+
+      - name: Verify health
+        run: |
+          ATTEMPTS=0
+          MAX_ATTEMPTS=15
+          while [ $ATTEMPTS -lt $MAX_ATTEMPTS ]; do
+            if curl -sf http://localhost:8081/health > /dev/null 2>&1; then
+              echo "Health check passed"
+              break
+            fi
+            ATTEMPTS=$((ATTEMPTS + 1))
+            sleep 2
+          done
+
+          if [ $ATTEMPTS -eq $MAX_ATTEMPTS ]; then
+            echo "Health check failed after 30s"
+            docker compose -f /opt/anxietywatch/docker-compose.yml logs --tail=50
+            exit 1
+          fi
+
+          docker compose -f /opt/anxietywatch/docker-compose.yml ps
+
+      - name: Cleanup old images
+        run: docker image prune -f --filter "until=24h"
+        continue-on-error: true
