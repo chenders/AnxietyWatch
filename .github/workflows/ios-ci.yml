@@ -24,7 +24,7 @@ jobs:
         run: |
           xcodebuild test \
             -scheme AnxietyWatch \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            -destination 'platform=iOS Simulator,OS=latest,name=iPhone 16 Pro' \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
             -quiet
