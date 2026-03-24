@@ -5,6 +5,7 @@ import SwiftUI
 struct BarometricTrendChart: View {
     let readings: [BarometricReading]
     let entries: [AnxietyEntry]
+    let dateRange: ClosedRange<Date>
 
     /// Cap chart points to avoid rendering thousands of raw CMAltimeter samples
     private var displayReadings: [BarometricReading] {
@@ -34,6 +35,7 @@ struct BarometricTrendChart: View {
                         .lineStyle(StrokeStyle(lineWidth: 2))
                 }
             }
+            .chartXScale(domain: dateRange)
             .chartYAxisLabel("kPa")
             .frame(height: 180)
         }

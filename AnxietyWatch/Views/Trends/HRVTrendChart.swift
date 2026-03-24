@@ -6,6 +6,7 @@ struct HRVTrendChart: View {
     /// Full history needed for baseline calculation
     let allSnapshots: [HealthSnapshot]
     let entries: [AnxietyEntry]
+    let dateRange: ClosedRange<Date>
 
     private var hrvSnapshots: [HealthSnapshot] {
         snapshots.filter { $0.hrvAvg != nil }
@@ -72,6 +73,7 @@ struct HRVTrendChart: View {
                         }
                 }
             }
+            .chartXScale(domain: dateRange)
             .frame(height: 220)
         }
     }
