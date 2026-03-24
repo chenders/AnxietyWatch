@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AnxietyScope
+@testable import AnxietyWatch
 
 struct FHIRLabResultParserTests {
 
