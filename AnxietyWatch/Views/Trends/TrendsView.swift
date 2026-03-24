@@ -2,6 +2,7 @@ import SwiftData
 import SwiftUI
 
 struct TrendsView: View {
+    @Environment(\.modelContext) private var modelContext
     @Query(sort: \HealthSnapshot.date) private var allSnapshots: [HealthSnapshot]
     @Query(sort: \AnxietyEntry.timestamp) private var allEntries: [AnxietyEntry]
     @Query(sort: \CPAPSession.date) private var allCPAPSessions: [CPAPSession]
@@ -77,6 +78,17 @@ struct TrendsView: View {
                 .padding(.vertical)
             }
             .navigationTitle("Trends")
+            .task {
+                await refreshSnapshot()
+            }
         }
+    }
+
+    private func refreshSnapshot() async {
+        let aggregator = SnapshotAggregator(
+            healthKit: HealthKitManager.shared,
+            modelContext: modelContext
+        )
+        try? await aggregator.aggregateDay(.now)
     }
 }
