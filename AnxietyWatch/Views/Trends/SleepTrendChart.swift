@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SleepTrendChart: View {
     let snapshots: [HealthSnapshot]
+    let dateRange: ClosedRange<Date>
 
     private var sleepSnapshots: [HealthSnapshot] {
         snapshots.filter { $0.sleepDurationMin != nil }
@@ -33,6 +34,7 @@ struct SleepTrendChart: View {
                     .foregroundStyle(by: .value("Stage", "Core"))
                 }
             }
+            .chartXScale(domain: dateRange)
             .chartForegroundStyleScale([
                 "Deep": Color.indigo,
                 "REM": Color.cyan,
