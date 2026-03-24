@@ -4,6 +4,7 @@ import SwiftUI
 
 struct CPAPTrendChart: View {
     let sessions: [CPAPSession]
+    let dateRange: ClosedRange<Date>
 
     var body: some View {
         ChartCard(title: "CPAP — AHI & Usage", isEmpty: sessions.isEmpty) {
@@ -15,6 +16,7 @@ struct CPAPTrendChart: View {
                 )
                 .foregroundStyle(ahiColor(session.ahi).gradient)
             }
+            .chartXScale(domain: dateRange)
             .chartYAxisLabel("AHI (events/hr)")
             .frame(height: 180)
 
@@ -27,6 +29,7 @@ struct CPAPTrendChart: View {
                 )
                 .foregroundStyle(.teal.gradient)
             }
+            .chartXScale(domain: dateRange)
             .chartYAxisLabel("Usage (hours)")
             .frame(height: 120)
         }
