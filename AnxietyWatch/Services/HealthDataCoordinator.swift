@@ -80,8 +80,12 @@ final class HealthDataCoordinator {
             healthKit: HealthKitManager.shared,
             modelContext: context
         )
-        _ = try? await importer.importLabResults()
-        lastClinicalImport = Date.now
+        do {
+            try await importer.importLabResults()
+            lastClinicalImport = Date.now
+        } catch {
+            // Don't advance throttle on failure so we can retry soon
+        }
     }
 
     // MARK: - Live Observer Queries
