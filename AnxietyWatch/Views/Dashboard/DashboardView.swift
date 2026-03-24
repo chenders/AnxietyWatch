@@ -33,7 +33,6 @@ struct DashboardView: View {
             .navigationTitle("Dashboard")
             .task {
                 await refreshSnapshot()
-                barometer.startMonitoring()
                 sendStatsToWatch()
                 await autoSync()
             }
