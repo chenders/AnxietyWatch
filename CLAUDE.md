@@ -228,7 +228,7 @@ cd server && python -m pytest tests/
 
 ### Coverage Targets
 
-- **Overall iOS**: 25%+ (current baseline: ~15%)
+- **Overall iOS**: 25%+ (see latest CI coverage report for current baseline)
 - **Services/**: 80%+ (core logic — the most testable and highest-value code)
 - **Long-term overall**: 40%+
 
@@ -240,5 +240,5 @@ cd server && python -m pytest tests/
 
 ### CI
 
-- **iOS**: `.github/workflows/ios-ci.yml` — runs unit tests with coverage on push/PR (excludes server/ and docs/ changes)
+- **iOS**: `.github/workflows/ios-ci.yml` — runs unit tests with coverage on push/PR (excludes `server/`, `docs/`, and `*.md` changes)
 - **Server**: `.github/workflows/ci.yml` — flake8 lint + pytest on push/PR touching server/
