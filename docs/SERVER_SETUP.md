@@ -90,6 +90,8 @@ AnxietyWatch is LAN-only (no Cloudflare Tunnel). Open port 8081 for the iOS app,
 sudo ufw allow from 192.168.1.0/24 to any port 8081 proto tcp comment 'AnxietyWatch sync server (LAN only)'
 ```
 
+> **Note:** Docker published ports bypass UFW by default (Docker modifies iptables directly). This is safe if the server is on a private network behind a router with no port forwarding. If the server has a public IP, bind the compose port to a specific LAN interface IP instead of `0.0.0.0`.
+
 ### 4. Create GitHub PAT for Runner
 
 1. GitHub → Settings → Developer settings → Fine-grained tokens
@@ -230,7 +232,7 @@ The GitHub PAT expires every 90 days. To renew:
 # Remove unused images
 docker image prune -a
 
-# Full cleanup (images, containers, volumes, networks)
+# Full cleanup (images, containers, networks; add --volumes to also remove volumes)
 docker system prune -a
 ```
 
