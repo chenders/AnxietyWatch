@@ -1,3 +1,4 @@
+import BackgroundTasks
 import Foundation
 import SwiftData
 
@@ -19,13 +20,14 @@ final class HealthDataCoordinator {
         self.modelContainer = modelContainer
     }
 
-    /// Call once at app launch. Backfills history if needed, imports clinical records,
-    /// starts live observers, and wires up barometer persistence.
+    /// Call once at app launch. Backfills history if needed, fills any gaps,
+    /// imports clinical records, starts live observers, and wires up barometer persistence.
     func setupIfNeeded() async {
         // Wire barometer persistence immediately so monitoring/persistence start at launch,
         // even if backfill/import/observer setup take a while.
         startBarometerPersistence()
         await backfillIfNeeded()
+        await fillGaps()
         await importClinicalRecordsIfNeeded()
         await startObserving()
     }
@@ -66,6 +68,49 @@ final class HealthDataCoordinator {
         isBackfilling = false
     }
 
+    // MARK: - Gap Fill
+
+    /// Aggregates snapshots for any days missed between the most recent snapshot and today.
+    /// Runs every launch to catch days the app was not opened. Skips if initial backfill
+    /// hasn't completed yet to avoid racing with it.
+    private func fillGaps() async {
+        guard UserDefaults.standard.bool(forKey: Self.backfillKey) else { return }
+
+        let context = ModelContext(modelContainer)
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+
+        // Fetch the most recent snapshot strictly before today so a concurrently-created
+        // today snapshot can't short-circuit gap filling.
+        var descriptor = FetchDescriptor<HealthSnapshot>(
+            predicate: #Predicate<HealthSnapshot> { $0.date < today },
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+
+        guard let lastSnapshot = try? context.fetch(descriptor).first else { return }
+
+        let lastDate = lastSnapshot.date
+        guard let daysBetween = calendar.dateComponents([.day], from: lastDate, to: today).day,
+              daysBetween > 1 else { return }
+
+        // Cap to avoid excessive work; fill at most 90 missed days
+        let cappedGap = min(daysBetween, 91)
+
+        let aggregator = SnapshotAggregator(
+            healthKit: HealthKitManager.shared,
+            modelContext: context
+        )
+
+        // Fill from the day after the last snapshot up to today (exclusive — today
+        // is handled by the observer and view .task refreshes).
+        for offset in 1..<cappedGap {
+            if Task.isCancelled { return }
+            guard let date = calendar.date(byAdding: .day, value: offset, to: lastDate) else { continue }
+            try? await aggregator.aggregateDay(date)
+        }
+    }
+
     // MARK: - Clinical Records Import
 
     /// Silently imports any new clinical lab results from HealthKit Health Records.
@@ -100,6 +145,74 @@ final class HealthDataCoordinator {
             }
         }
     }
+
+    // MARK: - Background Task Scheduler
+
+    static let backgroundRefreshIdentifier = "org.waitingforthefuture.AnxietyWatch.refresh"
+
+    /// Register the BGAppRefreshTask handler. Must be called during app launch,
+    /// before the app finishes launching (i.e., in App.init).
+    func registerBackgroundTask() {
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: Self.backgroundRefreshIdentifier,
+            using: nil
+        ) { [weak self] task in
+            guard let task = task as? BGAppRefreshTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    task.setTaskCompleted(success: false)
+                    return
+                }
+                self.handleBackgroundRefresh(task)
+            }
+        }
+    }
+
+    /// Request the system schedule a background refresh. The system decides exactly when
+    /// to run it based on app usage patterns, battery, connectivity, etc.
+    func scheduleBackgroundRefresh() {
+        // Cancel any existing pending request to avoid hitting tooManyPendingTaskRequests
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundRefreshIdentifier)
+
+        let request = BGAppRefreshTaskRequest(identifier: Self.backgroundRefreshIdentifier)
+        request.earliestBeginDate = Calendar.current.date(byAdding: .hour, value: 6, to: .now)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            print("Background refresh scheduling failed: \(error)")
+        }
+    }
+
+    private func handleBackgroundRefresh(_ task: BGAppRefreshTask) {
+        scheduleBackgroundRefresh()
+
+        let workTask = Task {
+            await fillGaps()
+            guard !Task.isCancelled else { return }
+
+            let context = ModelContext(modelContainer)
+            let aggregator = SnapshotAggregator(
+                healthKit: HealthKitManager.shared,
+                modelContext: context
+            )
+            try? await aggregator.aggregateDay(.now)
+        }
+
+        task.expirationHandler = {
+            workTask.cancel()
+        }
+
+        Task {
+            _ = await workTask.result
+            task.setTaskCompleted(success: !workTask.isCancelled)
+        }
+    }
+
+    // MARK: - Live Observer Refresh
 
     /// Debounce rapid-fire observer callbacks (e.g., Watch syncing multiple types at once).
     /// Waits 5 seconds after the last update before re-aggregating today's snapshot
