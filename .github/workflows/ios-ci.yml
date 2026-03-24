@@ -1,0 +1,38 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: [server/**, docs/**, '*.md']
+  pull_request:
+    paths-ignore: [server/**, docs/**, '*.md']
+
+concurrency:
+  group: ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.app || sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | tail -1)"
+
+      - name: Run tests with coverage
+        run: |
+          xcodebuild test \
+            -scheme AnxietyWatch \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            -enableCodeCoverage YES \
+            -resultBundlePath TestResults.xcresult \
+            -quiet
+
+      - name: Report coverage
+        if: always()
+        run: |
+          echo "## Code Coverage" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          xcrun xccov view --report TestResults.xcresult 2>/dev/null | grep -E "^AnxietyWatch\.app" >> $GITHUB_STEP_SUMMARY || echo "Coverage data not available" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

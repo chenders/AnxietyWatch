@@ -51,14 +51,28 @@ final class BarometerService {
         isMonitoring = false
     }
 
+    /// Pure decision: should we capture this reading based on thresholds?
+    static func shouldCapture(
+        pressure: Double,
+        lastSavedPressure: Double?,
+        lastSavedTime: Date?,
+        now: Date
+    ) -> Bool {
+        let timeSinceLastSave = lastSavedTime.map { now.timeIntervalSince($0) } ?? .infinity
+        let pressureDelta = lastSavedPressure.map { abs(pressure - $0) } ?? .infinity
+        return pressureDelta >= significantPressureChangeKPa
+            || timeSinceLastSave >= minimumSaveIntervalSeconds
+    }
+
     /// Save a reading when pressure changes significantly or enough time has elapsed.
     private func captureIfSignificant(pressure: Double, altitude: Double) {
         let now = Date.now
-        let timeSinceLastSave = lastSavedTime.map { now.timeIntervalSince($0) } ?? .infinity
-        let pressureDelta = lastSavedPressure.map { abs(pressure - $0) } ?? .infinity
-
-        guard pressureDelta >= Self.significantPressureChangeKPa
-           || timeSinceLastSave >= Self.minimumSaveIntervalSeconds else { return }
+        guard Self.shouldCapture(
+            pressure: pressure,
+            lastSavedPressure: lastSavedPressure,
+            lastSavedTime: lastSavedTime,
+            now: now
+        ) else { return }
 
         if let callback = onSignificantChange {
             lastSavedPressure = pressure
