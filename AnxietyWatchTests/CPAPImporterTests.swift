@@ -94,7 +94,7 @@ struct CPAPImporterTests {
         let container = try makeContainer()
         let context = ModelContext(container)
 
-        #expect(throws: CPAPImporter.ImportError.self) {
+        #expect(throws: CPAPImporter.ImportError.noData) {
             try CPAPImporter.importCSV(from: url, into: context)
         }
     }
