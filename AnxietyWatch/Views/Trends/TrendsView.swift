@@ -46,7 +46,14 @@ struct TrendsView: View {
 
     private var windowLabel: String {
         let f = Self.windowDateFormatter
-        return "\(f.string(from: windowStart)) – \(f.string(from: windowEnd))"
+        if isShowingCurrentPeriod {
+            // Current period ends at "now", so show today's date directly
+            return "\(f.string(from: windowStart)) – \(f.string(from: windowEnd))"
+        } else {
+            // Past periods have exclusive end (start of next day), subtract a day for display
+            let inclusiveEnd = Calendar.current.date(byAdding: .day, value: -1, to: windowEnd) ?? windowEnd
+            return "\(f.string(from: windowStart)) – \(f.string(from: inclusiveEnd))"
+        }
     }
 
     // MARK: - Filtered Data

@@ -18,40 +18,24 @@ struct TrendWindowTests {
 
     // MARK: - Current period (offset 0)
 
-    @Test("Current 7-day window ends at start of tomorrow")
+    @Test("Current 7-day window ends at now")
     func currentWeekEnd() {
         let w = TrendWindow(now: now, periodDays: 7, pageOffset: 0)
-        let expected = calendar.startOfDay(for: calendar.date(byAdding: .day, value: 1, to: now)!)
-        #expect(w.end == expected)
+        #expect(w.end == now)
     }
 
-    @Test("Current 7-day window starts 7 days before the end")
+    @Test("Current 7-day window start is at midnight, periodDays before now")
     func currentWeekStart() {
         let w = TrendWindow(now: now, periodDays: 7, pageOffset: 0)
-        let expectedEnd = calendar.startOfDay(for: calendar.date(byAdding: .day, value: 1, to: now)!)
-        let expectedStart = calendar.date(byAdding: .day, value: -7, to: expectedEnd)!
+        let expectedStart = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -7, to: now)!)
         #expect(w.start == expectedStart)
     }
 
-    @Test("Current 7-day window spans exactly 7 days")
-    func currentWeekSpan() {
+    @Test("Current window start is always at midnight")
+    func currentStartIsMidnight() {
         let w = TrendWindow(now: now, periodDays: 7, pageOffset: 0)
-        let days = calendar.dateComponents([.day], from: w.start, to: w.end).day!
-        #expect(days == 7)
-    }
-
-    @Test("Current 30-day window spans exactly 30 days")
-    func currentMonthSpan() {
-        let w = TrendWindow(now: now, periodDays: 30, pageOffset: 0)
-        let days = calendar.dateComponents([.day], from: w.start, to: w.end).day!
-        #expect(days == 30)
-    }
-
-    @Test("Current 90-day window spans exactly 90 days")
-    func currentQuarterSpan() {
-        let w = TrendWindow(now: now, periodDays: 90, pageOffset: 0)
-        let days = calendar.dateComponents([.day], from: w.start, to: w.end).day!
-        #expect(days == 90)
+        let c = calendar.dateComponents([.hour, .minute, .second], from: w.start)
+        #expect(c.hour == 0 && c.minute == 0 && c.second == 0)
     }
 
     // MARK: - Today's data is included
@@ -71,35 +55,21 @@ struct TrendWindowTests {
         #expect(now <= w.end)
     }
 
-    @Test("Snapshot from exactly periodDays ago is included")
-    func boundaryDayIncluded() {
+    @Test("Snapshot from 7 days ago is included in current 7-day window")
+    func sevenDaysAgoIncluded() {
         let w = TrendWindow(now: now, periodDays: 7, pageOffset: 0)
         let sevenDaysAgo = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -7, to: now)!)
-        // windowStart should be midnight 7 days before windowEnd (which is tomorrow),
-        // so 8 days ago midnight... wait, let's just check:
-        // windowEnd = Mar 25 00:00, windowStart = Mar 18 00:00
-        // 7 days ago from Mar 24 = Mar 17 00:00 — this is BEFORE windowStart (Mar 18)
-        // So a snapshot from exactly 7 days ago is NOT in the current window
-        // because the window is [Mar 18 ... Mar 25], which is 7 full days
-        #expect(sevenDaysAgo < w.start)
+        #expect(sevenDaysAgo >= w.start)
     }
 
-    @Test("Snapshot from 6 days ago is included in 7-day window")
-    func sixDaysAgoIncluded() {
+    @Test("Snapshot from 8 days ago is excluded from 7-day window")
+    func eightDaysAgoExcluded() {
         let w = TrendWindow(now: now, periodDays: 7, pageOffset: 0)
-        let sixDaysAgo = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -6, to: now)!)
-        #expect(sixDaysAgo >= w.start)
-        #expect(sixDaysAgo <= w.end)
+        let eightDaysAgo = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -8, to: now)!)
+        #expect(eightDaysAgo < w.start)
     }
 
     // MARK: - Previous period (offset -1)
-
-    @Test("Previous 7-day window ends where current window starts")
-    func previousWeekAdjacent() {
-        let current = TrendWindow(now: now, periodDays: 7, pageOffset: 0)
-        let previous = TrendWindow(now: now, periodDays: 7, pageOffset: -1)
-        #expect(previous.end == current.start)
-    }
 
     @Test("Previous 7-day window spans exactly 7 days")
     func previousWeekSpan() {
@@ -108,20 +78,34 @@ struct TrendWindowTests {
         #expect(days == 7)
     }
 
-    @Test("Windows are contiguous across multiple offsets")
-    func windowsContiguous() {
-        for offset in -5..<0 {
+    @Test("Past windows are contiguous with each other")
+    func pastWindowsContiguous() {
+        for offset in -5 ..< -1 {
             let w = TrendWindow(now: now, periodDays: 7, pageOffset: offset)
             let next = TrendWindow(now: now, periodDays: 7, pageOffset: offset + 1)
             #expect(w.end == next.start, "Gap between offset \(offset) and \(offset + 1)")
         }
     }
 
-    // MARK: - Boundary snapping
+    @Test("Past window 30-day spans exactly 30 days")
+    func pastMonthSpan() {
+        let w = TrendWindow(now: now, periodDays: 30, pageOffset: -1)
+        let days = calendar.dateComponents([.day], from: w.start, to: w.end).day!
+        #expect(days == 30)
+    }
 
-    @Test("Window start is always at midnight")
-    func startIsMidnight() {
-        for offset in -3...0 {
+    @Test("Past window 90-day spans exactly 90 days")
+    func pastQuarterSpan() {
+        let w = TrendWindow(now: now, periodDays: 90, pageOffset: -1)
+        let days = calendar.dateComponents([.day], from: w.start, to: w.end).day!
+        #expect(days == 90)
+    }
+
+    // MARK: - Boundary snapping for past windows
+
+    @Test("Past window start is always at midnight")
+    func pastStartIsMidnight() {
+        for offset in -3 ... -1 {
             let w = TrendWindow(now: now, periodDays: 7, pageOffset: offset)
             let c = calendar.dateComponents([.hour, .minute, .second], from: w.start)
             #expect(c.hour == 0 && c.minute == 0 && c.second == 0,
@@ -129,9 +113,9 @@ struct TrendWindowTests {
         }
     }
 
-    @Test("Window end is always at midnight")
-    func endIsMidnight() {
-        for offset in -3...0 {
+    @Test("Past window end is always at midnight")
+    func pastEndIsMidnight() {
+        for offset in -3 ... -1 {
             let w = TrendWindow(now: now, periodDays: 7, pageOffset: offset)
             let c = calendar.dateComponents([.hour, .minute, .second], from: w.end)
             #expect(c.hour == 0 && c.minute == 0 && c.second == 0,
@@ -141,13 +125,10 @@ struct TrendWindowTests {
 
     // MARK: - Future prevention
 
-    @Test("Current window end is never more than 1 day past now")
-    func currentWindowNotFarFuture() {
+    @Test("Current window end is exactly now, not in the future")
+    func currentWindowEndsAtNow() {
         let w = TrendWindow(now: now, periodDays: 7, pageOffset: 0)
-        let diff = w.end.timeIntervalSince(now)
-        // Should be less than 24 hours past now (just the remainder of today)
-        #expect(diff > 0)
-        #expect(diff < 24 * 60 * 60)
+        #expect(w.end == now)
     }
 
     @Test("Positive offsets are prevented by UI but still produce valid windows")
@@ -159,8 +140,8 @@ struct TrendWindowTests {
 
     // MARK: - Different times of day
 
-    @Test("Window is consistent whether now is midnight or end of day")
-    func consistentAcrossTimeOfDay() {
+    @Test("Current window start is the same regardless of time of day")
+    func startConsistentAcrossTimeOfDay() {
         var earlyC = DateComponents()
         earlyC.year = 2026; earlyC.month = 3; earlyC.day = 24; earlyC.hour = 0; earlyC.minute = 1
         let earlyMorning = calendar.date(from: earlyC)!
@@ -172,7 +153,10 @@ struct TrendWindowTests {
         let wEarly = TrendWindow(now: earlyMorning, periodDays: 7, pageOffset: 0)
         let wLate = TrendWindow(now: lateNight, periodDays: 7, pageOffset: 0)
 
+        // Start should be the same (both anchor to startOfDay minus periodDays)
         #expect(wEarly.start == wLate.start)
-        #expect(wEarly.end == wLate.end)
+        // End differs (it's "now" in each case)
+        #expect(wEarly.end == earlyMorning)
+        #expect(wLate.end == lateNight)
     }
 }
