@@ -62,7 +62,7 @@ jobs:
 
       - name: Write .env
         run: |
-          cat > /opt/anxietywatch/.env << EOF
+          cat > /opt/anxietywatch/.env << 'EOF'
           ADMIN_PASSWORD=${{ secrets.ANXIETYWATCH_ADMIN_PASSWORD }}
           SECRET_KEY=${{ secrets.ANXIETYWATCH_SECRET_KEY }}
           POSTGRES_USER=anxietywatch

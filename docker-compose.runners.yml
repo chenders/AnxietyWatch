@@ -23,8 +23,8 @@ services:
     environment:
       - RUNNER_WORKDIR=/tmp/github-runner
       - RUNNER_SCOPE=repo
-      # Use 'anxietywatch' label only (not 'self-hosted') to prevent other repos'
-      # jobs from being routed here. Deadonfilm uses runs-on: self-hosted.
+      # Repo isolation is enforced by RUNNER_SCOPE=repo; 'anxietywatch' is an
+      # extra label used by workflows in this repo to target this runner.
       - LABELS=anxietywatch
       - EPHEMERAL=true
       - DISABLE_AUTO_UPDATE=true
