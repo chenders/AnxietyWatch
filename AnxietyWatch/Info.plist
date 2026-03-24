@@ -6,5 +6,10 @@
 	<array>
 		<string>com.groundeffectsoftware.AnxietyWatch.refresh</string>
 	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>health-update</string>
+	</array>
 </dict>
 </plist>
