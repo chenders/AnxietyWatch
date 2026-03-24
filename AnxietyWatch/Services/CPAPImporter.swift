@@ -21,10 +21,10 @@ enum CPAPImporter {
 
     /// Import CPAP sessions from a CSV file. Returns the number of sessions imported.
     static func importCSV(from url: URL, into context: ModelContext) throws -> Int {
-        guard url.startAccessingSecurityScopedResource() else {
-            throw ImportError.fileAccessDenied
-        }
-        defer { url.stopAccessingSecurityScopedResource() }
+        // Opportunistic: only stop accessing if we successfully started (non-security-scoped
+        // URLs like temp files return false but are still readable).
+        let isSecurityScoped = url.startAccessingSecurityScopedResource()
+        defer { if isSecurityScoped { url.stopAccessingSecurityScopedResource() } }
 
         let content = try String(contentsOf: url, encoding: .utf8)
         let lines = content.components(separatedBy: .newlines)

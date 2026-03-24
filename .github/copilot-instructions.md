@@ -1,8 +1,8 @@
-# Copilot Instructions for AnxietyScope
+# Copilot Instructions for AnxietyWatch
 
 ## Project Overview
 
-AnxietyScope is a personal iOS + watchOS anxiety tracking app with a Python sync server. It combines subjective journaling with objective physiological data from HealthKit, an AirSense 11 CPAP machine, and smart blood pressure monitors.
+AnxietyWatch is a personal iOS + watchOS anxiety tracking app with a Python sync server. It combines subjective journaling with objective physiological data from HealthKit, an AirSense 11 CPAP machine, and smart blood pressure monitors.
 
 This is a personal project — single user, never published to the App Store.
 
@@ -15,7 +15,7 @@ This is a personal project — single user, never published to the App Store.
 This is a **multi-language monorepo** with two distinct components:
 
 ### iOS App and watchOS Targets (Xcode project)
-- **Directories:** iOS app sources live under `AnxietyScope/`. watchOS app and widget targets live in top-level directories `AnxietyScopeWatch Watch App/` and `AnxietyScopeWatchWidgets/`. When adding new files, place iOS code under `AnxietyScope/` and watchOS code under the appropriate watch-specific directory.
+- **Directories:** iOS app sources live under `AnxietyWatch/`. watchOS app and widget targets live in top-level directories `AnxietyWatch Watch App/` and `AnxietyWatchWidgets/`. When adding new files, place iOS code under `AnxietyWatch/` and watchOS code under the appropriate watch-specific directory.
 - **Language:** Swift 5.9+
 - **UI:** SwiftUI (target OS versions must match the Xcode project deployment targets)
 - **Persistence:** SwiftData (`@Model` macro, not Core Data)
@@ -23,7 +23,7 @@ This is a **multi-language monorepo** with two distinct components:
 - **Health data:** HealthKit framework
 - **Barometric data:** Core Motion (`CMAltimeter`)
 - **Watch communication:** WatchConnectivity framework
-- **No external Swift package dependencies** — prefer Apple frameworks
+- **Testing:** Swift Testing framework (`@Test` macro) for unit tests
 
 ### Sync Server (`server/`)
 - **Language:** Python 3.12
@@ -71,9 +71,18 @@ When writing HealthKit code, be aware:
 
 The iOS app's `SyncService` POSTs JSON to the server's `/api/sync` endpoint. The JSON schema matches `DataExporter`'s output format — camelCase keys with ISO 8601 dates. The server upserts into PostgreSQL using natural keys (timestamp, date, or name). Both full and incremental syncs use the same upsert path.
 
+## Testing Requirements
+
+- **All new or changed code must include tests.** PRs that add features or fix bugs without corresponding tests should be flagged.
+- Use **Swift Testing** (`@Test` macro, `#expect()`) for all new tests — not XCTest.
+- Extract pure logic into testable helpers rather than burying it in views or private methods.
+- Use in-memory `ModelContainer` for SwiftData test isolation.
+- Use fixed reference dates for deterministic assertions.
+- Server tests use pytest; run `cd server && python -m pytest tests/`.
+
 ## What NOT to Do
 
-- Don't add external Swift package dependencies without strong justification.
+- Don't add features or fix bugs without adding corresponding tests.
 - Don't use Core Data — this project uses SwiftData exclusively.
 - Don't query HealthKit from views — always go through `HealthKitManager`.
 - Don't expose completion handlers in app code — use async/await, wrapping callback-based system APIs with continuations.
