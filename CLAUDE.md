@@ -4,6 +4,14 @@
 
 **MANDATORY: Never push directly to `main`.** Always create a new feature branch based on `main` unless explicitly instructed otherwise. Use `git checkout -b <branch-name> main` for new work.
 
+## Keeping Instruction Files Updated
+
+When making changes that affect project structure, conventions, commands, or workflows, update the relevant instruction files:
+- **`CLAUDE.md`** — Project context for Claude Code (this file)
+- **`AGENTS.md`** — Multi-agent tooling instructions
+- **`.github/copilot-instructions.md`** — GitHub Copilot review instructions
+- **`REQUIREMENTS.md`** — Full specification and data model
+
 ## Commands
 
 ```bash
@@ -50,18 +58,28 @@ See `REQUIREMENTS.md` for full specification, data model, and build plan.
 ## Project Structure
 
 ```
-AnxietyScope/
-├── AnxietyScope/                        # iOS app target
+AnxietyWatch/
+├── AnxietyWatch/                        # iOS app target
 │   ├── App/
-│   │   ├── AnxietyScopeApp.swift        # @main entry point
+│   │   ├── AnxietyWatchApp.swift        # @main entry point
 │   │   └── ContentView.swift            # Tab-based root view
 │   ├── Models/                          # SwiftData @Model classes
+│   │   ├── AnxietyEntry.swift
+│   │   ├── BarometricReading.swift
+│   │   ├── ClinicalLabResult.swift
+│   │   ├── CPAPSession.swift
+│   │   ├── HealthSnapshot.swift
+│   │   ├── MedicationDefinition.swift
+│   │   └── MedicationDose.swift
 │   ├── Services/
 │   │   ├── HealthKitManager.swift       # Actor — all HealthKit reads
+│   │   ├── HealthDataCoordinator.swift  # Backfill, gap-fill, observers, barometer
 │   │   ├── BarometerService.swift       # CMAltimeter wrapper
+│   │   ├── ClinicalRecordImporter.swift # HealthKit clinical records → SwiftData
 │   │   ├── CPAPImporter.swift           # SD card data parser
 │   │   ├── SnapshotAggregator.swift     # Daily HealthKit → HealthSnapshot
 │   │   ├── BaselineCalculator.swift     # Rolling personal baselines
+│   │   ├── FHIRLabResultParser.swift    # FHIR lab result parsing
 │   │   ├── SyncService.swift            # Talks to sync server
 │   │   ├── PhoneConnectivityManager.swift # WatchConnectivity (phone side)
 │   │   ├── ReportGenerator.swift        # PDF clinical reports
@@ -69,24 +87,34 @@ AnxietyScope/
 │   ├── Views/
 │   │   ├── Dashboard/
 │   │   ├── Journal/
+│   │   ├── LabResults/
 │   │   ├── Medications/
-│   │   ├── Trends/                      # 7 chart views + TrendsView + ChartCard
+│   │   ├── Trends/                      # TrendsView, TrendWindow, ChartCard, 7 chart views
 │   │   ├── CPAP/
 │   │   ├── Reports/                     # ExportView
 │   │   └── Settings/                    # SettingsView + SyncSettingsView
 │   └── Utilities/
-│       ├── ShareSheet.swift
-│       └── Constants.swift
-├── AnxietyScopeWatch Watch App/         # watchOS app target (note space in name)
-│   ├── AnxietyScopeWatchApp.swift
+│       ├── Constants.swift
+│       ├── LabTestRegistry.swift
+│       └── ShareSheet.swift
+├── AnxietyWatch Watch App/              # watchOS app target (note space in name)
+│   ├── AnxietyWatchApp.swift
 │   ├── QuickLogView.swift
 │   ├── CurrentStatsView.swift
 │   └── WatchConnectivityManager.swift
-├── AnxietyWatchWidgets/             # watchOS widget extension
-├── server/                          # Python sync server (see Sync Server section)
-├── .github/workflows/               # CI/CD (see below)
-├── REQUIREMENTS.md
+├── AnxietyWatchWidgets/                 # watchOS widget extension
+├── AnxietyWatchTests/                   # Unit tests
+├── server/                              # Python sync server (see Sync Server section)
+├── docs/                                # SERVER_SETUP.md and other docs
+├── .github/workflows/                   # CI/CD (see below)
+├── .github/copilot-instructions.md      # Copilot review instructions
+├── .gitignore
+├── .env.runners.example                 # Runner credential template
+├── docker-compose.runners.yml           # GitHub Actions runner config
+├── AGENTS.md                            # Multi-agent tooling instructions
 ├── CLAUDE.md
+├── DATA_AND_REPORTS.md
+├── REQUIREMENTS.md
 └── SETUP_GUIDE.md
 ```
 
@@ -180,4 +208,4 @@ NSLocationWhenInUseUsageDescription — "Anxiety Watch optionally tags journal e
 
 ## Known Gaps
 
-- **No top-level `.gitignore`** — the repo has no root `.gitignore`. One should be added covering Xcode build artifacts, `.DS_Store`, `server/__pycache__`, `server/.env`, etc. Note that `server/.gitignore` already exists for server-specific files.
+(None currently tracked.)
