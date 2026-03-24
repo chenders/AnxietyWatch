@@ -80,7 +80,10 @@ final class HealthDataCoordinator {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: .now)
 
+        // Fetch the most recent snapshot strictly before today so a concurrently-created
+        // today snapshot can't short-circuit gap filling.
         var descriptor = FetchDescriptor<HealthSnapshot>(
+            predicate: #Predicate<HealthSnapshot> { $0.date < today },
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
         descriptor.fetchLimit = 1
