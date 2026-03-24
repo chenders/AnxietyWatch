@@ -48,6 +48,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
       - name: Copy production configs
         run: |
           cp ${{ github.workspace }}/server/docker-compose.prod.yml /opt/anxietywatch/docker-compose.yml
