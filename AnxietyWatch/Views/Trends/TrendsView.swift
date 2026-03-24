@@ -27,30 +27,20 @@ struct TrendsView: View {
 
     // MARK: - Window Calculation
 
-    private var windowEnd: Date {
-        if pageOffset == 0 { return .now }
-        let calendar = Calendar.current
-        return calendar.startOfDay(
-            for: calendar.date(byAdding: .day, value: (pageOffset + 1) * timeRange.days, to: .now)!
-        )
+    private var window: TrendWindow {
+        TrendWindow(now: .now, periodDays: timeRange.days, pageOffset: pageOffset)
     }
 
-    private var windowStart: Date {
-        let calendar = Calendar.current
-        return calendar.startOfDay(
-            for: calendar.date(byAdding: .day, value: -timeRange.days, to: windowEnd)!
-        )
-    }
-
-    private var dateRange: ClosedRange<Date> { windowStart...windowEnd }
-
+    private var windowEnd: Date { window.end }
+    private var windowStart: Date { window.start }
+    private var dateRange: ClosedRange<Date> { window.start...window.end }
     private var isShowingCurrentPeriod: Bool { pageOffset == 0 }
 
     // MARK: - Date Label
 
     private var windowLabel: String {
         let formatter = DateFormatter()
-        formatter.dateFormat = timeRange == .quarter ? "MMM d" : "MMM d"
+        formatter.dateFormat = "MMM d"
         let start = formatter.string(from: windowStart)
         let end = formatter.string(from: windowEnd)
         return "\(start) – \(end)"
