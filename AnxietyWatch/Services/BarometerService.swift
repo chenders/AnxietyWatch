@@ -60,8 +60,10 @@ final class BarometerService {
         guard pressureDelta >= Self.significantPressureChangeKPa
            || timeSinceLastSave >= Self.minimumSaveIntervalSeconds else { return }
 
-        lastSavedPressure = pressure
-        lastSavedTime = now
-        onSignificantChange?(pressure, altitude)
+        if let callback = onSignificantChange {
+            lastSavedPressure = pressure
+            lastSavedTime = now
+            callback(pressure, altitude)
+        }
     }
 }

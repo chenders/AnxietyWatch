@@ -22,10 +22,12 @@ final class HealthDataCoordinator {
     /// Call once at app launch. Backfills history if needed, imports clinical records,
     /// starts live observers, and wires up barometer persistence.
     func setupIfNeeded() async {
+        // Wire barometer persistence immediately so monitoring/persistence start at launch,
+        // even if backfill/import/observer setup take a while.
+        startBarometerPersistence()
         await backfillIfNeeded()
         await importClinicalRecordsIfNeeded()
         await startObserving()
-        startBarometerPersistence()
     }
 
     // MARK: - Backfill
