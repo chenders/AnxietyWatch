@@ -18,7 +18,7 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 import psycopg2
 
@@ -147,7 +147,11 @@ def upsert_sessions(conn, sessions):
 
 
 def log_sync(conn, status, count):
-    """Write an entry to sync_log for this resmed sync run."""
+    """Write an entry to sync_log and update resmed_last_status setting."""
+    now = datetime.now(timezone.utc).isoformat()
+    set_setting(conn, "resmed_last_sync", now)
+    set_setting(conn, "resmed_last_status", f"{status}: {count} sessions upserted" if status == "success" else status)
+
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO sync_log (sync_type, device_name, record_counts, api_key_id) "
@@ -186,7 +190,7 @@ def main(argv=None):
     # --- Schedule gate -------------------------------------------------------
     if args.check_schedule:
         sync_time = get_setting(conn, "resmed_sync_time")
-        current_hour = datetime.now().hour
+        current_hour = datetime.now(timezone.utc).hour
         if not should_run_now(sync_time, current_hour):
             logger.info(
                 "Skipping — current hour %d does not match sync time %r",
@@ -197,9 +201,13 @@ def main(argv=None):
             return 0
 
     # --- Read credentials ----------------------------------------------------
-    username = get_setting(conn, "resmed_username")
-    encrypted_pw = get_setting(conn, "resmed_password_enc")
+    username = get_setting(conn, "resmed_email")
+    encrypted_pw = get_setting(conn, "resmed_password")
     secret_key = os.environ.get("SECRET_KEY", "")
+    if not secret_key:
+        logger.error("SECRET_KEY env var is not set — cannot decrypt credentials")
+        conn.close()
+        return 3
 
     if not username or not encrypted_pw:
         logger.error("ResMed credentials not configured in settings table")
@@ -236,7 +244,6 @@ def main(argv=None):
 
     # --- Upsert into DB ------------------------------------------------------
     count = upsert_sessions(conn, sessions)
-    set_setting(conn, "resmed_last_sync", datetime.utcnow().isoformat())
     log_sync(conn, "success", count)
 
     logger.info("Sync complete: %d sessions upserted (%d fetched)", count, len(sessions))

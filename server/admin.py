@@ -173,7 +173,10 @@ def resmed_settings():
 
     db = get_db()
     cur = db.cursor()
-    secret_key = os.environ.get("SECRET_KEY", "")
+    secret_key = os.environ.get("SECRET_KEY")
+    if not secret_key:
+        flash("SECRET_KEY not configured — cannot encrypt credentials.", "error")
+        return redirect(url_for("admin.resmed_settings"))
 
     if request.method == "POST":
         action = request.form.get("action", "save")
