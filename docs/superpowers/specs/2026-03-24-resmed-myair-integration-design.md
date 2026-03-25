@@ -38,9 +38,10 @@ class MyAirClient:
     def __init__(self, email: str, password: str):
         ...
 
-    def fetch_recent_sessions(self, days: int = 7) -> list[dict]:
-        """Returns list of daily session summaries.
+    def fetch_sessions(self, days: int = 7) -> list[dict]:
+        """Returns list of daily session summaries for the last N days.
         Each dict contains: date, ahi, usage_minutes, leak_percent, mean_pressure (if available).
+        Use days=365 for initial historical backfill.
         Raises MyAirAuthError on auth failure, MyAirAPIError on unexpected responses.
         """
 ```
@@ -54,7 +55,9 @@ Standalone script invoked by cron. Reads settings from DB, fetches data, upserts
 **Flow:**
 1. Read myAir credentials and sync time from `settings` table
 2. Authenticate with MyAirClient
-3. Fetch last 7 days of session summaries
+3. Fetch session summaries:
+   - **First run** (no `resmed_last_sync` in settings): fetch all available historical data (myAir typically retains ~365 days)
+   - **Subsequent runs**: fetch last 7 days to catch any missed or updated data
 4. For each session:
    - If row exists with `import_source = 'csv'` → skip (CSV is more detailed)
    - If row exists with `import_source = 'resmed_cloud'` → update
