@@ -16,22 +16,17 @@ struct DashboardView: View {
 
     private let barometer = BarometerService.shared
 
-    /// Compute baselines once per body evaluation to avoid repeated O(n) passes.
-    private var hrvBaseline: BaselineCalculator.BaselineResult? {
-        BaselineCalculator.hrvBaseline(from: recentSnapshots)
-    }
-
-    private var rhrBaseline: BaselineCalculator.BaselineResult? {
-        BaselineCalculator.restingHRBaseline(from: recentSnapshots)
-    }
-
     var body: some View {
+        // Compute baselines once per render — these are O(n) over recentSnapshots.
+        let hrvBL = BaselineCalculator.hrvBaseline(from: recentSnapshots)
+        let rhrBL = BaselineCalculator.restingHRBaseline(from: recentSnapshots)
+
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    baselineAlert
+                    baselineAlert(hrvBaseline: hrvBL)
                     anxietySection
-                    healthSection
+                    healthSection(hrvBaseline: hrvBL, rhrBaseline: rhrBL)
                     labResultsSection
                     cpapSection
                     barometricSection
@@ -51,7 +46,7 @@ struct DashboardView: View {
     // MARK: - Sections
 
     @ViewBuilder
-    private var baselineAlert: some View {
+    private func baselineAlert(hrvBaseline: BaselineCalculator.BaselineResult?) -> some View {
         if let baseline = hrvBaseline,
            let recent = BaselineCalculator.recentAverage(from: recentSnapshots, days: 3, keyPath: \.hrvAvg),
            recent < baseline.lowerBound {
@@ -92,7 +87,10 @@ struct DashboardView: View {
     }
 
     @ViewBuilder
-    private var healthSection: some View {
+    private func healthSection(
+        hrvBaseline: BaselineCalculator.BaselineResult?,
+        rhrBaseline: BaselineCalculator.BaselineResult?
+    ) -> some View {
         if let snapshot = todaySnapshot {
             if let hrv = snapshot.hrvAvg {
                 MetricCard(
@@ -113,18 +111,20 @@ struct DashboardView: View {
             if let sleep = snapshot.sleepDurationMin {
                 let hours = sleep / 60
                 let mins = sleep % 60
+                let sleepStatus = sleep >= 420 ? "On track" : sleep >= 360 ? "Below goal" : "Low"
                 MetricCard(
                     title: "Sleep",
                     value: "\(hours)h \(mins)m",
-                    subtitle: sleepBreakdown(snapshot),
+                    subtitle: "\(sleepStatus) · \(sleepBreakdown(snapshot))",
                     color: sleepColor(minutes: sleep)
                 )
             }
             if let steps = snapshot.steps {
+                let stepStatus = steps >= 8000 ? "On track" : steps >= 5000 ? "Below goal" : "Low"
                 MetricCard(
                     title: "Steps",
                     value: "\(steps.formatted())",
-                    subtitle: "Today",
+                    subtitle: stepStatus,
                     color: stepsColor(steps)
                 )
             }
