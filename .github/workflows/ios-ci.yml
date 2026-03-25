@@ -23,20 +23,20 @@ jobs:
       - name: Find simulator destination
         id: dest
         run: |
-          # Pick the first available iPhone simulator
-          DEST=$(xcodebuild -scheme AnxietyWatch -showdestinations 2>/dev/null \
-            | grep 'platform:iOS Simulator' | grep 'iPhone' | head -1 \
-            | sed 's/.*{ //' | sed 's/ }$//')
-          if [ -z "$DEST" ]; then
-            DEST="generic/platform=iOS Simulator"
+          # List available iPhone simulators and pick the first one
+          SIM_NAME=$(xcrun simctl list devices available -j \
+            | python3 -c "import sys,json; devs=json.load(sys.stdin)['devices']; print(next(d['name'] for rt in devs for d in devs[rt] if 'iPhone' in d['name'] and d['isAvailable']), end='')" 2>/dev/null)
+          if [ -z "$SIM_NAME" ]; then
+            SIM_NAME="iPhone 16 Pro"
           fi
-          echo "destination=$DEST" >> "$GITHUB_OUTPUT"
+          echo "sim_name=$SIM_NAME" >> "$GITHUB_OUTPUT"
+          echo "Using simulator: $SIM_NAME"
 
       - name: Run tests with coverage
         run: |
           xcodebuild test \
             -scheme AnxietyWatch \
-            -destination '${{ steps.dest.outputs.destination }}' \
+            -destination 'platform=iOS Simulator,name=${{ steps.dest.outputs.sim_name }}' \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
             -quiet
