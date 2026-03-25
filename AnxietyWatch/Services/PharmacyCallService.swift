@@ -100,8 +100,10 @@ final class PharmacyCallService: NSObject, CXCallObserverDelegate {
               let context = activeModelContext else { return }
 
         if call.hasConnected && !call.hasEnded {
-            // Call connected
-            callStartTime = Date.now
+            // Only record the initial connection time
+            if callStartTime == nil {
+                callStartTime = Date.now
+            }
             timeoutTask?.cancel()
             updateLog(id: logId, in: context) { log in
                 log.direction = "connected"
@@ -115,8 +117,11 @@ final class PharmacyCallService: NSObject, CXCallObserverDelegate {
                 Int(Date.now.timeIntervalSince(start))
             }
             updateLog(id: logId, in: context) { log in
-                log.direction = "completed"
-                log.durationSeconds = duration
+                if let duration {
+                    log.direction = "completed"
+                    log.durationSeconds = duration
+                }
+                // If no connection was observed, keep existing direction ("attempted")
             }
             resetCallState()
         }
