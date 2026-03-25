@@ -184,6 +184,15 @@ def resmed_settings():
         password = request.form.get("password", "")
         sync_time = request.form.get("sync_time", "21:00").strip()
 
+        # Validate sync_time (HH or HH:MM, 0-23)
+        try:
+            hour = int(sync_time.split(":")[0]) if sync_time else -1
+            if not (0 <= hour <= 23):
+                raise ValueError()
+        except (ValueError, IndexError):
+            flash("Invalid sync time. Use HH or HH:MM format (0-23).", "error")
+            return redirect(url_for("admin.resmed_settings"))
+
         # Save email
         if email:
             cur.execute(
