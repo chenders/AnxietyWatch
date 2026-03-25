@@ -1,15 +1,19 @@
-"""Thin wrapper around the myair-py package for fetching ResMed CPAP data.
+"""ResMed myAir API client — fetches CPAP session data.
 
-Translates myair-py's async client and SleepRecord TypedDicts into plain
-dicts with keys matching our cpap_sessions schema.  All exceptions from
-the underlying library are caught and re-raised as MyAirAuthError (for
-credential problems) or MyAirAPIError (for everything else).
+Implements the Okta PKCE OAuth flow directly (myair-py's connect() is broken)
+then uses the myair-py RESTClient for the GraphQL data queries.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
+import re
+import secrets
 from typing import Any
+
+import aiohttp
 
 logger = logging.getLogger(__name__)
 
@@ -23,47 +27,64 @@ class MyAirAuthError(Exception):
 
 
 class MyAirAPIError(Exception):
-    """Raised for any non-auth error from the myAir API or missing dependency."""
+    """Raised for any non-auth error from the myAir API."""
 
 
 # ---------------------------------------------------------------------------
-# Attempt to import myair_py — defer failure to instantiation time so the
-# module can always be imported (useful for tests & introspection).
+# Okta / myAir constants
 # ---------------------------------------------------------------------------
 
-_myair = None
-_import_error: str | None = None
+OKTA_BASE = "https://resmed-ext-1.okta.com"
+OKTA_AUTHN_URL = f"{OKTA_BASE}/api/v1/authn"
+OKTA_AUTHORIZE_URL = f"{OKTA_BASE}/oauth2/aus4ccsxvnidQgLmA297/v1/authorize"
+OKTA_TOKEN_URL = f"{OKTA_BASE}/oauth2/aus4ccsxvnidQgLmA297/v1/token"
+OKTA_CLIENT_ID = "0oa4ccq1v413ypROi297"
+REDIRECT_URI = "https://myair.resmed.com"
 
-try:
-    import myair_py as _myair  # type: ignore[no-redef]
-except ImportError:
-    _import_error = (
-        "myair_py is not installed. "
-        "Install it with: pip install myair-py"
-    )
+# myAir AppSync GraphQL endpoint
+APPSYNC_URL = "https://ds53oalfjba5nkynjzg5gfmxnm.appsync-api.us-west-2.amazonaws.com/graphql"
+
+# GraphQL query for sleep records
+SLEEP_RECORDS_QUERY = """
+query GetSleepRecords {
+    getPatientWrapper {
+        sleepRecords {
+            items {
+                startDate
+                totalUsage
+                sleepScore
+                usageScore
+                ahiScore
+                maskScore
+                leakScore
+                ahi
+                maskPairCount
+                leakPercentile
+                sleepRecordPatientId
+                __typename
+            }
+        }
+    }
+}
+"""
 
 
 # ---------------------------------------------------------------------------
-# Required keys that a sleep record must have to be considered valid.
-# If any of these are missing the record is skipped.
+# Record normalization
 # ---------------------------------------------------------------------------
 
 _REQUIRED_RECORD_KEYS = {"startDate", "ahi", "totalUsage"}
 
 
 def _normalize_record(raw: dict[str, Any]) -> dict[str, Any] | None:
-    """Convert a myair-py SleepRecord dict to our canonical format.
-
-    Returns None if the record is missing required fields, so the caller
-    can skip it without crashing the whole sync.
-    """
+    """Convert a myAir SleepRecord dict to our canonical format."""
     if not isinstance(raw, dict):
         logger.warning("Skipping non-dict sleep record: %s", type(raw).__name__)
         return None
 
     missing = _REQUIRED_RECORD_KEYS - raw.keys()
     if missing:
-        logger.warning("Skipping malformed sleep record (missing %s): %s", missing, raw.get("startDate", "?"))
+        logger.warning("Skipping malformed record (missing %s): %s", missing, raw.get("startDate", "?"))
         return None
 
     try:
@@ -80,7 +101,6 @@ def _normalize_record(raw: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _safe_float(value: Any) -> float | None:
-    """Convert to float, returning None for missing or unconvertible values."""
     if value is None:
         return None
     try:
@@ -95,60 +115,143 @@ def _safe_float(value: Any) -> float | None:
 
 
 class MyAirClient:
-    """Wrapper around myair-py that returns plain dicts for CPAP sessions.
+    """Fetches CPAP session data from ResMed's myAir cloud.
+
+    Implements the Okta PKCE OAuth flow directly, then queries the
+    AppSync GraphQL API for sleep records.
 
     Usage::
 
-        client = MyAirClient(username="...", password="...", region="NA")
+        client = MyAirClient(username="...", password="...")
         sessions = await client.fetch_sessions(days=7)
-        # sessions is a list of dicts with keys:
-        #   date, ahi, total_usage_minutes, leak_percentile, mean_pressure
     """
 
     def __init__(self, *, username: str, password: str, region: str = "NA") -> None:
-        if _myair is None:
-            raise MyAirAPIError(_import_error)
-
         self._username = username
         self._password = password
         self._region = region
 
-    async def fetch_sessions(self, days: int = 7) -> list[dict[str, Any]]:
-        """Fetch recent CPAP sessions from the myAir API.
+    async def _authenticate(self, session: aiohttp.ClientSession) -> str:
+        """Run the Okta PKCE OAuth flow and return an access token."""
 
-        Parameters
-        ----------
-        days:
-            Number of days of history to request.  The myAir API may return
-            up to 30 days regardless; we pass the parameter for future use.
+        # Step 1: Okta primary authentication
+        resp = await session.post(
+            OKTA_AUTHN_URL,
+            json={"username": self._username, "password": self._password},
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        data = await resp.json()
 
-        Returns
-        -------
-        list[dict]
-            Each dict has keys: date, ahi, total_usage_minutes,
-            leak_percentile, mean_pressure.
-        """
-        assert _myair is not None  # guarded in __init__
+        if data.get("status") != "SUCCESS":
+            error_summary = data.get("errorSummary", data.get("status", "Unknown error"))
+            raise MyAirAuthError(f"Okta authentication failed: {error_summary}")
 
-        import aiohttp
+        session_token = data["sessionToken"]
+        logger.debug("Got Okta session token")
+
+        # Step 2: PKCE code challenge
+        verifier = secrets.token_urlsafe(32)
+        challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(verifier.encode()).digest()
+        ).rstrip(b"=").decode()
+
+        # Step 3: Authorize (get auth code via okta_post_message)
+        params = {
+            "client_id": OKTA_CLIENT_ID,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "nonce": secrets.token_urlsafe(32),
+            "prompt": "none",
+            "redirect_uri": REDIRECT_URI,
+            "response_mode": "okta_post_message",
+            "response_type": "code",
+            "sessionToken": session_token,
+            "state": secrets.token_urlsafe(32),
+            "scope": "openid profile email",
+        }
+        resp = await session.get(OKTA_AUTHORIZE_URL, params=params, allow_redirects=False)
+        body = await resp.text()
+
+        # Parse auth code from the HTML postMessage response
+        match = re.search(r"data\.code\s*=\s*'([^']+)'", body)
+        if not match:
+            # Check for error in response
+            err_match = re.search(r"data\.error\s*=\s*'([^']+)'", body)
+            error_msg = err_match.group(1) if err_match else "Could not extract auth code"
+            raise MyAirAuthError(f"OAuth authorize failed: {error_msg}")
+
+        auth_code = match.group(1)
+        logger.debug("Got OAuth auth code")
+
+        # Step 4: Exchange code for tokens
+        resp = await session.post(
+            OKTA_TOKEN_URL,
+            data={
+                "grant_type": "authorization_code",
+                "client_id": OKTA_CLIENT_ID,
+                "code": auth_code,
+                "code_verifier": verifier,
+                "redirect_uri": REDIRECT_URI,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        token_data = await resp.json()
+
+        access_token = token_data.get("access_token")
+        if not access_token:
+            error = token_data.get("error_description", token_data.get("error", "No access token"))
+            raise MyAirAuthError(f"Token exchange failed: {error}")
+
+        logger.debug("Got access token")
+        return access_token
+
+    async def _fetch_sleep_records(self, session: aiohttp.ClientSession, token: str) -> list[dict]:
+        """Query the AppSync GraphQL API for sleep records."""
+        resp = await session.post(
+            APPSYNC_URL,
+            json={"query": SLEEP_RECORDS_QUERY},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+        )
+
+        if resp.status != 200:
+            body = await resp.text()
+            raise MyAirAPIError(f"AppSync returned {resp.status}: {body[:200]}")
+
+        data = await resp.json()
+
+        if "errors" in data:
+            raise MyAirAPIError(f"GraphQL errors: {data['errors']}")
 
         try:
-            config = _myair.MyAirConfig(
-                username=self._username,
-                password=self._password,
-                region=self._region,
-            )
-            async with aiohttp.ClientSession() as session:
-                client = _myair.ClientFactory(config=config, session=session).get()
-                await client.connect()
-                raw_records = await client.get_sleep_records()
-        except _myair.AuthenticationError as exc:
-            raise MyAirAuthError(str(exc)) from exc
-        except (MyAirAuthError, MyAirAPIError):
-            # Don't double-wrap our own exceptions
-            raise
-        except Exception as exc:
-            raise MyAirAPIError(repr(exc)) from exc
+            items = data["data"]["getPatientWrapper"]["sleepRecords"]["items"]
+        except (KeyError, TypeError) as exc:
+            raise MyAirAPIError(f"Unexpected response structure: {exc}") from exc
+
+        return items
+
+    async def fetch_sessions(self, days: int = 7) -> list[dict[str, Any]]:
+        """Fetch recent CPAP sessions from myAir.
+
+        Returns list of dicts with keys: date, ahi, total_usage_minutes,
+        leak_percentile, mean_pressure.
+        """
+        async with aiohttp.ClientSession() as session:
+            try:
+                token = await self._authenticate(session)
+            except MyAirAuthError:
+                raise
+            except Exception as exc:
+                raise MyAirAuthError(f"Authentication failed: {repr(exc)}") from exc
+
+            try:
+                raw_records = await self._fetch_sleep_records(session, token)
+            except (MyAirAuthError, MyAirAPIError):
+                raise
+            except Exception as exc:
+                raise MyAirAPIError(f"API error: {repr(exc)}") from exc
 
         results: list[dict[str, Any]] = []
         for raw in raw_records:
