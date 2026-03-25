@@ -17,12 +17,16 @@ struct DashboardView: View {
     private let barometer = BarometerService.shared
 
     var body: some View {
+        // Compute baselines once per render — these are O(n) over recentSnapshots.
+        let hrvBL = BaselineCalculator.hrvBaseline(from: recentSnapshots)
+        let rhrBL = BaselineCalculator.restingHRBaseline(from: recentSnapshots)
+
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    baselineAlert
+                    baselineAlert(hrvBaseline: hrvBL)
                     anxietySection
-                    healthSection
+                    healthSection(hrvBaseline: hrvBL, rhrBaseline: rhrBL)
                     labResultsSection
                     cpapSection
                     barometricSection
@@ -42,8 +46,10 @@ struct DashboardView: View {
     // MARK: - Sections
 
     @ViewBuilder
-    private var baselineAlert: some View {
-        if BaselineCalculator.isHRVBelowBaseline(snapshots: recentSnapshots) {
+    private func baselineAlert(hrvBaseline: BaselineCalculator.BaselineResult?) -> some View {
+        if let baseline = hrvBaseline,
+           let recent = BaselineCalculator.recentAverage(from: recentSnapshots, days: 3, keyPath: \.hrvAvg),
+           recent < baseline.lowerBound {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
@@ -81,40 +87,45 @@ struct DashboardView: View {
     }
 
     @ViewBuilder
-    private var healthSection: some View {
+    private func healthSection(
+        hrvBaseline: BaselineCalculator.BaselineResult?,
+        rhrBaseline: BaselineCalculator.BaselineResult?
+    ) -> some View {
         if let snapshot = todaySnapshot {
             if let hrv = snapshot.hrvAvg {
                 MetricCard(
                     title: "HRV",
                     value: String(format: "%.0f ms", hrv),
-                    subtitle: "Today's average",
-                    color: .blue
+                    subtitle: baselineSubtitle(value: hrv, baseline: hrvBaseline),
+                    color: baselineColor(value: hrv, baseline: hrvBaseline, higherIsBetter: true)
                 )
             }
             if let rhr = snapshot.restingHR {
                 MetricCard(
                     title: "Resting HR",
                     value: String(format: "%.0f bpm", rhr),
-                    subtitle: "Today",
-                    color: .red
+                    subtitle: baselineSubtitle(value: rhr, baseline: rhrBaseline),
+                    color: baselineColor(value: rhr, baseline: rhrBaseline, higherIsBetter: false)
                 )
             }
             if let sleep = snapshot.sleepDurationMin {
                 let hours = sleep / 60
                 let mins = sleep % 60
+                let sleepStatus = sleep >= 420 ? "On track" : sleep >= 360 ? "Below goal" : "Low"
                 MetricCard(
                     title: "Sleep",
                     value: "\(hours)h \(mins)m",
-                    subtitle: sleepBreakdown(snapshot),
-                    color: .purple
+                    subtitle: "\(sleepStatus) · \(sleepBreakdown(snapshot))",
+                    color: sleepColor(minutes: sleep)
                 )
             }
             if let steps = snapshot.steps {
+                let stepStatus = steps >= 8000 ? "On track" : steps >= 5000 ? "Below goal" : "Low"
                 MetricCard(
                     title: "Steps",
                     value: "\(steps.formatted())",
-                    subtitle: "Today",
-                    color: .orange
+                    subtitle: stepStatus,
+                    color: stepsColor(steps)
                 )
             }
         }
@@ -155,7 +166,7 @@ struct DashboardView: View {
                 value: lastDose.medicationName,
                 subtitle: String(format: "%.0fmg — %@", lastDose.doseMg,
                     lastDose.timestamp.formatted(.relative(presentation: .named))),
-                color: .green
+                color: .secondary
             )
         }
     }
@@ -255,6 +266,55 @@ struct DashboardView: View {
         case 1...3: return .green
         case 4...6: return .yellow
         case 7...8: return .orange
+        default: return .red
+        }
+    }
+
+    /// Color a metric based on personal baseline deviation.
+    /// Green = normal or better, yellow = slightly off, red = significantly off.
+    /// - `higherIsBetter`: true for HRV (higher = calmer), false for RHR (lower = calmer)
+    private func baselineColor(
+        value: Double,
+        baseline: BaselineCalculator.BaselineResult?,
+        higherIsBetter: Bool
+    ) -> Color {
+        guard let baseline else { return .primary }
+
+        if higherIsBetter {
+            // HRV: higher is better, worry when it drops
+            if value >= baseline.lowerBound { return .green }  // within or above normal
+            if value >= baseline.lowerBound - baseline.standardDeviation { return .yellow }  // slightly low
+            return .red  // significantly low
+        } else {
+            // RHR: lower is better, worry when it rises
+            if value <= baseline.upperBound { return .green }  // within or below normal
+            if value <= baseline.upperBound + baseline.standardDeviation { return .yellow }  // slightly high
+            return .red  // significantly high
+        }
+    }
+
+    private func baselineSubtitle(
+        value: Double,
+        baseline: BaselineCalculator.BaselineResult?
+    ) -> String {
+        guard let baseline else { return "Today" }
+        let diff = value - baseline.mean
+        let direction = diff >= 0 ? "above" : "below"
+        return String(format: "%.0f %@ avg", abs(diff), direction)
+    }
+
+    private func sleepColor(minutes: Int) -> Color {
+        switch minutes {
+        case 420...: return .green      // 7+ hours
+        case 360..<420: return .yellow  // 6–7 hours
+        default: return .red            // <6 hours
+        }
+    }
+
+    private func stepsColor(_ steps: Int) -> Color {
+        switch steps {
+        case 8000...: return .green
+        case 5000..<8000: return .yellow
         default: return .red
         }
     }
