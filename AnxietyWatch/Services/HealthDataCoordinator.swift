@@ -70,6 +70,20 @@ final class HealthDataCoordinator {
 
     // MARK: - Gap Fill
 
+    /// Pure calculation: returns the dates that need gap-filling between lastSnapshotDate and today.
+    /// Returns empty if no gap exists or lastSnapshotDate is nil.
+    static func gapDates(lastSnapshotDate: Date?, today: Date, maxDays: Int = 90) -> [Date] {
+        guard let lastDate = lastSnapshotDate else { return [] }
+        let calendar = Calendar.current
+        guard let daysBetween = calendar.dateComponents([.day], from: lastDate, to: today).day,
+              daysBetween > 1 else { return [] }
+
+        let cappedGap = min(daysBetween, maxDays + 1)
+        return (1..<cappedGap).compactMap { offset in
+            calendar.date(byAdding: .day, value: offset, to: lastDate)
+        }
+    }
+
     /// Aggregates snapshots for any days missed between the most recent snapshot and today.
     /// Runs every launch to catch days the app was not opened. Skips if initial backfill
     /// hasn't completed yet to avoid racing with it.
@@ -77,8 +91,7 @@ final class HealthDataCoordinator {
         guard UserDefaults.standard.bool(forKey: Self.backfillKey) else { return }
 
         let context = ModelContext(modelContainer)
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: .now)
+        let today = Calendar.current.startOfDay(for: .now)
 
         // Fetch the most recent snapshot strictly before today so a concurrently-created
         // today snapshot can't short-circuit gap filling.
@@ -90,23 +103,16 @@ final class HealthDataCoordinator {
 
         guard let lastSnapshot = try? context.fetch(descriptor).first else { return }
 
-        let lastDate = lastSnapshot.date
-        guard let daysBetween = calendar.dateComponents([.day], from: lastDate, to: today).day,
-              daysBetween > 1 else { return }
-
-        // Cap to avoid excessive work; fill at most 90 missed days
-        let cappedGap = min(daysBetween, 91)
+        let dates = Self.gapDates(lastSnapshotDate: lastSnapshot.date, today: today)
+        guard !dates.isEmpty else { return }
 
         let aggregator = SnapshotAggregator(
             healthKit: HealthKitManager.shared,
             modelContext: context
         )
 
-        // Fill from the day after the last snapshot up to today (exclusive — today
-        // is handled by the observer and view .task refreshes).
-        for offset in 1..<cappedGap {
+        for date in dates {
             if Task.isCancelled { return }
-            guard let date = calendar.date(byAdding: .day, value: offset, to: lastDate) else { continue }
             try? await aggregator.aggregateDay(date)
         }
     }
