@@ -16,6 +16,15 @@ struct DashboardView: View {
 
     private let barometer = BarometerService.shared
 
+    /// Compute baselines once per body evaluation to avoid repeated O(n) passes.
+    private var hrvBaseline: BaselineCalculator.BaselineResult? {
+        BaselineCalculator.hrvBaseline(from: recentSnapshots)
+    }
+
+    private var rhrBaseline: BaselineCalculator.BaselineResult? {
+        BaselineCalculator.restingHRBaseline(from: recentSnapshots)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -43,7 +52,9 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var baselineAlert: some View {
-        if BaselineCalculator.isHRVBelowBaseline(snapshots: recentSnapshots) {
+        if let baseline = hrvBaseline,
+           let recent = BaselineCalculator.recentAverage(from: recentSnapshots, days: 3, keyPath: \.hrvAvg),
+           recent < baseline.lowerBound {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
@@ -84,21 +95,19 @@ struct DashboardView: View {
     private var healthSection: some View {
         if let snapshot = todaySnapshot {
             if let hrv = snapshot.hrvAvg {
-                let baseline = BaselineCalculator.hrvBaseline(from: recentSnapshots)
                 MetricCard(
                     title: "HRV",
                     value: String(format: "%.0f ms", hrv),
-                    subtitle: baselineSubtitle(value: hrv, baseline: baseline, higherIsBetter: true),
-                    color: baselineColor(value: hrv, baseline: baseline, higherIsBetter: true)
+                    subtitle: baselineSubtitle(value: hrv, baseline: hrvBaseline),
+                    color: baselineColor(value: hrv, baseline: hrvBaseline, higherIsBetter: true)
                 )
             }
             if let rhr = snapshot.restingHR {
-                let baseline = BaselineCalculator.restingHRBaseline(from: recentSnapshots)
                 MetricCard(
                     title: "Resting HR",
                     value: String(format: "%.0f bpm", rhr),
-                    subtitle: baselineSubtitle(value: rhr, baseline: baseline, higherIsBetter: false),
-                    color: baselineColor(value: rhr, baseline: baseline, higherIsBetter: false)
+                    subtitle: baselineSubtitle(value: rhr, baseline: rhrBaseline),
+                    color: baselineColor(value: rhr, baseline: rhrBaseline, higherIsBetter: false)
                 )
             }
             if let sleep = snapshot.sleepDurationMin {
@@ -157,7 +166,7 @@ struct DashboardView: View {
                 value: lastDose.medicationName,
                 subtitle: String(format: "%.0fmg — %@", lastDose.doseMg,
                     lastDose.timestamp.formatted(.relative(presentation: .named))),
-                color: .green
+                color: .secondary
             )
         }
     }
@@ -287,8 +296,7 @@ struct DashboardView: View {
 
     private func baselineSubtitle(
         value: Double,
-        baseline: BaselineCalculator.BaselineResult?,
-        higherIsBetter: Bool
+        baseline: BaselineCalculator.BaselineResult?
     ) -> String {
         guard let baseline else { return "Today" }
         let diff = value - baseline.mean
