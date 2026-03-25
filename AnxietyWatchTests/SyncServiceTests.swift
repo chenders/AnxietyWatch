@@ -4,6 +4,7 @@ import Testing
 
 @testable import AnxietyWatch
 
+@Suite(.serialized)
 struct SyncServiceTests {
 
     private static let syncKeys = ["syncServerURL", "syncApiKey", "syncAutoEnabled", "lastSyncDate"]
