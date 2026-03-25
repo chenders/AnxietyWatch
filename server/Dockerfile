@@ -9,4 +9,9 @@ COPY . .
 
 EXPOSE 8080
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--access-logfile", "-", "server:create_app()"]
+# Install cron for ResMed sync (hourly schedule check)
+RUN apt-get update && apt-get install -y --no-install-recommends cron && rm -rf /var/lib/apt/lists/*
+COPY resmed-cron /etc/cron.d/resmed-sync
+RUN chmod 0644 /etc/cron.d/resmed-sync
+
+CMD ["sh", "-c", "cron && exec gunicorn --bind 0.0.0.0:8080 --workers 2 --access-logfile - 'server:create_app()'"]
