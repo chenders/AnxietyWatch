@@ -105,16 +105,7 @@ def upsert_prescriptions(conn, prescriptions):
     for rx in prescriptions:
         rx_number = rx["rx_number"]
 
-        # Check if a manual row already exists — skip if so
-        cur.execute(
-            "SELECT import_source FROM prescriptions WHERE rx_number = %s",
-            (rx_number,),
-        )
-        existing = cur.fetchone()
-        if existing and existing[0] == "manual":
-            logger.debug("Skipping %s — manual entry exists", rx_number)
-            continue
-
+        # The ON CONFLICT WHERE clause ensures manual rows are never overwritten
         cur.execute(
             """INSERT INTO prescriptions
                    (rx_number, medication_name, dose_mg, dose_description,

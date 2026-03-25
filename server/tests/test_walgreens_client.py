@@ -167,7 +167,7 @@ def _make_mock_session():
     session_id_cookie.domain = ".walgreens.com"
     session_id_cookie.path = "/"
 
-    session.cookies.__iter__ = lambda self: iter([xsrf_cookie, session_id_cookie])
+    session.cookies.__iter__ = MagicMock(return_value=iter([xsrf_cookie, session_id_cookie]))
     session.cookies.get.return_value = "fake-xsrf-token"
 
     return session
