@@ -10,6 +10,7 @@ import base64
 import hashlib
 import json
 import logging
+import os
 import re
 import secrets
 import uuid
@@ -44,7 +45,6 @@ OKTA_CLIENT_ID = "0oa4ccq1v413ypROi297"
 REDIRECT_URI = "https://myair.resmed.com"
 
 GRAPHQL_URL = "https://graphql.prd.hyperdrive.myair.resmed.com/graphql"
-GRAPHQL_API_KEY = "REDACTED_API_KEY"
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +219,7 @@ class MyAirClient:
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
-                "x-api-key": GRAPHQL_API_KEY,
+                "x-api-key": os.environ.get("GRAPHQL_API_KEY", ""),
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                               "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "Origin": "https://myair.resmed.com",
