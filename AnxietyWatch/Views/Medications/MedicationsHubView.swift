@@ -158,7 +158,8 @@ private struct SupplyAlertRow: View {
             VStack(alignment: .leading) {
                 Text(prescription.medicationName).font(.subheadline)
                 if let days = PrescriptionSupplyCalculator.daysRemaining(for: prescription) {
-                    Text(days <= 0 ? "Supply expired" : "\(days) days remaining")
+                    let label = days < 0 ? "Supply expired" : days == 0 ? "Runs out today" : "\(days) days remaining"
+                    Text(label)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

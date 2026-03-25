@@ -15,7 +15,7 @@ final class Pharmacy {
     var isActive: Bool
     @Relationship(deleteRule: .nullify, inverse: \Prescription.pharmacy)
     var prescriptions: [Prescription]
-    @Relationship(deleteRule: .cascade, inverse: \PharmacyCallLog.pharmacy)
+    @Relationship(deleteRule: .nullify, inverse: \PharmacyCallLog.pharmacy)
     var callLogs: [PharmacyCallLog]
 
     init(
