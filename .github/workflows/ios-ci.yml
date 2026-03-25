@@ -14,17 +14,30 @@ concurrency:
 jobs:
   test:
     runs-on: macos-15
+    continue-on-error: true  # Xcode 26 not yet available on GitHub-hosted runners
     steps:
       - uses: actions/checkout@v4
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_26.app || sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | tail -1)"
 
+      - name: Find simulator destination
+        id: dest
+        run: |
+          # List available iPhone simulators and pick the first one
+          SIM_NAME=$(xcrun simctl list devices available -j \
+            | python3 -c "import sys,json; devs=json.load(sys.stdin)['devices']; print(next(d['name'] for rt in devs for d in devs[rt] if 'iPhone' in d['name'] and d['isAvailable']), end='')" 2>/dev/null)
+          if [ -z "$SIM_NAME" ]; then
+            SIM_NAME="iPhone 16 Pro"
+          fi
+          echo "sim_name=$SIM_NAME" >> "$GITHUB_OUTPUT"
+          echo "Using simulator: $SIM_NAME"
+
       - name: Run tests with coverage
         run: |
           xcodebuild test \
             -scheme AnxietyWatch \
-            -destination 'platform=iOS Simulator,OS=latest,name=iPhone 16 Pro' \
+            -destination 'platform=iOS Simulator,name=${{ steps.dest.outputs.sim_name }}' \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
             -quiet

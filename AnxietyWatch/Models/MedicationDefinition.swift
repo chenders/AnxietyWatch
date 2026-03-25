@@ -11,6 +11,8 @@ final class MedicationDefinition {
     var isActive: Bool
     @Relationship(deleteRule: .nullify, inverse: \MedicationDose.medication)
     var doses: [MedicationDose]
+    @Relationship(deleteRule: .nullify, inverse: \Prescription.medication)
+    var prescriptions: [Prescription]
 
     init(
         name: String,
@@ -24,5 +26,6 @@ final class MedicationDefinition {
         self.category = category
         self.isActive = isActive
         self.doses = []
+        self.prescriptions = []
     }
 }
