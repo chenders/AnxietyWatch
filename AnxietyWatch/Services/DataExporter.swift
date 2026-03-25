@@ -209,7 +209,12 @@ enum DataExporter {
                                 dateFilled: isoFormatter.string(from: rx.dateFilled),
                                 estimatedRunOutDate: rx.estimatedRunOutDate.map { isoFormatter.string(from: $0) },
                                 pharmacyName: rx.pharmacyName, notes: rx.notes,
-                                dailyDoseCount: rx.dailyDoseCount)
+                                dailyDoseCount: rx.dailyDoseCount,
+                                prescriberName: rx.prescriberName, ndcCode: rx.ndcCode,
+                                rxStatus: rx.rxStatus,
+                                lastFillDate: rx.lastFillDate.map { isoFormatter.string(from: $0) },
+                                importSource: rx.importSource, walgreensRxId: rx.walgreensRxId,
+                                directions: rx.directions)
             },
             pharmacyCallLogs: callLogs.filter { inRange($0.timestamp) }.map { c in
                 PharmacyCallLogDTO(timestamp: isoFormatter.string(from: c.timestamp),
@@ -273,6 +278,9 @@ enum DataExporter {
         let doseDescription: String; let quantity: Int; let refillsRemaining: Int
         let dateFilled: String; let estimatedRunOutDate: String?
         let pharmacyName: String; let notes: String; let dailyDoseCount: Double?
+        let prescriberName: String; let ndcCode: String; let rxStatus: String
+        let lastFillDate: String?; let importSource: String; let walgreensRxId: String?
+        let directions: String
     }
     struct PharmacyCallLogDTO: Codable {
         let timestamp: String; let direction: String; let pharmacyName: String
