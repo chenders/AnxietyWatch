@@ -8,7 +8,7 @@ Exit codes:
     0  success
     1  authentication failure
     2  API / network error
-    3  no credentials configured
+    3  credentials/config error (no credentials, missing SECRET_KEY, or decrypt failure)
 """
 
 from __future__ import annotations
