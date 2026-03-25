@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UIKit
 
 struct PrescriptionScannerView: View {
     var onScanComplete: (PrescriptionLabelScanner.ScannedPrescriptionData) -> Void
