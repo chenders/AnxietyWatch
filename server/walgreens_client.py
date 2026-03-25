@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime
 from typing import Any
 
 import requests
@@ -72,9 +73,13 @@ def _parse_dose(drug_name: str) -> tuple[float, str]:
         return 0.0, ""
     value = float(match.group(1))
     unit = match.group(2).lower()
+    desc = f"{match.group(1)}{match.group(2)}"
     if unit == "mcg":
         value /= 1000  # convert to mg
-    return value, f"{match.group(1)}{match.group(2)}"
+    elif unit == "ml":
+        # ml is not convertible to mg without concentration — keep description only
+        return 0.0, desc
+    return value, desc
 
 
 def _parse_price(price_str: str | None) -> float | None:
@@ -85,6 +90,14 @@ def _parse_price(price_str: str | None) -> float | None:
     if match:
         return float(match.group(1).replace(",", ""))
     return None
+
+
+def _parse_walgreens_date(date_str: str) -> str:
+    """Convert Walgreens MM/DD/YYYY date to ISO-8601 YYYY-MM-DD."""
+    try:
+        return datetime.strptime(date_str, "%m/%d/%Y").strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return date_str  # return as-is if unparseable
 
 
 def normalize_prescription(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -113,7 +126,7 @@ def normalize_prescription(raw: dict[str, Any]) -> dict[str, Any] | None:
         "dose_description": dose_desc,
         "quantity": int(raw.get("quantity", 0)),
         "refills_remaining": 0,
-        "date_filled": raw["fillDate"],
+        "date_filled": _parse_walgreens_date(raw["fillDate"]),
         "pharmacy_name": "Walgreens",
         "prescriber_name": prescriber_name,
         "ndc_code": raw.get("ndcNumber", ""),
