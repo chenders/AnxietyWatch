@@ -30,25 +30,12 @@ struct PharmacySearchView: View {
     // MARK: - Subviews
 
     private var searchMap: some View {
-        mapContent
+        Map(position: $cameraPosition)
             .frame(height: 220)
             .searchable(text: $searchText, prompt: "Search pharmacies...")
             .onSubmit(of: .search) {
                 performSearch()
             }
-    }
-
-    @ViewBuilder
-    private var mapContent: some View {
-        if #available(iOS 17, *) {
-            Map(position: $cameraPosition) {
-                ForEach(results) { result in
-                    Marker(result.name, coordinate: result.coordinate)
-                }
-            }
-        } else {
-            Map(position: $cameraPosition)
-        }
     }
 
     private var resultsList: some View {
