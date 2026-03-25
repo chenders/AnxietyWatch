@@ -331,15 +331,15 @@ def walgreens_settings():
                 import subprocess
                 result = subprocess.run(
                     [sys.executable, "walgreens_sync.py"],
-                    capture_output=True, text=True, timeout=120,
+                    capture_output=True, text=True, timeout=180,
                     env={**os.environ},
                 )
                 if result.returncode == 0:
-                    flash(f"Sync completed: {result.stdout.strip()[:200]}", "success")
+                    flash(f"Sync completed: {result.stdout.strip()[:500]}", "success")
                 else:
-                    flash(f"Sync failed (exit {result.returncode}): {result.stderr.strip()[:200]}", "error")
+                    flash(f"Sync failed (exit {result.returncode}): {result.stderr.strip()[:500]}", "error")
             except Exception as e:
-                flash(f"Sync error: {str(e)[:200]}", "error")
+                flash(f"Sync error: {str(e)[:500]}", "error")
 
         return redirect(url_for("admin.walgreens_settings"))
 
