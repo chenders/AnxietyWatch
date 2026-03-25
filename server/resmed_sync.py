@@ -14,7 +14,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import asyncio
+
 import logging
 import os
 import sys
@@ -230,7 +230,7 @@ def main(argv=None):
     # --- Fetch from myAir ----------------------------------------------------
     try:
         client = MyAirClient(username=username, password=password)
-        sessions = asyncio.run(client.fetch_sessions(days=days))
+        sessions = client.fetch_sessions(days=days)
     except MyAirAuthError as exc:
         logger.error("myAir authentication failed: %s", exc)
         log_sync(conn, "auth_error", 0)
