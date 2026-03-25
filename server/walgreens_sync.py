@@ -135,6 +135,7 @@ def upsert_prescriptions(conn, prescriptions):
                    prescriber_name = EXCLUDED.prescriber_name,
                    ndc_code = EXCLUDED.ndc_code,
                    rx_status = EXCLUDED.rx_status,
+                   last_fill_date = EXCLUDED.last_fill_date,
                    import_source = EXCLUDED.import_source,
                    walgreens_rx_id = EXCLUDED.walgreens_rx_id,
                    directions = EXCLUDED.directions
@@ -166,7 +167,8 @@ def upsert_prescriptions(conn, prescriptions):
 def log_sync(conn, status, count):
     """Write an entry to sync_log and update walgreens_last_status setting."""
     now = datetime.now(timezone.utc).isoformat()
-    set_setting(conn, "walgreens_last_sync", now)
+    if status == "success":
+        set_setting(conn, "walgreens_last_sync", now)
     set_setting(
         conn, "walgreens_last_status",
         f"{status}: {count} prescriptions upserted" if status == "success" else status,
