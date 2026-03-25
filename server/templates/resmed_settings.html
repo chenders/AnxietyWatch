@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}ResMed Sync — Anxiety Watch Admin{% endblock %}
+{% block content %}
+<h1>ResMed myAir Sync</h1>
+
+<div class="card">
+    <h2>Credentials</h2>
+    <form method="post">
+        <div class="mb-1">
+            <label for="email"><strong>myAir Email</strong></label>
+            <input type="text" id="email" name="email" value="{{ email }}" placeholder="your@email.com">
+        </div>
+        <div class="mb-1">
+            <label for="password"><strong>myAir Password</strong></label>
+            <input type="password" id="password" name="password" placeholder="{{ '••••••••' if has_password else 'Enter password' }}">
+            {% if has_password %}<small style="color:#6e6e73;">Leave blank to keep current password</small>{% endif %}
+        </div>
+        <div class="mb-1">
+            <label for="sync_time"><strong>Daily Sync Time (UTC, HH:MM)</strong></label>
+            <input type="text" id="sync_time" name="sync_time" value="{{ sync_time }}" placeholder="12:00">
+        </div>
+        <button type="submit" name="action" value="save" class="btn btn-primary">Save Settings</button>
+        <button type="submit" name="action" value="sync_now" class="btn btn-primary" style="margin-left:0.5rem;">Sync Now</button>
+    </form>
+</div>
+
+{% if last_sync or last_status %}
+<div class="card">
+    <h2>Last Sync</h2>
+    <table>
+        {% if last_sync %}<tr><th>Time</th><td>{{ last_sync }}</td></tr>{% endif %}
+        {% if last_status %}<tr><th>Result</th><td>{{ last_status }}</td></tr>{% endif %}
+    </table>
+</div>
+{% endif %}
+{% endblock %}
