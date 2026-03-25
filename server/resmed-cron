@@ -1,1 +1,1 @@
-0 * * * * cd /app && python resmed_sync.py --check-schedule >> /proc/1/fd/1 2>&1
+0 * * * * root cd /app && python resmed_sync.py --check-schedule >> /proc/1/fd/1 2>&1

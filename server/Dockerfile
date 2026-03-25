@@ -14,4 +14,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends cron && rm -rf 
 COPY resmed-cron /etc/cron.d/resmed-sync
 RUN chmod 0644 /etc/cron.d/resmed-sync
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--access-logfile", "-", "server:create_app()"]
+CMD ["sh", "-c", "cron && exec gunicorn --bind 0.0.0.0:8080 --workers 2 --access-logfile - 'server:create_app()'"]
