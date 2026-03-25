@@ -271,26 +271,25 @@ struct DashboardView: View {
     }
 
     /// Color a metric based on personal baseline deviation.
+    /// Green = normal or better, yellow = slightly off, red = significantly off.
     /// - `higherIsBetter`: true for HRV (higher = calmer), false for RHR (lower = calmer)
     private func baselineColor(
         value: Double,
         baseline: BaselineCalculator.BaselineResult?,
         higherIsBetter: Bool
     ) -> Color {
-        guard let baseline else {
-            // No baseline yet — fall back to neutral
-            return .primary
-        }
+        guard let baseline else { return .primary }
+
         if higherIsBetter {
-            // HRV: above mean = good, below lower bound = bad
-            if value >= baseline.mean { return .green }
-            if value >= baseline.lowerBound { return .yellow }
-            return .red
+            // HRV: higher is better, worry when it drops
+            if value >= baseline.lowerBound { return .green }  // within or above normal
+            if value >= baseline.lowerBound - baseline.standardDeviation { return .yellow }  // slightly low
+            return .red  // significantly low
         } else {
-            // RHR: below mean = good, above upper bound = bad
-            if value <= baseline.mean { return .green }
-            if value <= baseline.upperBound { return .yellow }
-            return .red
+            // RHR: lower is better, worry when it rises
+            if value <= baseline.upperBound { return .green }  // within or below normal
+            if value <= baseline.upperBound + baseline.standardDeviation { return .yellow }  // slightly high
+            return .red  // significantly high
         }
     }
 
