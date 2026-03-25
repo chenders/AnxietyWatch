@@ -38,10 +38,10 @@ CREATE TABLE IF NOT EXISTS cpap_sessions (
     date                DATE NOT NULL PRIMARY KEY,
     ahi                 DOUBLE PRECISION NOT NULL,
     total_usage_minutes INTEGER NOT NULL,
-    leak_rate_95th      DOUBLE PRECISION NOT NULL,
-    pressure_min        DOUBLE PRECISION NOT NULL,
-    pressure_max        DOUBLE PRECISION NOT NULL,
-    pressure_mean       DOUBLE PRECISION NOT NULL,
+    leak_rate_95th      DOUBLE PRECISION,
+    pressure_min        DOUBLE PRECISION,
+    pressure_max        DOUBLE PRECISION,
+    pressure_mean       DOUBLE PRECISION,
     obstructive_events  INTEGER NOT NULL DEFAULT 0,
     central_events      INTEGER NOT NULL DEFAULT 0,
     hypopnea_events     INTEGER NOT NULL DEFAULT 0,
@@ -83,6 +83,12 @@ CREATE TABLE IF NOT EXISTS sync_log (
     device_name     TEXT,
     record_counts   JSONB NOT NULL DEFAULT '{}'::jsonb,
     api_key_id      INTEGER REFERENCES api_keys(id)
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Indexes for common query patterns (only on non-PK / non-UNIQUE columns)
