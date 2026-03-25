@@ -22,19 +22,19 @@ final class Prescription {
     /// User-provided daily dose count when no logging history is available
     var dailyDoseCount: Double?
     /// Prescriber name from pharmacy records
-    var prescriberName: String
+    var prescriberName: String = ""
     /// National Drug Code — unique identifier for medication packaging
-    var ndcCode: String
+    var ndcCode: String = ""
     /// Prescription status, e.g. "Retail Pickup", "active", "expired"
-    var rxStatus: String
+    var rxStatus: String = ""
     /// Most recent fill date (may differ from dateFilled for multi-fill prescriptions)
     var lastFillDate: Date?
     /// Origin of this record: "manual" (user-entered) or "walgreens" (auto-imported)
-    var importSource: String
+    var importSource: String = "manual"
     /// Walgreens internal prescription ID for deduplication
     var walgreensRxId: String?
     /// Prescription directions, e.g. "Take 1 tablet by mouth daily"
-    var directions: String
+    var directions: String = ""
     var medication: MedicationDefinition?
     var pharmacy: Pharmacy?
 
