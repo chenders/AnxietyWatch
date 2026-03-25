@@ -259,6 +259,115 @@ def resmed_settings():
 
 
 # ---------------------------------------------------------------------------
+# Walgreens Settings
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/settings/walgreens", methods=["GET", "POST"])
+@require_admin
+def walgreens_settings():
+    from crypto import encrypt_value
+
+    db = get_db()
+    cur = db.cursor()
+    secret_key = os.environ.get("SECRET_KEY")
+    if not secret_key:
+        flash("SECRET_KEY not configured — cannot encrypt credentials.", "error")
+        return redirect(url_for("admin.walgreens_settings"))
+
+    if request.method == "POST":
+        action = request.form.get("action", "save")
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        security_answer = request.form.get("security_answer", "")
+        sync_time = request.form.get("sync_time", "21:00").strip()
+
+        # Validate sync_time (HH or HH:MM, 0-23)
+        try:
+            hour = int(sync_time.split(":")[0]) if sync_time else -1
+            if not (0 <= hour <= 23):
+                raise ValueError()
+        except (ValueError, IndexError):
+            flash("Invalid sync time. Use HH or HH:MM format (0-23).", "error")
+            return redirect(url_for("admin.walgreens_settings"))
+
+        # Save username
+        if username:
+            cur.execute(
+                "INSERT INTO settings (key, value, updated_at) VALUES ('walgreens_username', %s, NOW()) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+                (username,),
+            )
+
+        # Save password (only if provided)
+        if password:
+            encrypted = encrypt_value(password, secret_key)
+            cur.execute(
+                "INSERT INTO settings (key, value, updated_at) VALUES ('walgreens_password', %s, NOW()) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+                (encrypted,),
+            )
+
+        # Save security answer (only if provided)
+        if security_answer:
+            encrypted = encrypt_value(security_answer, secret_key)
+            cur.execute(
+                "INSERT INTO settings (key, value, updated_at) VALUES ('walgreens_security_answer', %s, NOW()) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+                (encrypted,),
+            )
+
+        # Save sync time
+        cur.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES ('walgreens_sync_time', %s, NOW()) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+            (sync_time,),
+        )
+        db.commit()
+        flash("Settings saved.", "success")
+
+        if action == "sync_now":
+            try:
+                import subprocess
+                result = subprocess.run(
+                    [sys.executable, "walgreens_sync.py"],
+                    capture_output=True, text=True, timeout=120,
+                    env={**os.environ},
+                )
+                if result.returncode == 0:
+                    flash(f"Sync completed: {result.stdout.strip()}", "success")
+                else:
+                    flash(f"Sync failed (exit {result.returncode}): {result.stderr.strip()}", "error")
+            except Exception as e:
+                flash(f"Sync error: {e}", "error")
+
+        return redirect(url_for("admin.walgreens_settings"))
+
+    # GET — read current settings
+    def _get(key):
+        cur.execute("SELECT value FROM settings WHERE key = %s", (key,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+    username = _get("walgreens_username") or ""
+    has_password = _get("walgreens_password") is not None
+    has_security_answer = _get("walgreens_security_answer") is not None
+    sync_time = _get("walgreens_sync_time") or "21:00"
+    last_sync = _get("walgreens_last_sync")
+    last_status = _get("walgreens_last_status")
+
+    return render_template(
+        "walgreens_settings.html",
+        username=username,
+        has_password=has_password,
+        has_security_answer=has_security_answer,
+        sync_time=sync_time,
+        last_sync=last_sync,
+        last_status=last_status,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Data Browser
 # ---------------------------------------------------------------------------
 
