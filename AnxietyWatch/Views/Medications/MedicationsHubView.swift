@@ -176,6 +176,7 @@ private struct SupplyAlertRow: View {
         case .warning: .yellow
         case .low: .red
         case .expired: .gray
+        case .unknown: .secondary
         }
     }
 }

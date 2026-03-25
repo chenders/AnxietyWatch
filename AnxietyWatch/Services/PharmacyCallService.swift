@@ -17,13 +17,17 @@ final class PharmacyCallService: NSObject, CXCallObserverDelegate {
     private var activeModelContext: ModelContext?
     private var timeoutTask: Task<Void, Never>?
 
+    private var isObserving = false
+
     override private init() {
         super.init()
     }
 
     /// Begin listening for call state changes.
     func startObserving() {
+        guard !isObserving else { return }
         callObserver.setDelegate(self, queue: nil)
+        isObserving = true
     }
 
     // MARK: - Initiate a Call
@@ -31,6 +35,7 @@ final class PharmacyCallService: NSObject, CXCallObserverDelegate {
     /// Dials the pharmacy's phone number, creates a preliminary call log, and
     /// starts observing the call lifecycle via CallKit.
     func initiateCall(to pharmacy: Pharmacy, modelContext: ModelContext) {
+        startObserving()
         let cleanedNumber = pharmacy.phoneNumber
             .components(separatedBy: CharacterSet.decimalDigits.inverted)
             .joined()
