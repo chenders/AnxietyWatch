@@ -169,7 +169,7 @@ class MyAirClient:
             "state": secrets.token_urlsafe(32),
             "scope": "openid profile email",
         }
-        resp = await session.get(OKTA_AUTHORIZE_URL, params=params, allow_redirects=False)
+        resp = await session.get(OKTA_AUTHORIZE_URL, params=params)
         body = await resp.text()
 
         # Parse auth code from the HTML postMessage response
