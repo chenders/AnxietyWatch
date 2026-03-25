@@ -55,7 +55,7 @@ def _clean_tables(app):
         cur = db.cursor()
         cur.execute(
             "TRUNCATE anxiety_entries, medication_definitions, medication_doses, "
-            "cpap_sessions, health_snapshots, barometric_readings, sync_log, api_keys "
+            "cpap_sessions, health_snapshots, barometric_readings, sync_log, api_keys, settings "
             "RESTART IDENTITY CASCADE"
         )
         # Insert a test API key
@@ -411,3 +411,49 @@ def test_admin_logout(client):
     client.post("/admin/logout")
     resp = client.get("/admin/")
     assert resp.status_code == 302
+
+
+# ---------------------------------------------------------------------------
+# ResMed Settings
+# ---------------------------------------------------------------------------
+
+
+def test_resmed_settings_login_required(client):
+    resp = client.get("/admin/settings/resmed")
+    assert resp.status_code == 302
+    assert "/admin/login" in resp.headers["Location"]
+
+
+def test_resmed_settings_get(client):
+    os.environ["ADMIN_PASSWORD"] = "testpass"
+    client.post("/admin/login", data={"password": "testpass"})
+    resp = client.get("/admin/settings/resmed")
+    assert resp.status_code == 200
+    assert b"ResMed myAir Sync" in resp.data
+
+
+def test_resmed_settings_save(client, app):
+    os.environ["ADMIN_PASSWORD"] = "testpass"
+    os.environ["SECRET_KEY"] = "test-secret-key"
+    client.post("/admin/login", data={"password": "testpass"})
+    resp = client.post(
+        "/admin/settings/resmed",
+        data={"action": "save", "email": "user@example.com", "password": "mypass", "sync_time": "14:00"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert b"Settings saved" in resp.data
+
+    # Verify settings were persisted
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute("SELECT value FROM settings WHERE key = 'resmed_email'")
+        assert cur.fetchone()[0] == "user@example.com"
+        cur.execute("SELECT value FROM settings WHERE key = 'resmed_sync_time'")
+        assert cur.fetchone()[0] == "14:00"
+        # Password should be encrypted (not stored as plaintext)
+        cur.execute("SELECT value FROM settings WHERE key = 'resmed_password'")
+        stored = cur.fetchone()[0]
+        assert stored != "mypass"
+        assert len(stored) > 0
