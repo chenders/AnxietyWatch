@@ -53,6 +53,9 @@ See `REQUIREMENTS.md` for full specification, data model, and build plan.
 - **Barometric data**: Core Motion (`CMAltimeter`)
 - **Watch communication**: WatchConnectivity framework
 - **PDF generation**: PDFKit or Core Graphics
+- **OCR**: Vision framework (`VNRecognizeTextRequest`) for prescription label scanning
+- **Pharmacy search**: MapKit (`MKLocalSearch`) for nearby pharmacy lookup
+- **Call tracking**: CallKit (`CXCallObserver`) for call state observation
 - **No external Swift package dependencies unless absolutely necessary** — prefer Apple frameworks
 
 ## Project Structure
@@ -70,7 +73,10 @@ AnxietyWatch/
 │   │   ├── CPAPSession.swift
 │   │   ├── HealthSnapshot.swift
 │   │   ├── MedicationDefinition.swift
-│   │   └── MedicationDose.swift
+│   │   ├── MedicationDose.swift
+│   │   ├── Pharmacy.swift
+│   │   ├── Prescription.swift
+│   │   └── PharmacyCallLog.swift
 │   ├── Services/
 │   │   ├── HealthKitManager.swift       # Actor — all HealthKit reads
 │   │   ├── HealthDataCoordinator.swift  # Backfill, gap-fill, observers, barometer
@@ -83,12 +89,18 @@ AnxietyWatch/
 │   │   ├── SyncService.swift            # Talks to sync server
 │   │   ├── PhoneConnectivityManager.swift # WatchConnectivity (phone side)
 │   │   ├── ReportGenerator.swift        # PDF clinical reports
-│   │   └── DataExporter.swift           # JSON/CSV export
+│   │   ├── DataExporter.swift           # JSON/CSV export
+│   │   ├── PharmacySearchService.swift  # MapKit local search for pharmacies
+│   │   ├── PharmacyCallService.swift    # CXCallObserver + tel: dial + manual logging
+│   │   ├── PrescriptionSupplyCalculator.swift # Supply estimation + status
+│   │   └── PrescriptionLabelScanner.swift     # Vision OCR for pill bottle labels
 │   ├── Views/
 │   │   ├── Dashboard/
 │   │   ├── Journal/
 │   │   ├── LabResults/
-│   │   ├── Medications/
+│   │   ├── Medications/                 # MedicationsHubView (tab root), MedicationListView, AddMedicationView
+│   │   ├── Pharmacy/                    # PharmacyListView, AddPharmacyView, PharmacySearchView, PharmacyDetailView
+│   │   ├── Prescriptions/              # PrescriptionListView, AddPrescriptionView, PrescriptionDetailView, PrescriptionScannerView
 │   │   ├── Trends/                      # TrendsView, TrendWindow, ChartCard, 7 chart views
 │   │   ├── CPAP/
 │   │   ├── Reports/                     # ExportView

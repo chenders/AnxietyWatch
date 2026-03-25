@@ -85,6 +85,39 @@ CREATE TABLE IF NOT EXISTS sync_log (
     api_key_id      INTEGER REFERENCES api_keys(id)
 );
 
+CREATE TABLE IF NOT EXISTS pharmacies (
+    name            TEXT NOT NULL PRIMARY KEY,
+    address         TEXT NOT NULL DEFAULT '',
+    phone_number    TEXT NOT NULL DEFAULT '',
+    latitude        DOUBLE PRECISION,
+    longitude       DOUBLE PRECISION,
+    notes           TEXT NOT NULL DEFAULT '',
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS prescriptions (
+    rx_number               TEXT NOT NULL PRIMARY KEY,
+    medication_name         TEXT NOT NULL,
+    dose_mg                 DOUBLE PRECISION NOT NULL,
+    dose_description        TEXT NOT NULL DEFAULT '',
+    quantity                INTEGER NOT NULL,
+    refills_remaining       INTEGER NOT NULL DEFAULT 0,
+    date_filled             TIMESTAMPTZ NOT NULL,
+    estimated_run_out_date  TIMESTAMPTZ,
+    pharmacy_name           TEXT NOT NULL DEFAULT '',
+    notes                   TEXT NOT NULL DEFAULT '',
+    daily_dose_count        DOUBLE PRECISION
+);
+
+CREATE TABLE IF NOT EXISTS pharmacy_call_logs (
+    timestamp           TIMESTAMPTZ NOT NULL,
+    pharmacy_name       TEXT NOT NULL,
+    direction           TEXT NOT NULL DEFAULT 'attempted',
+    notes               TEXT NOT NULL DEFAULT '',
+    duration_seconds    INTEGER,
+    PRIMARY KEY (timestamp, pharmacy_name)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL,

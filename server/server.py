@@ -139,6 +139,9 @@ def create_app(test_config=None):
             counts["cpap_sessions"] = _upsert_cpap_sessions(cur, data.get("cpapSessions", []))
             counts["health_snapshots"] = _upsert_health_snapshots(cur, data.get("healthSnapshots", []))
             counts["barometric_readings"] = _upsert_barometric_readings(cur, data.get("barometricReadings", []))
+            counts["pharmacies"] = _upsert_pharmacies(cur, data.get("pharmacies", []))
+            counts["prescriptions"] = _upsert_prescriptions(cur, data.get("prescriptions", []))
+            counts["pharmacy_call_logs"] = _upsert_pharmacy_call_logs(cur, data.get("pharmacyCallLogs", []))
 
             # Log the sync
             cur.execute(
@@ -282,6 +285,64 @@ def create_app(test_config=None):
             )
         return len(readings)
 
+    def _upsert_pharmacies(cur, pharmacies):
+        for p in pharmacies:
+            cur.execute(
+                """INSERT INTO pharmacies (name, address, phone_number, latitude, longitude, notes, is_active)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (name) DO UPDATE SET
+                       address = EXCLUDED.address,
+                       phone_number = EXCLUDED.phone_number,
+                       latitude = EXCLUDED.latitude,
+                       longitude = EXCLUDED.longitude,
+                       notes = EXCLUDED.notes,
+                       is_active = EXCLUDED.is_active""",
+                (p["name"], p.get("address", ""), p.get("phoneNumber", ""),
+                 p.get("latitude"), p.get("longitude"),
+                 p.get("notes", ""), p.get("isActive", True)),
+            )
+        return len(pharmacies)
+
+    def _upsert_prescriptions(cur, prescriptions):
+        for rx in prescriptions:
+            cur.execute(
+                """INSERT INTO prescriptions (rx_number, medication_name, dose_mg, dose_description,
+                       quantity, refills_remaining, date_filled, estimated_run_out_date,
+                       pharmacy_name, notes, daily_dose_count)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (rx_number) DO UPDATE SET
+                       medication_name = EXCLUDED.medication_name,
+                       dose_mg = EXCLUDED.dose_mg,
+                       dose_description = EXCLUDED.dose_description,
+                       quantity = EXCLUDED.quantity,
+                       refills_remaining = EXCLUDED.refills_remaining,
+                       date_filled = EXCLUDED.date_filled,
+                       estimated_run_out_date = EXCLUDED.estimated_run_out_date,
+                       pharmacy_name = EXCLUDED.pharmacy_name,
+                       notes = EXCLUDED.notes,
+                       daily_dose_count = EXCLUDED.daily_dose_count""",
+                (rx["rxNumber"], rx["medicationName"], rx["doseMg"],
+                 rx.get("doseDescription", ""), rx["quantity"],
+                 rx.get("refillsRemaining", 0), rx["dateFilled"],
+                 rx.get("estimatedRunOutDate"), rx.get("pharmacyName", ""),
+                 rx.get("notes", ""), rx.get("dailyDoseCount")),
+            )
+        return len(prescriptions)
+
+    def _upsert_pharmacy_call_logs(cur, logs):
+        for c in logs:
+            cur.execute(
+                """INSERT INTO pharmacy_call_logs (timestamp, pharmacy_name, direction, notes, duration_seconds)
+                   VALUES (%s, %s, %s, %s, %s)
+                   ON CONFLICT (timestamp, pharmacy_name) DO UPDATE SET
+                       direction = EXCLUDED.direction,
+                       notes = EXCLUDED.notes,
+                       duration_seconds = EXCLUDED.duration_seconds""",
+                (c["timestamp"], c["pharmacyName"], c.get("direction", "attempted"),
+                 c.get("notes", ""), c.get("durationSeconds")),
+            )
+        return len(logs)
+
     # ---------------------------------------------------------------------------
     # GET /api/data
     # ---------------------------------------------------------------------------
@@ -321,6 +382,9 @@ def create_app(test_config=None):
         "cpapSessions": ("cpap_sessions", "date", "date"),
         "healthSnapshots": ("health_snapshots", "date", "date"),
         "barometricReadings": ("barometric_readings", "timestamp", "timestamp"),
+        "pharmacies": ("pharmacies", None, "name"),
+        "prescriptions": ("prescriptions", "date_filled", "date_filled"),
+        "pharmacyCallLogs": ("pharmacy_call_logs", "timestamp", "timestamp"),
     }
 
     def _query_entity(cur, entity, since=None):

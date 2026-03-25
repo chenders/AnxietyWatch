@@ -10,7 +10,7 @@ struct ContentView: View {
                 JournalListView()
             }
             Tab("Medications", systemImage: "pills") {
-                MedicationListView()
+                MedicationsHubView()
             }
             Tab("Trends", systemImage: "chart.xyaxis.line") {
                 TrendsView()
