@@ -509,4 +509,4 @@ def test_sync_pharmacy_call_logs(client):
     }
     resp = client.post("/api/sync", json=payload, headers=auth_header())
     assert resp.status_code == 200
-    assert resp.get_json()["counts"]["pharmacyCallLogs"] == 1
+    assert resp.get_json()["counts"]["pharmacy_call_logs"] == 1
