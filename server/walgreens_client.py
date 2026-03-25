@@ -250,9 +250,16 @@ class WalgreensClient:
                 f"Could not find login form: {exc}"
             ) from exc
 
-        # Click sign in
+        # Click sign in and wait for navigation away from login page
         page.click('button:has-text("Sign in")')
-        page.wait_for_timeout(5000)
+        try:
+            page.wait_for_url(
+                lambda url: "login.jsp" not in url, timeout=15000
+            )
+        except Exception:
+            raise WalgreensAuthError(
+                "Login failed — page did not navigate after submission"
+            )
 
         # Check for 2FA
         if "verify_identity" in page.url:
@@ -261,12 +268,6 @@ class WalgreensClient:
                     "2FA required but no security_answer provided"
                 )
             self._handle_2fa(page)
-
-        # Verify we're logged in
-        if "login" in page.url.lower():
-            raise WalgreensAuthError(
-                "Login failed — still on login page after submission"
-            )
 
         logger.info("Successfully logged in to Walgreens")
 
@@ -292,16 +293,15 @@ class WalgreensClient:
             ).last
             answer_input.fill(self._security_answer)
             page.click('button:has-text("Submit")')
-            page.wait_for_timeout(5000)
+            page.wait_for_url(
+                lambda url: "verify_identity" not in url, timeout=15000
+            )
+        except WalgreensAuthError:
+            raise
         except Exception as exc:
             raise WalgreensAuthError(
                 f"Failed to answer security question: {exc}"
             ) from exc
-
-        if "verify_identity" in page.url:
-            raise WalgreensAuthError(
-                "Security question answer was not accepted"
-            )
 
         logger.info("2FA verification complete")
 
@@ -325,10 +325,15 @@ class WalgreensClient:
 
         logger.info("Navigating to prescription records page")
         page.goto(RX_RECORDS_URL, wait_until="domcontentloaded")
-        page.wait_for_timeout(10000)
 
         if "login" in page.url.lower():
             raise WalgreensAuthError("Not authenticated")
+
+        # Wait for the printrx/load API response (up to 30s)
+        for _ in range(30):
+            if "response" in captured_data:
+                break
+            page.wait_for_timeout(1000)
 
         if "response" not in captured_data:
             raise WalgreensAPIError(
