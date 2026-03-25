@@ -42,7 +42,7 @@ OKTA_CLIENT_ID = "0oa4ccq1v413ypROi297"
 REDIRECT_URI = "https://myair.resmed.com"
 
 # myAir AppSync GraphQL endpoint
-APPSYNC_URL = "https://ds53oalfjba5nkynjzg5gfmxnm.appsync-api.us-west-2.amazonaws.com/graphql"
+APPSYNC_URL = "https://bs2diezuffgt5mfns4ucyz2vea.appsync-api.us-west-2.amazonaws.com/graphql"
 
 # GraphQL query for sleep records
 SLEEP_RECORDS_QUERY = """
