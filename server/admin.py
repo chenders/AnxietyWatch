@@ -378,6 +378,9 @@ BROWSABLE_TABLES = {
     "cpap_sessions": {"order": "date DESC", "label": "CPAP Sessions"},
     "health_snapshots": {"order": "date DESC", "label": "Health Snapshots"},
     "barometric_readings": {"order": "timestamp DESC", "label": "Barometric Readings"},
+    "pharmacies": {"order": "name", "label": "Pharmacies"},
+    "prescriptions": {"order": "date_filled DESC", "label": "Prescriptions"},
+    "pharmacy_call_logs": {"order": "timestamp DESC", "label": "Pharmacy Call Logs"},
     "sync_log": {"order": "received_at DESC", "label": "Sync Log"},
 }
 
