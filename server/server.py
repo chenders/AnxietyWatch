@@ -66,7 +66,10 @@ def create_app(test_config=None):
             cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS ndc_code TEXT NOT NULL DEFAULT ''")
             cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS rx_status TEXT NOT NULL DEFAULT ''")
             cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS last_fill_date TIMESTAMPTZ")
-            cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS import_source TEXT NOT NULL DEFAULT 'manual'")
+            cur.execute(
+                "ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS "
+                "import_source TEXT NOT NULL DEFAULT 'manual'"
+            )
             cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS walgreens_rx_id TEXT")
             cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS directions TEXT NOT NULL DEFAULT ''")
         db.commit()
