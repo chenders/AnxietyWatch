@@ -84,19 +84,21 @@ struct DashboardView: View {
     private var healthSection: some View {
         if let snapshot = todaySnapshot {
             if let hrv = snapshot.hrvAvg {
+                let baseline = BaselineCalculator.hrvBaseline(from: recentSnapshots)
                 MetricCard(
                     title: "HRV",
                     value: String(format: "%.0f ms", hrv),
-                    subtitle: "Today's average",
-                    color: .blue
+                    subtitle: baselineSubtitle(value: hrv, baseline: baseline, higherIsBetter: true),
+                    color: baselineColor(value: hrv, baseline: baseline, higherIsBetter: true)
                 )
             }
             if let rhr = snapshot.restingHR {
+                let baseline = BaselineCalculator.restingHRBaseline(from: recentSnapshots)
                 MetricCard(
                     title: "Resting HR",
                     value: String(format: "%.0f bpm", rhr),
-                    subtitle: "Today",
-                    color: .red
+                    subtitle: baselineSubtitle(value: rhr, baseline: baseline, higherIsBetter: false),
+                    color: baselineColor(value: rhr, baseline: baseline, higherIsBetter: false)
                 )
             }
             if let sleep = snapshot.sleepDurationMin {
@@ -106,7 +108,7 @@ struct DashboardView: View {
                     title: "Sleep",
                     value: "\(hours)h \(mins)m",
                     subtitle: sleepBreakdown(snapshot),
-                    color: .purple
+                    color: sleepColor(minutes: sleep)
                 )
             }
             if let steps = snapshot.steps {
@@ -114,7 +116,7 @@ struct DashboardView: View {
                     title: "Steps",
                     value: "\(steps.formatted())",
                     subtitle: "Today",
-                    color: .orange
+                    color: stepsColor(steps)
                 )
             }
         }
@@ -255,6 +257,57 @@ struct DashboardView: View {
         case 1...3: return .green
         case 4...6: return .yellow
         case 7...8: return .orange
+        default: return .red
+        }
+    }
+
+    /// Color a metric based on personal baseline deviation.
+    /// - `higherIsBetter`: true for HRV (higher = calmer), false for RHR (lower = calmer)
+    private func baselineColor(
+        value: Double,
+        baseline: BaselineCalculator.BaselineResult?,
+        higherIsBetter: Bool
+    ) -> Color {
+        guard let baseline else {
+            // No baseline yet — fall back to neutral
+            return .primary
+        }
+        if higherIsBetter {
+            // HRV: above mean = good, below lower bound = bad
+            if value >= baseline.mean { return .green }
+            if value >= baseline.lowerBound { return .yellow }
+            return .red
+        } else {
+            // RHR: below mean = good, above upper bound = bad
+            if value <= baseline.mean { return .green }
+            if value <= baseline.upperBound { return .yellow }
+            return .red
+        }
+    }
+
+    private func baselineSubtitle(
+        value: Double,
+        baseline: BaselineCalculator.BaselineResult?,
+        higherIsBetter: Bool
+    ) -> String {
+        guard let baseline else { return "Today" }
+        let diff = value - baseline.mean
+        let direction = diff >= 0 ? "above" : "below"
+        return String(format: "%.0f %@ avg", abs(diff), direction)
+    }
+
+    private func sleepColor(minutes: Int) -> Color {
+        switch minutes {
+        case 420...: return .green      // 7+ hours
+        case 360..<420: return .yellow  // 6–7 hours
+        default: return .red            // <6 hours
+        }
+    }
+
+    private func stepsColor(_ steps: Int) -> Color {
+        switch steps {
+        case 8000...: return .green
+        case 5000..<8000: return .yellow
         default: return .red
         }
     }
