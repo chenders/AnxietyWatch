@@ -62,6 +62,7 @@ def _mock_auth_responses():
 
 
 @patch("resmed_client.requests")
+@patch.dict("os.environ", {"GRAPHQL_API_KEY": "test-key"})
 def test_fetch_sessions_returns_list(mock_requests):
     authn, authorize, token_resp = _mock_auth_responses()
 
@@ -103,6 +104,7 @@ def test_auth_failure_raises(mock_requests):
 
 
 @patch("resmed_client.requests")
+@patch.dict("os.environ", {"GRAPHQL_API_KEY": "test-key"})
 def test_empty_records(mock_requests):
     authn, authorize, token_resp = _mock_auth_responses()
 
@@ -120,6 +122,7 @@ def test_empty_records(mock_requests):
 
 
 @patch("resmed_client.requests")
+@patch.dict("os.environ", {"GRAPHQL_API_KEY": "test-key"})
 def test_graphql_error_raises(mock_requests):
     authn, authorize, token_resp = _mock_auth_responses()
 
@@ -158,4 +161,51 @@ def test_non_json_token_response(mock_requests):
 
     client = MyAirClient(username="user@example.com", password="secret")
     with pytest.raises(MyAirAuthError, match="non-JSON"):
+        client.fetch_sessions()
+
+
+@patch("resmed_client.requests")
+@patch.dict("os.environ", {"GRAPHQL_API_KEY": "test-key"})
+def test_auth_code_from_location_header(mock_requests):
+    """Verify fallback: extract auth code from 302 Location header."""
+    authn = MagicMock()
+    authn.json.return_value = {"status": "SUCCESS", "sessionToken": "token"}
+    authn.raise_for_status = MagicMock()
+
+    # Authorize returns 302 with code in Location, no HTML body
+    authorize = MagicMock()
+    authorize.status_code = 302
+    authorize.text = "<html>redirecting...</html>"
+    authorize.headers = {"Location": "https://myair.resmed.com?code=redirect-auth-code&state=xyz"}
+
+    token_resp = MagicMock()
+    token_resp.status_code = 200
+    token_resp.json.return_value = {"access_token": "token", "token_type": "Bearer"}
+
+    graphql = MagicMock()
+    graphql.status_code = 200
+    graphql.json.return_value = {
+        "data": {"getPatientWrapper": {"sleepRecords": {"items": [
+            {"startDate": "2025-08-15", "ahi": 2.0, "totalUsage": 400},
+        ]}}}
+    }
+
+    mock_requests.post.side_effect = [authn, token_resp, graphql]
+    mock_requests.get.return_value = authorize
+
+    client = MyAirClient(username="user@example.com", password="secret")
+    result = client.fetch_sessions(days=7)
+    assert len(result) == 1
+    assert result[0]["ahi"] == 2.0
+
+
+@patch("resmed_client.requests")
+def test_missing_graphql_api_key(mock_requests):
+    """Verify error when GRAPHQL_API_KEY is not set."""
+    authn, authorize, token_resp = _mock_auth_responses()
+    mock_requests.post.side_effect = [authn, token_resp]
+    mock_requests.get.return_value = authorize
+
+    client = MyAirClient(username="user@example.com", password="secret")
+    with pytest.raises(MyAirAPIError, match="GRAPHQL_API_KEY"):
         client.fetch_sessions()
