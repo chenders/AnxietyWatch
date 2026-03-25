@@ -5,7 +5,6 @@ struct PrescriptionScannerView: View {
     var onScanComplete: (PrescriptionLabelScanner.ScannedPrescriptionData) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var capturedImage: UIImage?
     @State private var scanResult: PrescriptionLabelScanner.ScannedPrescriptionData?
     @State private var isScanning = false
     @State private var showCamera = true
@@ -226,7 +225,6 @@ struct PrescriptionScannerView: View {
     }
 
     private func resetForRetake() {
-        capturedImage = nil
         scanResult = nil
         isScanning = false
         errorMessage = nil
@@ -240,7 +238,6 @@ struct PrescriptionScannerView: View {
 
     private func handleCapturedImage(_ image: UIImage) {
         showCamera = false
-        capturedImage = image
         performScan(on: image)
     }
 
@@ -254,7 +251,6 @@ struct PrescriptionScannerView: View {
                     errorMessage = "Could not load the selected image."
                     return
                 }
-                capturedImage = image
                 performScan(on: image)
             } catch {
                 errorMessage = "Failed to load image: \(error.localizedDescription)"

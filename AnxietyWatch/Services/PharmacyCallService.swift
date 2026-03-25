@@ -13,7 +13,6 @@ final class PharmacyCallService: NSObject, CXCallObserverDelegate {
     // State for tracking the in-progress call
     private var pendingCallLogId: UUID?
     private var callStartTime: Date?
-    private var dialTimestamp: Date?
     private var activeModelContext: ModelContext?
     private var timeoutTask: Task<Void, Never>?
 
@@ -50,7 +49,7 @@ final class PharmacyCallService: NSObject, CXCallObserverDelegate {
         modelContext.insert(log)
 
         pendingCallLogId = log.id
-        dialTimestamp = Date.now
+
         callStartTime = nil
         activeModelContext = modelContext
 
@@ -133,7 +132,6 @@ final class PharmacyCallService: NSObject, CXCallObserverDelegate {
     private func resetCallState() {
         pendingCallLogId = nil
         callStartTime = nil
-        dialTimestamp = nil
         activeModelContext = nil
         timeoutTask = nil
     }

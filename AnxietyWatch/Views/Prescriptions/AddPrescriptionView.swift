@@ -33,7 +33,6 @@ struct AddPrescriptionView: View {
     // Inline "Add New" medication fields
     @State private var addingNewMed = false
     @State private var newMedName: String
-    @State private var newMedDose: Double = 0
     @State private var newMedCategory = ""
 
     private let categories = [
@@ -49,7 +48,6 @@ struct AddPrescriptionView: View {
         prefillDose: Double? = nil,
         prefillQuantity: Int? = nil,
         prefillRefills: Int? = nil,
-        prefillPharmacyName: String? = nil,
         prefillDateFilled: Date? = nil
     ) {
         _rxNumber = State(initialValue: prefillRxNumber ?? "")
@@ -64,13 +62,11 @@ struct AddPrescriptionView: View {
         _notes = State(initialValue: "")
         _newMedName = State(initialValue: prefillMedicationName ?? "")
 
-        // selectedMedID and selectedPharmacyID are resolved in onAppear
-        // because @Query results aren't available during init
         _selectedMedID = State(initialValue: nil)
         _selectedPharmacyID = State(initialValue: nil)
 
-        // If a medication name was prefilled but won't match an existing med,
-        // start in "add new" mode
+        // Prefilled medication names won't match an existing definition,
+        // so start in "add new" mode to let the user create one
         if prefillMedicationName != nil {
             _addingNewMed = State(initialValue: true)
         }
@@ -223,10 +219,18 @@ struct AddPrescriptionView: View {
                         newMedName = name
                         addingNewMed = true
                     }
-                    if let dose = scannedData.dose,
-                       let numeric = Double(dose.filter { $0.isNumber || $0 == "." }) {
-                        doseMg = numeric
+                    if let dose = scannedData.dose {
                         doseDescription = dose
+                        let lower = dose.lowercased()
+                        if let numeric = Double(dose.filter { $0.isNumber || $0 == "." }) {
+                            if lower.contains("mcg") {
+                                doseMg = numeric / 1000
+                            } else if lower.contains("ml") {
+                                doseMg = 0  // ml not convertible to mg
+                            } else {
+                                doseMg = numeric
+                            }
+                        }
                     }
                     if let qty = scannedData.quantity { quantityText = String(qty) }
                     if let refills = scannedData.refillsRemaining { refillsRemaining = refills }

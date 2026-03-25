@@ -1,21 +1,11 @@
 import Foundation
 import Testing
-import SwiftData
 
 @testable import AnxietyWatch
 
 struct PrescriptionSupplyCalculatorTests {
 
     private let calendar = Calendar.current
-
-    private func makeContainer() throws -> ModelContainer {
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        return try ModelContainer(
-            for: Prescription.self, MedicationDefinition.self,
-            Pharmacy.self, PharmacyCallLog.self, MedicationDose.self,
-            configurations: config
-        )
-    }
 
     private func makeRx(
         dateFilled: Date = .now,
