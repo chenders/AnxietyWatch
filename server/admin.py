@@ -179,7 +179,7 @@ def resmed_settings():
         action = request.form.get("action", "save")
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "")
-        sync_time = request.form.get("sync_time", "12:00").strip()
+        sync_time = request.form.get("sync_time", "21:00").strip()
 
         # Save email
         if email:
@@ -232,7 +232,7 @@ def resmed_settings():
 
     email = _get("resmed_email") or ""
     has_password = _get("resmed_password") is not None
-    sync_time = _get("resmed_sync_time") or "12:00"
+    sync_time = _get("resmed_sync_time") or "21:00"
     last_sync = _get("resmed_last_sync")
     last_status = _get("resmed_last_status")
 
