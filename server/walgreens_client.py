@@ -1,19 +1,16 @@
 """Walgreens prescription history client.
 
-Authenticates with walgreens.com and fetches prescription records via the
-internal API.  Uses synchronous requests with session cookie management.
+Authenticates with walgreens.com and fetches prescription records using
+Playwright (headless Chromium) to bypass bot detection (Akamai WAF).
 
-Auth flow:
-    1. POST /profile/v1/login  — username/password → session cookies
-    2. GET  /profile/verify_identity.jsp  — 2FA (security question)
-    3. POST /profile/v1/verifyidentity/securityquestion — answer → full session
+Auth flow (driven via browser automation):
+    1. Navigate to login page, fill credentials, click Sign In
+    2. Handle 2FA security question if prompted
+    3. Navigate to Prescription Records page
+    4. Intercept the POST /rx-settings/printrx/load API response
 
-Prescription data:
-    POST /rx-settings/printrx/load — returns JSON with rxRecords[]
-
-Required headers for authenticated API calls:
-    X-XSRF-TOKEN: <from XSRF-TOKEN cookie>
-    usersessionid: <from session_id cookie>
+Prescription data comes from the printrx/load JSON response containing
+rxRecords[] with drug name, fill date, quantity, prescriber, NDC, etc.
 """
 
 from __future__ import annotations
@@ -23,8 +20,6 @@ import logging
 import re
 from datetime import datetime
 from typing import Any
-
-import requests
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +41,9 @@ class WalgreensAPIError(Exception):
 # ---------------------------------------------------------------------------
 
 BASE_URL = "https://www.walgreens.com"
-LOGIN_URL = f"{BASE_URL}/profile/v1/login"
-VERIFY_IDENTITY_URL = f"{BASE_URL}/profile/v1/verifyidentity/securityquestion"
-PRINTRX_URL = f"{BASE_URL}/rx-settings/printrx/load"
-
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
-)
+LOGIN_URL = f"{BASE_URL}/login.jsp"
+RX_RECORDS_URL = f"{BASE_URL}/rx-settings/print-rx"
+PRINTRX_API = "/rx-settings/printrx/load"
 
 
 # ---------------------------------------------------------------------------
@@ -64,11 +54,13 @@ _REQUIRED_FIELDS = {"drugName", "rxNumber", "fillDate"}
 
 
 def _parse_dose(drug_name: str) -> tuple[float, str]:
-    """Extract dose_mg and dose_description from a drug name like 'Clonazepam 1mg Tablets'.
+    """Extract dose_mg and dose_description from a drug name.
 
     Returns (dose_mg, dose_description).
     """
-    match = re.search(r'(\d+(?:\.\d+)?)\s*(mg|mcg|ml)\b', drug_name, re.IGNORECASE)
+    match = re.search(
+        r'(\d+(?:\.\d+)?)\s*(mg|mcg|ml)\b', drug_name, re.IGNORECASE
+    )
     if not match:
         return 0.0, ""
     value = float(match.group(1))
@@ -77,13 +69,13 @@ def _parse_dose(drug_name: str) -> tuple[float, str]:
     if unit == "mcg":
         value /= 1000  # convert to mg
     elif unit == "ml":
-        # ml is not convertible to mg without concentration — keep description only
+        # ml is not convertible to mg without concentration
         return 0.0, desc
     return value, desc
 
 
 def _parse_price(price_str: str | None) -> float | None:
-    """Parse '$15.49' → 15.49, or None."""
+    """Parse '$15.49' -> 15.49, or None."""
     if not price_str:
         return None
     match = re.search(r'\$?([\d,]+\.?\d*)', price_str)
@@ -93,11 +85,13 @@ def _parse_price(price_str: str | None) -> float | None:
 
 
 def _parse_walgreens_date(date_str: str) -> str:
-    """Convert Walgreens MM/DD/YYYY date to ISO-8601 timestamp with UTC timezone."""
+    """Convert Walgreens MM/DD/YYYY to ISO-8601 with UTC timezone."""
     try:
-        return datetime.strptime(date_str, "%m/%d/%Y").strftime("%Y-%m-%dT00:00:00+00:00")
+        return datetime.strptime(date_str, "%m/%d/%Y").strftime(
+            "%Y-%m-%dT00:00:00+00:00"
+        )
     except (ValueError, TypeError):
-        return date_str  # return as-is if unparseable
+        return date_str
 
 
 def normalize_prescription(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -138,12 +132,15 @@ def normalize_prescription(raw: dict[str, Any]) -> dict[str, Any] | None:
 
 
 # ---------------------------------------------------------------------------
-# Client
+# Client (Playwright-based)
 # ---------------------------------------------------------------------------
 
 
 class WalgreensClient:
-    """Fetches prescription history from walgreens.com.
+    """Fetches prescription history from walgreens.com using Playwright.
+
+    Uses headless Chromium to bypass Walgreens' Akamai bot detection,
+    which blocks raw HTTP clients like requests.
 
     Usage::
 
@@ -164,200 +161,21 @@ class WalgreensClient:
         self._username = username
         self._password = password
         self._security_answer = security_answer
-        self._session = requests.Session()
-        self._session.headers.update({
-            "User-Agent": USER_AGENT,
-            "Accept": "application/json, text/html, */*",
-        })
-
-    def _get_xsrf_token(self) -> str:
-        """Extract the XSRF-TOKEN cookie value."""
-        token = self._session.cookies.get("XSRF-TOKEN", domain=".walgreens.com")
-        if not token:
-            # Try without domain restriction
-            for cookie in self._session.cookies:
-                if cookie.name == "XSRF-TOKEN":
-                    return cookie.value
-        return token or ""
-
-    def _get_session_id(self) -> str:
-        """Extract the session_id cookie value."""
-        for cookie in self._session.cookies:
-            if cookie.name == "session_id":
-                return cookie.value
-        return ""
-
-    def _authenticate(self) -> None:
-        """Login to walgreens.com, populating session cookies.
-
-        Step 1: Hit login page to get initial cookies
-        Step 2: POST credentials to /profile/v1/login
-        Step 3: Handle 2FA security question if required
-        """
-        # Step 1: Get initial cookies
-        try:
-            self._session.get(
-                f"{BASE_URL}/login.jsp",
-                timeout=15,
-            )
-        except requests.RequestException as exc:
-            raise WalgreensAuthError(f"Failed to load login page: {exc}") from exc
-
-        # Step 2: POST login credentials
-        xsrf = self._get_xsrf_token()
-        try:
-            resp = self._session.post(
-                LOGIN_URL,
-                json={
-                    "username": self._username,
-                    "password": self._password,
-                },
-                headers={
-                    "Content-Type": "application/json",
-                    "X-XSRF-TOKEN": xsrf,
-                    "Referer": f"{BASE_URL}/login.jsp",
-                },
-                timeout=15,
-            )
-        except requests.RequestException as exc:
-            raise WalgreensAuthError(f"Login request failed: {exc}") from exc
-
-        if resp.status_code == 401:
-            raise WalgreensAuthError("Invalid credentials")
-        if resp.status_code != 200:
-            raise WalgreensAuthError(f"Login failed with HTTP {resp.status_code}")
-
-        logger.debug("Login response: %s", resp.status_code)
-
-        # Step 3: Handle 2FA — attempt security question
-        if self._security_answer:
-            self._verify_security_question()
-
-    def _verify_security_question(self) -> None:
-        """Complete 2FA via security question answer."""
-        xsrf = self._get_xsrf_token()
-        session_id = self._get_session_id()
-
-        # First, select the security question option
-        try:
-            resp = self._session.post(
-                f"{BASE_URL}/profile/v1/verifyidentity",
-                json={"optionType": "securityquestion"},
-                headers={
-                    "Content-Type": "application/json",
-                    "X-XSRF-TOKEN": xsrf,
-                    "usersessionid": session_id,
-                    "Referer": f"{BASE_URL}/profile/verify_identity.jsp",
-                },
-                timeout=15,
-            )
-        except requests.RequestException as exc:
-            raise WalgreensAuthError(f"2FA option selection failed: {exc}") from exc
-
-        # Then submit the security question answer
-        xsrf = self._get_xsrf_token()
-        try:
-            resp = self._session.post(
-                VERIFY_IDENTITY_URL,
-                json={"answer": self._security_answer},
-                headers={
-                    "Content-Type": "application/json",
-                    "X-XSRF-TOKEN": xsrf,
-                    "usersessionid": session_id,
-                    "Referer": f"{BASE_URL}/profile/verify_identity.jsp",
-                },
-                timeout=15,
-            )
-        except requests.RequestException as exc:
-            raise WalgreensAuthError(f"Security question verification failed: {exc}") from exc
-
-        if resp.status_code != 200:
-            raise WalgreensAuthError(
-                f"Security question verification returned HTTP {resp.status_code}"
-            )
-
-        logger.debug("2FA security question verified")
+        self._storage_state: dict | None = None
 
     def _load_session(self, cookie_data: str) -> None:
-        """Restore a previously saved session from serialized cookie JSON."""
+        """Restore a previously saved browser state."""
         try:
-            cookies = json.loads(cookie_data)
-            for c in cookies:
-                self._session.cookies.set(
-                    c["name"], c["value"],
-                    domain=c.get("domain", ".walgreens.com"),
-                    path=c.get("path", "/"),
-                )
-        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            self._storage_state = json.loads(cookie_data)
+        except (json.JSONDecodeError, TypeError) as exc:
             logger.warning("Failed to restore session: %s", exc)
+            self._storage_state = None
 
     def save_session(self) -> str:
-        """Serialize current session cookies for later reuse."""
-        cookies = []
-        for c in self._session.cookies:
-            cookies.append({
-                "name": c.name,
-                "value": c.value,
-                "domain": c.domain,
-                "path": c.path,
-            })
-        return json.dumps(cookies)
-
-    def _fetch_rx_records(
-        self,
-        start_date: str = "",
-        end_date: str = "",
-    ) -> list[dict]:
-        """Query the prescription records API."""
-        xsrf = self._get_xsrf_token()
-        session_id = self._get_session_id()
-
-        payload = {
-            "filter": {
-                "startDate": start_date,
-                "endDate": end_date,
-                "dateRetained": False,
-                "sortName": "filldate",
-                "sortOrder": "descending",
-                "switchFamilyMemeber": False,
-                "filterBy": {
-                    "prescriber": ["All"],
-                    "prescriptionType": ["All"],
-                },
-            },
-        }
-
-        try:
-            resp = self._session.post(
-                PRINTRX_URL,
-                json=payload,
-                headers={
-                    "Content-Type": "application/json; charset=UTF-8",
-                    "Accept": "application/json",
-                    "X-XSRF-TOKEN": xsrf,
-                    "usersessionid": session_id,
-                    "Referer": f"{BASE_URL}/rx-settings/print-rx",
-                },
-                timeout=30,
-            )
-        except requests.RequestException as exc:
-            raise WalgreensAPIError(f"Prescription fetch failed: {exc}") from exc
-
-        if resp.status_code == 401:
-            raise WalgreensAuthError("Session expired — re-authentication required")
-        if resp.status_code != 200:
-            raise WalgreensAPIError(
-                f"Prescription API returned HTTP {resp.status_code}"
-            )
-
-        try:
-            data = resp.json()
-        except ValueError:
-            raise WalgreensAPIError(
-                f"Prescription API returned non-JSON: {resp.text[:200]}"
-            )
-
-        return data.get("rxRecords", [])
+        """Serialize current browser state for later reuse."""
+        if self._storage_state:
+            return json.dumps(self._storage_state)
+        return "{}"
 
     def fetch_prescriptions(
         self,
@@ -365,43 +183,41 @@ class WalgreensClient:
         start_date: str = "",
         end_date: str = "",
     ) -> list[dict[str, Any]]:
-        """Fetch prescription history, returning normalized dicts.
+        """Fetch prescription history, returning normalized dicts."""
+        from playwright.sync_api import sync_playwright
 
-        If *session_data* is provided, attempts to reuse the saved session
-        before falling back to full authentication.
-
-        *start_date* / *end_date* are MM/DD/YYYY strings. Empty = no filter.
-        """
-        authenticated = False
-
-        # Try session reuse first
         if session_data:
             self._load_session(session_data)
-            try:
-                raw_records = self._fetch_rx_records(start_date, end_date)
-                authenticated = True
-            except WalgreensAuthError:
-                logger.info("Saved session expired, performing full login")
 
-        # Full login if session reuse didn't work
-        if not authenticated:
-            try:
-                self._authenticate()
-            except WalgreensAuthError:
-                raise
-            except Exception as exc:
-                raise WalgreensAuthError(
-                    f"Authentication failed: {repr(exc)}"
-                ) from exc
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+
+            # Try session reuse first
+            context = browser.new_context(
+                storage_state=self._storage_state
+                if self._storage_state
+                else None,
+            )
+            page = context.new_page()
 
             try:
-                raw_records = self._fetch_rx_records(start_date, end_date)
-            except WalgreensAPIError:
-                raise
-            except Exception as exc:
-                raise WalgreensAPIError(
-                    f"Fetch failed: {repr(exc)}"
-                ) from exc
+                raw_records = self._try_fetch(
+                    page, start_date, end_date
+                )
+            except WalgreensAuthError:
+                # Session expired or no session — do full login
+                context.close()
+                context = browser.new_context()
+                page = context.new_page()
+                self._authenticate(page)
+                raw_records = self._try_fetch(
+                    page, start_date, end_date
+                )
+
+            # Save browser state for next run
+            self._storage_state = context.storage_state()
+            context.close()
+            browser.close()
 
         results = []
         for raw in raw_records:
@@ -411,6 +227,117 @@ class WalgreensClient:
 
         logger.info(
             "Fetched %d prescriptions (%d raw, %d skipped)",
-            len(results), len(raw_records), len(raw_records) - len(results),
+            len(results),
+            len(raw_records),
+            len(raw_records) - len(results),
         )
         return results
+
+    def _authenticate(self, page) -> None:
+        """Login via the browser, handling 2FA if needed."""
+        logger.info("Navigating to Walgreens login page")
+        page.goto(LOGIN_URL, wait_until="domcontentloaded")
+        page.wait_for_timeout(2000)
+
+        # Fill credentials
+        try:
+            page.fill('input[name="username"], #email', self._username)
+            page.fill(
+                'input[name="password"], #password', self._password
+            )
+        except Exception as exc:
+            raise WalgreensAuthError(
+                f"Could not find login form: {exc}"
+            ) from exc
+
+        # Click sign in
+        page.click('button:has-text("Sign in")')
+        page.wait_for_timeout(5000)
+
+        # Check for 2FA
+        if "verify_identity" in page.url:
+            if not self._security_answer:
+                raise WalgreensAuthError(
+                    "2FA required but no security_answer provided"
+                )
+            self._handle_2fa(page)
+
+        # Verify we're logged in
+        if "login" in page.url.lower():
+            raise WalgreensAuthError(
+                "Login failed — still on login page after submission"
+            )
+
+        logger.info("Successfully logged in to Walgreens")
+
+    def _handle_2fa(self, page) -> None:
+        """Handle 2FA security question."""
+        logger.info("Handling 2FA security question")
+
+        # Select "Answer your security question" option
+        try:
+            page.click(
+                'text="Answer your security question"', timeout=5000
+            )
+            page.click('button:has-text("Continue")')
+            page.wait_for_timeout(2000)
+        except Exception:
+            logger.warning("Could not select security question option")
+
+        # Fill in the answer
+        try:
+            # Find the security question input field
+            answer_input = page.locator(
+                'input[type="text"], input[type="password"]'
+            ).last
+            answer_input.fill(self._security_answer)
+            page.click('button:has-text("Submit")')
+            page.wait_for_timeout(5000)
+        except Exception as exc:
+            raise WalgreensAuthError(
+                f"Failed to answer security question: {exc}"
+            ) from exc
+
+        if "verify_identity" in page.url:
+            raise WalgreensAuthError(
+                "Security question answer was not accepted"
+            )
+
+        logger.info("2FA verification complete")
+
+    def _try_fetch(
+        self,
+        page,
+        start_date: str,
+        end_date: str,
+    ) -> list[dict]:
+        """Navigate to prescription records and capture the API response."""
+        captured_data = {}
+
+        def handle_response(response):
+            if PRINTRX_API in response.url and response.status == 200:
+                try:
+                    captured_data["response"] = response.json()
+                except Exception:
+                    pass
+
+        page.on("response", handle_response)
+
+        logger.info("Navigating to prescription records page")
+        page.goto(RX_RECORDS_URL, wait_until="domcontentloaded")
+        page.wait_for_timeout(10000)
+
+        if "login" in page.url.lower():
+            raise WalgreensAuthError("Not authenticated")
+
+        if "response" not in captured_data:
+            raise WalgreensAPIError(
+                "No prescription data received from API"
+            )
+
+        data = captured_data["response"]
+        records = data.get("rxRecords", [])
+        logger.info(
+            "Received %d prescription records from Walgreens", len(records)
+        )
+        return records
