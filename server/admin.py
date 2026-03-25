@@ -273,7 +273,7 @@ def walgreens_settings():
     secret_key = os.environ.get("SECRET_KEY")
     if not secret_key:
         flash("SECRET_KEY not configured — cannot encrypt credentials.", "error")
-        return redirect(url_for("admin.walgreens_settings"))
+        return redirect(url_for("admin.dashboard"))
 
     if request.method == "POST":
         action = request.form.get("action", "save")
@@ -335,11 +335,11 @@ def walgreens_settings():
                     env={**os.environ},
                 )
                 if result.returncode == 0:
-                    flash(f"Sync completed: {result.stdout.strip()}", "success")
+                    flash(f"Sync completed: {result.stdout.strip()[:200]}", "success")
                 else:
-                    flash(f"Sync failed (exit {result.returncode}): {result.stderr.strip()}", "error")
+                    flash(f"Sync failed (exit {result.returncode}): {result.stderr.strip()[:200]}", "error")
             except Exception as e:
-                flash(f"Sync error: {e}", "error")
+                flash(f"Sync error: {str(e)[:200]}", "error")
 
         return redirect(url_for("admin.walgreens_settings"))
 
