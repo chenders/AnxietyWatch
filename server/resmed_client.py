@@ -167,7 +167,10 @@ class MyAirClient:
                 auth_code = code_match.group(1)
 
         if not auth_code:
-            raise MyAirAuthError(f"No auth code (status {resp.status_code})")
+            detail = resp.text[:200] if resp.status_code >= 400 else ""
+            raise MyAirAuthError(
+                f"No auth code (HTTP {resp.status_code}){': ' + detail if detail else ''}"
+            )
 
         logger.debug("Got auth code")
 
@@ -184,7 +187,10 @@ class MyAirClient:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=15,
         )
-        token_data = resp.json()
+        try:
+            token_data = resp.json()
+        except ValueError:
+            raise MyAirAuthError(f"Token exchange returned non-JSON (HTTP {resp.status_code})")
 
         access_token = token_data.get("access_token")
         if not access_token:
@@ -220,7 +226,7 @@ class MyAirClient:
                 "Referer": "https://myair.resmed.com/",
                 "Accept": "application/json, text/plain, */*",
                 "rmdappversion": "2.0.0",
-                "rmdcountry": self._region if self._region == "US" else "US",
+                "rmdcountry": self._region,
                 "rmdhandsetid": str(uuid.uuid4()),
                 "rmdhandsetmodel": "Python",
                 "rmdhandsetosversion": "3.12",
@@ -234,7 +240,10 @@ class MyAirClient:
         if resp.status_code != 200:
             raise MyAirAPIError(f"GraphQL returned {resp.status_code}: {resp.text[:200]}")
 
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError:
+            raise MyAirAPIError(f"GraphQL returned non-JSON: {resp.text[:200]}")
         if "errors" in data:
             raise MyAirAPIError(f"GraphQL errors: {json.dumps(data['errors'])[:300]}")
 
@@ -248,14 +257,27 @@ class MyAirClient:
 
         Returns list of dicts with keys: date, ahi, total_usage_minutes,
         leak_percentile, mean_pressure.
+
+        Raises MyAirAuthError for credential/auth issues,
+        MyAirAPIError for network/API failures.
         """
-        token = self._authenticate()
+        try:
+            token = self._authenticate()
+        except MyAirAuthError:
+            raise
+        except Exception as exc:
+            raise MyAirAuthError(f"Authentication failed: {repr(exc)}") from exc
 
         now = datetime.now()
         start = (now - timedelta(days=days)).strftime("%Y-%m-%d")
         end = now.strftime("%Y-%m-%d")
 
-        raw_records = self._fetch_sleep_records(token, start, end)
+        try:
+            raw_records = self._fetch_sleep_records(token, start, end)
+        except MyAirAPIError:
+            raise
+        except Exception as exc:
+            raise MyAirAPIError(f"Fetch failed: {repr(exc)}") from exc
 
         results = []
         for raw in raw_records:
