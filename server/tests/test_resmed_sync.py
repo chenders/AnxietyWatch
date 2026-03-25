@@ -96,6 +96,7 @@ def test_should_run_now_invalid():
     assert should_run_now(None, 14) is False
 
 
-def test_should_run_now_default_noon():
-    assert should_run_now("12", 12) is True
-    assert should_run_now("12:00", 12) is True
+def test_should_run_now_default_2pm_pacific():
+    """Default sync time is 21:00 UTC (2:00 PM Pacific)."""
+    assert should_run_now("21", 21) is True
+    assert should_run_now("21:00", 21) is True
