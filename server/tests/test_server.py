@@ -55,7 +55,8 @@ def _clean_tables(app):
         cur = db.cursor()
         cur.execute(
             "TRUNCATE anxiety_entries, medication_definitions, medication_doses, "
-            "cpap_sessions, health_snapshots, barometric_readings, sync_log, api_keys, settings "
+            "cpap_sessions, health_snapshots, barometric_readings, sync_log, api_keys, settings, "
+            "pharmacies, prescriptions, pharmacy_call_logs "
             "RESTART IDENTITY CASCADE"
         )
         # Insert a test API key
@@ -457,3 +458,55 @@ def test_resmed_settings_save(client, app):
         stored = cur.fetchone()[0]
         assert stored != "mypass"
         assert len(stored) > 0
+
+
+# ---------------------------------------------------------------------------
+# Pharmacy / Prescription / Call Log sync
+# ---------------------------------------------------------------------------
+
+
+def test_sync_pharmacies(client):
+    payload = {
+        "pharmacies": [
+            {"name": "Walgreens #03890", "address": "123 Main St",
+             "phoneNumber": "555-1234", "notes": "", "isActive": True},
+        ]
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+    assert resp.get_json()["counts"]["pharmacies"] == 1
+
+
+def test_sync_prescriptions(client):
+    payload = {
+        "prescriptions": [
+            {"rxNumber": "2618630-03890", "medicationName": "Clonazepam 1mg",
+             "doseMg": 1.0, "quantity": 60, "dateFilled": "2025-12-31T00:00:00Z",
+             "pharmacyName": "Walgreens"},
+        ]
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+    assert resp.get_json()["counts"]["prescriptions"] == 1
+
+
+def test_sync_prescriptions_idempotent(client):
+    rx = {"rxNumber": "2618630-03890", "medicationName": "Clonazepam 1mg",
+          "doseMg": 1.0, "quantity": 60, "dateFilled": "2025-12-31T00:00:00Z"}
+    payload = {"prescriptions": [rx]}
+    client.post("/api/sync", json=payload, headers=auth_header())
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+    assert resp.get_json()["counts"]["prescriptions"] == 1
+
+
+def test_sync_pharmacy_call_logs(client):
+    payload = {
+        "pharmacyCallLogs": [
+            {"timestamp": "2025-12-31T14:00:00Z", "pharmacyName": "Walgreens",
+             "direction": "outgoing", "notes": "Refill request"},
+        ]
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+    assert resp.get_json()["counts"]["pharmacyCallLogs"] == 1
