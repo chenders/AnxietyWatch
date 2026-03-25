@@ -13,6 +13,8 @@ struct DashboardView: View {
     private var recentCPAP: [CPAPSession]
     @Query(sort: \ClinicalLabResult.effectiveDate, order: .reverse)
     private var recentLabResults: [ClinicalLabResult]
+    @Query(sort: \Prescription.dateFilled, order: .reverse)
+    private var prescriptions: [Prescription]
 
     private let barometer = BarometerService.shared
 
@@ -25,6 +27,7 @@ struct DashboardView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     baselineAlert(hrvBaseline: hrvBL)
+                    supplyAlertCard
                     anxietySection
                     healthSection(hrvBaseline: hrvBL, rhrBaseline: rhrBL)
                     labResultsSection
@@ -64,6 +67,30 @@ struct DashboardView: View {
             }
             .padding()
             .background(.orange.opacity(0.1), in: .rect(cornerRadius: 12))
+        }
+    }
+
+    @ViewBuilder
+    private var supplyAlertCard: some View {
+        let lowCount = prescriptions.filter { rx in
+            let status = PrescriptionSupplyCalculator.supplyStatus(for: rx)
+            return status == .low || status == .warning || status == .expired
+        }.count
+        if lowCount > 0 {
+            HStack(spacing: 8) {
+                Image(systemName: "pills.fill")
+                    .foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(lowCount) Prescription\(lowCount == 1 ? "" : "s") Running Low")
+                        .font(.subheadline.bold())
+                    Text("Check the Medications tab for details")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding()
+            .background(.red.opacity(0.1), in: .rect(cornerRadius: 12))
         }
     }
 

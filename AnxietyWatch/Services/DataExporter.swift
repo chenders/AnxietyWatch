@@ -21,6 +21,9 @@ enum DataExporter {
         let healthSnapshots: [HealthSnapshotDTO]
         let barometricReadings: [BarometricReadingDTO]
         let clinicalLabResults: [ClinicalLabResultDTO]
+        let pharmacies: [PharmacyDTO]
+        let prescriptions: [PrescriptionDTO]
+        let pharmacyCallLogs: [PharmacyCallLogDTO]
     }
 
     static func exportJSON(from context: ModelContext, start: Date? = nil, end: Date? = nil) throws -> Data {
@@ -97,6 +100,33 @@ enum DataExporter {
         }
         files.append(("clinical_lab_results.csv", Data(csv.utf8)))
 
+        // Pharmacies
+        csv = "name,address,phone_number,latitude,longitude,notes,is_active\n"
+        for p in bundle.pharmacies {
+            csv += "\"\(escapeCsv(p.name))\",\"\(escapeCsv(p.address))\",\"\(escapeCsv(p.phoneNumber))\","
+            csv += "\(opt(p.latitude)),\(opt(p.longitude)),\"\(escapeCsv(p.notes))\",\(p.isActive)\n"
+        }
+        files.append(("pharmacies.csv", Data(csv.utf8)))
+
+        // Prescriptions
+        csv = "rx_number,medication_name,dose_mg,dose_description,quantity,refills_remaining,"
+        csv += "date_filled,estimated_run_out_date,pharmacy_name,notes,daily_dose_count\n"
+        for rx in bundle.prescriptions {
+            csv += "\"\(escapeCsv(rx.rxNumber))\",\"\(escapeCsv(rx.medicationName))\",\(rx.doseMg),"
+            csv += "\"\(escapeCsv(rx.doseDescription))\",\(rx.quantity),\(rx.refillsRemaining),"
+            csv += "\(rx.dateFilled),\(opt(rx.estimatedRunOutDate)),\"\(escapeCsv(rx.pharmacyName))\","
+            csv += "\"\(escapeCsv(rx.notes))\",\(opt(rx.dailyDoseCount))\n"
+        }
+        files.append(("prescriptions.csv", Data(csv.utf8)))
+
+        // Pharmacy call logs
+        csv = "timestamp,direction,pharmacy_name,notes,duration_seconds\n"
+        for c in bundle.pharmacyCallLogs {
+            csv += "\(c.timestamp),\(c.direction),\"\(escapeCsv(c.pharmacyName))\","
+            csv += "\"\(escapeCsv(c.notes))\",\(opt(c.durationSeconds))\n"
+        }
+        files.append(("pharmacy_call_logs.csv", Data(csv.utf8)))
+
         return files
     }
 
@@ -110,6 +140,9 @@ enum DataExporter {
         let snapshots = try context.fetch(FetchDescriptor<HealthSnapshot>(sortBy: [SortDescriptor(\.date)]))
         let barometric = try context.fetch(FetchDescriptor<BarometricReading>(sortBy: [SortDescriptor(\.timestamp)]))
         let labResults = try context.fetch(FetchDescriptor<ClinicalLabResult>(sortBy: [SortDescriptor(\.effectiveDate)]))
+        let pharmacies = try context.fetch(FetchDescriptor<Pharmacy>(sortBy: [SortDescriptor(\.name)]))
+        let prescriptionsAll = try context.fetch(FetchDescriptor<Prescription>(sortBy: [SortDescriptor(\.dateFilled)]))
+        let callLogs = try context.fetch(FetchDescriptor<PharmacyCallLog>(sortBy: [SortDescriptor(\.timestamp)]))
 
         func inRange(_ date: Date) -> Bool {
             if let s = start, date < s { return false }
@@ -163,6 +196,25 @@ enum DataExporter {
                     value: r.value, unit: r.unit,
                     referenceRangeLow: r.referenceRangeLow, referenceRangeHigh: r.referenceRangeHigh,
                     interpretation: r.interpretation, sourceName: r.sourceName)
+            },
+            pharmacies: pharmacies.map { p in
+                PharmacyDTO(name: p.name, address: p.address, phoneNumber: p.phoneNumber,
+                            latitude: p.latitude, longitude: p.longitude,
+                            notes: p.notes, isActive: p.isActive)
+            },
+            prescriptions: prescriptionsAll.filter { inRange($0.dateFilled) }.map { rx in
+                PrescriptionDTO(rxNumber: rx.rxNumber, medicationName: rx.medicationName,
+                                doseMg: rx.doseMg, doseDescription: rx.doseDescription,
+                                quantity: rx.quantity, refillsRemaining: rx.refillsRemaining,
+                                dateFilled: isoFormatter.string(from: rx.dateFilled),
+                                estimatedRunOutDate: rx.estimatedRunOutDate.map { isoFormatter.string(from: $0) },
+                                pharmacyName: rx.pharmacyName, notes: rx.notes,
+                                dailyDoseCount: rx.dailyDoseCount)
+            },
+            pharmacyCallLogs: callLogs.filter { inRange($0.timestamp) }.map { c in
+                PharmacyCallLogDTO(timestamp: isoFormatter.string(from: c.timestamp),
+                                   direction: c.direction, pharmacyName: c.pharmacyName,
+                                   notes: c.notes, durationSeconds: c.durationSeconds)
             }
         )
     }
@@ -210,5 +262,20 @@ enum DataExporter {
         let value: Double; let unit: String
         let referenceRangeLow: Double?; let referenceRangeHigh: Double?
         let interpretation: String?; let sourceName: String?
+    }
+    struct PharmacyDTO: Codable {
+        let name: String; let address: String; let phoneNumber: String
+        let latitude: Double?; let longitude: Double?
+        let notes: String; let isActive: Bool
+    }
+    struct PrescriptionDTO: Codable {
+        let rxNumber: String; let medicationName: String; let doseMg: Double
+        let doseDescription: String; let quantity: Int; let refillsRemaining: Int
+        let dateFilled: String; let estimatedRunOutDate: String?
+        let pharmacyName: String; let notes: String; let dailyDoseCount: Double?
+    }
+    struct PharmacyCallLogDTO: Codable {
+        let timestamp: String; let direction: String; let pharmacyName: String
+        let notes: String; let durationSeconds: Int?
     }
 }

@@ -13,6 +13,9 @@ struct AnxietyWatchApp: App {
             BarometricReading.self,
             HealthSnapshot.self,
             ClinicalLabResult.self,
+            Pharmacy.self,
+            Prescription.self,
+            PharmacyCallLog.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
