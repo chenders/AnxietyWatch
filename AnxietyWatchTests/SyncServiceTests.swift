@@ -89,15 +89,15 @@ struct SyncServiceTests {
 
     // MARK: - lastSyncDate persistence
 
-    @Test("lastSyncDate round-trips through UserDefaults")
+    @Test("lastSyncDate persists through UserDefaults across instances")
     func lastSyncDateRoundTrip() {
         let restore = saveSyncDefaults()
         defer { restore() }
 
-        let service = SyncService()
-        service.lastSyncDate = Date(timeIntervalSince1970: 1_711_300_000)
+        SyncService().lastSyncDate = Date(timeIntervalSince1970: 1_711_300_000)
 
-        #expect(service.lastSyncDate?.timeIntervalSince1970 == 1_711_300_000)
+        // Read from a fresh instance to verify UserDefaults persistence
+        #expect(SyncService().lastSyncDate?.timeIntervalSince1970 == 1_711_300_000)
     }
 
     @Test("lastSyncDate is nil when not set")
