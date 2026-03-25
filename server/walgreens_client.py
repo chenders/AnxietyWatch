@@ -93,9 +93,9 @@ def _parse_price(price_str: str | None) -> float | None:
 
 
 def _parse_walgreens_date(date_str: str) -> str:
-    """Convert Walgreens MM/DD/YYYY date to ISO-8601 YYYY-MM-DD."""
+    """Convert Walgreens MM/DD/YYYY date to ISO-8601 timestamp with UTC timezone."""
     try:
-        return datetime.strptime(date_str, "%m/%d/%Y").strftime("%Y-%m-%d")
+        return datetime.strptime(date_str, "%m/%d/%Y").strftime("%Y-%m-%dT00:00:00+00:00")
     except (ValueError, TypeError):
         return date_str  # return as-is if unparseable
 
