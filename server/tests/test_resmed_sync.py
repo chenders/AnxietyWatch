@@ -4,12 +4,25 @@ import psycopg2
 from resmed_sync import upsert_sessions, should_run_now
 
 
-@pytest.fixture
-def db():
-    """Connect to test database."""
+@pytest.fixture(scope="session")
+def _init_db():
+    """Create tables once per test session."""
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
         pytest.skip("DATABASE_URL not set")
+    conn = psycopg2.connect(dsn)
+    conn.autocommit = True
+    cur = conn.cursor()
+    schema_path = os.path.join(os.path.dirname(__file__), "..", "schema.sql")
+    with open(schema_path) as f:
+        cur.execute(f.read())
+    conn.close()
+
+
+@pytest.fixture
+def db(_init_db):
+    """Connect to test database (schema guaranteed initialized)."""
+    dsn = os.environ.get("DATABASE_URL")
     conn = psycopg2.connect(dsn)
     conn.autocommit = False
     yield conn
