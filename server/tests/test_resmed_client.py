@@ -125,9 +125,10 @@ async def test_fetch_sessions_returns_list(mock_session):
     assert result[0]["ahi"] == 2.3
     assert result[1]["total_usage_minutes"] == 390
 
-    # Verify authorize GET allows redirects (no allow_redirects=False)
+    # Verify authorize GET disables redirects (we parse the code from
+    # the response body/headers, not from a followed redirect)
     get_call = mock_session.get.call_args
-    assert get_call.kwargs.get("allow_redirects", True) is not False
+    assert get_call.kwargs.get("allow_redirects") is False
 
 
 @pytest.mark.asyncio

@@ -155,7 +155,11 @@ class MyAirClient:
             hashlib.sha256(verifier.encode()).digest()
         ).rstrip(b"=").decode()
 
-        # Step 3: Authorize (get auth code via okta_post_message)
+        # Step 3: Authorize — use okta_post_message to get code in HTML
+        # IMPORTANT: allow_redirects=False so Okta returns the HTML page
+        # with the code instead of redirecting to myair.resmed.com (which
+        # would consume the code).
+        state = secrets.token_urlsafe(32)
         params = {
             "client_id": OKTA_CLIENT_ID,
             "code_challenge": challenge,
@@ -166,21 +170,31 @@ class MyAirClient:
             "response_mode": "okta_post_message",
             "response_type": "code",
             "sessionToken": session_token,
-            "state": secrets.token_urlsafe(32),
+            "state": state,
             "scope": "openid profile email",
         }
-        resp = await session.get(OKTA_AUTHORIZE_URL, params=params)
-        body = await resp.text()
+        resp = await session.get(OKTA_AUTHORIZE_URL, params=params, allow_redirects=False)
 
-        # Parse auth code from the HTML postMessage response
+        auth_code = None
+
+        # Try 1: extract from HTML body (okta_post_message mode)
+        body = await resp.text()
         match = re.search(r"data\.code\s*=\s*'([^']+)'", body)
-        if not match:
-            # Check for error in response
+        if match:
+            auth_code = match.group(1)
+
+        # Try 2: extract from Location header (redirect mode)
+        if not auth_code and resp.status in (302, 303):
+            location = resp.headers.get("Location", "")
+            code_match = re.search(r"[?&]code=([^&]+)", location)
+            if code_match:
+                auth_code = code_match.group(1)
+
+        if not auth_code:
             err_match = re.search(r"data\.error\s*=\s*'([^']+)'", body)
-            error_msg = err_match.group(1) if err_match else "Could not extract auth code"
+            error_msg = err_match.group(1) if err_match else f"No auth code (status {resp.status})"
             raise MyAirAuthError(f"OAuth authorize failed: {error_msg}")
 
-        auth_code = match.group(1)
         logger.debug("Got OAuth auth code")
 
         # Step 4: Exchange code for tokens
