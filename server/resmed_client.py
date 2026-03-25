@@ -202,6 +202,9 @@ class MyAirClient:
 
     def _fetch_sleep_records(self, token: str, start: str, end: str) -> list[dict]:
         """Query the myAir GraphQL API for sleep records."""
+        api_key = os.environ.get("GRAPHQL_API_KEY", "")
+        if not api_key:
+            raise MyAirAPIError("GRAPHQL_API_KEY env var not set")
         query = {
             "operationName": "getPatientWrapper",
             "variables": {},
@@ -219,7 +222,7 @@ class MyAirClient:
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
-                "x-api-key": os.environ.get("GRAPHQL_API_KEY", ""),
+                "x-api-key": api_key,
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                               "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "Origin": "https://myair.resmed.com",
