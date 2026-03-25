@@ -39,7 +39,7 @@ def test_normalize_valid_prescription():
     assert result["dose_mg"] == 1.0
     assert result["dose_description"] == "1mg"
     assert result["quantity"] == 60
-    assert result["date_filled"] == "2025-12-31"
+    assert result["date_filled"] == "2025-12-31T00:00:00+00:00"
     assert result["pharmacy_name"] == "Walgreens"
     assert result["prescriber_name"] == "Robert Geistwhite"
     assert result["ndc_code"] == "00093321205"
@@ -112,7 +112,7 @@ def test_parse_dose_no_match():
 
 def test_parse_walgreens_date():
     from walgreens_client import _parse_walgreens_date
-    assert _parse_walgreens_date("12/31/2025") == "2025-12-31"
+    assert _parse_walgreens_date("12/31/2025") == "2025-12-31T00:00:00+00:00"
 
 
 def test_parse_walgreens_date_invalid():

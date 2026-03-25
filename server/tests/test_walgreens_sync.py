@@ -58,7 +58,7 @@ SAMPLE_RX = {
     "dose_description": "1mg",
     "quantity": 60,
     "refills_remaining": 0,
-    "date_filled": "2025-12-31",
+    "date_filled": "2025-12-31T00:00:00+00:00",
     "pharmacy_name": "Walgreens",
     "prescriber_name": "Robert Geistwhite",
     "ndc_code": "00093321205",

@@ -265,13 +265,14 @@ def main(argv=None):
 
     # --- Determine date range ------------------------------------------------
     last_sync = get_setting(conn, "walgreens_last_sync")
+    today = datetime.now(timezone.utc).date()
     if last_sync:
         # Look back 90 days on subsequent syncs
-        start = (datetime.now() - timedelta(days=90)).strftime("%m/%d/%Y")
+        start = (today - timedelta(days=90)).strftime("%m/%d/%Y")
     else:
         # First sync: go back 2 years (max Walgreens allows)
-        start = (datetime.now() - timedelta(days=730)).strftime("%m/%d/%Y")
-    end = datetime.now().strftime("%m/%d/%Y")
+        start = (today - timedelta(days=730)).strftime("%m/%d/%Y")
+    end = today.strftime("%m/%d/%Y")
 
     # --- Fetch from Walgreens ------------------------------------------------
     try:
