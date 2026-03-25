@@ -8,6 +8,7 @@ enum PrescriptionSupplyCalculator {
         case warning  // 7–14 days remaining
         case low      // <7 days remaining
         case expired  // past estimated run-out date
+        case unknown  // no run-out date available
     }
 
     // MARK: - Run-out date
@@ -30,10 +31,10 @@ enum PrescriptionSupplyCalculator {
     // MARK: - Status
 
     /// Computes the supply status for a prescription based on its estimated run-out date.
-    /// Returns `.good` when no run-out date can be determined (unknown supply).
+    /// Returns `.unknown` when no run-out date can be determined.
     static func supplyStatus(for prescription: Prescription) -> SupplyStatus {
         guard let runOut = effectiveRunOutDate(for: prescription) else {
-            return .good
+            return .unknown
         }
         let days = Calendar.current.dateComponents(
             [.day],

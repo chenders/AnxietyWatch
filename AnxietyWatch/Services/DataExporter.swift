@@ -140,9 +140,9 @@ enum DataExporter {
         let snapshots = try context.fetch(FetchDescriptor<HealthSnapshot>(sortBy: [SortDescriptor(\.date)]))
         let barometric = try context.fetch(FetchDescriptor<BarometricReading>(sortBy: [SortDescriptor(\.timestamp)]))
         let labResults = try context.fetch(FetchDescriptor<ClinicalLabResult>(sortBy: [SortDescriptor(\.effectiveDate)]))
-        let pharmacies = try context.fetch(FetchDescriptor<Pharmacy>(sortBy: [SortDescriptor(\.name)]))
-        let prescriptionsAll = try context.fetch(FetchDescriptor<Prescription>(sortBy: [SortDescriptor(\.dateFilled)]))
-        let callLogs = try context.fetch(FetchDescriptor<PharmacyCallLog>(sortBy: [SortDescriptor(\.timestamp)]))
+        let pharmacies: [Pharmacy] = (try? context.fetch(FetchDescriptor<Pharmacy>(sortBy: [SortDescriptor(\.name)]))) ?? []
+        let prescriptionsAll: [Prescription] = (try? context.fetch(FetchDescriptor<Prescription>(sortBy: [SortDescriptor(\.dateFilled)]))) ?? []
+        let callLogs: [PharmacyCallLog] = (try? context.fetch(FetchDescriptor<PharmacyCallLog>(sortBy: [SortDescriptor(\.timestamp)]))) ?? []
 
         func inRange(_ date: Date) -> Bool {
             if let s = start, date < s { return false }

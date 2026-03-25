@@ -95,6 +95,7 @@ struct SupplyBadge: View {
         case .warning: return .yellow
         case .low:     return .red
         case .expired: return .gray
+        case .unknown: return .secondary
         }
     }
 

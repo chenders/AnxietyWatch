@@ -207,14 +207,32 @@ struct AddPrescriptionView: View {
         }
     }
 
+    @State private var showingScanner = false
+
     private var scanPlaceholderSection: some View {
         Section {
             Button {
-                // Phase 4 will wire this up
+                showingScanner = true
             } label: {
                 Label("Scan Label", systemImage: "camera")
             }
-            .disabled(true)
+            .sheet(isPresented: $showingScanner) {
+                PrescriptionScannerView(onScanComplete: { scannedData in
+                    if let rx = scannedData.rxNumber { rxNumber = rx }
+                    if let name = scannedData.medicationName {
+                        newMedName = name
+                        addingNewMed = true
+                    }
+                    if let dose = scannedData.dose,
+                       let numeric = Double(dose.filter { $0.isNumber || $0 == "." }) {
+                        doseMg = numeric
+                        doseDescription = dose
+                    }
+                    if let qty = scannedData.quantity { quantityText = String(qty) }
+                    if let refills = scannedData.refillsRemaining { refillsRemaining = refills }
+                    if let date = scannedData.dateFilled { dateFilled = date }
+                })
+            }
         }
     }
 
@@ -233,6 +251,7 @@ struct AddPrescriptionView: View {
 
     private var canSave: Bool {
         !medicationName.isEmpty && (Int(quantityText) ?? 0) > 0
+            && !rxNumber.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private func save() {

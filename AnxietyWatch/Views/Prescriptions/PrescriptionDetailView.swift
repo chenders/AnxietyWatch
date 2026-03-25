@@ -29,7 +29,12 @@ struct PrescriptionDetailView: View {
     private var prescriptionSection: some View {
         Section("Prescription") {
             if isEditing {
-                TextField("Rx Number", text: $prescription.rxNumber)
+                // Rx number is immutable once set — it's the sync primary key
+                if prescription.rxNumber.isEmpty {
+                    TextField("Rx Number", text: $prescription.rxNumber)
+                } else {
+                    LabeledContent("Rx Number", value: prescription.rxNumber)
+                }
                 DatePicker(
                     "Date Filled",
                     selection: $prescription.dateFilled,
