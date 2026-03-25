@@ -54,7 +54,13 @@ def create_app(test_config=None):
         with open(schema_path) as f:
             sql = f.read()
         db = get_db()
-        db.cursor().execute(sql)
+        with db.cursor() as cur:
+            cur.execute(sql)
+            # Migrations: make pressure/leak columns nullable for cloud imports
+            cur.execute("ALTER TABLE cpap_sessions ALTER COLUMN pressure_min DROP NOT NULL")
+            cur.execute("ALTER TABLE cpap_sessions ALTER COLUMN pressure_max DROP NOT NULL")
+            cur.execute("ALTER TABLE cpap_sessions ALTER COLUMN pressure_mean DROP NOT NULL")
+            cur.execute("ALTER TABLE cpap_sessions ALTER COLUMN leak_rate_95th DROP NOT NULL")
         db.commit()
 
     @app.cli.command("init-db")
