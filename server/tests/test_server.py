@@ -490,14 +490,22 @@ def test_sync_prescriptions(client):
     assert resp.get_json()["counts"]["prescriptions"] == 1
 
 
-def test_sync_prescriptions_idempotent(client):
+def test_sync_prescriptions_idempotent(client, app):
     rx = {"rxNumber": "2618630-03890", "medicationName": "Clonazepam 1mg",
           "doseMg": 1.0, "quantity": 60, "dateFilled": "2025-12-31T00:00:00Z"}
     payload = {"prescriptions": [rx]}
     client.post("/api/sync", json=payload, headers=auth_header())
-    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    # Second sync with updated quantity to exercise DO UPDATE
+    rx2 = {**rx, "quantity": 90}
+    resp = client.post("/api/sync", json={"prescriptions": [rx2]}, headers=auth_header())
     assert resp.status_code == 200
     assert resp.get_json()["counts"]["prescriptions"] == 1
+    # Verify only one row exists with the updated value
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute("SELECT quantity FROM prescriptions WHERE rx_number = %s", (rx["rxNumber"],))
+        assert cur.fetchone()[0] == 90
 
 
 def test_sync_pharmacy_call_logs(client):
