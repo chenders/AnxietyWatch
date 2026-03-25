@@ -20,11 +20,23 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_26.app || sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | tail -1)"
 
+      - name: Find simulator destination
+        id: dest
+        run: |
+          # Pick the first available iPhone simulator
+          DEST=$(xcodebuild -scheme AnxietyWatch -showdestinations 2>/dev/null \
+            | grep 'platform:iOS Simulator' | grep 'iPhone' | head -1 \
+            | sed 's/.*{ //' | sed 's/ }$//')
+          if [ -z "$DEST" ]; then
+            DEST="generic/platform=iOS Simulator"
+          fi
+          echo "destination=$DEST" >> "$GITHUB_OUTPUT"
+
       - name: Run tests with coverage
         run: |
           xcodebuild test \
             -scheme AnxietyWatch \
-            -destination 'platform=iOS Simulator,OS=latest,name=iPhone 16 Pro' \
+            -destination '${{ steps.dest.outputs.destination }}' \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
             -quiet
