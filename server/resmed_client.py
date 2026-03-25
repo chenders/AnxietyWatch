@@ -130,22 +130,25 @@ class MyAirClient:
         """
         assert _myair is not None  # guarded in __init__
 
+        import aiohttp
+
         try:
             config = _myair.MyAirConfig(
                 username=self._username,
                 password=self._password,
                 region=self._region,
             )
-            client = _myair.ClientFactory(config=config, session=None).get()
-            await client.connect()
-            raw_records = await client.get_sleep_records()
+            async with aiohttp.ClientSession() as session:
+                client = _myair.ClientFactory(config=config, session=session).get()
+                await client.connect()
+                raw_records = await client.get_sleep_records()
         except _myair.AuthenticationError as exc:
             raise MyAirAuthError(str(exc)) from exc
         except (MyAirAuthError, MyAirAPIError):
             # Don't double-wrap our own exceptions
             raise
         except Exception as exc:
-            raise MyAirAPIError(str(exc)) from exc
+            raise MyAirAPIError(repr(exc)) from exc
 
         results: list[dict[str, Any]] = []
         for raw in raw_records:
