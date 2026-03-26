@@ -71,8 +71,8 @@ struct PrescriptionListView: View {
         do {
             let count = try await SyncService.shared.fetchPrescriptions(modelContext: modelContext)
             fetchResult = count > 0
-                ? "Added \(count) prescription\(count == 1 ? "" : "s")"
-                : "All prescriptions already up to date"
+                ? "Synced \(count) prescription\(count == 1 ? "" : "s")"
+                : "No prescriptions found on server"
         } catch {
             fetchResult = error.localizedDescription
         }
