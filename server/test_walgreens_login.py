@@ -6,13 +6,13 @@ import logging
 import os
 import sys
 
+from walgreens_client import WalgreensClient
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     stream=sys.stdout,
 )
-
-from walgreens_client import WalgreensClient
 
 email = os.environ.get("WAL_EMAIL") or input("Walgreens email: ")
 password = os.environ.get("WAL_PASS") or getpass.getpass("Password: ")
