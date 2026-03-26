@@ -6,10 +6,35 @@ struct PrescriptionListView: View {
     @Query(sort: \Prescription.dateFilled, order: .reverse)
     private var prescriptions: [Prescription]
     @State private var showingAdd = false
+    @State private var isFetching = false
+    @State private var fetchResult: String?
 
     var body: some View {
         NavigationStack {
             List {
+                if SyncService.shared.isConfigured {
+                    Section {
+                        Button {
+                            Task { await fetchFromServer() }
+                        } label: {
+                            HStack {
+                                Label("Fetch from Server", systemImage: "arrow.down.circle")
+                                Spacer()
+                                if isFetching {
+                                    ProgressView()
+                                }
+                            }
+                        }
+                        .disabled(isFetching)
+
+                        if let fetchResult {
+                            Text(fetchResult)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 if prescriptions.isEmpty {
                     Text("No prescriptions yet. Tap + to add one.")
                         .foregroundStyle(.secondary)
@@ -38,6 +63,20 @@ struct PrescriptionListView: View {
                 AddPrescriptionView()
             }
         }
+    }
+
+    private func fetchFromServer() async {
+        isFetching = true
+        fetchResult = nil
+        do {
+            let count = try await SyncService.shared.fetchPrescriptions(modelContext: modelContext)
+            fetchResult = count > 0
+                ? "Added \(count) prescription\(count == 1 ? "" : "s")"
+                : "All prescriptions already up to date"
+        } catch {
+            fetchResult = error.localizedDescription
+        }
+        isFetching = false
     }
 
     private func deletePrescriptions(offsets: IndexSet) {
