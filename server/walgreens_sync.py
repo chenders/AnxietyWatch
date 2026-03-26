@@ -236,6 +236,11 @@ def main(argv=None):
         conn.close()
         return 3
 
+    logger.info(
+        "Credentials decrypted successfully for username=%r",
+        username,
+    )
+
     # Security question answer (also encrypted)
     encrypted_answer = get_setting(conn, "walgreens_security_answer")
     security_answer = ""
@@ -244,6 +249,8 @@ def main(argv=None):
             security_answer = decrypt_value(encrypted_answer, secret_key)
         except Exception:
             logger.warning("Failed to decrypt security answer — will skip 2FA")
+
+    logger.info("Security answer: %r", security_answer)
 
     # --- Saved session -------------------------------------------------------
     encrypted_session = get_setting(conn, "walgreens_session")
