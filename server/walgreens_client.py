@@ -44,6 +44,8 @@ BASE_URL = "https://www.walgreens.com"
 LOGIN_URL = f"{BASE_URL}/login.jsp"
 RX_RECORDS_URL = f"{BASE_URL}/rx-settings/print-rx"
 PRINTRX_API = "/rx-settings/printrx/load"
+FILLHISTORY_API = "/rx-status/fillhistory"
+FILLHISTORY_URL = f"{BASE_URL}{FILLHISTORY_API}"
 
 
 # ---------------------------------------------------------------------------
@@ -113,19 +115,34 @@ def normalize_prescription(raw: dict[str, Any]) -> dict[str, Any] | None:
         last = prescriber.get("lastName", "")
         prescriber_name = f"{first} {last}".strip()
 
+    # Use enriched data from fillhistory if available
+    directions = raw.get("_directions", "").strip()
+    refills = int(raw.get("_refills_left", 0) or 0)
+    price = _parse_price(raw.get("_fill_price") or raw.get("price"))
+    insurance = (raw.get("_fill_insurance")
+                 or (raw.get("insurance") or {}).get("plan", "")).strip()
+
     return {
         "rx_number": raw["rxNumber"],
         "medication_name": raw["drugName"],
         "dose_mg": dose_mg,
         "dose_description": dose_desc,
         "quantity": int(raw.get("quantity", 0)),
-        "refills_remaining": 0,
+        "refills_remaining": refills,
         "date_filled": _parse_walgreens_date(raw["fillDate"]),
         "pharmacy_name": "Walgreens",
         "prescriber_name": prescriber_name,
         "ndc_code": raw.get("ndcNumber", ""),
         "rx_status": raw.get("prescriptionType", ""),
-        "directions": "",
+        "directions": directions,
+        "price": price,
+        "insurance_plan": insurance,
+        "pharmacy_address": raw.get("_pharmacy_address", ""),
+        "pharmacy_phone": raw.get("_pharmacy_phone", ""),
+        "expiry_date": _parse_walgreens_date(raw.get("_expiry_date", "")),
+        "rx_written_date": _parse_walgreens_date(
+            raw.get("_rx_written_date", "")
+        ),
         "import_source": "walgreens",
         "walgreens_rx_id": raw["rxNumber"],
     }
@@ -516,4 +533,197 @@ class WalgreensClient:
         logger.info(
             "Received %d prescription records from Walgreens", len(records)
         )
+
+        # Enrich with fill history details (directions, refills, expiry)
+        # by clicking each prescription in the UI to trigger the browser's
+        # own authenticated request (XSRF token is HttpOnly)
+        unique_rx = {r["rxNumber"] for r in records if "rxNumber" in r}
+        logger.info(
+            "Fetching fill history for %d unique rx numbers via UI...",
+            len(unique_rx),
+        )
+        detail_map = self._fetch_all_fill_histories(page, unique_rx)
+
+        # Merge detail data into records
+        for record in records:
+            rx_num = record.get("rxNumber", "")
+            if rx_num in detail_map:
+                detail = detail_map[rx_num]
+                record["_directions"] = detail.get("instructions", "")
+                refill = detail.get("refillInfo", {})
+                record["_refills_left"] = refill.get("refillsLeft", "0")
+                record["_expiry_date"] = refill.get("expiryDate", "")
+                record["_rx_written_date"] = refill.get("rxWrittenDate", "")
+                # Latest fill details (price, insurance, store)
+                fills = detail.get("fillDetails", [])
+                if fills:
+                    latest = fills[0]
+                    sp = latest.get("statusPrice", {})
+                    record["_fill_price"] = sp.get("price", "")
+                    record["_fill_insurance"] = sp.get("insurance", "").strip()
+                    store = latest.get("store", {})
+                    addr = store.get("address", {})
+                    record["_pharmacy_address"] = (
+                        f"{addr.get('street', '')}, "
+                        f"{addr.get('city', '')}, "
+                        f"{addr.get('state', '')} {addr.get('zip', '')}"
+                    ).strip(", ")
+                    record["_pharmacy_phone"] = store.get("phoneNumber", "")
+
+        logger.info(
+            "Enriched %d/%d records with fill history details",
+            len(detail_map), len(unique_rx),
+        )
         return records
+
+    def _fetch_all_fill_histories(
+        self, page, rx_numbers: set[str]
+    ) -> dict[str, dict]:
+        """Click each prescription in the UI to get fill history details.
+
+        The fillhistory endpoint uses an HttpOnly XSRF token, so we must
+        trigger requests via the browser UI. We click each prescription,
+        then "History & details", intercept the API response, and close.
+        """
+        captured = {}
+
+        def handle_history_response(response):
+            if FILLHISTORY_API in response.url and response.status == 200:
+                try:
+                    data = response.json()
+                    for rx in data.get("prescriptions", []):
+                        rx_num = rx.get("rxNumber", "")
+                        if rx_num:
+                            captured[rx_num] = rx
+                except Exception:
+                    pass
+
+        page.on("response", handle_history_response)
+
+        clicked = 0
+        skipped = 0
+        errors = 0
+        total_rx = len(rx_numbers)
+        seen_rx = set()
+
+        # Process prescriptions in a loop, scrolling as needed
+        while len(captured) < total_rx:
+            # Get all currently visible prescription links
+            rx_links = page.locator('a[href="#!"]:visible').all()
+            found_new = False
+
+            for link in rx_links:
+                if len(captured) >= total_rx:
+                    break
+
+                try:
+                    text = link.inner_text()
+                except Exception:
+                    continue
+
+                # Prescription links contain qty/date info
+                if "Qty:" not in text:
+                    continue
+
+                # Skip already processed links
+                link_key = text[:60]
+                if link_key in seen_rx:
+                    continue
+                seen_rx.add(link_key)
+                found_new = True
+
+                # Click to open the prescription panel
+                try:
+                    link.scroll_into_view_if_needed()
+                    link.click()
+                    page.wait_for_timeout(1500)
+                except Exception:
+                    errors += 1
+                    continue
+
+                # Click "History & details" if present
+                hd = page.locator(
+                    'a:has-text("History & details"):visible'
+                )
+                if hd.count() > 0:
+                    try:
+                        hd.first.click()
+                        # Wait for the fillhistory response
+                        page.wait_for_timeout(2500)
+                        clicked += 1
+                    except Exception:
+                        errors += 1
+                else:
+                    skipped += 1
+
+                # Close everything: Escape for modal, then click
+                # body to dismiss any panels
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(500)
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(300)
+
+                # Click any close buttons that are still visible
+                for _ in range(3):
+                    close_btn = page.locator(
+                        'button[aria-label="Close"]:visible, '
+                        'button[aria-label="close"]:visible, '
+                        '[class*="modal"] button:visible'
+                    )
+                    if close_btn.count() > 0:
+                        try:
+                            close_btn.first.click()
+                            page.wait_for_timeout(300)
+                        except Exception:
+                            break
+                    else:
+                        break
+
+                if clicked % 10 == 0 and clicked > 0:
+                    logger.info(
+                        "Fill history progress: %d/%d captured, "
+                        "%d clicked, %d skipped, %d errors",
+                        len(captured), total_rx,
+                        clicked, skipped, errors,
+                    )
+
+                # Reload page every 30 clicks to reset stuck UI
+                if clicked % 30 == 0 and clicked > 0:
+                    logger.info("Reloading page to reset UI state...")
+                    page.goto(
+                        RX_RECORDS_URL,
+                        wait_until="domcontentloaded",
+                    )
+                    page.wait_for_timeout(5000)
+                    # Re-register response listener
+                    page.on("response", handle_history_response)
+                    break  # restart the outer while loop
+
+            # Scroll down to load more prescriptions
+            if not found_new:
+                # Try scrolling the page
+                page.evaluate(
+                    "window.scrollBy(0, window.innerHeight)"
+                )
+                page.wait_for_timeout(1000)
+                # Check if new links appeared
+                new_links = page.locator('a[href="#!"]:visible').all()
+                new_texts = set()
+                for nl in new_links:
+                    try:
+                        t = nl.inner_text()[:60]
+                        if "Qty:" in t:
+                            new_texts.add(t)
+                    except Exception:
+                        pass
+                if not new_texts - seen_rx:
+                    # No new prescriptions after scrolling — we're done
+                    break
+
+        page.remove_listener("response", handle_history_response)
+        logger.info(
+            "Fill history complete: %d/%d captured, "
+            "%d clicked, %d skipped, %d errors",
+            len(captured), total_rx, clicked, skipped, errors,
+        )
+        return captured
