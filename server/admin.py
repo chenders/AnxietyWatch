@@ -330,7 +330,7 @@ def walgreens_settings():
             try:
                 import subprocess
                 result = subprocess.run(
-                    [sys.executable, "walgreens_sync.py"],
+                    ["xvfb-run", "--auto-servernum", sys.executable, "walgreens_sync.py"],
                     capture_output=True, text=True, timeout=180,
                     env={**os.environ},
                 )
