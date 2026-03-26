@@ -129,6 +129,92 @@ final class SyncService {
         await sync(modelContext: modelContext)
     }
 
+    // MARK: - Fetch prescriptions from server
+
+    /// Pull prescriptions from the server and upsert into SwiftData.
+    /// Returns the number of new prescriptions added.
+    @discardableResult
+    func fetchPrescriptions(modelContext: ModelContext) async throws -> Int {
+        guard isConfigured else { throw SyncError.notConfigured }
+
+        guard var urlComponents = URLComponents(string: serverURL) else {
+            throw SyncError.invalidURL
+        }
+        urlComponents.path = "/api/data/prescriptions"
+        guard let url = urlComponents.url else {
+            throw SyncError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 30
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SyncError.noConnection
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let body = String(data: data, encoding: .utf8)
+            throw SyncError.serverError(httpResponse.statusCode, body)
+        }
+
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let records = json?["prescriptions"] as? [[String: Any]] else {
+            return 0
+        }
+
+        // Fetch existing rx numbers for deduplication
+        let existing = try modelContext.fetch(FetchDescriptor<Prescription>())
+        let existingRxNumbers = Set(existing.map(\.rxNumber))
+
+        var added = 0
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        for record in records {
+            guard let rxNumber = record["rx_number"] as? String else { continue }
+            if existingRxNumbers.contains(rxNumber) { continue }
+
+            let dateFilled = parseDate(record["date_filled"], formatter: isoFormatter) ?? .now
+            let lastFillDate = parseDate(record["last_fill_date"], formatter: isoFormatter)
+            let estimatedRunOut = parseDate(record["estimated_run_out_date"], formatter: isoFormatter)
+
+            let rx = Prescription(
+                rxNumber: rxNumber,
+                medicationName: record["medication_name"] as? String ?? "",
+                doseMg: record["dose_mg"] as? Double ?? 0,
+                doseDescription: record["dose_description"] as? String ?? "",
+                quantity: record["quantity"] as? Int ?? 0,
+                refillsRemaining: record["refills_remaining"] as? Int ?? 0,
+                dateFilled: dateFilled,
+                estimatedRunOutDate: estimatedRunOut,
+                pharmacyName: record["pharmacy_name"] as? String ?? "",
+                notes: record["notes"] as? String ?? "",
+                dailyDoseCount: record["daily_dose_count"] as? Double,
+                prescriberName: record["prescriber_name"] as? String ?? "",
+                ndcCode: record["ndc_code"] as? String ?? "",
+                rxStatus: record["rx_status"] as? String ?? "",
+                lastFillDate: lastFillDate,
+                importSource: record["import_source"] as? String ?? "walgreens",
+                walgreensRxId: record["walgreens_rx_id"] as? String,
+                directions: record["directions"] as? String ?? ""
+            )
+            modelContext.insert(rx)
+            added += 1
+        }
+
+        return added
+    }
+
+    private func parseDate(_ value: Any?, formatter: ISO8601DateFormatter) -> Date? {
+        guard let string = value as? String, !string.isEmpty else { return nil }
+        // Try ISO 8601 with fractional seconds first, then without
+        if let date = formatter.date(from: string) { return date }
+        let basic = ISO8601DateFormatter()
+        return basic.date(from: string)
+    }
+
     // MARK: - Private
 
     private func buildPayload(from context: ModelContext) throws -> Data {
