@@ -200,6 +200,8 @@ class WalgreensClient:
                 headless=False,
                 args=[
                     "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
                 ],
             )
 
