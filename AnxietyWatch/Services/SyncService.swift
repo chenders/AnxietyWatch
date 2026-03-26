@@ -164,17 +164,20 @@ final class SyncService {
             return 0
         }
 
-        // Fetch existing rx numbers for deduplication
+        // Build lookup of existing prescriptions by rx_number
         let existing = try modelContext.fetch(FetchDescriptor<Prescription>())
-        let existingRxNumbers = Set(existing.map(\.rxNumber))
+        let existingByRx = Dictionary(
+            existing.map { ($0.rxNumber, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         var added = 0
+        var updated = 0
         let isoFormatter = ISO8601DateFormatter()
         isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
         for record in records {
             guard let rxNumber = record["rx_number"] as? String else { continue }
-            if existingRxNumbers.contains(rxNumber) { continue }
 
             let dateFilled = parseDate(record["date_filled"], formatter: isoFormatter) ?? .now
             let lastFillDate = parseDate(record["last_fill_date"], formatter: isoFormatter)
@@ -190,31 +193,54 @@ final class SyncService {
                     dailyDoseCount: dailyDose
                 )
 
-            let rx = Prescription(
-                rxNumber: rxNumber,
-                medicationName: record["medication_name"] as? String ?? "",
-                doseMg: record["dose_mg"] as? Double ?? 0,
-                doseDescription: record["dose_description"] as? String ?? "",
-                quantity: quantity,
-                refillsRemaining: record["refills_remaining"] as? Int ?? 0,
-                dateFilled: dateFilled,
-                estimatedRunOutDate: computedRunOut,
-                pharmacyName: record["pharmacy_name"] as? String ?? "",
-                notes: record["notes"] as? String ?? "",
-                dailyDoseCount: dailyDose,
-                prescriberName: record["prescriber_name"] as? String ?? "",
-                ndcCode: record["ndc_code"] as? String ?? "",
-                rxStatus: record["rx_status"] as? String ?? "",
-                lastFillDate: lastFillDate,
-                importSource: record["import_source"] as? String ?? "walgreens",
-                walgreensRxId: record["walgreens_rx_id"] as? String,
-                directions: record["directions"] as? String ?? ""
-            )
-            modelContext.insert(rx)
-            added += 1
+            let directions = record["directions"] as? String ?? ""
+            let refills = record["refills_remaining"] as? Int ?? 0
+
+            if let rx = existingByRx[rxNumber] {
+                // Update existing — only overwrite fields the server has better data for
+                if !directions.isEmpty && rx.directions.isEmpty {
+                    rx.directions = directions
+                }
+                if refills > 0 && rx.refillsRemaining == 0 {
+                    rx.refillsRemaining = refills
+                }
+                if rx.prescriberName.isEmpty {
+                    rx.prescriberName = record["prescriber_name"] as? String ?? ""
+                }
+                if rx.ndcCode.isEmpty {
+                    rx.ndcCode = record["ndc_code"] as? String ?? ""
+                }
+                if rx.rxStatus.isEmpty {
+                    rx.rxStatus = record["rx_status"] as? String ?? ""
+                }
+                updated += 1
+            } else {
+                let rx = Prescription(
+                    rxNumber: rxNumber,
+                    medicationName: record["medication_name"] as? String ?? "",
+                    doseMg: record["dose_mg"] as? Double ?? 0,
+                    doseDescription: record["dose_description"] as? String ?? "",
+                    quantity: quantity,
+                    refillsRemaining: refills,
+                    dateFilled: dateFilled,
+                    estimatedRunOutDate: computedRunOut,
+                    pharmacyName: record["pharmacy_name"] as? String ?? "",
+                    notes: record["notes"] as? String ?? "",
+                    dailyDoseCount: dailyDose,
+                    prescriberName: record["prescriber_name"] as? String ?? "",
+                    ndcCode: record["ndc_code"] as? String ?? "",
+                    rxStatus: record["rx_status"] as? String ?? "",
+                    lastFillDate: lastFillDate,
+                    importSource: record["import_source"] as? String ?? "walgreens",
+                    walgreensRxId: record["walgreens_rx_id"] as? String,
+                    directions: directions
+                )
+                modelContext.insert(rx)
+                added += 1
+            }
         }
 
-        return added
+        return added + updated
     }
 
     private func parseDate(_ value: Any?, formatter: ISO8601DateFormatter) -> Date? {
