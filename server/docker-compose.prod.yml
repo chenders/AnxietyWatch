@@ -48,6 +48,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       GRAPHQL_API_KEY: ${GRAPHQL_API_KEY:-}
+    shm_size: "256mb"
     ports:
       - "0.0.0.0:8081:8080"
     networks:
@@ -61,7 +62,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 512M
         reservations:
           memory: 64M
     logging:
