@@ -180,18 +180,28 @@ final class SyncService {
             let lastFillDate = parseDate(record["last_fill_date"], formatter: isoFormatter)
             let estimatedRunOut = parseDate(record["estimated_run_out_date"], formatter: isoFormatter)
 
+            // Default to 1 dose/day for Walgreens imports if not specified
+            let dailyDose = record["daily_dose_count"] as? Double ?? 1.0
+            let quantity = record["quantity"] as? Int ?? 0
+            let computedRunOut = estimatedRunOut
+                ?? PrescriptionSupplyCalculator.estimateRunOutDate(
+                    dateFilled: dateFilled,
+                    quantity: quantity,
+                    dailyDoseCount: dailyDose
+                )
+
             let rx = Prescription(
                 rxNumber: rxNumber,
                 medicationName: record["medication_name"] as? String ?? "",
                 doseMg: record["dose_mg"] as? Double ?? 0,
                 doseDescription: record["dose_description"] as? String ?? "",
-                quantity: record["quantity"] as? Int ?? 0,
+                quantity: quantity,
                 refillsRemaining: record["refills_remaining"] as? Int ?? 0,
                 dateFilled: dateFilled,
-                estimatedRunOutDate: estimatedRunOut,
+                estimatedRunOutDate: computedRunOut,
                 pharmacyName: record["pharmacy_name"] as? String ?? "",
                 notes: record["notes"] as? String ?? "",
-                dailyDoseCount: record["daily_dose_count"] as? Double,
+                dailyDoseCount: dailyDose,
                 prescriberName: record["prescriber_name"] as? String ?? "",
                 ndcCode: record["ndc_code"] as? String ?? "",
                 rxStatus: record["rx_status"] as? String ?? "",
