@@ -139,8 +139,8 @@ def normalize_prescription(raw: dict[str, Any]) -> dict[str, Any] | None:
 class WalgreensClient:
     """Fetches prescription history from walgreens.com using Playwright.
 
-    Uses headed Chrome (channel='chrome') to bypass Walgreens' Akamai bot
-    detection. Headless modes are detected; on servers use xvfb-run.
+    Uses headed Chromium to bypass Walgreens' Akamai bot detection.
+    Headless modes are detected; on servers use xvfb-run.
 
     Usage::
 
@@ -195,10 +195,9 @@ class WalgreensClient:
         with sync_playwright() as p:
             # Akamai WAF detects all headless modes — must run headed.
             # On headless servers, use xvfb-run to provide a virtual display.
-            logger.info("Launching Chrome (headed, channel='chrome')")
+            logger.info("Launching Chromium (headed)")
             browser = p.chromium.launch(
                 headless=False,
-                channel="chrome",
                 args=[
                     "--disable-blink-features=AutomationControlled",
                 ],
