@@ -1,7 +1,7 @@
 """Walgreens prescription history client.
 
 Authenticates with walgreens.com and fetches prescription records using
-Playwright (headless Chromium) to bypass bot detection (Akamai WAF).
+Playwright (headed Chrome) to bypass bot detection (Akamai WAF).
 
 Auth flow (driven via browser automation):
     1. Navigate to login page, fill credentials, click Sign In
@@ -139,8 +139,8 @@ def normalize_prescription(raw: dict[str, Any]) -> dict[str, Any] | None:
 class WalgreensClient:
     """Fetches prescription history from walgreens.com using Playwright.
 
-    Uses headless Chromium to bypass Walgreens' Akamai bot detection,
-    which blocks raw HTTP clients like requests.
+    Uses headed Chrome (channel='chrome') to bypass Walgreens' Akamai bot
+    detection. Headless modes are detected; on servers use xvfb-run.
 
     Usage::
 
@@ -188,26 +188,58 @@ class WalgreensClient:
 
         if session_data:
             self._load_session(session_data)
+            logger.info("Loaded saved session data")
+        else:
+            logger.info("No saved session data")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            # Akamai WAF detects all headless modes — must run headed.
+            # On headless servers, use xvfb-run to provide a virtual display.
+            logger.info("Launching Chrome (headed, channel='chrome')")
+            browser = p.chromium.launch(
+                headless=False,
+                channel="chrome",
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                ],
+            )
+
+            context_opts = {
+                "viewport": {"width": 1280, "height": 800},
+                "user_agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+                "locale": "en-US",
+                "timezone_id": "America/Los_Angeles",
+                "geolocation": None,
+                "permissions": [],
+            }
 
             # Try session reuse first
-            context = browser.new_context(
-                storage_state=self._storage_state
-                if self._storage_state
-                else None,
-            )
+            if self._storage_state:
+                logger.info("Attempting session reuse")
+                context = browser.new_context(
+                    storage_state=self._storage_state,
+                    **context_opts,
+                )
+            else:
+                logger.info("No session to reuse, will do full login")
+                context = browser.new_context(**context_opts)
             page = context.new_page()
 
             try:
                 raw_records = self._try_fetch(
                     page, start_date, end_date
                 )
-            except WalgreensAuthError:
+            except WalgreensAuthError as exc:
                 # Session expired or no session — do full login
+                logger.info(
+                    "Session fetch failed (%s), performing full login", exc
+                )
                 context.close()
-                context = browser.new_context()
+                context = browser.new_context(**context_opts)
                 page = context.new_page()
                 self._authenticate(page)
                 raw_records = self._try_fetch(
@@ -237,73 +269,162 @@ class WalgreensClient:
         """Login via the browser, handling 2FA if needed."""
         logger.info("Navigating to Walgreens login page")
         page.goto(LOGIN_URL, wait_until="domcontentloaded")
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(3000)
+        logger.info("Login page loaded, URL: %s, title: %s", page.url, page.title())
 
-        # Fill credentials
+        # Fill credentials — type character-by-character to avoid bot detection
         try:
-            page.fill('input[name="username"], #email', self._username)
-            page.fill(
-                'input[name="password"], #password', self._password
+            email_input = page.query_selector(
+                'input[name="username"], #user_name, #email'
             )
+            pwd_input = page.query_selector(
+                'input[name="password"], #user_password, #password'
+            )
+            if not email_input or not pwd_input:
+                # Log what inputs we can find
+                inputs = page.query_selector_all('input')
+                input_info = []
+                for inp in inputs:
+                    input_info.append(
+                        f'name={inp.get_attribute("name")} '
+                        f'id={inp.get_attribute("id")} '
+                        f'type={inp.get_attribute("type")}'
+                    )
+                logger.error(
+                    "Login form inputs not found. Available inputs: %s",
+                    "; ".join(input_info),
+                )
+                raise WalgreensAuthError(
+                    "Could not find login form fields"
+                )
+            logger.info("Found login form fields, typing credentials")
+            email_input.click()
+            email_input.type(self._username, delay=50)
+            page.wait_for_timeout(500)
+            pwd_input.click()
+            pwd_input.type(self._password, delay=50)
+            page.wait_for_timeout(1000)
+        except WalgreensAuthError:
+            raise
         except Exception as exc:
+            logger.error("Error filling login form: %s", exc)
             raise WalgreensAuthError(
-                f"Could not find login form: {exc}"
+                f"Could not fill login form: {exc}"
             ) from exc
 
         # Click sign in and wait for navigation away from login page
-        page.click('button:has-text("Sign in")')
+        logger.info("Clicking Sign In button")
+        sign_in_btn = page.query_selector('button:has-text("Sign in")')
+        if not sign_in_btn:
+            logger.error("Sign In button not found")
+            raise WalgreensAuthError("Sign In button not found on page")
+        sign_in_btn.click()
+
+        logger.info("Waiting for navigation away from login.jsp...")
         try:
             page.wait_for_url(
-                lambda url: "login.jsp" not in url, timeout=15000
+                lambda url: "login.jsp" not in url, timeout=20000
             )
-        except Exception:
+        except Exception as exc:
+            logger.error(
+                "Login did not navigate. Current URL: %s, page title: %s",
+                page.url, page.title(),
+            )
+            # Try to capture any error message on the page
+            error_el = page.query_selector(
+                '.error, .alert-error, [role="alert"], .errMsg'
+            )
+            if error_el:
+                logger.error(
+                    "Page error message: %s", error_el.inner_text()
+                )
             raise WalgreensAuthError(
-                "Login failed — page did not navigate after submission"
-            )
+                f"Login failed — page did not navigate. URL: {page.url}"
+            ) from exc
+
+        logger.info("Navigated to: %s", page.url)
 
         # Check for 2FA
         if "verify_identity" in page.url:
+            logger.info("2FA verification required")
             if not self._security_answer:
                 raise WalgreensAuthError(
                     "2FA required but no security_answer provided"
                 )
             self._handle_2fa(page)
 
-        logger.info("Successfully logged in to Walgreens")
+        logger.info("Successfully logged in to Walgreens, URL: %s", page.url)
 
     def _handle_2fa(self, page) -> None:
-        """Handle 2FA security question."""
-        logger.info("Handling 2FA security question")
+        """Handle 2FA security question.
 
-        # Select "Answer your security question" option
-        try:
-            page.click(
-                'text="Answer your security question"', timeout=5000
-            )
-            page.click('button:has-text("Continue")')
-            page.wait_for_timeout(2000)
-        except Exception:
-            logger.warning("Could not select security question option")
+        The verify_identity page presents three radio options:
+          1. Email verification
+          2. Text (SMS) verification
+          3. Answer your security question
+        We select option 3, click Continue, then fill the answer.
+        """
+        logger.info("Handling 2FA — selecting security question option")
+        page.wait_for_timeout(2000)
 
-        # Fill in the answer
-        try:
-            # Find the security question input field
-            answer_input = page.locator(
-                'input[type="text"], input[type="password"]'
-            ).last
-            answer_input.fill(self._security_answer)
-            page.click('button:has-text("Submit")')
-            page.wait_for_url(
-                lambda url: "verify_identity" not in url, timeout=15000
-            )
-        except WalgreensAuthError:
-            raise
-        except Exception as exc:
+        # Select the "Answer your security question" radio button
+        sq_radio = page.query_selector('#radio-security-question')
+        if not sq_radio:
             raise WalgreensAuthError(
-                f"Failed to answer security question: {exc}"
+                "Security question radio button not found on 2FA page"
+            )
+        sq_radio.click()
+        page.wait_for_timeout(500)
+
+        # Click Continue
+        logger.info("Clicking Continue")
+        continue_btn = page.locator('button:has-text("Continue"):visible')
+        continue_btn.click()
+
+        # Wait for the security question page to load
+        logger.info("Waiting for security question form...")
+        page.wait_for_timeout(3000)
+        logger.info("Security question page URL: %s", page.url)
+
+        # Find the security answer input (known id: secQues)
+        target = page.query_selector('#secQues')
+        if not target:
+            # Fallback: find any visible text input not in the header
+            target = page.query_selector(
+                'input[name="SecurityAnswer"]:visible'
+            )
+        if not target:
+            raise WalgreensAuthError(
+                "Could not find security answer input field"
+            )
+
+        logger.info("Filling security question answer")
+        target.click()
+        target.type(self._security_answer, delay=50)
+        page.wait_for_timeout(500)
+
+        # Submit the answer
+        logger.info("Clicking Submit / Continue")
+        submit_btn = page.locator(
+            'button:has-text("Submit"):visible, '
+            'button:has-text("Continue"):visible'
+        ).first
+        submit_btn.click()
+
+        logger.info("Waiting for navigation away from verify_identity...")
+        try:
+            page.wait_for_url(
+                lambda url: "verify_identity" not in url, timeout=20000
+            )
+        except Exception as exc:
+            logger.error(
+                "2FA submit failed. URL: %s", page.url
+            )
+            raise WalgreensAuthError(
+                f"Security question submission failed: {exc}"
             ) from exc
 
-        logger.info("2FA verification complete")
+        logger.info("2FA complete, navigated to: %s", page.url)
 
     def _try_fetch(
         self,
@@ -315,27 +436,52 @@ class WalgreensClient:
         captured_data = {}
 
         def handle_response(response):
-            if PRINTRX_API in response.url and response.status == 200:
-                try:
-                    captured_data["response"] = response.json()
-                except Exception:
-                    pass
+            if PRINTRX_API in response.url:
+                logger.info(
+                    "Intercepted %s response: HTTP %d",
+                    response.url, response.status,
+                )
+                if response.status == 200:
+                    try:
+                        captured_data["response"] = response.json()
+                        logger.info(
+                            "Captured prescription data with %d records",
+                            len(captured_data["response"].get("rxRecords", [])),
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "Failed to parse printrx response: %s", exc
+                        )
 
         page.on("response", handle_response)
 
         logger.info("Navigating to prescription records page")
         page.goto(RX_RECORDS_URL, wait_until="domcontentloaded")
+        logger.info(
+            "Prescription records page loaded, URL: %s", page.url
+        )
 
         if "login" in page.url.lower():
+            logger.info("Redirected to login — not authenticated")
             raise WalgreensAuthError("Not authenticated")
 
         # Wait for the printrx/load API response (up to 30s)
-        for _ in range(30):
+        logger.info("Waiting for printrx/load API response...")
+        for i in range(30):
             if "response" in captured_data:
                 break
             page.wait_for_timeout(1000)
+            if i > 0 and i % 5 == 0:
+                logger.info(
+                    "Still waiting for API response... (%ds)", i
+                )
 
         if "response" not in captured_data:
+            logger.error(
+                "No prescription data received after 30s. "
+                "Current URL: %s, page title: %s",
+                page.url, page.title(),
+            )
             raise WalgreensAPIError(
                 "No prescription data received from API"
             )
