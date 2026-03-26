@@ -11,7 +11,7 @@ COPY . .
 EXPOSE 8080
 
 # Install cron for ResMed sync (hourly schedule check)
-RUN apt-get update && apt-get install -y --no-install-recommends cron && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends cron xvfb && rm -rf /var/lib/apt/lists/*
 COPY resmed-cron /etc/cron.d/resmed-sync
 RUN chmod 0644 /etc/cron.d/resmed-sync
 COPY walgreens-cron /etc/cron.d/walgreens-sync
