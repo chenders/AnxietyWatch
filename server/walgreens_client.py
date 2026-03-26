@@ -206,13 +206,10 @@ class WalgreensClient:
                 ],
             )
 
+            # Let Chrome use its own default UA — a hardcoded UA can
+            # mismatch the actual Chrome version or OS, which Akamai detects.
             context_opts = {
                 "viewport": {"width": 1280, "height": 800},
-                "user_agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
                 "locale": "en-US",
                 "timezone_id": "America/Los_Angeles",
                 "geolocation": None,
