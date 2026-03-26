@@ -195,9 +195,10 @@ class WalgreensClient:
         with sync_playwright() as p:
             # Akamai WAF detects all headless modes — must run headed.
             # On headless servers, use xvfb-run to provide a virtual display.
-            logger.info("Launching Chromium (headed)")
+            logger.info("Launching Chrome (headed, channel='chrome')")
             browser = p.chromium.launch(
                 headless=False,
+                channel="chrome",
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
@@ -298,13 +299,19 @@ class WalgreensClient:
                 raise WalgreensAuthError(
                     "Could not find login form fields"
                 )
-            logger.info("Found login form fields, typing credentials")
+            logger.info(
+                "Found login form fields, typing credentials: "
+                "username=%r",
+                self._username,
+            )
             email_input.click()
             email_input.type(self._username, delay=50)
             page.wait_for_timeout(500)
+            logger.info("Typed username, now typing password")
             pwd_input.click()
             pwd_input.type(self._password, delay=50)
             page.wait_for_timeout(1000)
+            logger.info("Credentials entered")
         except WalgreensAuthError:
             raise
         except Exception as exc:
@@ -339,6 +346,26 @@ class WalgreensClient:
                 logger.error(
                     "Page error message: %s", error_el.inner_text()
                 )
+            # Dump all page text and save screenshot for debugging
+            try:
+                body_text = page.inner_text("body")
+                logger.error(
+                    "Full page text (first 3000 chars): %s",
+                    body_text[:3000],
+                )
+                page.screenshot(path="/tmp/walgreens_login_fail.png")
+                logger.error("Screenshot saved to /tmp/walgreens_login_fail.png")
+            except Exception:
+                pass
+            # Log browser info for bot detection debugging
+            logger.error(
+                "Browser UA: %s",
+                page.evaluate("() => navigator.userAgent"),
+            )
+            logger.error(
+                "navigator.webdriver: %s",
+                page.evaluate("() => navigator.webdriver"),
+            )
             raise WalgreensAuthError(
                 f"Login failed — page did not navigate. URL: {page.url}"
             ) from exc
