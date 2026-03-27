@@ -408,7 +408,7 @@ def create_app(test_config=None):
         "healthSnapshots": ("health_snapshots", "date", "date"),
         "barometricReadings": ("barometric_readings", "timestamp", "timestamp"),
         "pharmacies": ("pharmacies", None, "name"),
-        "prescriptions": ("prescriptions", "date_filled", "date_filled"),
+        "prescriptions": ("prescriptions", None, "date_filled"),
         "pharmacyCallLogs": ("pharmacy_call_logs", "timestamp", "timestamp"),
     }
 
