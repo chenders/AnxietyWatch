@@ -132,7 +132,7 @@ final class SyncService {
     // MARK: - Fetch prescriptions from server
 
     /// Pull prescriptions from the server and upsert into SwiftData.
-    /// Returns the number of new prescriptions added.
+    /// Returns the number of prescriptions added or updated.
     @discardableResult
     func fetchPrescriptions(modelContext: ModelContext) async throws -> Int {
         guard isConfigured else { throw SyncError.notConfigured }
