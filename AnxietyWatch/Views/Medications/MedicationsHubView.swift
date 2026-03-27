@@ -8,6 +8,11 @@ struct MedicationsHubView: View {
         sort: \MedicationDefinition.name
     )
     private var activeMeds: [MedicationDefinition]
+    @Query(
+        filter: #Predicate<MedicationDefinition> { !$0.isActive },
+        sort: \MedicationDefinition.name
+    )
+    private var inactiveMeds: [MedicationDefinition]
     @Query(sort: \MedicationDose.timestamp, order: .reverse)
     private var recentDoses: [MedicationDose]
     @Query(sort: \Prescription.dateFilled, order: .reverse)
@@ -21,6 +26,7 @@ struct MedicationsHubView: View {
                 supplyAlertSection
                 navigationSection
                 recentDosesSection
+                notCurrentlyTakingSection
             }
             .navigationTitle("Medications")
             .toolbar {
@@ -62,13 +68,33 @@ struct MedicationsHubView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(.blue)
                 }
+                .swipeActions(edge: .trailing) {
+                    Button("Deactivate") {
+                        med.isActive = false
+                    }
+                    .tint(.orange)
+                }
             }
         }
     }
 
     @ViewBuilder
     private var supplyAlertSection: some View {
+        let cutoff = Calendar.current.date(
+            byAdding: .day,
+            value: -PrescriptionSupplyCalculator.alertStalenessLimitDays,
+            to: .now
+        )
         let alerts = prescriptions.filter { rx in
+            // Skip prescriptions filled more than N days ago
+            let fillDate = rx.lastFillDate ?? rx.dateFilled
+            if let cutoff, fillDate < cutoff {
+                return false
+            }
+
+            // Skip prescriptions for inactive medications
+            if rx.medication?.isActive == false { return false }
+
             let status = PrescriptionSupplyCalculator.supplyStatus(for: rx)
             return status == .low || status == .warning || status == .expired
         }
@@ -122,6 +148,34 @@ struct MedicationsHubView: View {
                     }
                 }
                 .onDelete(perform: deleteDoses)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var notCurrentlyTakingSection: some View {
+        if !inactiveMeds.isEmpty {
+            Section("Not Currently Taking") {
+                ForEach(inactiveMeds) { med in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(med.name).font(.subheadline)
+                            if !med.category.isEmpty {
+                                Text(med.category)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                    }
+                    .foregroundStyle(.secondary)
+                    .swipeActions(edge: .trailing) {
+                        Button("Reactivate") {
+                            med.isActive = true
+                        }
+                        .tint(.green)
+                    }
+                }
             }
         }
     }

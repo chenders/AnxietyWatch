@@ -3,6 +3,9 @@ import Foundation
 /// Stateless helpers for computing prescription supply duration and status.
 enum PrescriptionSupplyCalculator {
 
+    /// Prescriptions filled more than this many days ago are excluded from supply alerts.
+    static let alertStalenessLimitDays = 60
+
     enum SupplyStatus {
         case good     // >14 days remaining
         case warning  // 7–14 days remaining
