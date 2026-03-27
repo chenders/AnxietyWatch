@@ -154,9 +154,9 @@ struct PrescriptionSupplyCalculatorTests {
         let now = Date.now
         let doses = (0..<7).map { i in
             MedicationDose(
+                timestamp: calendar.date(byAdding: .day, value: -i, to: now)!,
                 medicationName: "TestMed",
-                doseMg: 10.0,
-                timestamp: calendar.date(byAdding: .day, value: -i, to: now)!
+                doseMg: 10.0
             )
         }
         let result = PrescriptionSupplyCalculator.inferDailyDoseCount(
