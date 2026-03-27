@@ -72,7 +72,15 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var supplyAlertCard: some View {
+        let cutoff = Calendar.current.date(
+            byAdding: .day,
+            value: -PrescriptionSupplyCalculator.alertStalenessLimitDays,
+            to: .now
+        )
         let lowCount = prescriptions.filter { rx in
+            let fillDate = rx.lastFillDate ?? rx.dateFilled
+            if let cutoff, fillDate < cutoff { return false }
+            if rx.medication?.isActive == false { return false }
             let status = PrescriptionSupplyCalculator.supplyStatus(for: rx)
             return status == .low || status == .warning || status == .expired
         }.count
