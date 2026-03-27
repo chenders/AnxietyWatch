@@ -8,6 +8,11 @@ struct MedicationListView: View {
         sort: \MedicationDefinition.name
     )
     private var activeMeds: [MedicationDefinition]
+    @Query(
+        filter: #Predicate<MedicationDefinition> { !$0.isActive },
+        sort: \MedicationDefinition.name
+    )
+    private var inactiveMeds: [MedicationDefinition]
     @Query(sort: \MedicationDose.timestamp, order: .reverse)
     private var recentDoses: [MedicationDose]
     @State private var showingAddMed = false
@@ -35,6 +40,12 @@ struct MedicationListView: View {
                             .buttonStyle(.borderedProminent)
                             .tint(.blue)
                         }
+                        .swipeActions(edge: .trailing) {
+                            Button("Deactivate") {
+                                med.isActive = false
+                            }
+                            .tint(.orange)
+                        }
                     }
                 }
 
@@ -54,6 +65,31 @@ struct MedicationListView: View {
                             }
                         }
                         .onDelete(perform: deleteDoses)
+                    }
+                }
+
+                if !inactiveMeds.isEmpty {
+                    Section("Not Currently Taking") {
+                        ForEach(inactiveMeds) { med in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(med.name).font(.subheadline)
+                                    if !med.category.isEmpty {
+                                        Text(med.category)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                            }
+                            .foregroundStyle(.secondary)
+                            .swipeActions(edge: .trailing) {
+                                Button("Reactivate") {
+                                    med.isActive = true
+                                }
+                                .tint(.green)
+                            }
+                        }
                     }
                 }
             }

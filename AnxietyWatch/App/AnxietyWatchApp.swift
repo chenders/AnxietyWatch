@@ -47,6 +47,10 @@ struct AnxietyWatchApp: App {
                     PhoneConnectivityManager.shared.modelContainer = sharedModelContainer
                     PhoneConnectivityManager.shared.activate()
 
+                    // Link any prescriptions missing a MedicationDefinition
+                    let context = ModelContext(sharedModelContainer)
+                    try? SyncService.backfillMedicationLinks(modelContext: context)
+
                     guard let coord = coordinator else { return }
                     await coord.setupIfNeeded()
                     coord.scheduleBackgroundRefresh()

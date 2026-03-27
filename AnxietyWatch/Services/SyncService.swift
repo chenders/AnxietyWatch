@@ -132,7 +132,7 @@ final class SyncService {
     // MARK: - Fetch prescriptions from server
 
     /// Pull prescriptions from the server and upsert into SwiftData.
-    /// Returns the number of new prescriptions added.
+    /// Returns the number of prescriptions added or updated.
     @discardableResult
     func fetchPrescriptions(modelContext: ModelContext) async throws -> Int {
         guard isConfigured else { throw SyncError.notConfigured }
@@ -213,6 +213,11 @@ final class SyncService {
                 if rx.rxStatus.isEmpty {
                     rx.rxStatus = record["rx_status"] as? String ?? ""
                 }
+                if rx.medication == nil || rx.medication?.isActive == false {
+                    rx.medication = try SyncService.findOrCreateMedication(
+                        name: rx.medicationName, doseMg: rx.doseMg, in: modelContext
+                    )
+                }
                 updated += 1
             } else {
                 let rx = Prescription(
@@ -236,11 +241,59 @@ final class SyncService {
                     directions: directions
                 )
                 modelContext.insert(rx)
+                rx.medication = try SyncService.findOrCreateMedication(
+                    name: rx.medicationName, doseMg: rx.doseMg, in: modelContext
+                )
                 added += 1
             }
         }
 
         return added + updated
+    }
+
+    /// Find existing MedicationDefinition by name (case-insensitive) or create a new one.
+    /// Reactivates inactive medications when a new prescription arrives.
+    /// Returns nil if the medication name is empty.
+    @discardableResult
+    static func findOrCreateMedication(
+        name: String,
+        doseMg: Double,
+        in modelContext: ModelContext
+    ) throws -> MedicationDefinition? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let allMeds = try modelContext.fetch(FetchDescriptor<MedicationDefinition>())
+        let lowered = trimmed.lowercased()
+
+        if let existing = allMeds.first(where: { $0.name.lowercased() == lowered }) {
+            if !existing.isActive {
+                existing.isActive = true
+            }
+            return existing
+        }
+
+        let newMed = MedicationDefinition(name: trimmed, defaultDoseMg: doseMg)
+        modelContext.insert(newMed)
+        return newMed
+    }
+
+    /// Link existing prescriptions that have no MedicationDefinition.
+    /// Call once on app startup to backfill records imported before auto-linking was added.
+    static func backfillMedicationLinks(modelContext: ModelContext) throws {
+        let unlinked = try modelContext.fetch(
+            FetchDescriptor<Prescription>(
+                predicate: #Predicate { $0.medication == nil }
+            )
+        )
+        for rx in unlinked {
+            rx.medication = try findOrCreateMedication(
+                name: rx.medicationName, doseMg: rx.doseMg, in: modelContext
+            )
+        }
+        if !unlinked.isEmpty {
+            try modelContext.save()
+        }
     }
 
     private func parseDate(_ value: Any?, formatter: ISO8601DateFormatter) -> Date? {
