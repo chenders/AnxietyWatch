@@ -241,4 +241,18 @@ struct SyncServiceTests {
         let all = try context.fetch(FetchDescriptor<MedicationDefinition>())
         #expect(all.count == 0)
     }
+
+    @Test("Returns nil when medication name is whitespace only")
+    func findOrCreateWhitespaceName() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+
+        let result = try SyncService.findOrCreateMedication(
+            name: "   ", doseMg: 0, in: context
+        )
+
+        #expect(result == nil)
+        let all = try context.fetch(FetchDescriptor<MedicationDefinition>())
+        #expect(all.count == 0)
+    }
 }
