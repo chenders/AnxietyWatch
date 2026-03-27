@@ -86,7 +86,7 @@ struct MedicationsHubView: View {
             let daysSinceFill = Calendar.current.dateComponents(
                 [.day], from: fillDate, to: .now
             ).day ?? 0
-            guard daysSinceFill <= 60 else { return false }
+            guard daysSinceFill <= PrescriptionSupplyCalculator.alertStalenessLimitDays else { return false }
 
             // Skip prescriptions for inactive medications
             if rx.medication?.isActive == false { return false }

@@ -213,7 +213,7 @@ final class SyncService {
                 if rx.rxStatus.isEmpty {
                     rx.rxStatus = record["rx_status"] as? String ?? ""
                 }
-                if rx.medication == nil {
+                if rx.medication == nil || rx.medication?.isActive == false {
                     rx.medication = try SyncService.findOrCreateMedication(
                         name: rx.medicationName, doseMg: rx.doseMg, in: modelContext
                     )
@@ -260,7 +260,7 @@ final class SyncService {
         doseMg: Double,
         in modelContext: ModelContext
     ) throws -> MedicationDefinition? {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
         let allMeds = try modelContext.fetch(FetchDescriptor<MedicationDefinition>())
