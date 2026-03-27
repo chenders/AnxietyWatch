@@ -278,6 +278,24 @@ final class SyncService {
         return newMed
     }
 
+    /// Link existing prescriptions that have no MedicationDefinition.
+    /// Call once on app startup to backfill records imported before auto-linking was added.
+    static func backfillMedicationLinks(modelContext: ModelContext) throws {
+        let unlinked = try modelContext.fetch(
+            FetchDescriptor<Prescription>(
+                predicate: #Predicate { $0.medication == nil }
+            )
+        )
+        for rx in unlinked {
+            rx.medication = try findOrCreateMedication(
+                name: rx.medicationName, doseMg: rx.doseMg, in: modelContext
+            )
+        }
+        if !unlinked.isEmpty {
+            try modelContext.save()
+        }
+    }
+
     private func parseDate(_ value: Any?, formatter: ISO8601DateFormatter) -> Date? {
         guard let string = value as? String, !string.isEmpty else { return nil }
         // Try ISO 8601 with fractional seconds first, then without
