@@ -80,14 +80,15 @@ struct MedicationsHubView: View {
 
     @ViewBuilder
     private var supplyAlertSection: some View {
+        let cutoff = Calendar.current.date(
+            byAdding: .day,
+            value: -PrescriptionSupplyCalculator.alertStalenessLimitDays,
+            to: .now
+        )
         let alerts = prescriptions.filter { rx in
             // Skip prescriptions filled more than N days ago
             let fillDate = rx.lastFillDate ?? rx.dateFilled
-            if let cutoff = Calendar.current.date(
-                byAdding: .day,
-                value: -PrescriptionSupplyCalculator.alertStalenessLimitDays,
-                to: .now
-            ), fillDate < cutoff {
+            if let cutoff, fillDate < cutoff {
                 return false
             }
 
