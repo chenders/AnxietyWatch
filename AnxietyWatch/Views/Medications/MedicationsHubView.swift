@@ -8,6 +8,11 @@ struct MedicationsHubView: View {
         sort: \MedicationDefinition.name
     )
     private var activeMeds: [MedicationDefinition]
+    @Query(
+        filter: #Predicate<MedicationDefinition> { !$0.isActive },
+        sort: \MedicationDefinition.name
+    )
+    private var inactiveMeds: [MedicationDefinition]
     @Query(sort: \MedicationDose.timestamp, order: .reverse)
     private var recentDoses: [MedicationDose]
     @Query(sort: \Prescription.dateFilled, order: .reverse)
@@ -21,6 +26,7 @@ struct MedicationsHubView: View {
                 supplyAlertSection
                 navigationSection
                 recentDosesSection
+                notCurrentlyTakingSection
             }
             .navigationTitle("Medications")
             .toolbar {
@@ -61,6 +67,12 @@ struct MedicationsHubView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.blue)
+                }
+                .swipeActions(edge: .trailing) {
+                    Button("Deactivate") {
+                        med.isActive = false
+                    }
+                    .tint(.orange)
                 }
             }
         }
@@ -132,6 +144,34 @@ struct MedicationsHubView: View {
                     }
                 }
                 .onDelete(perform: deleteDoses)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var notCurrentlyTakingSection: some View {
+        if !inactiveMeds.isEmpty {
+            Section("Not Currently Taking") {
+                ForEach(inactiveMeds) { med in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(med.name).font(.subheadline)
+                            if !med.category.isEmpty {
+                                Text(med.category)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                    }
+                    .foregroundStyle(.secondary)
+                    .swipeActions(edge: .trailing) {
+                        Button("Reactivate") {
+                            med.isActive = true
+                        }
+                        .tint(.green)
+                    }
+                }
             }
         }
     }
