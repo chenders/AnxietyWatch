@@ -14,7 +14,8 @@ struct SyncServiceTests {
         return try ModelContainer(
             for: AnxietyEntry.self, MedicationDefinition.self, MedicationDose.self,
             CPAPSession.self, HealthSnapshot.self, BarometricReading.self,
-            ClinicalLabResult.self,
+            ClinicalLabResult.self, Prescription.self, Pharmacy.self,
+            PharmacyCallLog.self,
             configurations: config
         )
     }
@@ -167,5 +168,77 @@ struct SyncServiceTests {
         await service.sync(modelContext: context)
 
         #expect(service.lastSyncResult == "Not configured")
+    }
+
+    // MARK: - findOrCreateMedication
+
+    @Test("Creates new MedicationDefinition when none exists")
+    func findOrCreateNew() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+
+        let med = try SyncService.findOrCreateMedication(
+            name: "Lorazepam", doseMg: 0.5, in: context
+        )
+
+        #expect(med?.name == "Lorazepam")
+        #expect(med?.defaultDoseMg == 0.5)
+        #expect(med?.isActive == true)
+
+        let all = try context.fetch(FetchDescriptor<MedicationDefinition>())
+        #expect(all.count == 1)
+    }
+
+    @Test("Finds existing MedicationDefinition by case-insensitive name")
+    func findOrCreateExisting() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+
+        let existing = MedicationDefinition(name: "Lorazepam", defaultDoseMg: 0.5)
+        context.insert(existing)
+        try context.save()
+
+        let found = try SyncService.findOrCreateMedication(
+            name: "lorazepam", doseMg: 1.0, in: context
+        )
+
+        #expect(found?.id == existing.id)
+        #expect(found?.defaultDoseMg == 0.5)
+
+        let all = try context.fetch(FetchDescriptor<MedicationDefinition>())
+        #expect(all.count == 1)
+    }
+
+    @Test("Reactivates inactive MedicationDefinition when found")
+    func findOrCreateReactivates() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+
+        let inactive = MedicationDefinition(
+            name: "Lorazepam", defaultDoseMg: 0.5, isActive: false
+        )
+        context.insert(inactive)
+        try context.save()
+
+        let found = try SyncService.findOrCreateMedication(
+            name: "Lorazepam", doseMg: 0.5, in: context
+        )
+
+        #expect(found?.id == inactive.id)
+        #expect(found?.isActive == true)
+    }
+
+    @Test("Returns nil when medication name is empty")
+    func findOrCreateEmptyName() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+
+        let result = try SyncService.findOrCreateMedication(
+            name: "", doseMg: 0, in: context
+        )
+
+        #expect(result == nil)
+        let all = try context.fetch(FetchDescriptor<MedicationDefinition>())
+        #expect(all.count == 0)
     }
 }
