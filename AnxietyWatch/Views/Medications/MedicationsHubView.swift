@@ -69,6 +69,16 @@ struct MedicationsHubView: View {
     @ViewBuilder
     private var supplyAlertSection: some View {
         let alerts = prescriptions.filter { rx in
+            // Skip prescriptions filled more than 60 days ago
+            let fillDate = rx.lastFillDate ?? rx.dateFilled
+            let daysSinceFill = Calendar.current.dateComponents(
+                [.day], from: fillDate, to: .now
+            ).day ?? 0
+            guard daysSinceFill <= 60 else { return false }
+
+            // Skip prescriptions for inactive medications
+            if rx.medication?.isActive == false { return false }
+
             let status = PrescriptionSupplyCalculator.supplyStatus(for: rx)
             return status == .low || status == .warning || status == .expired
         }
