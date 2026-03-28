@@ -296,37 +296,6 @@ final class SyncService {
         }
     }
 
-    /// Deactivate medications whose most recent prescription is older than the staleness limit.
-    /// Medications with no prescriptions are left unchanged (they were added manually).
-    static func deactivateStaleMedications(modelContext: ModelContext) throws {
-        let cutoffDays = PrescriptionSupplyCalculator.alertStalenessLimitDays
-        guard let cutoff = Calendar.current.date(byAdding: .day, value: -cutoffDays, to: .now) else { return }
-
-        let activeMeds = try modelContext.fetch(
-            FetchDescriptor<MedicationDefinition>(
-                predicate: #Predicate { $0.isActive }
-            )
-        )
-
-        var changed = false
-        for med in activeMeds {
-            let prescriptions = med.prescriptions
-            guard !prescriptions.isEmpty else { continue }
-
-            let mostRecentFill = prescriptions
-                .map { $0.lastFillDate ?? $0.dateFilled }
-                .max()
-
-            if let mostRecentFill, mostRecentFill < cutoff {
-                med.isActive = false
-                changed = true
-            }
-        }
-
-        if changed {
-            try modelContext.save()
-        }
-    }
 
     private func parseDate(_ value: Any?, formatter: ISO8601DateFormatter) -> Date? {
         guard let string = value as? String, !string.isEmpty else { return nil }
