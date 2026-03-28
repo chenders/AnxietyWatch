@@ -47,11 +47,22 @@ struct AnxietyWatchApp: App {
                     PhoneConnectivityManager.shared.modelContainer = sharedModelContainer
                     PhoneConnectivityManager.shared.activate()
 
-                    // Link any prescriptions missing a MedicationDefinition,
-                    // then deactivate medications with no recent prescriptions
+                    // Link any prescriptions missing a MedicationDefinition
                     let context = ModelContext(sharedModelContainer)
                     try? SyncService.backfillMedicationLinks(modelContext: context)
-                    try? SyncService.deactivateStaleMedications(modelContext: context)
+
+                    // One-time fixup: re-activate medications incorrectly deactivated
+                    // by the removed deactivateStaleMedications() method
+                    if !UserDefaults.standard.bool(forKey: "didFixReactivateMeds") {
+                        let allMeds = try? context.fetch(FetchDescriptor<MedicationDefinition>())
+                        var fixed = false
+                        for med in allMeds ?? [] where !med.isActive {
+                            med.isActive = true
+                            fixed = true
+                        }
+                        if fixed { try? context.save() }
+                        UserDefaults.standard.set(true, forKey: "didFixReactivateMeds")
+                    }
 
                     guard let coord = coordinator else { return }
                     await coord.setupIfNeeded()
