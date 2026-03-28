@@ -6,7 +6,7 @@
 
 **Architecture:** Two-layer data model — `HealthSample` (7-day cache of individual readings) feeds the dashboard's latest-value and sparkline displays, while `HealthSnapshot` (daily aggregates, forever) continues to drive trends, reports, and baselines. `HKAnchoredObjectQuery` replaces `HKObserverQuery` for quantity types.
 
-**Tech Stack:** Swift/SwiftUI, SwiftData, HealthKit, Swift Charts (sparklines)
+**Tech Stack:** Swift/SwiftUI, SwiftData, HealthKit, SwiftUI Canvas (sparklines)
 
 ---
 
