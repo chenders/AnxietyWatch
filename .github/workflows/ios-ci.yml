@@ -16,7 +16,7 @@ jobs:
     runs-on: macos-15
     continue-on-error: true  # Xcode 26 not yet available on GitHub-hosted runners
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_26.app || sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | tail -1)"
