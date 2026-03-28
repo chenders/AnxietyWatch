@@ -47,9 +47,11 @@ struct AnxietyWatchApp: App {
                     PhoneConnectivityManager.shared.modelContainer = sharedModelContainer
                     PhoneConnectivityManager.shared.activate()
 
-                    // Link any prescriptions missing a MedicationDefinition
+                    // Link any prescriptions missing a MedicationDefinition,
+                    // then deactivate medications with no recent prescriptions
                     let context = ModelContext(sharedModelContainer)
                     try? SyncService.backfillMedicationLinks(modelContext: context)
+                    try? SyncService.deactivateStaleMedications(modelContext: context)
 
                     guard let coord = coordinator else { return }
                     await coord.setupIfNeeded()
