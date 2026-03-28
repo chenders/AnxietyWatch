@@ -8,8 +8,15 @@ struct AddMedicationView: View {
     @State private var name = ""
     @State private var defaultDoseMg: Double = 0
     @State private var category = ""
+    @State private var promptAnxietyOnLog = false
 
-    private let categories = ["SSRI", "SNRI", "Benzodiazepine", "Beta Blocker", "Z-Drug", "Supplement", "Other"]
+    private let categories = [
+        "SSRI", "SNRI", "Benzodiazepine", "Stimulant",
+        "Beta Blocker", "Z-Drug", "Supplement", "Other",
+    ]
+
+    /// Categories that default to prompting for anxiety on dose log.
+    private static let promptCategories: Set<String> = ["Benzodiazepine", "Stimulant"]
 
     var body: some View {
         NavigationStack {
@@ -28,6 +35,12 @@ struct AddMedicationView: View {
                         }
                     }
                 }
+
+                Section {
+                    Toggle("Prompt anxiety rating on dose", isOn: $promptAnxietyOnLog)
+                } footer: {
+                    Text("When enabled, logging a dose will ask for your current anxiety level and follow up 30 minutes later.")
+                }
             }
             .navigationTitle("Add Medication")
             .navigationBarTitleDisplayMode(.inline)
@@ -40,6 +53,9 @@ struct AddMedicationView: View {
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
+            .onChange(of: category) { _, newValue in
+                promptAnxietyOnLog = Self.promptCategories.contains(newValue)
+            }
         }
     }
 
@@ -47,7 +63,8 @@ struct AddMedicationView: View {
         let med = MedicationDefinition(
             name: name.trimmingCharacters(in: .whitespaces),
             defaultDoseMg: defaultDoseMg,
-            category: category
+            category: category,
+            promptAnxietyOnLog: promptAnxietyOnLog
         )
         modelContext.insert(med)
         dismiss()
