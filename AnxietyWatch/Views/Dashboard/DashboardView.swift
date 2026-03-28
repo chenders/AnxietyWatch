@@ -16,8 +16,9 @@ struct DashboardView: View {
     private var recentLabResults: [ClinicalLabResult]
     @Query(sort: \Prescription.dateFilled, order: .reverse)
     private var prescriptions: [Prescription]
-    @Query(sort: \HealthSample.timestamp, order: .reverse)
-    private var recentSamples: [HealthSample]
+    /// Manually fetched instead of @Query to avoid re-rendering on every
+    /// HealthSample insert (13 anchored queries can fire hundreds of inserts on launch).
+    @State private var samplesByType: [String: [HealthSample]] = [:]
 
     private let barometer = BarometerService.shared
 
@@ -42,6 +43,7 @@ struct DashboardView: View {
             }
             .navigationTitle("Dashboard")
             .task {
+                loadSamples()
                 await refreshSnapshot()
                 sendStatsToWatch()
                 await autoSync()
@@ -514,9 +516,14 @@ struct DashboardView: View {
         date.formatted(.dateTime.month().day())
     }
 
-    /// Group all samples by type once per render, avoiding repeated O(n) scans.
-    private var samplesByType: [String: [HealthSample]] {
-        Dictionary(grouping: recentSamples, by: \.type)
+    /// Fetch all HealthSamples and group by type. Called once on appear,
+    /// not on every insert (unlike @Query which re-renders per-insert).
+    private func loadSamples() {
+        let descriptor = FetchDescriptor<HealthSample>(
+            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+        )
+        let samples = (try? modelContext.fetch(descriptor)) ?? []
+        samplesByType = Dictionary(grouping: samples, by: \.type)
     }
 
     /// Get today's samples for a given HealthKit type identifier.
