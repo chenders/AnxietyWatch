@@ -14,8 +14,9 @@ final class AnxietyEntry {
     var locationLongitude: Double?
     /// The medication dose that triggered this anxiety entry (nil for manual entries)
     var triggerDose: MedicationDose?
-    /// True if this is a 30-minute follow-up entry (vs the initial at-dosing entry)
-    var isFollowUp: Bool
+    /// True if this is a 30-minute follow-up entry (vs the initial at-dosing entry).
+    /// Optional for migration — nil treated as false for historical entries.
+    var isFollowUp: Bool?
 
     init(
         timestamp: Date = .now,

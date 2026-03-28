@@ -9,8 +9,9 @@ final class MedicationDefinition {
     /// e.g. "benzodiazepine", "SSRI", "supplement"
     var category: String
     var isActive: Bool
-    /// When true, logging a dose opens an anxiety rating prompt + schedules a 30-min follow-up
-    var promptAnxietyOnLog: Bool
+    /// When true, logging a dose opens an anxiety rating prompt + schedules a 30-min follow-up.
+    /// Optional for migration — nil treated as false for existing medications.
+    var promptAnxietyOnLog: Bool?
     @Relationship(deleteRule: .nullify, inverse: \MedicationDose.medication)
     var doses: [MedicationDose]
     @Relationship(deleteRule: .nullify, inverse: \Prescription.medication)
