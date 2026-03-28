@@ -17,36 +17,15 @@ struct MedicationListView: View {
     private var recentDoses: [MedicationDose]
     @State private var showingAddMed = false
 
-    @Query(sort: \Prescription.dateFilled, order: .reverse)
-    private var prescriptions: [Prescription]
-
-    /// Active medications filtered to hide those whose ALL prescriptions are stale (>60 days).
-    /// Keeps medications with no prescriptions (manually added).
-    private var currentMeds: [MedicationDefinition] {
-        let cutoff = Calendar.current.date(
-            byAdding: .day,
-            value: -PrescriptionSupplyCalculator.alertStalenessLimitDays,
-            to: .now
-        )
-        return activeMeds.filter { med in
-            guard !med.prescriptions.isEmpty else { return true }
-            guard let cutoff else { return true }
-            return med.prescriptions.contains { rx in
-                let fillDate = rx.lastFillDate ?? rx.dateFilled
-                return fillDate >= cutoff
-            }
-        }
-    }
-
     var body: some View {
         NavigationStack {
             List {
                 Section("Quick Log") {
-                    if currentMeds.isEmpty {
+                    if activeMeds.isEmpty {
                         Text("No medications defined. Tap + to add one.")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(currentMeds) { med in
+                    ForEach(activeMeds) { med in
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(med.name).font(.headline)
