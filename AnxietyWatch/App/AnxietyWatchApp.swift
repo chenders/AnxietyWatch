@@ -4,6 +4,9 @@ import SwiftData
 
 @main
 struct AnxietyWatchApp: App {
+    /// Versioned key for one-time medication reactivation fixup.
+    private static let reactivateMedsKey = "didFixReactivateMeds_v1"
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             AnxietyEntry.self,
@@ -53,15 +56,21 @@ struct AnxietyWatchApp: App {
 
                     // One-time fixup: re-activate medications incorrectly deactivated
                     // by the removed deactivateStaleMedications() method
-                    if !UserDefaults.standard.bool(forKey: "didFixReactivateMeds") {
-                        let allMeds = try? context.fetch(FetchDescriptor<MedicationDefinition>())
-                        var fixed = false
-                        for med in allMeds ?? [] where !med.isActive {
-                            med.isActive = true
-                            fixed = true
+                    if !UserDefaults.standard.bool(forKey: Self.reactivateMedsKey) {
+                        do {
+                            let allMeds = try context.fetch(FetchDescriptor<MedicationDefinition>())
+                            var fixed = false
+                            for med in allMeds where !med.isActive {
+                                med.isActive = true
+                                fixed = true
+                            }
+                            if fixed {
+                                try context.save()
+                            }
+                            UserDefaults.standard.set(true, forKey: Self.reactivateMedsKey)
+                        } catch {
+                            // Leave flag unset so we retry on next launch
                         }
-                        if fixed { try? context.save() }
-                        UserDefaults.standard.set(true, forKey: "didFixReactivateMeds")
                     }
 
                     guard let coord = coordinator else { return }
