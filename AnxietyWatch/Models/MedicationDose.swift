@@ -9,8 +9,9 @@ final class MedicationDose {
     var medicationName: String
     var doseMg: Double
     var notes: String?
-    /// True if taken as-needed (PRN), false if on a timed schedule
-    var isPRN: Bool
+    /// True if taken as-needed (PRN), false if on a timed schedule.
+    /// Optional for migration — nil treated as true (PRN) for historical doses.
+    var isPRN: Bool?
     var medication: MedicationDefinition?
 
     init(

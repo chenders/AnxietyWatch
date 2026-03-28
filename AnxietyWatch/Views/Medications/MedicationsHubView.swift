@@ -187,7 +187,7 @@ struct MedicationsHubView: View {
     // MARK: - Actions
 
     private func logDose(for med: MedicationDefinition) {
-        if med.promptAnxietyOnLog {
+        if med.promptAnxietyOnLog == true {
             promptMedication = med
         } else {
             let dose = MedicationDose(
