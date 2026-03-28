@@ -70,6 +70,7 @@ struct AnxietyWatchApp: App {
                             UserDefaults.standard.set(true, forKey: Self.reactivateMedsKey)
                         } catch {
                             // Leave flag unset so we retry on next launch
+                            print("ReactivateMeds fixup failed: \(error)")
                         }
                     }
 
