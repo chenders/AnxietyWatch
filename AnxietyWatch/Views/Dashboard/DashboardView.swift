@@ -514,22 +514,25 @@ struct DashboardView: View {
         date.formatted(.dateTime.month().day())
     }
 
+    /// Group all samples by type once per render, avoiding repeated O(n) scans.
+    private var samplesByType: [String: [HealthSample]] {
+        Dictionary(grouping: recentSamples, by: \.type)
+    }
+
     /// Get today's samples for a given HealthKit type identifier.
     private func todaySamples(for typeRawValue: String) -> [HealthSample] {
         let midnight = Calendar.current.startOfDay(for: .now)
-        return recentSamples.filter { $0.type == typeRawValue && $0.timestamp >= midnight }
+        return (samplesByType[typeRawValue] ?? []).filter { $0.timestamp >= midnight }
     }
 
     /// Get the most recent sample for a given type (any day in the cache).
     private func latestSample(for typeRawValue: String) -> HealthSample? {
-        recentSamples.first { $0.type == typeRawValue }
+        samplesByType[typeRawValue]?.first
     }
 
     /// Get the last N values for a given type (for RecentBarsView).
     private func recentValues(for typeRawValue: String, count: Int = 7) -> [Double] {
-        let samples = recentSamples
-            .filter { $0.type == typeRawValue }
-            .prefix(count)
+        let samples = (samplesByType[typeRawValue] ?? []).prefix(count)
         return samples.reversed().map(\.value)
     }
 
