@@ -276,12 +276,14 @@ actor HealthKitManager {
 
             let handler: (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, (any Error)?) -> Void = {
                 [weak self] query, newSamples, _, newAnchor, error in
-                guard error == nil, let samples = newSamples as? [HKQuantitySample] else { return }
+                guard error == nil else { return }
 
+                // Always advance the anchor, even when there are no samples
                 if let newAnchor {
                     Task { await self?.saveAnchor(newAnchor, for: config.identifier.rawValue) }
                 }
 
+                let samples = (newSamples as? [HKQuantitySample]) ?? []
                 guard !samples.isEmpty else { return }
 
                 let converted: [(type: String, value: Double, timestamp: Date, source: String?)] = samples.map { sample in
@@ -292,9 +294,13 @@ actor HealthKitManager {
                 onNewSamples(converted)
             }
 
+            // Scope to 7-day retention window to avoid fetching entire history on first run
+            let retentionStart = Calendar.current.date(byAdding: .day, value: -7, to: .now)
+            let predicate = retentionStart.map { HKQuery.predicateForSamples(withStart: $0, end: nil) }
+
             let query = HKAnchoredObjectQuery(
                 type: sampleType,
-                predicate: nil,
+                predicate: predicate,
                 anchor: anchor,
                 limit: HKObjectQueryNoLimit,
                 resultsHandler: handler

@@ -542,12 +542,15 @@ struct DashboardView: View {
 
     /// Freshness label for a sample timestamp.
     private func freshnessLabel(_ date: Date) -> String {
-        let midnight = Calendar.current.startOfDay(for: .now)
+        let calendar = Calendar.current
+        let midnight = calendar.startOfDay(for: .now)
         if date >= midnight {
             return date.formatted(.relative(presentation: .named))
         }
-        let yesterdayMidnight = Calendar.current.date(byAdding: .day, value: -1, to: midnight)!
-        if date >= yesterdayMidnight {
+        // Only say "last night" for overnight readings (6 PM or later)
+        let yesterdayMidnight = calendar.date(byAdding: .day, value: -1, to: midnight)!
+        let hour = calendar.component(.hour, from: date)
+        if date >= yesterdayMidnight && date < midnight && hour >= 18 {
             return "last night"
         }
         return date.formatted(.relative(presentation: .named))

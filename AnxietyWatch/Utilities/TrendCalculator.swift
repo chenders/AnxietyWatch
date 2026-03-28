@@ -39,9 +39,9 @@ enum TrendCalculator {
         let sorted = samples.sorted { $0.timestamp < $1.timestamp }
         let latest = sorted.last!
 
-        // Compute average of samples in the last hour, excluding the latest
-        let oneHourAgo = now.addingTimeInterval(-3600)
-        let priorInWindow = sorted.dropLast().filter { $0.timestamp >= oneHourAgo }
+        // Compute average of samples in the 1 hour preceding the latest reading
+        let windowStart = latest.timestamp.addingTimeInterval(-3600)
+        let priorInWindow = sorted.dropLast().filter { $0.timestamp >= windowStart && $0.timestamp <= latest.timestamp }
 
         guard !priorInWindow.isEmpty else { return nil }
 
