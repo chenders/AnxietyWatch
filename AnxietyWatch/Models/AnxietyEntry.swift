@@ -12,17 +12,26 @@ final class AnxietyEntry {
     var tags: [String]
     var locationLatitude: Double?
     var locationLongitude: Double?
+    /// The medication dose that triggered this anxiety entry (nil for manual entries)
+    var triggerDose: MedicationDose?
+    /// True if this is a 30-minute follow-up entry (vs the initial at-dosing entry).
+    /// Optional for migration — nil treated as false for historical entries.
+    var isFollowUp: Bool?
 
     init(
         timestamp: Date = .now,
         severity: Int = 5,
         notes: String = "",
-        tags: [String] = []
+        tags: [String] = [],
+        triggerDose: MedicationDose? = nil,
+        isFollowUp: Bool = false
     ) {
         self.id = UUID()
         self.timestamp = timestamp
         self.severity = severity
         self.notes = notes
         self.tags = tags
+        self.isFollowUp = isFollowUp
+        self.triggerDose = triggerDose
     }
 }

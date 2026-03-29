@@ -9,6 +9,9 @@ final class MedicationDose {
     var medicationName: String
     var doseMg: Double
     var notes: String?
+    /// True if taken as-needed (PRN), false if on a timed schedule.
+    /// Optional for migration — nil treated as true (PRN) for historical doses.
+    var isPRN: Bool?
     var medication: MedicationDefinition?
 
     init(
@@ -16,6 +19,7 @@ final class MedicationDose {
         medicationName: String,
         doseMg: Double,
         notes: String? = nil,
+        isPRN: Bool = true,
         medication: MedicationDefinition? = nil
     ) {
         self.id = UUID()
@@ -23,6 +27,7 @@ final class MedicationDose {
         self.medicationName = medicationName
         self.doseMg = doseMg
         self.notes = notes
+        self.isPRN = isPRN
         self.medication = medication
     }
 }
