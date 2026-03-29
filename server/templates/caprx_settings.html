@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}CapRx Sync — Anxiety Watch Admin{% endblock %}
+{% block content %}
+<h1>CapRx Prescription Sync</h1>
+
+<div class="card">
+    <h2>Credentials (Included Health SSO)</h2>
+    <form method="post">
+        <div class="mb-1">
+            <label for="email"><strong>Email</strong></label>
+            <input type="email" id="email" name="email" placeholder="{{ '••••••••@••••' if has_email else 'your@email.com' }}">
+            {% if has_email %}<small style="color:#6e6e73;">Leave blank to keep current email</small>{% endif %}
+        </div>
+        <div class="mb-1">
+            <label for="password"><strong>Password</strong></label>
+            <input type="password" id="password" name="password" placeholder="{{ '••••••••' if has_password else 'Enter password' }}">
+            {% if has_password %}<small style="color:#6e6e73;">Leave blank to keep current password</small>{% endif %}
+        </div>
+        <button type="submit" name="action" value="save" class="btn btn-primary">Save Settings</button>
+        <button type="submit" name="action" value="sync_now" class="btn btn-primary" style="margin-left:0.5rem;">Sync Now</button>
+    </form>
+</div>
+
+{% if last_sync or last_status %}
+<div class="card">
+    <h2>Last Sync</h2>
+    <table>
+        {% if last_sync %}<tr><th>Time</th><td>{{ last_sync }}</td></tr>{% endif %}
+        {% if last_status %}<tr><th>Result</th><td>{{ last_status }}</td></tr>{% endif %}
+    </table>
+</div>
+{% endif %}
+
+<div class="card" style="border: 1px solid #ff3b30; margin-top: 1rem;">
+    <h2 style="color: #ff3b30;">Clear Prescription History</h2>
+    <p style="color: #6e6e73;">Delete imported prescriptions so you can re-import fresh from CapRx.</p>
+    <form method="post" action="/admin/prescriptions/clear" onsubmit="return confirm('Delete ALL prescriptions? This cannot be undone.');">
+        <button type="submit" name="source" value="all" class="btn" style="background:#ff3b30;color:white;">Clear All Prescriptions</button>
+        <button type="submit" name="source" value="walgreens" class="btn" style="background:#ff9500;color:white;margin-left:0.5rem;">Clear Walgreens Only</button>
+        <button type="submit" name="source" value="caprx" class="btn" style="background:#ff9500;color:white;margin-left:0.5rem;">Clear CapRx Only</button>
+    </form>
+</div>
+{% endblock %}
