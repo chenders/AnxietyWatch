@@ -31,8 +31,7 @@ enum TrendCalculator {
     /// Returns nil if fewer than 2 samples.
     static func direction(
         samples: [HealthSample],
-        threshold: Double,
-        now: Date = .now
+        threshold: Double
     ) -> Direction? {
         guard samples.count >= 2 else { return nil }
 

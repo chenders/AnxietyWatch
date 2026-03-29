@@ -269,7 +269,8 @@ final class HealthDataCoordinator {
     /// Delete HealthSample rows older than 7 days.
     func pruneOldSamples() {
         let context = ModelContext(modelContainer)
-        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: .now)!
+        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: .now)
+            ?? Date(timeIntervalSinceNow: -7 * 86400)
         let old = try? context.fetch(FetchDescriptor<HealthSample>(
             predicate: #Predicate<HealthSample> { $0.timestamp < cutoff }
         ))
