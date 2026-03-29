@@ -32,3 +32,4 @@ xcuserdata/
 # Server (supplements server/.gitignore)
 server/.env
 server/__pycache__/
+AnxietyWatch/Utilities/BuildVersion.swift
