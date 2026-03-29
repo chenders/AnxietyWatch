@@ -3,6 +3,8 @@ import Testing
 
 @testable import AnxietyWatch
 
+/// Serialized to prevent UserDefaults races when CI runs tests in parallel clones.
+@Suite(.serialized)
 struct DoseFollowUpManagerTests {
 
     /// Clear pending follow-ups before each test.
