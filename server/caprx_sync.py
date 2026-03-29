@@ -13,12 +13,14 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
 from datetime import datetime, timezone, timedelta
 
 import psycopg2
+import requests
 
 from crypto import decrypt_value
 from caprx_client import (
@@ -148,7 +150,7 @@ def log_sync(conn, status, count):
         (
             "caprx",
             "caprx_api",
-            f'{{"status": "{status}", "upserted": {count}}}',
+            json.dumps({"status": status, "upserted": count}),
             None,
         ),
     )
@@ -175,9 +177,10 @@ def run_sync(conn=None, email=None, password=None):
         if not email:
             enc_email = get_setting(conn, "caprx_username")
             enc_password = get_setting(conn, "caprx_password")
-            if enc_email and enc_password:
-                email = decrypt_value(enc_email)
-                password = decrypt_value(enc_password)
+            secret_key = os.environ.get("SECRET_KEY", "")
+            if enc_email and enc_password and secret_key:
+                email = decrypt_value(enc_email, secret_key)
+                password = decrypt_value(enc_password, secret_key)
             else:
                 # Fall back to env vars
                 email = os.environ.get("CAPRX_USERNAME", "").strip("'")
@@ -199,7 +202,7 @@ def run_sync(conn=None, email=None, password=None):
         # Fetch claims
         try:
             raw_claims = client.fetch_all_claims()
-        except (CapRxAuthError, CapRxAPIError) as e:
+        except (CapRxAuthError, CapRxAPIError, requests.HTTPError) as e:
             logger.error("CapRx fetch failed: %s", e)
             log_sync(conn, f"api_error: {e}", 0)
             return ("api_error", 0)

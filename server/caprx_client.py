@@ -75,8 +75,23 @@ APP_ORIGIN = "https://app.cap-rx.com"
 # ---------------------------------------------------------------------------
 
 
+def _session_with_timeout(timeout: int) -> requests.Session:
+    """Create a requests.Session with a default timeout on all methods."""
+    session = requests.Session()
+    orig_request = session.request
+
+    def request_with_timeout(*args, **kwargs):
+        kwargs.setdefault("timeout", timeout)
+        return orig_request(*args, **kwargs)
+
+    session.request = request_with_timeout  # type: ignore[method-assign]
+    return session
+
+
 class CapRxClient:
     """Stateless client for CapRx claims API."""
+
+    REQUEST_TIMEOUT = 30  # seconds
 
     def __init__(self, email: str, password: str):
         self.email = email
@@ -88,7 +103,7 @@ class CapRxClient:
 
     def authenticate(self) -> None:
         """Run the full SSO login flow to obtain access + refresh tokens."""
-        session = requests.Session()
+        session = _session_with_timeout(self.REQUEST_TIMEOUT)
         session.headers.update(BROWSER_HEADERS)
 
         # Step 1: Login challenge → SAML redirect
@@ -192,6 +207,7 @@ class CapRxClient:
                 "Referer": f"{APP_ORIGIN}/",
             },
             json={"page": page, "page_size": page_size},
+            timeout=self.REQUEST_TIMEOUT,
         )
         if r.status_code == 401:
             raise CapRxAuthError("Access token expired")
