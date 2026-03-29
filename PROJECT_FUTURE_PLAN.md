@@ -30,7 +30,7 @@ The foundation is substantial and well-architected:
 
 - **watchOS companion** -- Quick Log with Digital Crown severity selection and haptic feedback. The single best-designed interaction for acute anxiety moments.
 
-- **Solid test infrastructure** -- 21 test files using Swift Testing, in-memory SwiftData containers, and good coverage of core services (BaselineCalculator, PrescriptionSupplyCalculator, CPAPImporter, DataExporter, etc.).
+- **Solid test infrastructure** -- 20 test files using Swift Testing, in-memory SwiftData containers, and good coverage of core services (BaselineCalculator, PrescriptionSupplyCalculator, CPAPImporter, DataExporter, etc.).
 
 ### What Works Well
 
