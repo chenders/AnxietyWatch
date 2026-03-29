@@ -138,8 +138,7 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
-                    LabeledContent("Version", value: "1.0")
-                    LabeledContent("Phase", value: "5 — Reports & Export")
+                    LabeledContent("Version", value: BuildVersion.commitHash)
                 }
             }
             .navigationTitle("Settings")
