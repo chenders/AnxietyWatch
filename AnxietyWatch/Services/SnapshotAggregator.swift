@@ -119,6 +119,63 @@ struct SnapshotAggregator {
             start: start, end: end
         )
 
+        // VO2 Max — use most recent reading for the day since it's infrequently updated
+        if let vo2 = try await healthKit.mostRecentQuantity(.vo2Max, unit: HKUnit(from: "mL/kg*min")) {
+            if vo2.date >= start && vo2.date < end {
+                snapshot.vo2Max = vo2.value
+            }
+        }
+
+        // Walking heart rate average
+        snapshot.walkingHeartRateAvg = try await healthKit.averageQuantity(
+            .walkingHeartRateAverage,
+            unit: .count().unitDivided(by: .minute()),
+            start: start, end: end
+        )
+
+        // Walking steadiness
+        if let steadiness = try await healthKit.mostRecentQuantity(.appleWalkingSteadiness, unit: .percent()) {
+            if steadiness.date >= start && steadiness.date < end {
+                snapshot.walkingSteadiness = steadiness.value
+            }
+        }
+
+        // Atrial fibrillation burden
+        if let afib = try await healthKit.mostRecentQuantity(.atrialFibrillationBurden, unit: .percent()) {
+            if afib.date >= start && afib.date < end {
+                snapshot.atrialFibrillationBurden = afib.value
+            }
+        }
+
+        // Headphone audio exposure
+        snapshot.headphoneAudioExposure = try await healthKit.averageQuantity(
+            .headphoneAudioExposure,
+            unit: .decibelAWeightedSoundPressureLevel(),
+            start: start, end: end
+        )
+
+        // Gait metrics
+        snapshot.walkingSpeed = try await healthKit.averageQuantity(
+            .walkingSpeed,
+            unit: HKUnit.meter().unitDivided(by: .second()),
+            start: start, end: end
+        )
+        snapshot.walkingStepLength = try await healthKit.averageQuantity(
+            .walkingStepLength,
+            unit: .meter(),
+            start: start, end: end
+        )
+        snapshot.walkingDoubleSupportPct = try await healthKit.averageQuantity(
+            .walkingDoubleSupportPercentage,
+            unit: .percent(),
+            start: start, end: end
+        )
+        snapshot.walkingAsymmetryPct = try await healthKit.averageQuantity(
+            .walkingAsymmetryPercentage,
+            unit: .percent(),
+            start: start, end: end
+        )
+
         try modelContext.save()
     }
 }

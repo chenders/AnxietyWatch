@@ -43,6 +43,25 @@ final class HealthSnapshot {
     // Blood glucose (if available, mg/dL)
     var bloodGlucoseAvg: Double?
 
+    // Cardiorespiratory fitness
+    var vo2Max: Double?
+
+    // Walking metrics
+    var walkingHeartRateAvg: Double?
+    var walkingSteadiness: Double?
+
+    // Atrial fibrillation
+    var atrialFibrillationBurden: Double?
+
+    // Audio exposure
+    var headphoneAudioExposure: Double?
+
+    // Gait metrics
+    var walkingSpeed: Double?
+    var walkingStepLength: Double?
+    var walkingDoubleSupportPct: Double?
+    var walkingAsymmetryPct: Double?
+
     init(date: Date) {
         self.id = UUID()
         // Normalize to start of day so the unique constraint works on calendar days

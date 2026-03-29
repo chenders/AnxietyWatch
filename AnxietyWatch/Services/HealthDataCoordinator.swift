@@ -23,6 +23,7 @@ final class HealthDataCoordinator {
     /// Call once at app launch. Backfills history if needed, fills any gaps,
     /// imports clinical records, starts live observers, and wires up barometer persistence.
     func setupIfNeeded() async {
+        pruneOldSamples()
         // Wire barometer persistence immediately so monitoring/persistence start at launch,
         // even if backfill/import/observer setup take a while.
         startBarometerPersistence()
@@ -145,8 +146,17 @@ final class HealthDataCoordinator {
         guard !hasSetupObservers else { return }
         hasSetupObservers = true
 
+        // Sleep analysis stays on observer query (category type)
         await HealthKitManager.shared.startObserving { [weak self] in
             Task { @MainActor in
+                self?.scheduleRefresh()
+            }
+        }
+
+        // All quantity types use anchored queries for individual sample caching
+        await HealthKitManager.shared.startAnchoredQueries { [weak self] newSamples in
+            Task { @MainActor in
+                self?.insertSamples(newSamples)
                 self?.scheduleRefresh()
             }
         }
@@ -238,6 +248,36 @@ final class HealthDataCoordinator {
 
             await importClinicalRecordsIfNeeded()
         }
+    }
+
+    // MARK: - Sample Cache
+
+    /// Insert new HealthKit samples into the HealthSample cache.
+    private func insertSamples(_ samples: [(type: String, value: Double, timestamp: Date, source: String?)]) {
+        let context = ModelContext(modelContainer)
+        for sample in samples {
+            context.insert(HealthSample(
+                type: sample.type,
+                value: sample.value,
+                timestamp: sample.timestamp,
+                source: sample.source
+            ))
+        }
+        try? context.save()
+    }
+
+    /// Delete HealthSample rows older than 7 days.
+    func pruneOldSamples() {
+        let context = ModelContext(modelContainer)
+        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: .now)
+            ?? Date(timeIntervalSinceNow: -7 * 86400)
+        let old = try? context.fetch(FetchDescriptor<HealthSample>(
+            predicate: #Predicate<HealthSample> { $0.timestamp < cutoff }
+        ))
+        for sample in old ?? [] {
+            context.delete(sample)
+        }
+        try? context.save()
     }
 
     // MARK: - Barometer Persistence
