@@ -21,6 +21,10 @@ xcuserdata/
 # AI / local tooling
 .claude/
 .serena/
+.superpowers/
+.playwright-mcp/
+.xcodebuildmcp/
+.idea/
 
 # Server (supplements server/.gitignore)
 server/.env
