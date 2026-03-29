@@ -93,10 +93,16 @@ enum DoseFollowUpManager {
         savePending(pending)
     }
 
-    /// Remove follow-ups older than 2 hours. Call on app foreground.
+    /// Remove follow-ups older than 2 hours and their notifications. Call on app foreground.
     static func cleanupStale() {
         let now = Date.now
         var pending = loadPending()
+        let stale = pending.filter { now.timeIntervalSince($0.scheduledTime) >= staleThreshold }
+        if !stale.isEmpty {
+            let ids = stale.map { notificationID(for: $0.doseID) }
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ids)
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
+        }
         pending.removeAll { now.timeIntervalSince($0.scheduledTime) >= staleThreshold }
         savePending(pending)
     }
