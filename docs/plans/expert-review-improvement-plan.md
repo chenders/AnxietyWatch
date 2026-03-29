@@ -1,8 +1,7 @@
 # AnxietyWatch Expert Review Improvement Plan
 
 **Date:** 2026-03-28
-**Reviewers:** 9 domain experts (iOS UI/UX, Health App UX, HealthKit, Refactoring, Anxiety/Panic Medical, Lived Experience, Developer Experience, Retail Pharmacy, Xcode/Claude Code Tooling)
-**Scope:** Full codebase and feature review across all dimensions
+**Source:** Synthesis of 9 expert reviews (Xcode/Claude Code tooling, iOS UI/UX, Health app UX, HealthKit, Refactoring, Anxiety/Panic medical, Lived experience, Developer experience, Retail pharmacy)
 
 ---
 
@@ -14,8 +13,9 @@
 4. [Architecture & Code Quality](#4-architecture--code-quality)
 5. [Developer Experience](#5-developer-experience)
 6. [Clinical / Medical Value](#6-clinical--medical-value)
-7. [Nice-to-Haves](#7-nice-to-haves)
-8. [Rejected Suggestions](#8-rejected-suggestions)
+7. [Pharmacy & Prescription Improvements](#7-pharmacy--prescription-improvements)
+8. [Nice-to-Haves](#8-nice-to-haves)
+9. [Rejected Suggestions](#9-rejected-suggestions)
 
 ---
 
@@ -27,1128 +27,1154 @@ These are bugs, broken behavior, or silent-failure conditions that undermine exi
 
 ### 1.1 iOS CI Is Non-Blocking (`continue-on-error: true`)
 
-**Source experts:** Developer Experience, Xcode/Claude Code Tooling
-**Description:** The `ios-ci.yml` workflow has `continue-on-error: true`, which means test failures are silently ignored. All 21 test files and their assertions are effectively decorative -- broken code can be merged to `main` without any gate.
-**What to do:** Remove `continue-on-error: true` from the iOS CI workflow. If the issue is Xcode version availability on runners, pin to an available Xcode version (e.g., Xcode 16) for now, or use a matrix that tries multiple versions. Once the CI is enforcing, add it as a required status check in the repo's branch protection rules.
-**File:** `.github/workflows/ios-ci.yml`
-**Pros:** Tests actually prevent regressions; CI becomes trustworthy.
-**Cons:** May require fixing currently-broken tests before the change.
-**Risks:** If tests are currently failing, this blocks all PRs until fixed.
-**Mitigations:** Run the full test suite locally first. Fix any failures before removing the flag. Roll out in a single PR.
-**Effort:** Small
-**Impact:** High
-**Expert consensus:** Unanimous. Both experts who discussed CI flagged this as the top CI issue.
+- **Source experts:** Developer Experience, Xcode/Claude Code Tooling
+- **Description:** The `ios-ci.yml` workflow has `continue-on-error: true`, meaning test failures are silently ignored. All 21 test files are effectively decorative. Remove it or pin to an available Xcode version so tests actually gate merges.
+- **Pros:** Tests prevent regressions; CI becomes trustworthy.
+- **Cons:** May require fixing currently-broken tests first.
+- **Risks:** If tests are currently failing, this blocks all PRs until fixed.
+- **Mitigations:** Run the full suite locally first. Fix failures before removing the flag. Add `xcodebuild -version` output to job summary.
+- **Effort:** Small
+- **Impact:** High
+- **Expert consensus:** Both experts flagged this independently. Strong agreement.
 
 ---
 
-### 1.2 Anchored Query Predicate Drops Samples After Extended Device Downtime
+### 1.2 Fix `AnxietyScope` Typo in respond-to-copilot.md
 
-**Source experts:** HealthKit
-**Description:** In `HealthKitManager.startAnchoredQueries()`, the 7-day retention predicate is applied even when the anchor is non-nil. If the device was off for more than 7 days, samples between the anchor and the 7-day cutoff are silently dropped. The predicate should only apply when the anchor is nil (first run).
-**What to do:** Wrap the predicate in a nil-anchor check:
-```swift
-let predicate: NSPredicate? = (anchor == nil) ? retentionStart.map {
-    HKQuery.predicateForSamples(withStart: $0, end: nil)
-} : nil
-```
-**File:** `AnxietyWatch/Services/HealthKitManager.swift`, around line 298
-**Pros:** Prevents silent data loss after extended periods without the app running.
-**Cons:** None meaningful.
-**Risks:** Low -- the fix is a simple conditional.
-**Mitigations:** Test with both nil and non-nil anchors.
-**Effort:** Small
-**Impact:** High
-**Expert consensus:** Single expert identified this, but the bug is clear and unambiguous.
+- **Source experts:** Xcode/Claude Code Tooling
+- **Description:** The custom command `.claude/commands/respond-to-copilot.md` hardcodes `AnxietyScope` in all GitHub API calls. The actual repo is `AnxietyWatch`. Every invocation fails with 404 errors. Replace all instances or switch to `gh` subcommands that infer the repo from the local git remote.
+- **Pros:** The `/respond-to-copilot` command will actually work.
+- **Cons:** None.
+- **Risks:** None.
+- **Mitigations:** N/A.
+- **Effort:** Small (5 minutes)
+- **Impact:** High
+- **Expert consensus:** Unambiguous bug. Single expert found it.
 
 ---
 
-### 1.3 BaselineCalculator Uses Population Variance (N) Instead of Sample Variance (N-1)
+### 1.3 Fix Anchored Query Predicate Dropping Samples After Long Offline Periods
 
-**Source experts:** HealthKit, Medical
-**Description:** `BaselineCalculator` divides by `N` (population variance) instead of `N-1` (Bessel's correction). With small sample sizes early in app usage, this underestimates the standard deviation, making baseline bounds too tight and triggering false-positive alerts.
-**What to do:** Change the variance calculation to divide by `values.count - 1`:
-```swift
-let variance = values.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / Double(values.count - 1)
-```
-**File:** `AnxietyWatch/Services/BaselineCalculator.swift`, around line 73
-**Pros:** Correct statistics; fewer false-positive baseline alerts.
-**Cons:** Slightly wider bounds, meaning marginally fewer true-positive alerts.
-**Risks:** Very low.
-**Mitigations:** Update existing baseline tests to expect the corrected values.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Both HealthKit and Medical experts independently identified this exact issue.
+- **Source experts:** HealthKit
+- **Description:** In `HealthKitManager.startAnchoredQueries()`, the 7-day retention predicate is applied unconditionally. When the anchor is non-nil but older than 7 days (device was off for a week), samples between the anchor and the 7-day cutoff are silently dropped. The predicate should only apply when the anchor is nil.
+- **Pros:** No silent data loss after extended offline periods.
+- **Cons:** First-run fetch may be larger without the predicate (acceptable).
+- **Risks:** Low.
+- **Mitigations:** Test with a nil anchor and a stale anchor to verify both paths.
+- **Effort:** Small
+- **Impact:** High (data integrity)
+- **Expert consensus:** Single expert. Clear-cut bug.
 
 ---
 
-### 1.4 BaselineCalculator Minimum Sample Count Is Too Low (3)
+### 1.4 Fix BaselineCalculator: Population Variance and Minimum Sample Count
 
-**Source experts:** HealthKit, Medical
-**Description:** The baseline requires only 3 values to compute a standard deviation. With 3 data points, the standard deviation is statistically meaningless and will produce erratic baseline bands during the user's first week.
-**What to do:** Increase the minimum to 14 (two weeks of data). Add a UI indicator showing "Collecting baseline data (X/14 days)" until sufficient data exists.
-**File:** `AnxietyWatch/Services/BaselineCalculator.swift`, around line 69
-**Pros:** Baseline alerts become meaningful; reduces noise in the first weeks.
-**Cons:** Users must wait 14 days before seeing baseline comparisons.
-**Risks:** Users might perceive the app as having less functionality initially.
-**Mitigations:** Show a progress indicator ("Collecting baseline: 8 of 14 days"). Consider allowing a lower threshold (7) with a "preliminary" label.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Both experts recommended 14 days. Medical expert went further, suggesting a 90-day window for the baseline itself.
+- **Source experts:** HealthKit, Medical
+- **Description:** Two issues: (a) Divides by N instead of N-1 (Bessel's correction), underestimating standard deviation for small samples and creating too-tight bounds that trigger false alerts. (b) Minimum sample count of 3 is too low for meaningful statistics. Increase to 7 minimum (ideally 14).
+- **Pros:** Fewer false-positive alerts. Statistically meaningful deviations.
+- **Cons:** Users see baseline comparisons later (after 7-14 days instead of 3).
+- **Risks:** Users may perceive the delay as a missing feature.
+- **Mitigations:** Show a "building your baseline" progress indicator during initial data collection.
+- **Effort:** Small
+- **Impact:** High (accuracy of core alerting)
+- **Expert consensus:** Both experts independently flagged both issues. Strong agreement.
 
 ---
 
-### 1.5 Prescription Staleness Filter Breaks for 90-Day Mail Order Fills
+### 1.5 Fix `.navigationDestination` Scoping in MedicationsHubView
 
-**Source experts:** Pharmacy, Refactoring
-**Description:** `alertStalenessLimitDays = 60` is a fixed constant. A 90-day mail order fill will age past 60 days while the patient still has supply, causing the supply alert to disappear prematurely.
-**What to do:** Make the staleness limit relative to the prescription's own days supply (or estimated days supply). Use `max(daysSupply + 30, 60)` as the staleness threshold so that a 90-day fill stays visible for at least 120 days.
-**File:** `AnxietyWatch/Services/PrescriptionSupplyCalculator.swift`
-**Pros:** Supply alerts remain visible for the actual duration of the prescription.
-**Cons:** Requires knowing `daysSupply`, which needs to be stored on the model (see item 3.6).
-**Risks:** If `daysSupply` is missing, the fallback to a fixed value is still needed.
-**Mitigations:** Keep the 60-day default as a fallback when `daysSupply` is nil.
-**Effort:** Small
-**Impact:** High (for anyone on 90-day fills)
-**Expert consensus:** Pharmacy expert identified as a functional bug. Refactoring expert noted the triple-duplicated supply alert logic as the place to fix.
+- **Source experts:** iOS UI/UX
+- **Description:** `.navigationDestination(for: UUID.self)` is registered inside `supplyAlertSection`, so it only exists when supply alerts are visible. No alerts = no navigation destination registered. Similarly, `PharmacyDetailView` has a `NavigationLink(value: rx)` with no corresponding `.navigationDestination(for: Prescription.self)`.
+- **Pros:** Navigation works reliably regardless of data state.
+- **Cons:** None.
+- **Risks:** Low.
+- **Mitigations:** Move navigation destinations to the `NavigationStack` or `List` level.
+- **Effort:** Small
+- **Impact:** High (broken navigation paths)
+- **Expert consensus:** Single expert. Verifiable bugs.
 
 ---
 
-### 1.6 `refillsRemaining` Shows 0 for CapRx-Sourced Prescriptions (Misleading)
+### 1.6 Fix `.alert` Binding Anti-Pattern in ExportView and CPAPListView
 
-**Source experts:** Pharmacy
-**Description:** CapRx claims data does not include refills remaining. The field defaults to 0, which is displayed to the user as "0 refills" -- implying the prescription cannot be refilled when in reality the data is simply unavailable.
-**What to do:** Show "Unknown" for refills on claims-sourced records (`importSource == "caprx"`) rather than "0". Change the UI to differentiate between "0 refills authorized" and "refill data not available."
-**Files:** `AnxietyWatch/Views/Prescriptions/PrescriptionDetailView.swift`, `AnxietyWatch/Models/Prescription.swift`
-**Pros:** Prevents user confusion and incorrect decisions about contacting prescriber.
-**Cons:** None.
-**Risks:** Minimal.
-**Mitigations:** Add a computed property `refillsDisplay: String?` that returns nil for claims-sourced records.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Single expert, but the issue is factually clear.
+- **Source experts:** iOS UI/UX
+- **Description:** Both views use `.alert("...", isPresented: .constant(errorMessage != nil))`, creating a binding to a constant that SwiftUI's built-in dismissal cannot modify. Use a proper `Binding<Bool>` or `.alert(item:)`.
+- **Pros:** Standard SwiftUI behavior. Alerts dismiss reliably.
+- **Cons:** None.
+- **Risks:** None.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert. Straightforward fix.
 
 ---
 
-### 1.7 `navigationDestination(for:)` Scoped Inside Conditional View
+### 1.7 Fix Staleness Filter for 90-Day Mail Order Prescriptions
 
-**Source experts:** iOS UI/UX
-**Description:** In `MedicationsHubView.swift` (line 113), `.navigationDestination(for: UUID.self)` is registered inside the `supplyAlertSection` `@ViewBuilder`. If there are no supply alerts, the navigation destination is never registered, and tapping a supply alert link from elsewhere would fail. Similarly, `PharmacyDetailView` has a `NavigationLink(value: rx)` with no corresponding `.navigationDestination` for `Prescription.self`.
-**What to do:** Move `.navigationDestination` registrations to the `NavigationStack` level or `List` level, not inside conditional sections.
-**Files:** `AnxietyWatch/Views/Medications/MedicationsHubView.swift`, `AnxietyWatch/Views/Pharmacy/PharmacyDetailView.swift`
-**Pros:** Navigation works reliably regardless of view state.
-**Cons:** None.
-**Risks:** Low.
-**Mitigations:** Test navigation paths with empty and populated data.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Single expert, but this is a known SwiftUI pitfall.
-
----
-
-### 1.8 `.alert` Binding Anti-Pattern in ExportView and CPAPListView
-
-**Source experts:** iOS UI/UX
-**Description:** Both `ExportView.swift` and `CPAPListView.swift` use `.alert("...", isPresented: .constant(errorMessage != nil))`, creating a binding to a constant. The alert cannot be dismissed by SwiftUI's built-in mechanism; it relies on manually nilling the error message inside the "OK" action. This pattern can cause issues with sheet/alert lifecycle management.
-**What to do:** Replace with a proper `Binding<Bool>` computed from the optional, or use `.alert(item:)`.
-**Files:** `AnxietyWatch/Views/Reports/ExportView.swift`, `AnxietyWatch/Views/CPAP/CPAPListView.swift`
-**Pros:** Standard SwiftUI patterns; avoids subtle dismissal bugs.
-**Cons:** None.
-**Risks:** Low.
-**Mitigations:** Verify alert dismissal works correctly after the change.
-**Effort:** Small
-**Impact:** Low
-**Expert consensus:** Single expert.
+- **Source experts:** Retail Pharmacy
+- **Description:** `alertStalenessLimitDays = 60` is a global constant. A 90-day mail order fill ages past 60 days while the patient still has supply, causing alerts to disappear prematurely. Make staleness relative to the prescription's own days supply.
+- **Pros:** Supply alerts remain accurate for mail-order prescriptions.
+- **Cons:** Slightly more complex logic.
+- **Risks:** Low.
+- **Mitigations:** Default to current behavior (60 days) when days supply is unknown.
+- **Effort:** Small
+- **Impact:** High (incorrect behavior for a common pharmacy scenario)
+- **Expert consensus:** Single expert with deep domain knowledge.
 
 ---
 
 ## 2. High-Impact UX Improvements
 
-Changes that meaningfully improve the user experience, especially for someone actively managing anxiety.
+---
+
+### 2.1 Add "Log Anxiety" Quick Action on Dashboard
+
+- **Source experts:** Health App UX, Lived Experience, iOS UI/UX
+- **Description:** The Dashboard shows the last anxiety entry but has no button to create a new one. Add a prominent "Log Anxiety" button that opens a minimal severity picker (not the full form). Notes and tags should be optional/secondary.
+- **Pros:** Eliminates the most common extra-tap friction. Usable during high anxiety.
+- **Cons:** Adds a UI element to the dashboard.
+- **Risks:** Could feel cluttered if not designed carefully.
+- **Mitigations:** Make it the dominant element at the top, replacing or enhancing the current anxiety card.
+- **Effort:** Medium
+- **Impact:** High
+- **Expert consensus:** Three experts independently recommended this. Strongest consensus of any suggestion.
 
 ---
 
-### 2.1 Add "Log Anxiety" Quick Action on the Dashboard
+### 2.2 Dashboard Section Grouping and Hierarchy
 
-**Source experts:** iOS UI/UX, Health App UX, Lived Experience
-**Description:** The Dashboard (first tab, most-visited screen) shows the last anxiety entry but has no button to create a new one. The user must switch to the Journal tab and tap "+". During acute anxiety, every extra tap matters. Add a prominent "Log Now" button directly on the Dashboard, near the anxiety section at the top. One tap should open a minimal severity picker (not the full form).
-**What to do:** Add a tappable "Log Anxiety" button at the top of `DashboardView`, near the anxiety metric card. It should present a streamlined severity picker sheet (numbered circles, not a slider), with notes and tags as optional collapsible sections. Save on tap of a severity number; dismiss immediately.
-**Files:** `AnxietyWatch/Views/Dashboard/DashboardView.swift` (add button), new file `AnxietyWatch/Views/Journal/QuickAnxietyLogView.swift` (minimal picker)
-**Pros:** Eliminates the most common extra-tap friction for the app's core action.
-**Cons:** Another sheet to maintain; need to keep quick log and full form in sync.
-**Risks:** Users might stop using the full journal form, reducing data richness.
-**Mitigations:** After quick-logging, offer a "Add notes?" expandable prompt. Show the entry in journal list for retroactive annotation.
-**Effort:** Medium
-**Impact:** High
-**Expert consensus:** All three UX-focused experts independently recommended this as a top-priority item.
-
----
-
-### 2.2 Group Dashboard Cards into Labeled Sections
-
-**Source experts:** iOS UI/UX, Health App UX, Lived Experience
-**Description:** The Dashboard renders 18+ metric cards in a single flat `VStack` with no grouping. Every metric gets equal visual weight. This is overwhelming, especially during anxiety when cognitive load should be minimized. Group cards into titled sections: "Anxiety & Mood" (pinned at top), "Sleep" (sleep + CPAP), "Heart & Autonomic" (HR, HRV, RHR, BP), "Activity" (steps, exercise, calories), "Other" (sound, barometric, glucose).
-**What to do:** Wrap dashboard cards in `Section`-like headers within the `ScrollView`. Elevate the anxiety entry card to a prominent position at the top with the colored severity badge and time-since-last-entry.
-**File:** `AnxietyWatch/Views/Dashboard/DashboardView.swift`
-**Pros:** Scannable at a glance; most important data is visible first without scrolling.
-**Cons:** Increases view nesting; may need collapsible sections (more code).
-**Risks:** Could break existing layout expectations.
-**Mitigations:** Keep the same cards; just wrap them in groups. Test with various data availability scenarios (no CPAP, no BP, etc.).
-**Effort:** Medium
-**Impact:** High
-**Expert consensus:** Unanimous among all UX experts. The Lived Experience expert was especially emphatic that the current wall of data is counterproductive during high anxiety.
+- **Source experts:** iOS UI/UX, Health App UX, Lived Experience
+- **Description:** The dashboard renders 18+ metric cards in a single flat scroll with no grouping or hierarchy. Group into titled sections: "Anxiety & Mood" (pinned at top), "Sleep" (sleep + CPAP), "Heart & Autonomic" (HR, HRV, RHR, BP), "Activity" (steps, exercise, calories), "Other." Consider making sections collapsible.
+- **Pros:** Dramatically reduces information overload. Gives visual anchor points.
+- **Cons:** Requires restructuring of DashboardView.
+- **Risks:** Section boundaries may feel arbitrary for some metrics.
+- **Mitigations:** Allow user customization of section visibility. Start with sensible defaults.
+- **Effort:** Medium
+- **Impact:** High
+- **Expert consensus:** All three UX-focused experts flagged this. The lived experience expert said the dashboard is "designed for calm, reflective use" and is overwhelming during anxiety.
 
 ---
 
 ### 2.3 Replace Severity Slider with Tappable Numbered Circles
 
-**Source experts:** Health App UX, Lived Experience
-**Description:** The iOS `Slider` control is difficult to use with trembling hands during anxiety. Replace with a grid of 10 large, tappable, color-coded circles (at least 44x44pt each for accessibility compliance). Add descriptive anchors at key points: 1-2 "Calm", 3-4 "Mild", 5-6 "Moderate", 7-8 "High / physical symptoms", 9-10 "Panic / crisis".
-**What to do:** Replace the `Slider` in `AddJournalEntryView` and `QuickAnxietyLogView` with a horizontal row of 10 numbered circles. Each circle is color-coded using the existing `severityColor`. Tap to select. Add text anchors below the row.
-**File:** `AnxietyWatch/Views/Journal/AddJournalEntryView.swift`
-**Pros:** Usable during panic; provides scale calibration that reduces rating drift over time.
-**Cons:** Takes more vertical space than a slider.
-**Risks:** Users accustomed to the slider may find it jarring.
-**Mitigations:** The numbered circles are objectively better for discrete integer selection on a 1-10 scale. The Watch continues to use Digital Crown.
-**Effort:** Small
-**Impact:** High
-**Expert consensus:** Both experts recommended this. Lived Experience expert noted most people collapse a 1-10 slider to ~4 values anyway.
+- **Source experts:** Health App UX, Lived Experience
+- **Description:** iOS `Slider` is hard to use with trembling hands during panic. Replace with a 1-10 grid of large, tappable numbered circles (minimum 44x44pt), color-coded by severity. Add descriptive anchors: 1-2 Calm, 3-4 Mild, 5-6 Moderate, 7-8 High/physical symptoms, 9-10 Panic/crisis.
+- **Pros:** Accessible during acute anxiety. Works with trembling hands. Anchors improve rating consistency over time.
+- **Cons:** Takes more vertical space.
+- **Risks:** May feel cluttered in the full form.
+- **Mitigations:** Use a compact 2-row grid (5 per row). Color coding provides visual grouping.
+- **Effort:** Small
+- **Impact:** High
+- **Expert consensus:** Both agreed. The lived experience expert noted they only use 4 distinct values on a 10-point scale due to lack of anchors.
 
 ---
 
-### 2.4 Add Severity Scale Descriptive Anchors
+### 2.4 Quick Tags / Suggested Tags on Journal Entry
 
-**Source experts:** Lived Experience, Medical
-**Description:** The 1-10 severity scale currently has only "Calm" and "Severe" as endpoints. Users self-calibrate inconsistently, reducing data quality. Add anchors: 1-2 "Baseline / calm", 3-4 "Mild, manageable", 5-6 "Moderate, affecting concentration", 7-8 "High, physical symptoms", 9-10 "Panic / crisis".
-**What to do:** Add descriptive text below the severity selector in both the iPhone journal form and Watch Quick Log. Consider also showing the anchor in the severity badge throughout the app.
-**Files:** `AnxietyWatch/Views/Journal/AddJournalEntryView.swift`, `AnxietyWatch Watch App/QuickLogView.swift`, `DoseAnxietyPromptView.swift`
-**Pros:** More consistent self-reporting improves trend data quality and clinical report reliability.
-**Cons:** Slightly more visual clutter on the entry form.
-**Risks:** Low.
-**Mitigations:** Keep anchors subtle (small text, muted color) so they guide without dominating.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Both experts independently identified this need.
+- **Source experts:** iOS UI/UX, Health App UX, Lived Experience
+- **Description:** Tag entry requires typing each tag individually. Show the user's most-used tags as tappable chips. Tapping toggles on/off. Move free-text "Add tag" below.
+- **Pros:** Dramatically faster tag entry. Better data quality. Usable during high anxiety.
+- **Cons:** Needs to track tag frequency.
+- **Risks:** Tag chip row could become long.
+- **Mitigations:** Show top 6-8 most-used tags. Provide a "More..." expansion.
+- **Effort:** Small
+- **Impact:** High
+- **Expert consensus:** All three recommended this independently.
 
 ---
 
-### 2.5 Show "Last Taken" Time Next to Quick Log Medication Buttons
+### 2.5 Show "Last Taken" Timestamps Next to Quick Log Medication Buttons
 
-**Source experts:** Health App UX, Lived Experience
-**Description:** The Quick Log section in `MedicationsHubView` shows a "Log Dose" button per medication but not when the last dose was taken. For medications where double-dosing is dangerous (stimulants, benzos), seeing "Last taken: 8:15 AM" next to the button prevents errors. During panic, users genuinely forget whether they already took something.
-**What to do:** Below each medication name in the Quick Log section, show the timestamp of the most recent dose today (or "Not taken today" if none). Highlight in a warning color if the last dose was within a short window of the medication's expected frequency.
-**File:** `AnxietyWatch/Views/Medications/MedicationsHubView.swift`
-**Pros:** Prevents accidental double-dosing; provides useful context.
-**Cons:** Requires a query per medication (minor performance consideration).
-**Risks:** Low.
-**Mitigations:** Batch-fetch recent doses for all active medications in a single query.
-**Effort:** Small
-**Impact:** High
-**Expert consensus:** Both experts recommended this. Lived Experience expert specifically flagged double-dosing risk during panic.
+- **Source experts:** Health App UX, Lived Experience
+- **Description:** The Quick Log section shows "Log Dose" buttons but not when each medication was last taken today. For anxiety meds, this is a double-dosing risk. Show "Last taken: [time]" below each medication. Warning color if >24h for daily meds.
+- **Pros:** Prevents accidental double-dosing. Critical safety for benzos and stimulants.
+- **Cons:** Adds visual weight to each medication row.
+- **Risks:** Low.
+- **Mitigations:** Keep the timestamp small/subtle unless it indicates a problem.
+- **Effort:** Small
+- **Impact:** High
+- **Expert consensus:** Both experts flagged this. The lived experience expert: "during panic I will forget whether I already took something."
 
 ---
 
 ### 2.6 Add Breathing Exercise / Grounding Tool
 
-**Source experts:** Health App UX, Lived Experience
-**Description:** Every clinical anxiety app includes a breathing pacer or grounding prompt because it is the most immediately helpful intervention during a panic attack. AnxietyWatch has nothing for the acute moment. Add a simple timed breathing animation (breathe in 4s, hold 4s, out 6s) accessible from the Dashboard and the Watch Quick Log.
-**What to do:** Create a `BreathingExerciseView` with a simple expanding/contracting circle animation, timed breathing prompts, and haptic feedback on transitions. Add access from: (1) a "Need help?" button near the Dashboard quick-log, (2) the Watch Quick Log screen, (3) an optional home-screen widget shortcut.
-**Files:** New `AnxietyWatch/Views/Journal/BreathingExerciseView.swift`, update `DashboardView.swift` and Watch `QuickLogView.swift`
-**Pros:** Provides immediate practical help during the moment the app should be most useful. Writes a mindful session to HealthKit.
-**Cons:** Scope creep beyond data tracking into intervention.
-**Risks:** Could feel half-baked compared to dedicated breathing apps (Calm, Headspace).
-**Mitigations:** Keep it minimal: one breathing pattern, simple animation, no audio. Link to Apple Watch's built-in Breathe app as an alternative.
-**Effort:** Medium
-**Impact:** High
-**Expert consensus:** Both experts rated this as essential. HealthKit expert also noted this enables writing `HKCategoryTypeIdentifier.mindfulSession` to HealthKit.
+- **Source experts:** Lived Experience, Health App UX
+- **Description:** A simple timed breathing animation ("breathe in 4... hold 4... out 6"). Table stakes for an anxiety app. Make accessible from both the Watch Quick Log screen and the iPhone dashboard.
+- **Pros:** Direct therapeutic value during acute episodes. Standard in clinical anxiety apps.
+- **Cons:** Feature scope expansion beyond tracking.
+- **Risks:** Over-engineering.
+- **Mitigations:** Keep it minimal -- a single timed animation, not a meditation platform. Consider leveraging Apple Watch's Breathe app integration.
+- **Effort:** Medium
+- **Impact:** High
+- **Expert consensus:** Both experts strongly recommended this. Called "the one thing that actually helps mid-panic."
 
 ---
 
-### 2.7 Add Quick Tags (Tappable Chips) to Journal Entry Form
+### 2.7 Trend Arrow Color Should Be Context-Dependent
 
-**Source experts:** iOS UI/UX, Health App UX, Lived Experience
-**Description:** Free-text tag entry requires typing during crisis, which is unrealistic. Show the user's most-used tags as tappable chips above the text input. One tap to toggle a tag on/off. Keep the free-text "Add tag" input below for new tags.
-**What to do:** Query the most frequently used tags (top 8-10). Display as horizontally scrolling chips in the tags section. Tapping a chip toggles it in the entry's tag list.
-**File:** `AnxietyWatch/Views/Journal/AddJournalEntryView.swift`
-**Pros:** Dramatically faster tag entry; encourages consistent tagging which improves pattern analysis.
-**Cons:** Need to maintain a tag frequency counter.
-**Risks:** Low.
-**Mitigations:** Use a simple `@Query` over existing `AnxietyEntry.tags` to compute frequencies. No new model needed.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Three experts recommended this independently.
+- **Source experts:** iOS UI/UX
+- **Description:** `LiveMetricCard` maps `.rising` to orange, `.stable` to green, `.dropping` to blue universally. HRV rising should be green (good), not orange. The color should depend on the metric's "good direction," like `baselineColor` already does for the main value.
+- **Pros:** Eliminates misleading visual signals.
+- **Cons:** Requires per-metric configuration.
+- **Risks:** Low.
+- **Mitigations:** Add a `goodDirection` parameter to `LiveMetricCard`.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert. Clearly correct.
 
 ---
 
-### 2.8 Dose-Triggered Follow-Up: Show Before/After Delta
+### 2.8 Pull-to-Refresh on Dashboard and Trends
 
-**Source experts:** Health App UX, Lived Experience
-**Description:** After completing a medication follow-up, the user gets no feedback about the change. Showing "Before: 7/10 -> After: 4/10. Improvement of 3 points" creates a meaningful reward loop and reinforces medication efficacy awareness.
-**What to do:** After saving a follow-up anxiety entry, display a brief summary card showing the pre-dose severity, post-dose severity, and the delta. Auto-dismiss after 5 seconds or on tap.
-**File:** `AnxietyWatch/Views/Medications/DoseAnxietyPromptView.swift`
-**Pros:** Motivational; creates data awareness; reinforces the tracking habit.
-**Cons:** Adds a transient UI element.
-**Risks:** Could feel patronizing if the delta is 0 or negative (medication did not help).
-**Mitigations:** Show the delta neutrally without judgment. "Before: 7, After: 8" is still valid data.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Both experts recommended this.
+- **Source experts:** iOS UI/UX
+- **Description:** `DashboardView` uses a `ScrollView`, so `.refreshable` is not automatic. Add it for re-fetching HealthKit data and refreshing snapshots. Same for `TrendsView`.
+- **Pros:** Standard iOS gesture users expect.
+- **Cons:** None.
+- **Risks:** None.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert. Standard iOS pattern.
 
 ---
 
-### 2.9 Fix Trend Arrow Colors for Context-Dependent Metrics
+### 2.9 Watch Quick Log Improvements
 
-**Source experts:** iOS UI/UX
-**Description:** In `LiveMetricCard`, trend arrows use fixed colors: rising=orange, stable=green, dropping=blue. For HR, rising=orange is correct (caution). But for HRV, rising should be green (positive), not orange. The color should be context-dependent, like `baselineColor` already is for the main value.
-**What to do:** Add a `risingIsGood: Bool` parameter to `LiveMetricCard` (defaulting to `false`). When true, swap the rising/dropping colors.
-**File:** `AnxietyWatch/Views/Dashboard/LiveMetricCard.swift`
-**Pros:** Correct color communication; avoids misleading the user.
-**Cons:** One more parameter.
-**Risks:** Low.
-**Mitigations:** Default to current behavior so only explicitly flagged metrics change.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Single expert, but the bug is clear.
+- **Source experts:** Lived Experience
+- **Description:** (a) Default to last logged severity instead of always 5. (b) Replace modal confirmation alert with auto-dismissing visual flash -- the haptic is enough. (c) Show "Last: 6, 2 hours ago" at the top for context.
+- **Pros:** Fewer interactions during crisis. Better context for rating.
+- **Cons:** Minor complexity.
+- **Risks:** Low.
+- **Mitigations:** Each change is independent.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert with lived experience. Specific, actionable.
 
 ---
 
-### 2.10 Watch Quick Log: Remove Modal Alert, Show Last Entry Context
+### 2.10 Confirmation Dialogs on Destructive Actions
 
-**Source experts:** Lived Experience
-**Description:** The Watch Quick Log shows a modal `alert("Logged")` that requires tapping "OK" to dismiss. The haptic feedback is sufficient confirmation. Additionally, the log defaults to severity 5 every time, but defaulting to the last-logged severity would require less adjustment. Show "Last: 6, 2 hours ago" at the top for context.
-**What to do:** (1) Replace the modal alert with a brief checkmark animation that auto-dismisses. (2) Default the severity to the user's last-logged value. (3) Show last entry severity and time-since at the top of the Quick Log screen.
-**File:** `AnxietyWatch Watch App/QuickLogView.swift`
-**Pros:** Faster interaction; better context for choosing a severity number.
-**Cons:** Defaulting to last value could bias toward repeating the same number.
-**Risks:** Low.
-**Mitigations:** Keep Digital Crown easily adjustable so the default is just a starting point.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Single expert (lived experience), but the suggestions are specific and well-reasoned.
+- **Source experts:** iOS UI/UX
+- **Description:** Swipe-to-delete on journal entries, medication doses, and CPAP sessions has no confirmation. Add `.confirmationDialog` for content-rich items like journal entries.
+- **Pros:** Prevents accidental data loss.
+- **Cons:** One extra tap for deletions.
+- **Risks:** Could feel annoying for frequent deletions.
+- **Mitigations:** Only add for journal entries (user-written content). Doses and CPAP can stay immediate.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
-### 2.11 Move Export/Reports to a More Discoverable Location
+### 2.11 "Today's Summary" Composite Card on Dashboard
 
-**Source experts:** iOS UI/UX, Health App UX
-**Description:** Export and clinical reports are buried in the Settings tab. For an "export-first" app where clinical reports are a key value proposition, this is too hidden. Make reports accessible from the Trends tab via a toolbar button, or add a "Reports" section to the Medications hub.
-**What to do:** Add a toolbar button (document icon) to `TrendsView` that navigates to `ExportView`. Optionally, also add a quick link from `MedicationsHubView` to generate a medication-specific report.
-**Files:** `AnxietyWatch/Views/Trends/TrendsView.swift`, `AnxietyWatch/App/ContentView.swift`
-**Pros:** Core feature becomes discoverable; encourages report sharing with clinicians.
-**Cons:** Toolbar may get crowded.
-**Risks:** Low.
-**Mitigations:** Use a simple icon, not a full button.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Both experts agreed.
+- **Source experts:** Health App UX, Lived Experience
+- **Description:** A card at the top synthesizing: anxiety trend direction, sleep quality last night, HRV vs baseline, medication adherence today. 3-5 bullet points instead of 18 cards. Modeled after Oura's "Readiness Score."
+- **Pros:** Users get the essential picture at a glance.
+- **Cons:** Requires data synthesis logic.
+- **Risks:** Summary could be misleading with sparse data.
+- **Mitigations:** Show data completeness indicators. Don't show until enough data exists.
+- **Effort:** Large
+- **Impact:** High
+- **Expert consensus:** Both experts recommended this. "The dashboard shows numbers; it should tell stories."
 
 ---
 
 ## 3. HealthKit & Data Collection
 
-Improvements to physiological data collection, processing, and interpretation.
+---
+
+### 3.1 Add HKWorkoutType to Read Types
+
+- **Source experts:** HealthKit, Medical
+- **Description:** The app does not read workout sessions. Without this, elevated HR during exercise contaminates baseline calculations and triggers false anxiety-correlation flags. A 45-minute run explains why HR was 160 at 3pm. This is arguably the single biggest data gap.
+- **Pros:** Eliminates exercise-HR false positives. Enables exercise-type correlation and heart rate recovery computation.
+- **Cons:** Additional HealthKit authorization.
+- **Risks:** Low.
+- **Mitigations:** Add to existing authorization batch.
+- **Effort:** Small (reading) to Medium (using for HR filtering)
+- **Impact:** High
+- **Expert consensus:** Both experts independently identified this as the biggest gap. Strong agreement.
 
 ---
 
-### 3.1 Add `HKWorkoutType` Reading
+### 3.2 Add Time in Daylight (iOS 17+)
 
-**Source experts:** HealthKit, Medical
-**Description:** The app does not read workout sessions at all. This is the single biggest HealthKit gap. Workouts provide critical context: a 45-minute run explains why HR was 160 at 3pm and why HRV is suppressed at 5pm. Without workout data, exercise HR contaminates baseline calculations and could trigger false anxiety-correlation flags.
-**What to do:** Add `HKWorkoutType` to `HealthKitManager.allReadTypes`. Create a basic workout query method. Use workout windows to exclude exercise-period HR samples from baseline calculations. Display workout sessions on trend charts as shaded regions. Derive heart rate recovery (HRR) from HR samples immediately post-workout.
-**Files:** `AnxietyWatch/Services/HealthKitManager.swift`, `AnxietyWatch/Services/SnapshotAggregator.swift`, `AnxietyWatch/Services/BaselineCalculator.swift`
-**Pros:** Eliminates exercise-induced false positives in anxiety detection; enables HRR calculation.
-**Cons:** Additional HealthKit authorization prompt; more data processing.
-**Risks:** Low -- additive change.
-**Mitigations:** Gracefully handle case where workout data is unavailable.
-**Effort:** Medium
-**Impact:** High
-**Expert consensus:** Both experts rated this as the highest-priority HealthKit addition.
+- **Source experts:** HealthKit, Medical
+- **Description:** `HKQuantityTypeIdentifier.timeInDaylight` is trivially available on watchOS 10+. Low daylight exposure disrupts circadian rhythm and exacerbates anxiety. Add to `allReadTypes` and `HealthSnapshot`.
+- **Pros:** High anxiety-correlation value. Zero new hardware. Not self-reportable.
+- **Cons:** Only available on watchOS 10+/iOS 17+ (already the minimum target).
+- **Risks:** None.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** High
+- **Expert consensus:** Both experts ranked this as the highest-value single addition. Strong agreement.
 
 ---
 
-### 3.2 Add `timeInDaylight` Reading (iOS 17+)
+### 3.3 Implement HKStateOfMind Writing (iOS 18+)
 
-**Source experts:** HealthKit, Medical
-**Description:** Light exposure regulates circadian rhythm and directly modulates cortisol and anxiety. Available on any Apple Watch running watchOS 10+, trivially easy to add. Low daylight exposure is associated with worsened anxiety and depression.
-**What to do:** Add `HKQuantityTypeIdentifier.timeInDaylight` to `allReadTypes`. Add a `timeInDaylightMin: Int?` field to `HealthSnapshot`. Query and aggregate in `SnapshotAggregator`. Display on Dashboard and in trend charts.
-**Files:** `AnxietyWatch/Services/HealthKitManager.swift`, `AnxietyWatch/Models/HealthSnapshot.swift`, `AnxietyWatch/Services/SnapshotAggregator.swift`
-**Pros:** High clinical value for anxiety; trivial implementation; no other anxiety app does this well.
-**Cons:** Only available on watchOS 10+ devices.
-**Risks:** Very low.
-**Mitigations:** Already guarded by platform availability checks.
-**Effort:** Small
-**Impact:** High
-**Expert consensus:** Both experts independently identified this as the top single-metric addition.
+- **Source experts:** HealthKit
+- **Description:** Apple's mental health journaling API (iOS 18). Write anxiety severity as `HKStateOfMind` when users log journal entries. Anxiety data becomes visible in Apple Health's Mental Wellbeing section.
+- **Pros:** Bidirectional data flow with Apple Health. Anxiety data visible in Health app.
+- **Cons:** iOS 18+ only. Requires write authorization.
+- **Risks:** Users may not want anxiety data in Health app.
+- **Mitigations:** Opt-in setting. `#available(iOS 18, *)` guard.
+- **Effort:** Medium
+- **Impact:** High
+- **Expert consensus:** Single expert. Identified as "the single most strategically important addition."
 
 ---
 
-### 3.3 Add `physicalEffort` Reading (iOS 17+)
+### 3.4 Add Physical Effort (iOS 17+) to Read Types
 
-**Source experts:** HealthKit, Medical
-**Description:** `HKQuantityTypeIdentifier.physicalEffort` rates physical effort as low/moderate/vigorous in real time. Better than exercise minutes alone for distinguishing "elevated HR from exercise" versus "elevated HR from anxiety." This is a key disambiguator for the app's core use case.
-**What to do:** Add to `allReadTypes`. Use as a filter when evaluating whether an elevated HR reading is exercise-related or anxiety-related.
-**File:** `AnxietyWatch/Services/HealthKitManager.swift`
-**Pros:** Directly improves accuracy of anxiety detection algorithms.
-**Cons:** Adds another metric to manage.
-**Risks:** Low.
-**Mitigations:** Use as a filter/context signal, not as a displayed metric.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Both experts recommended this.
+- **Source experts:** HealthKit
+- **Description:** `HKQuantityTypeIdentifier.physicalEffort` rates effort levels in real time. Better than exercise minutes alone for distinguishing "elevated HR from exercise" vs "elevated HR from anxiety."
+- **Pros:** Key disambiguator for this use case.
+- **Cons:** None.
+- **Risks:** None.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert. Clear rationale.
 
 ---
 
-### 3.4 Implement `HKStateOfMind` Writing (iOS 18+)
+### 3.5 Derive Overnight HRV as Separate Snapshot Field
 
-**Source experts:** HealthKit
-**Description:** Apple's new mental health API for iOS 18. Supports logging valence, emotions, and associations. The app's anxiety severity scale maps directly. Writing `HKStateOfMind` samples makes anxiety data visible in Apple Health's Mental Wellbeing section and enables bidirectional data flow with other mental health apps.
-**What to do:** When saving an `AnxietyEntry`, also write an `HKStateOfMind` sample to HealthKit. Map severity 1-10 to valence -1.0 to +1.0. Map journal tags to associations (e.g., "work" -> `.work`). Add `HKStateOfMind` to the `toShare` set and request write authorization.
-**Files:** `AnxietyWatch/Services/HealthKitManager.swift`, `AnxietyWatch/Views/Journal/AddJournalEntryView.swift` (or wherever entries are saved)
-**Pros:** Integrates with Apple's mental health ecosystem; makes data available to other apps.
-**Cons:** iOS 18+ only; requires write authorization.
-**Risks:** Users may be surprised to see anxiety data in Apple Health.
-**Mitigations:** Make it a user-facing toggle in Settings ("Share anxiety data with Apple Health"). Default on, easily discoverable.
-**Effort:** Medium
-**Impact:** High
-**Expert consensus:** Single expert identified this as "the single most strategically important addition."
+- **Source experts:** Medical, HealthKit
+- **Description:** HRV during sleep removes confounds from daytime activity, caffeine, and posture. Add `hrvOvernightAvg` to `HealthSnapshot` using the existing noon-to-noon window.
+- **Pros:** More clinically interpretable than all-day HRV. Already have the data.
+- **Cons:** Adds another field.
+- **Risks:** Low.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** High
+- **Expert consensus:** Both experts recommended this.
 
 ---
 
-### 3.5 Derive Overnight HRV as a Separate Snapshot Field
+### 3.6 Add Sleep Onset Latency Derivation
 
-**Source experts:** Medical
-**Description:** HRV during sleep is a cleaner measure of autonomic state because it removes confounds from daytime activity, caffeine, posture changes, etc. The app already uses a noon-to-noon window for respiratory rate and SpO2. Apply the same window to HRV and store as `hrvOvernightAvg`.
-**What to do:** Add `hrvOvernightAvg: Double?` to `HealthSnapshot`. In `SnapshotAggregator`, query HRV samples within the overnight window (same as respiratory rate) and compute the average.
-**Files:** `AnxietyWatch/Models/HealthSnapshot.swift`, `AnxietyWatch/Services/SnapshotAggregator.swift`
-**Pros:** More clinically valid metric; better baseline comparison.
-**Cons:** Another field to maintain.
-**Risks:** Low.
-**Mitigations:** Add alongside existing `hrvAvg`, not replacing it.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Single expert (medical), but the clinical reasoning is strong.
+- **Source experts:** Medical
+- **Description:** Derive time between first "inBed" and first "asleep" from existing sleep stage data. Prolonged onset (>30 min) is a hallmark anxiety symptom. Zero new data sources needed.
+- **Pros:** High clinical value. Derivable from existing data.
+- **Cons:** Depends on accurate "inBed" detection.
+- **Risks:** Apple Watch inBed detection can be unreliable.
+- **Mitigations:** Only show when both timestamps are available.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert. Well-supported by literature.
 
 ---
 
-### 3.6 Store `daysSupply` on the Prescription Model
+### 3.7 Use HKCorrelation for Blood Pressure Pairing
 
-**Source experts:** Pharmacy
-**Description:** The CapRx API returns `days_supply` and the server uses it to compute `estimatedRunOutDate`, but the actual integer is not stored on the Swift `Prescription` model. Days supply is a first-class pharmacy concept -- it drives insurance refill eligibility calculations and is more reliable than computing from quantity and daily dose count. The PBM already calculated it.
-**What to do:** Add `daysSupply: Int?` to the `Prescription` model. Pass through from the server's `normalize_claim` output. Use `dateFilled + daysSupply` as the primary run-out date calculation when available, falling back to the current `quantity / dailyDoseCount` method.
-**Files:** `AnxietyWatch/Models/Prescription.swift`, `AnxietyWatch/Services/SyncService.swift`, `AnxietyWatch/Services/PrescriptionSupplyCalculator.swift`, `server/app.py` or `server/schema.sql`
-**Pros:** More accurate supply calculations; fixes the staleness filter issue (1.5).
-**Cons:** Requires schema migration on both server and client.
-**Risks:** Medium -- migration required.
-**Mitigations:** Make the field optional. Existing prescriptions remain valid with nil `daysSupply`.
-**Effort:** Medium
-**Impact:** High
-**Expert consensus:** Single expert, but the pharmacy operations rationale is compelling.
+- **Source experts:** HealthKit
+- **Description:** BP readings are stored as `HKCorrelation` pairing systolic and diastolic. Currently queried independently, risking mismatch. Query `HKCorrelationType(.bloodPressure)` instead.
+- **Pros:** Correctly paired BP readings.
+- **Cons:** Slightly more complex query.
+- **Risks:** Low.
+- **Mitigations:** Fall back to independent queries if correlation query returns empty.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
-### 3.7 Add Baselines for Sleep Duration and Respiratory Rate
+### 3.8 Add Apple Sleeping Breathing Disturbances (iOS 18+)
 
-**Source experts:** HealthKit, Medical
-**Description:** Currently only HRV and resting HR have baseline calculations. Sleep duration baseline deviation is one of the strongest predictors of next-day anxiety episodes. Respiratory rate deviation is also clinically relevant.
-**What to do:** Extend `BaselineCalculator` to compute baselines for `sleepDurationMin` and `respiratoryRate`. Display baseline bands on the corresponding trend charts. Fire baseline alerts when these metrics deviate significantly.
-**Files:** `AnxietyWatch/Services/BaselineCalculator.swift`, `AnxietyWatch/Views/Dashboard/DashboardView.swift`
-**Pros:** More comprehensive baseline alerting; sleep deviation is highly predictive.
-**Cons:** More alerts could increase noise.
-**Risks:** Alert fatigue.
-**Mitigations:** Make baseline alerts per-metric toggleable in Settings.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Both experts recommended this.
+- **Source experts:** HealthKit
+- **Description:** Apple's native AHI equivalent. Provides a fallback for nights without the CPAP machine.
+- **Pros:** Apple-native AHI for non-CPAP nights.
+- **Cons:** iOS 18+ only.
+- **Risks:** Low.
+- **Mitigations:** `#available` guard.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
-### 3.8 Use `HKCorrelationType(.bloodPressure)` for Paired BP Readings
+### 3.9 Add Baselines for Sleep Duration and Respiratory Rate
 
-**Source experts:** HealthKit
-**Description:** BP readings in HealthKit are stored as `HKCorrelation` objects containing paired systolic and diastolic samples. The current implementation queries them as independent quantity types, which could theoretically mismatch AM systolic with PM diastolic when averaging.
-**What to do:** Query `HKCorrelationType(.bloodPressure)` and extract paired values from each correlation.
-**File:** `AnxietyWatch/Services/HealthKitManager.swift`
-**Pros:** Correctly paired BP readings; more accurate daily averages.
-**Cons:** More complex query code.
-**Risks:** Low.
-**Mitigations:** Keep the existing query as a fallback if correlations aren't available.
-**Effort:** Small
-**Impact:** Low (unless multiple daily BP readings are common)
-**Expert consensus:** Single expert.
+- **Source experts:** HealthKit, Medical
+- **Description:** Only HRV and resting HR have baselines currently. Sleep duration deviation is one of the strongest predictors of next-day anxiety. Add baselines for at least sleep minutes and respiratory rate.
+- **Pros:** Catches sleep-related anxiety predictors.
+- **Cons:** More alerts to manage.
+- **Risks:** Alert fatigue.
+- **Mitigations:** Prioritize sleep baseline. Use configurable per-metric thresholds.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Both experts recommended this.
+
+---
+
+### 3.10 Write Mindful Session to HealthKit on Journal Entry
+
+- **Source experts:** HealthKit
+- **Description:** Write `HKCategoryTypeIdentifier.mindfulSession` when users log journal entries. Integrates with Apple's Mindfulness ecosystem.
+- **Pros:** Journaling contributes to Apple Health mindfulness data.
+- **Cons:** Requires write authorization.
+- **Risks:** Low.
+- **Mitigations:** Opt-in.
+- **Effort:** Small
+- **Impact:** Low
+- **Expert consensus:** Single expert.
 
 ---
 
 ## 4. Architecture & Code Quality
 
-Structural improvements that reduce maintenance burden and improve testability.
+---
+
+### 4.1 Extract DashboardViewModel from DashboardView
+
+- **Source experts:** Refactoring, iOS UI/UX
+- **Description:** `DashboardView.swift` (703 lines) contains data loading, baseline computation, supply alert filtering, trend computation, color mapping, and sync orchestration in private methods on the view struct. None is testable. Extract into a `DashboardViewModel` using `@Observable`.
+- **Pros:** 700 lines of logic become testable. View becomes purely declarative. Follows CLAUDE.md convention.
+- **Cons:** Significant refactoring effort.
+- **Risks:** Regressions during extraction.
+- **Mitigations:** Write tests for the extracted view model that validate existing behavior before changing the view.
+- **Effort:** Medium
+- **Impact:** High
+- **Expert consensus:** Both experts agreed this is the highest-value refactoring.
 
 ---
 
-### 4.1 Extract `DashboardViewModel` from `DashboardView`
+### 4.2 Extract Shared Supply Alert Filtering
 
-**Source experts:** iOS UI/UX, Refactoring
-**Description:** `DashboardView.swift` is 703 lines and contains extensive business logic: sample loading, baseline computation, supply alert filtering, trend calculation, color mapping, sync orchestration. All of this is in private methods on the view, making it untestable. Extract into a `DashboardViewModel` using `@Observable`.
-**What to do:** Create `DashboardViewModel` holding all `@State` properties, the sample grouping, baseline computation, supply alert filtering, and refresh/sync orchestration. The view subscribes to the view model's published properties and just renders.
-**Files:** New `AnxietyWatch/Views/Dashboard/DashboardViewModel.swift`, refactor `AnxietyWatch/Views/Dashboard/DashboardView.swift`
-**Pros:** Makes 700 lines of logic testable; view becomes a thin rendering layer; follows project's own CLAUDE.md convention.
-**Cons:** Larger refactor; risk of introducing regressions.
-**Risks:** Medium -- many moving parts.
-**Mitigations:** Extract incrementally (e.g., move supply alerts first, then baselines, then samples). Add tests for each extracted method.
-**Effort:** Medium
-**Impact:** High
-**Expert consensus:** Both experts identified this as the highest-value refactoring.
+- **Source experts:** Refactoring
+- **Description:** Supply alert filtering (staleness + inactive medication + status filter) is duplicated in DashboardView, MedicationsHubView, and PrescriptionListView. Extract into a single `SupplyAlertFilter` utility.
+- **Pros:** Eliminates triple duplication. Single source of truth.
+- **Cons:** None.
+- **Risks:** Low.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** High
+- **Expert consensus:** Single expert. Clear-cut duplication.
 
 ---
 
-### 4.2 Extract Shared `SupplyAlertFilter` Utility
+### 4.3 Extract `severityColor` to Shared Utility
 
-**Source experts:** Refactoring
-**Description:** The supply alert filtering logic (staleness cutoff + inactive medication check + status filter) is duplicated in three places: `DashboardView`, `MedicationsHubView`, and `PrescriptionListView`. Extract into a single shared function.
-**What to do:** Create a `SupplyAlertFilter` (or extension on `PrescriptionSupplyCalculator`) with a static method that takes prescriptions and medication definitions and returns filtered/categorized results.
-**Files:** `AnxietyWatch/Services/PrescriptionSupplyCalculator.swift` (add method), update three view files
-**Pros:** Eliminates triple duplication; single place to fix the staleness logic (item 1.5).
-**Cons:** None.
-**Risks:** Low.
-**Mitigations:** Add tests for the extracted filter.
-**Effort:** Small
-**Impact:** High
-**Expert consensus:** Single expert, but the duplication is factual and verified.
+- **Source experts:** iOS UI/UX, Refactoring
+- **Description:** `severityColor` is duplicated in 6+ places. `anxietyColor` duplicated in 3 trend charts. Extract to a single `Int` extension or shared function.
+- **Pros:** Eliminates divergence risk. One place to adjust the color scale.
+- **Cons:** None.
+- **Risks:** None.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Both flagged independently.
 
 ---
 
-### 4.3 Extract `severityColor` to a Shared Utility
+### 4.4 Delete Dead Code: MedicationListView.swift
 
-**Source experts:** iOS UI/UX, Refactoring
-**Description:** `severityColor` (mapping severity 1-10 to a color) is duplicated in 6+ files: `DashboardView`, `AddJournalEntryView`, `JournalEntryDetailView`, `DoseAnxietyPromptView`, `AnxietySeverityChart`, `HRVTrendChart`, `HeartRateTrendChart`, `BarometricTrendChart`. Any divergence means inconsistent colors across the app.
-**What to do:** Create an extension `Int.severityColor: Color` or a static function in `Constants.swift` / a new `AnxietyScale.swift`. Replace all copies.
-**File:** New `AnxietyWatch/Utilities/AnxietyScale.swift` (or add to `Constants.swift`), update all 6+ files
-**Pros:** Single source of truth for severity colors; enables the anchored-scale work (item 2.4).
-**Cons:** None.
-**Risks:** Very low.
-**Mitigations:** Compile-time guarantee that all call sites are updated.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Both experts flagged this independently.
+- **Source experts:** iOS UI/UX, Health App UX, Refactoring
+- **Description:** `MedicationListView` is a near-exact duplicate of the Quick Log + Recent Doses sections of `MedicationsHubView`. Never referenced in navigation. Delete or merge unique code.
+- **Pros:** Removes maintenance liability and divergence risk.
+- **Cons:** None.
+- **Risks:** Verify it is truly unreachable.
+- **Mitigations:** Search for all references before removal.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Three experts noted the duplication.
 
 ---
 
-### 4.4 Delete `MedicationListView.swift` (Dead Code)
+### 4.5 Replace `try?` Error Swallowing with Logging
 
-**Source experts:** iOS UI/UX, Health App UX, Refactoring
-**Description:** `MedicationListView` is a near-exact duplicate of the Quick Log + Recent Doses sections of `MedicationsHubView`. It is never referenced in the current navigation flow -- no `NavigationLink` points to it. It is dead code and a maintenance liability.
-**What to do:** Delete `AnxietyWatch/Views/Medications/MedicationListView.swift`. Verify no references remain (build should confirm).
-**File:** Delete `AnxietyWatch/Views/Medications/MedicationListView.swift`
-**Pros:** Less code to maintain; removes confusion about which view is canonical.
-**Cons:** None.
-**Risks:** Very low (verify it's truly unreferenced first).
-**Mitigations:** Search for all references before deleting.
-**Effort:** Small
-**Impact:** Low (maintenance quality)
-**Expert consensus:** Three experts flagged this.
+- **Source experts:** Refactoring, Developer Experience
+- **Description:** Pervasive `try?` throughout `HealthDataCoordinator`, `DashboardView`, `PhoneConnectivityManager` silently discards errors. Replace with `do/catch` + `os.Logger`.
+- **Pros:** Surfaces silent failures. Makes debugging possible.
+- **Cons:** Slightly more verbose.
+- **Risks:** None.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Both experts flagged this.
 
 ---
 
-### 4.5 Replace `try?` Swallowing with `do/catch` + Logging
+### 4.6 Add `#Unique` Constraint on CPAPSession.date and HealthSample Dedup
 
-**Source experts:** Refactoring, Developer Experience
-**Description:** Throughout the codebase, errors are silently discarded with `try?`: `HealthDataCoordinator.backfillIfNeeded()`, `fillGaps()`, `pruneOldSamples()`, `insertSamples()`, `DashboardView.refreshSnapshot()`, `PhoneConnectivityManager.handleIncoming()`. If aggregation fails systemically, all 90+ days fail with no indication.
-**What to do:** Replace `try?` with `do { try ... } catch { Logger.service.error("...") }` using `os.Logger`. Add a shared `Logger` definition in utilities.
-**Files:** Multiple: `HealthDataCoordinator.swift`, `DashboardView.swift`, `PhoneConnectivityManager.swift`
-**Pros:** Surfaces silent failures; makes debugging feasible.
-**Cons:** Slightly more verbose code.
-**Risks:** Low.
-**Mitigations:** Use `os.Logger` for structured, filterable logging.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Both experts recommended structured logging.
+- **Source experts:** Refactoring, HealthKit
+- **Description:** Nothing prevents duplicate CPAP sessions from re-import. `HealthSample` insertion has no dedup check; anchor persistence failure replays create duplicates that skew averages. Add constraints and dedup checks.
+- **Pros:** Data integrity.
+- **Cons:** Migration consideration for existing data.
+- **Risks:** Medium for `#Unique` on existing models (migration).
+- **Mitigations:** Add dedup checks in importers first (low risk), then add constraints.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Both experts (different domains) flagged related issues.
 
 ---
 
-### 4.6 Add `#Unique` Constraint on `CPAPSession.date` and Dedup on Import
+### 4.7 Log HealthKit Errors Instead of Silently Discarding
 
-**Source experts:** Refactoring
-**Description:** No unique constraint prevents duplicate CPAP sessions for the same date from CSV re-import. The importer does not check for existing sessions.
-**What to do:** Add `#Unique([\.date])` to `CPAPSession`. Add a deduplication check in `CPAPImporter` before inserting.
-**Files:** `AnxietyWatch/Models/CPAPSession.swift`, `AnxietyWatch/Services/CPAPImporter.swift`
-**Pros:** Prevents data corruption on re-import.
-**Cons:** Requires SwiftData migration consideration.
-**Risks:** Medium -- existing duplicate data could cause migration failure.
-**Mitigations:** Before adding the constraint, add a migration step that deduplicates existing records.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Single expert, but the risk is real.
+- **Source experts:** HealthKit
+- **Description:** Both `enableBackgroundDelivery` handlers and anchored query error handlers silently discard errors. Actionable errors like `HKError.errorAuthorizationDenied` are invisible.
+- **Pros:** Enables debugging of HealthKit issues.
+- **Cons:** None.
+- **Risks:** None.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert. Overlaps with 4.5.
 
 ---
 
-### 4.7 Extract `PrescriptionImporter` from `SyncService`
+### 4.8 Convert Raw String Fields to Swift Enums
 
-**Source experts:** Refactoring
-**Description:** `SyncService.fetchPrescriptions` (115 lines) does complex JSON parsing and upsert logic that is logically separate from sync orchestration. `findOrCreateMedication` and `backfillMedicationLinks` are static methods on `SyncService` that have nothing to do with syncing.
-**What to do:** Extract prescription import logic into a new `PrescriptionImporter` service. Move `findOrCreateMedication` and `backfillMedicationLinks` there. This makes the complex upsert logic independently testable.
-**Files:** New `AnxietyWatch/Services/PrescriptionImporter.swift`, refactor `AnxietyWatch/Services/SyncService.swift`
-**Pros:** Separation of concerns; testable JSON-to-model mapping.
-**Cons:** One more file.
-**Risks:** Low.
-**Mitigations:** Maintain the same public API for `SyncService`; it just delegates to the new importer.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Single expert.
-
----
-
-### 4.8 Add `HealthSample` Deduplication
-
-**Source experts:** HealthKit
-**Description:** The `insertSamples` method in `HealthDataCoordinator` inserts every sample without checking for duplicates. If anchor persistence fails (e.g., app crash), the next launch replays those samples. No unique constraint on `(type, timestamp, value)`.
-**What to do:** Add a dedup check before inserting: query for existing samples with the same type and timestamp within a small window. Alternatively, add a `#Unique` constraint.
-**File:** `AnxietyWatch/Services/HealthDataCoordinator.swift`
-**Pros:** Prevents duplicate data points that can skew averages.
-**Cons:** Slightly slower insertion.
-**Risks:** Low.
-**Mitigations:** For sparkline display, duplicates are cosmetic. Prioritize if average calculations are performed on cached samples.
-**Effort:** Small
-**Impact:** Low
-**Expert consensus:** Single expert.
-
----
-
-### 4.9 Add `FetchDescriptor` Date Filter to Dashboard `loadSamples()`
-
-**Source experts:** iOS UI/UX
-**Description:** The `FetchDescriptor` for `HealthSample` fetches ALL records. For 13 anchored queries producing hundreds of samples per day over months, this is an unbounded memory growth risk.
-**What to do:** Add a date filter (e.g., last 7 days) to the `FetchDescriptor` in `loadSamples()`.
-**File:** `AnxietyWatch/Views/Dashboard/DashboardView.swift` (or `DashboardViewModel` after item 4.1)
-**Pros:** Bounded memory; faster load.
-**Cons:** None.
-**Risks:** Low.
-**Mitigations:** Verify sparklines still have enough data points.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Single expert.
+- **Source experts:** Refactoring
+- **Description:** `PharmacyCallLog.direction`, `CPAPSession.importSource`, `Prescription.importSource`, and `HealthSample.type` use raw strings where enums would be safer.
+- **Pros:** Compiler-enforced valid values.
+- **Cons:** Requires migration-safe raw values.
+- **Risks:** Low with raw string backing.
+- **Mitigations:** Use `String`-backed enums.
+- **Effort:** Small per item
+- **Impact:** Low
+- **Expert consensus:** Single expert.
 
 ---
 
 ## 5. Developer Experience
 
-Changes that improve the development workflow, testing infrastructure, and tooling.
+---
+
+### 5.1 Create a Makefile for Common Commands
+
+- **Source experts:** Developer Experience
+- **Description:** No `Makefile` or equivalent. Every command must be remembered or copied from CLAUDE.md. Create one with targets: `build`, `test`, `test-server`, `lint`, `server-up`, `server-down`, `generate-version`, `coverage`.
+- **Pros:** Every action becomes a one-word command.
+- **Cons:** One more file to maintain.
+- **Risks:** None.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** High
+- **Expert consensus:** Single expert. Identified as highest-impact DX change.
 
 ---
 
-### 5.1 Create a Makefile with Standard Targets
+### 5.2 Add SwiftUI `#Preview` Blocks and SampleData
 
-**Source experts:** Developer Experience
-**Description:** No `Makefile`, `Justfile`, or `Taskfile` exists. Every command must be remembered or copy-pasted from CLAUDE.md. Common operations like build, test, lint, server-up are multi-word commands that are easy to mistype.
-**What to do:** Create a `Makefile` at project root with targets: `build`, `test`, `test-server`, `lint`, `server-up`, `server-down`, `generate-version`, `coverage`, `setup`.
-**File:** New `/Users/chris/Source/AnxietyWatch/Makefile`
-**Pros:** One-word commands for all common operations; reduces cognitive load.
-**Cons:** One more file to maintain.
-**Risks:** Low.
-**Mitigations:** Keep targets thin (just wrapping the underlying commands).
-**Effort:** Small
-**Impact:** High
-**Expert consensus:** Single expert, rated as their #1 recommendation.
+- **Source experts:** Developer Experience
+- **Description:** Zero `#Preview` providers in the entire codebase. Every UI change requires full build-and-run. Add previews to the 5 most-used views. Create a `SampleData.swift` utility reusable across previews, tests, and demo mode.
+- **Pros:** Cuts edit-preview cycle from minutes to seconds. Sample data reusable for tests and screenshots.
+- **Cons:** Initial setup effort.
+- **Risks:** Preview data diverging from real patterns.
+- **Mitigations:** Use SampleData in tests too.
+- **Effort:** Medium
+- **Impact:** High
+- **Expert consensus:** Single expert. Standard iOS practice.
 
 ---
 
-### 5.2 Create Shared `TestHelpers.swift` and `ModelFactory.swift`
+### 5.3 Shared TestHelpers.swift and ModelFactory.swift
 
-**Source experts:** Developer Experience
-**Description:** Every test file creates its own `makeContainer()` with a different subset of models. There are no shared factory methods for test models. The schema list must stay in sync with `AnxietyWatchApp.swift` manually. `BaselineCalculatorTests` uses `Date.now` violating the project's fixed-date convention.
-**What to do:** Create `TestHelpers.swift` with a `makeFullContainer()` that includes ALL models (matching `AnxietyWatchApp.swift`). Create `ModelFactory.swift` with static factory methods: `makeHealthSnapshot(daysAgo:hrvAvg:)`, `makePrescription(...)`, etc.
-**Files:** New `AnxietyWatchTests/TestHelpers.swift`, new `AnxietyWatchTests/ModelFactory.swift`
-**Pros:** Eliminates schema drift bugs; makes writing new tests fast; single source of truth.
-**Cons:** Need to update existing tests to use the shared helpers (one-time effort).
-**Risks:** Low.
-**Mitigations:** Can be adopted incrementally -- new tests use shared helpers, old tests migrated over time.
-**Effort:** Small
-**Impact:** High
-**Expert consensus:** Single expert, rated as their #4 recommendation.
+- **Source experts:** Developer Experience
+- **Description:** Every test file creates its own `makeContainer()` with different model subsets. No shared factory methods. The schema list must stay in sync manually. Create a shared `makeFullContainer()` and `ModelFactory` with static factory methods.
+- **Pros:** Eliminates schema drift in tests. Makes writing new tests faster.
+- **Cons:** Initial migration of existing tests.
+- **Risks:** Low.
+- **Mitigations:** Migrate incrementally.
+- **Effort:** Small
+- **Impact:** High
+- **Expert consensus:** Single expert.
 
 ---
 
-### 5.3 Add `#Preview` Blocks and `SampleData.swift`
+### 5.4 Wire generate-version.sh into Xcode Build Phases
 
-**Source experts:** Developer Experience
-**Description:** Zero SwiftUI `#Preview` providers exist. Every UI change requires a full build-and-run cycle. No mock data generators. HealthKit provides no data in the simulator.
-**What to do:** Create `SampleData.swift` that populates a `ModelContainer` with realistic test data (7 days of snapshots, journal entries, prescriptions, CPAP sessions, medications). Add `#Preview` blocks to the 5 most-used views: `DashboardView`, `JournalListView`, `MedicationsHubView`, `TrendsView`, `AddJournalEntryView`.
-**Files:** New `AnxietyWatch/Utilities/SampleData.swift`, update 5 view files
-**Pros:** Cuts the edit-preview cycle from minutes to seconds; reusable for screenshots and demos.
-**Cons:** Sample data must be maintained as models evolve.
-**Risks:** Preview code could diverge from runtime behavior.
-**Mitigations:** Use the same `ModelContainer` configuration as the app.
-**Effort:** Medium
-**Impact:** High
-**Expert consensus:** Single expert, rated as their #2 recommendation.
+- **Source experts:** Xcode/Claude Code Tooling
+- **Description:** `generate-version.sh` runs in CI but not local builds. `BuildVersion.swift` is gitignored and becomes stale. Add a Run Script build phase before "Compile Sources."
+- **Pros:** Every local build gets the correct commit hash.
+- **Cons:** Adds a build phase.
+- **Risks:** Low.
+- **Mitigations:** Mark output file so Xcode knows it is generated.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
-### 5.4 Add watchOS Build Step to CI
+### 5.5 Add HealthKitManager Protocol for Mock Data
 
-**Source experts:** Developer Experience, Xcode/Claude Code Tooling
-**Description:** No CI workflow builds the watchOS target. A breaking change to the Watch app won't be caught until manual testing.
-**What to do:** Add a step to `ios-ci.yml`: `xcodebuild build -scheme "AnxietyWatch Watch App" -destination 'generic/platform=watchOS Simulator'`.
-**File:** `.github/workflows/ios-ci.yml`
-**Pros:** Catches Watch build failures automatically.
-**Cons:** Adds CI time (~1-2 min).
-**Risks:** Low.
-**Mitigations:** Run in parallel with the iOS build step.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Both experts mentioned this.
+- **Source experts:** Developer Experience
+- **Description:** The app is data-driven but the simulator has no HealthKit data. Create a protocol abstraction and `MockHealthKitManager` with static data, used in simulator builds.
+- **Pros:** Development feasible without a physical device. Previews show realistic data.
+- **Cons:** Maintaining mock alongside real implementation.
+- **Risks:** Mock diverging from real behavior.
+- **Mitigations:** Use `#if targetEnvironment(simulator)` conditional compilation.
+- **Effort:** Medium
+- **Impact:** High
+- **Expert consensus:** Single expert.
 
 ---
 
-### 5.5 Add SwiftLint Step to iOS CI
+### 5.6 Add watchOS Build Step to CI
 
-**Source experts:** Developer Experience
-**Description:** `.swiftlint.yml` exists with good configuration but never runs in CI. Lint issues are only caught if developers remember to run it locally.
-**What to do:** Add a lint step to `ios-ci.yml`: `brew install swiftlint && swiftlint lint --reporter github-actions-logging`.
-**File:** `.github/workflows/ios-ci.yml`
-**Pros:** Enforces code style consistently.
-**Cons:** Adds ~30s to CI.
-**Risks:** May surface many existing warnings.
-**Mitigations:** Run SwiftLint locally first and fix existing issues, or start with `--strict` on only new/changed files.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Single expert.
+- **Source experts:** Developer Experience
+- **Description:** No CI workflow builds the watchOS target. Breaking changes are uncaught. Add a watchOS build step to ios-ci.yml.
+- **Pros:** Catches watch compile errors.
+- **Cons:** Adds CI time.
+- **Risks:** Low.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
-### 5.6 Replace `print()` with `os.Logger`
+### 5.7 Expand AGENTS.md with Tool Guidance
 
-**Source experts:** Developer Experience, Refactoring
-**Description:** Error logging uses `print()` throughout. No structured logging. No way to filter by subsystem/category in Console.app.
-**What to do:** Create a shared `Logger` definition: `extension Logger { static let sync = Logger(subsystem: "com.anxietywatch", category: "sync") }` etc. Replace `print()` calls with appropriate `Logger` calls.
-**Files:** New `AnxietyWatch/Utilities/Logging.swift`, multiple service files
-**Pros:** Structured, filterable logging; survives release builds (unlike print).
-**Cons:** Migration effort across multiple files.
-**Risks:** Low.
-**Mitigations:** Adopt incrementally, starting with services.
-**Effort:** Medium
-**Impact:** Medium
-**Expert consensus:** Both experts recommended this.
+- **Source experts:** Xcode/Claude Code Tooling
+- **Description:** Current AGENTS.md is 7 lines. Should document XcodeBuildMCP vs raw xcodebuild usage, coverage workflow, and available tools.
+- **Pros:** Better agent behavior in multi-agent workflows.
+- **Cons:** Documentation maintenance.
+- **Risks:** None.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
-### 5.7 Fix CLAUDE.md Documentation Inconsistencies
+### 5.8 Add SwiftLint Step to CI
 
-**Source experts:** Developer Experience, Xcode/Claude Code Tooling
-**Description:** Multiple inconsistencies: (1) Two different `xcodebuild test` destinations in Commands vs Testing sections. (2) CI table says 3 workflows but there are 4. (3) No mention of `scripts/generate-version.sh`. (4) No first-time setup section.
-**What to do:** Reconcile `xcodebuild test` to use `generic/platform=iOS Simulator` consistently. Update CI table to include `ios-ci.yml`. Add a "First-time Setup" section. Document `generate-version.sh`.
-**File:** `CLAUDE.md`
-**Pros:** Reduces confusion for agent-assisted development.
-**Cons:** None.
-**Risks:** Low.
-**Mitigations:** None needed.
-**Effort:** Small
-**Impact:** Low
-**Expert consensus:** Both experts identified documentation gaps.
+- **Source experts:** Developer Experience
+- **Description:** SwiftLint is configured (`.swiftlint.yml`) but never runs in CI. Add a lint step to `ios-ci.yml`.
+- **Pros:** Catches lint issues automatically.
+- **Cons:** Minor CI time addition.
+- **Risks:** Low.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
 ## 6. Clinical / Medical Value
 
-Features that increase the app's value for clinical insights and psychiatric care.
+---
+
+### 6.1 Add Medication Dose Markers on Trend Charts
+
+- **Source experts:** Health App UX, Medical
+- **Description:** No trend chart shows when medications were taken. For anxiety tracking, knowing when benzos were taken relative to HRV changes is critical. Add dose markers (pill icons or rule marks) on Anxiety and HRV trend charts.
+- **Pros:** Unlocks the core correlation insight. Makes medication effects visually obvious.
+- **Cons:** Chart complexity.
+- **Risks:** Visual clutter with many doses.
+- **Mitigations:** Filter to relevant categories (benzos, stimulants). Make overlay toggleable.
+- **Effort:** Medium
+- **Impact:** High
+- **Expert consensus:** Both recommended this. Strong agreement.
 
 ---
 
-### 6.1 Add Medication Dose Markers to Trend Charts
+### 6.2 Build Medication Pattern Engine
 
-**Source experts:** Health App UX, Medical
-**Description:** No trend chart shows when medications were taken. For an anxiety tracking app, knowing when benzos were taken relative to HRV changes or anxiety entries is critical. Dose markers should appear as vertical rule marks or small pill icons on the HRV and Anxiety charts at minimum.
-**What to do:** Query `MedicationDose` records for the displayed time window. Add `RuleMark` or `PointMark` annotations at each dose timestamp on the Anxiety Severity and HRV trend charts.
-**Files:** `AnxietyWatch/Views/Trends/AnxietySeverityChart.swift`, `AnxietyWatch/Views/Trends/HRVTrendChart.swift`
-**Pros:** Unlocks the core correlation insight -- visual connection between medication timing and physiological changes.
-**Cons:** Chart visual complexity increases.
-**Risks:** Cluttered charts if many doses per day.
-**Mitigations:** Use subtle markers (small dots or thin rule marks); filter to show only medications in categories that matter (benzos, stimulants).
-**Effort:** Medium
-**Impact:** High
-**Expert consensus:** Both experts independently recommended this as high-priority.
+- **Source experts:** Medical
+- **Description:** Category-specific pattern analysis: (a) Benzo: rolling PRN frequency + efficacy decay (before/after severity delta over time) + rebound anxiety detection. (b) SSRI: onset lag tracking with expected timeline + activation syndrome detection. (c) Stimulant: peak-effect vs wearing-off anxiety correlation. All infrastructure exists; this is computation on existing data.
+- **Pros:** Uniquely valuable clinical data. Benzo tolerance detection is "extremely valuable" for psychiatrists. SSRI onset tracking reduces premature discontinuation.
+- **Cons:** Complex logic requiring clinical validation.
+- **Risks:** False positives causing alarm. Over-interpreting patterns.
+- **Mitigations:** Frame as observations, not diagnoses ("usage frequency has increased" not "you are developing tolerance"). Require minimum sample sizes.
+- **Effort:** Large
+- **Impact:** High
+- **Expert consensus:** Single expert. Well-documented evidence base per medication class.
 
 ---
 
-### 6.2 Add Dose-Anxiety Efficacy Section to Clinical Report
+### 6.3 Embed Charts in PDF Clinical Report
 
-**Source experts:** Health App UX, Lived Experience
-**Description:** The medication section of the PDF report shows dose counts per day but does not report before/after anxiety deltas from the dose prompt system. This is uniquely valuable clinical data: "Patient self-reported anxiety decreased an average of 2.3 points within 30 minutes of lorazepam across N=12 administrations this month."
-**What to do:** In `ReportGenerator`, query `AnxietyEntry` pairs where `isFollowUp == true` and their corresponding pre-dose entries (linked by `followUpDoseId`). Compute: average pre-dose severity, average post-dose severity, average delta, number of observations. Add as a "Medication Efficacy" section in the PDF.
-**File:** `AnxietyWatch/Services/ReportGenerator.swift`
-**Pros:** Genuinely novel clinical data that psychiatrists rarely get; directly informs prescribing decisions.
-**Cons:** Requires sufficient follow-up data to be meaningful.
-**Risks:** Small sample sizes could be misleading.
-**Mitigations:** Show N alongside all averages. Require minimum N=5 before including the section.
-**Effort:** Medium
-**Impact:** High
-**Expert consensus:** Both experts rated this very highly. Lived Experience expert called medication response data "the headliner."
+- **Source experts:** Health App UX, Lived Experience
+- **Description:** The PDF report has statistics but no visual charts. Render Swift Charts to UIImage and draw into the PDF. Include HRV trend, anxiety scatter plot, sleep chart, and medication timeline.
+- **Pros:** Dramatically more useful for clinicians. Visual patterns are immediately apparent.
+- **Cons:** Non-trivial PDF rendering.
+- **Risks:** Chart quality may not match interactive charts.
+- **Mitigations:** Start with 2-3 essential charts. Iterate.
+- **Effort:** Large
+- **Impact:** High
+- **Expert consensus:** Both recommended this.
 
 ---
 
-### 6.3 Embed Trend Charts in PDF Clinical Report
+### 6.4 Add Dose-Anxiety Efficacy Section to Clinical Report
 
-**Source experts:** Health App UX
-**Description:** The PDF report includes computed statistics but no visual charts. A psychiatrist would benefit from seeing an HRV trend line, an anxiety severity scatter plot, and a sleep duration chart. Clinicians consistently say visuals are more useful than numbers.
-**What to do:** Render Swift Charts views to `UIImage` using `ImageRenderer`. Draw the images into the PDF context. Include at minimum: anxiety severity trend, HRV with baseline bands, sleep duration, and medication timeline.
-**File:** `AnxietyWatch/Services/ReportGenerator.swift`
-**Pros:** Dramatically more useful clinical reports.
-**Cons:** PDF generation becomes more complex; layout/sizing challenges.
-**Risks:** Charts may not render well in all PDF viewers.
-**Mitigations:** Test PDF output on macOS Preview, iOS Files, and at least one clinical PDF viewer. Use fixed-size rendering for consistent output.
-**Effort:** Large
-**Impact:** High
-**Expert consensus:** Single expert, but the suggestion aligns with clinical best practices.
+- **Source experts:** Health App UX, Lived Experience
+- **Description:** Report shows dose counts but not before/after anxiety deltas. Add: "Patient self-reported anxiety decreased an average of X points within 30 minutes of [medication] across N administrations." Data psychiatrists almost never get.
+- **Pros:** Directly informs prescribing decisions.
+- **Cons:** Requires sufficient follow-ups.
+- **Risks:** Small sample sizes misleading.
+- **Mitigations:** Only show when N >= 5. Show sample size.
+- **Effort:** Medium
+- **Impact:** High
+- **Expert consensus:** Both independently recommended this. Called "the headliner" for reports.
 
 ---
 
-### 6.4 Implement Benzo Tolerance Detection
+### 6.5 Show Before/After Delta After Dose Follow-Up
 
-**Source experts:** Medical
-**Description:** Track rolling 30-day average of PRN benzodiazepine dose frequency and total mg consumed. Flag if weekly doses are trending upward. Also track efficacy decay: compare before/after anxiety deltas from the first week of use vs the most recent week. Tolerance develops within 2-4 weeks of regular use and increasing dose frequency is the earliest warning sign.
-**What to do:** Create a `MedicationPatternAnalyzer` service that, for benzo-category medications, computes: weekly dose count trend, total mg trend, efficacy trend (using follow-up data). Surface findings in the Medications hub and in clinical reports.
-**Files:** New `AnxietyWatch/Services/MedicationPatternAnalyzer.swift`, update `MedicationsHubView.swift`, `ReportGenerator.swift`
-**Pros:** Extremely valuable clinical insight; early warning for dependence; data psychiatrists almost never see.
-**Cons:** Significant new feature; requires careful messaging to avoid alarming users.
-**Risks:** Users might stop taking needed medication if the app implies they are becoming dependent.
-**Mitigations:** Frame as informational ("usage trend"), not diagnostic. Include educational context. Show only in the context of clinical reports or a dedicated "Medication Insights" section.
-**Effort:** Large
-**Impact:** High
-**Expert consensus:** Single expert (medical), but the clinical reasoning is robust.
+- **Source experts:** Health App UX
+- **Description:** After completing a follow-up, show: "Before: 7/10 -> After: 4/10. Improvement of 3 points." No feedback currently exists. Creates a reward loop.
+- **Pros:** Motivating. Validates medication. Reinforces tracking.
+- **Cons:** Could be discouraging if no improvement.
+- **Risks:** Negative deltas could amplify anxiety.
+- **Mitigations:** Frame neutrally. "7 -> 7" is still useful data.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
-### 6.5 Add Refill Eligibility Date Alongside Run-Out Date
+### 6.6 Configurable Follow-Up Interval Per Medication
 
-**Source experts:** Pharmacy
-**Description:** "When supply runs out" and "when insurance allows a refill" are different dates. Typically, refills are eligible at 75-80% through the days supply. For anxiety medications, a gap in therapy can trigger withdrawal (SSRIs) or rebound anxiety (benzos).
-**What to do:** Add a computed `earliestRefillDate` to `PrescriptionSupplyCalculator`: `dateFilled + (daysSupply * 0.75)`. Display both dates in `PrescriptionDetailView` and in supply alert badges.
-**File:** `AnxietyWatch/Services/PrescriptionSupplyCalculator.swift`, `AnxietyWatch/Views/Prescriptions/PrescriptionDetailView.swift`
-**Pros:** Proactive refill management prevents therapy gaps; pharmacy-professional-level feature.
-**Cons:** The 75% threshold is approximate; varies by PBM.
-**Risks:** User might try to refill too early and get rejected.
-**Mitigations:** Label as "Estimated eligible" with a note that actual eligibility depends on insurance plan.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Single expert, but the domain expertise is authoritative.
+- **Source experts:** Health App UX, Medical, Lived Experience
+- **Description:** Fixed 30-minute interval does not match pharmacokinetics. Sublingual lorazepam ~15 min, oral clonazepam ~30-60 min, beta-blockers ~45-60 min. Make configurable per `MedicationDefinition`.
+- **Pros:** More accurate efficacy measurement.
+- **Cons:** Configuration UI complexity.
+- **Risks:** Low.
+- **Mitigations:** Smart defaults per category. Allow override.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Three experts recommended this independently.
 
 ---
 
-### 6.6 Add DEA Schedule Awareness to Medications
+### 6.7 Expand Structured Tags for Anxiety Phenomenology
 
-**Source experts:** Pharmacy
-**Description:** The app does not reflect DEA scheduling rules. Schedule II meds (Adderall) cannot be refilled -- each fill requires a new prescription. Schedule III-IV (benzos) have a 5-refill / 6-month limit. The app should customize alerts and messaging based on schedule.
-**What to do:** Add a `deaSchedule: Int?` property to `MedicationDefinition` (nil for non-controlled, 2-5 for controlled). Use it to: show "New prescription required" instead of "Refills: 0" for Schedule II; display "X refills or Y months remaining" for Schedule III-IV; customize alert timing (earlier for Schedule II since getting a new Rx takes time).
-**Files:** `AnxietyWatch/Models/MedicationDefinition.swift`, `AnxietyWatch/Views/Medications/AddMedicationView.swift`, `AnxietyWatch/Services/PrescriptionSupplyCalculator.swift`
-**Pros:** Pharmacy-accurate medication management; prevents surprises when controlled substances need new prescriptions.
-**Cons:** Requires user to know/set the schedule for each medication.
-**Risks:** Incorrect scheduling could give wrong advice.
-**Mitigations:** Pre-populate schedule based on `category` (benzos -> IV, stimulants -> II). Allow manual override.
-**Effort:** Medium
-**Impact:** Medium
-**Expert consensus:** Single expert.
+- **Source experts:** Medical
+- **Description:** Add structured tag prefixes for onset speed (`onset:sudden` vs `onset:gradual`), physical symptoms (`symptom:palpitations`), and duration. Enables panic vs GAD pattern differentiation. No model changes -- existing tags array supports this.
+- **Pros:** Richer clinical data. Pattern differentiation.
+- **Cons:** More options could increase cognitive load.
+- **Mitigations:** Quick-tap chips, not free text. Only show when expanding beyond basic entry.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert with clinical rationale.
 
 ---
 
-### 6.7 Detect Therapy Gaps from Fill History
+### 6.8 Compute Heart Rate Recovery from Existing Data
 
-**Source experts:** Pharmacy
-**Description:** If a patient has a 30-day supply filled on March 1 and doesn't fill again until April 15, that's a 15-day gap. For SSRIs, even a few missed days can cause discontinuation syndrome. The app should automatically detect and flag therapy gaps by comparing expected refill dates with actual fill dates.
-**What to do:** For consecutive fills of the same medication, compute the gap between expected run-out and actual next fill date. Flag gaps > 3 days. Show in medication detail view and clinical reports.
-**Files:** `AnxietyWatch/Services/PrescriptionSupplyCalculator.swift`, `AnxietyWatch/Views/Prescriptions/PrescriptionDetailView.swift`
-**Pros:** Clinically important; cross-references dose logging for a complete adherence picture.
-**Cons:** Claims data may not capture all fills (cash-pay, different pharmacies).
-**Risks:** False positives if patient uses multiple pharmacies.
-**Mitigations:** Label as "Possible therapy gap" rather than definitive. Allow manual dismissal.
-**Effort:** Medium
-**Impact:** Medium
-**Expert consensus:** Single expert.
+- **Source experts:** Medical, HealthKit
+- **Description:** HR drop in first 60s after exercise is one of the strongest vagal tone markers. Requires workout reading (3.1) + raw HR (already collected).
+- **Pros:** Strong autonomic health marker. Free from existing data.
+- **Cons:** Depends on workout reading implementation.
+- **Risks:** HR granularity may be insufficient for 60-second windows.
+- **Mitigations:** Use best-available HR sample within 2 minutes of workout end.
+- **Effort:** Medium (after 3.1)
+- **Impact:** Medium
+- **Expert consensus:** Both recommended this.
 
 ---
 
-### 6.8 Add Sleep Onset Latency Derivation
+### 6.9 Increase Baseline Window to 90 Days (Configurable)
 
-**Source experts:** Medical
-**Description:** Time between first "inBed" sample and first "asleep" sample. Prolonged sleep onset (>30 min) is a hallmark of anxiety and predicts next-day symptoms. Derivable from existing sleep stage data.
-**What to do:** In `SnapshotAggregator`, compute sleep onset latency from the gap between the first `.inBed` and first `.asleep*` samples. Add `sleepOnsetLatencyMin: Int?` to `HealthSnapshot`.
-**Files:** `AnxietyWatch/Models/HealthSnapshot.swift`, `AnxietyWatch/Services/SnapshotAggregator.swift`
-**Pros:** High clinical value; no new data sources needed.
-**Cons:** Depends on accurate "inBed" detection (not always reliable on Apple Watch).
-**Risks:** Inaccurate if user doesn't mark bedtime or if Watch detection is off.
-**Mitigations:** Mark as "estimated" in the UI. Only compute when both inBed and asleep samples exist.
-**Effort:** Small
-**Impact:** Medium
-**Expert consensus:** Single expert, strong clinical rationale.
+- **Source experts:** Medical
+- **Description:** A 30-day window shifts to include prolonged anxious periods, masking the deviation. Use 90-day for baseline with 7-day rolling for "current." Also consider per-metric thresholds (1.5 SD for noisy HRV, 1 SD for stable RHR).
+- **Pros:** Prevents baseline contamination during prolonged episodes.
+- **Cons:** Requires 90 days for full accuracy.
+- **Risks:** Seasonal variation in longer window.
+- **Mitigations:** Make configurable. Start at 30, allow extension.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert with strong clinical rationale.
 
 ---
 
-## 7. Nice-to-Haves
+### 6.10 Nocturnal HR Spike and HRV Circadian Rhythm Detection
 
-Lower-priority improvements that would enhance the app but are not urgent.
-
----
-
-### 7.1 "Today's Summary" Composite Card on Dashboard
-
-**Source experts:** Health App UX, Lived Experience
-**Description:** A top-of-dashboard card synthesizing: anxiety trend direction (better/worse/stable over last 3 days), sleep quality last night, HRV vs baseline status, and medication adherence today. Interpretive text, not raw numbers.
-**Files:** `AnxietyWatch/Views/Dashboard/DashboardView.swift`
-**Effort:** Large | **Impact:** High
-**Note:** High value but depends on items 4.1 (DashboardViewModel) and 3.7 (more baselines) being done first.
+- **Source experts:** Medical
+- **Description:** Two derived patterns: (a) Overnight max HR exceeding resting HR by >40% predicts next-day anxiety and detects nocturnal panic. (b) Flattening of the daytime-vs-overnight HRV ratio indicates chronic anxiety/PTSD.
+- **Pros:** High clinical value from existing data.
+- **Cons:** Complex pattern computation.
+- **Risks:** False positives from movement/nocturia.
+- **Mitigations:** Require multiple nights. Annotate with sleep quality context.
+- **Effort:** Medium
+- **Impact:** Medium
+- **Expert consensus:** Single expert. Published evidence base (Uhde et al., Brindle et al.).
 
 ---
 
-### 7.2 Home-Screen and Lock Screen Widgets
-
-**Source experts:** Health App UX
-**Description:** A quick-log widget and a status widget showing HRV, last anxiety, and sleep quality. The watchOS complication from REQUIREMENTS.md is also unimplemented.
-**Files:** `AnxietyWatchWidgets/`
-**Effort:** Large | **Impact:** Medium
+## 7. Pharmacy & Prescription Improvements
 
 ---
 
-### 7.3 Notification Actions for Follow-Up Prompts
+### 7.1 Store `daysSupply` on Prescription Model
 
-**Source experts:** Health App UX
-**Description:** iOS supports `UNNotificationAction`. Add a "Rate Now" action directly from the notification banner so the user can rate anxiety without opening the full app.
-**Files:** `AnxietyWatch/Services/DoseFollowUpManager.swift`, `AnxietyWatch/App/AnxietyWatchApp.swift`
-**Effort:** Medium | **Impact:** Medium
-
----
-
-### 7.4 Configurable Follow-Up Timing per Medication
-
-**Source experts:** Health App UX, Lived Experience, Medical
-**Description:** Different medications have different onset times. Allow the follow-up delay to be set per `MedicationDefinition` (default 30 min, options 15/30/45/60).
-**Files:** `AnxietyWatch/Models/MedicationDefinition.swift`, `AnxietyWatch/Services/DoseFollowUpManager.swift`
-**Effort:** Small | **Impact:** Medium
+- **Source experts:** Retail Pharmacy
+- **Description:** CapRx API returns `days_supply` and the server uses it for `estimatedRunOutDate`, but the integer is not stored on the model. Days supply from the PBM is more authoritative than quantity-based computation. Store it and use as primary input.
+- **Pros:** More accurate supply tracking.
+- **Cons:** Model + migration.
+- **Risks:** Low.
+- **Mitigations:** Default to quantity-based calculation when nil.
+- **Effort:** Small
+- **Impact:** High
+- **Expert consensus:** Single expert. Clear data modeling improvement.
 
 ---
 
-### 7.5 Medication Adherence Tracking (Expected vs. Actual Doses)
+### 7.2 Store CapRx Cost Fields (patientPay, planPay, dosageForm, drugType)
 
-**Source experts:** Health App UX
-**Description:** No concept of "expected doses per day" for scheduled medications. Add an optional `expectedDosesPerDay` field to `MedicationDefinition`. Compute and display adherence percentage.
-**Files:** `AnxietyWatch/Models/MedicationDefinition.swift`, `AnxietyWatch/Views/Medications/MedicationsHubView.swift`
-**Effort:** Medium | **Impact:** Medium
-
----
-
-### 7.6 "This Too Shall Pass" Recovery History View
-
-**Source experts:** Lived Experience
-**Description:** Show the user's own history of panic attacks resolving. "You have logged 47 episodes rated 7+. Average duration until you felt better: 34 minutes. You have survived every single one."
-**Files:** New view, accessible from Dashboard or Journal
-**Effort:** Medium | **Impact:** High (for acute moments)
+- **Source experts:** Retail Pharmacy
+- **Description:** `normalize_claim` extracts these but they are never stored or passed to iOS. Cost trends help patients understand formulary changes. Dosage form distinguishes tablet vs ODT vs solution.
+- **Pros:** Cost tracking. Formulary change visibility. Formulation tracking.
+- **Cons:** Schema and model additions.
+- **Risks:** Low.
+- **Mitigations:** Implement incrementally.
+- **Effort:** Medium
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
-### 7.7 Group Prescription History by Medication
+### 7.3 Add Refill Eligibility Date
 
-**Source experts:** Pharmacy
-**Description:** Show medications as cards with most recent fill details and expandable fill history, rather than individual fills as separate rows.
-**Files:** `AnxietyWatch/Views/Prescriptions/PrescriptionListView.swift`
-**Effort:** Medium | **Impact:** Medium
-
----
-
-### 7.8 Store Additional CapRx Fields
-
-**Source experts:** Pharmacy
-**Description:** `patientPay`, `planPay`, `dosageForm`, and `drugType` are extracted by `normalize_claim` but never stored. All four should be persisted for cost tracking and formulation change detection.
-**Files:** `server/schema.sql`, `server/app.py`, `AnxietyWatch/Models/Prescription.swift`, `AnxietyWatch/Services/SyncService.swift`
-**Effort:** Medium | **Impact:** Medium
+- **Source experts:** Retail Pharmacy
+- **Description:** Show "Eligible to refill" (~75% through days supply) alongside "Supply runs out." Insurance typically allows refills at 75-80%. For anxiety meds, therapy gaps trigger withdrawal or rebound.
+- **Pros:** Patients refill proactively. Reduces therapy gaps.
+- **Cons:** 75% threshold varies by plan.
+- **Risks:** Insurance rejection if threshold is wrong.
+- **Mitigations:** 75% default with a note. Allow override.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
-### 7.9 Add Pull-to-Refresh on Dashboard and Trends
+### 7.4 Add DEA Schedule Awareness
 
-**Source experts:** iOS UI/UX
-**Description:** Dashboard uses `ScrollView` which supports `.refreshable` in iOS 16+. Add pull-to-refresh to re-fetch HealthKit data and refresh snapshots.
-**Files:** `AnxietyWatch/Views/Dashboard/DashboardView.swift`, `AnxietyWatch/Views/Trends/TrendsView.swift`
-**Effort:** Small | **Impact:** Low
-
----
-
-### 7.10 Accessibility Improvements for Metric Cards and Charts
-
-**Source experts:** iOS UI/UX
-**Description:** Multiple accessibility gaps: `LiveMetricCard` has no `accessibilityElement` grouping, `SparklineView`/`ProgressBarView`/`SleepStagesView`/`RecentBarsView` have no accessibility representation, fixed-size fonts in sparklines don't scale with Dynamic Type, and the yellow severity badge has poor contrast with white text.
-**Files:** `AnxietyWatch/Views/Dashboard/LiveMetricCard.swift` and associated visualization views
-**Effort:** Medium | **Impact:** Medium (required for VoiceOver usability)
+- **Source experts:** Retail Pharmacy
+- **Description:** Add `deaSchedule` to `MedicationDefinition`. Show "New Rx required" for Schedule II instead of "0 refills." Show refill/expiry countdown for III-IV. Earlier alerts for Schedule II (requires prescriber appointment).
+- **Pros:** Accurate refill messaging. Proactive alerts.
+- **Cons:** Users must set schedule (or auto-populate from category).
+- **Risks:** Incorrect schedule = wrong guidance.
+- **Mitigations:** Pre-populate for known categories (benzo=IV, stimulant=II).
+- **Effort:** Medium
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
-### 7.11 Add Structured Tags for Anxiety Phenomenology
+### 7.5 Show "Unknown" for Refills on Claims-Sourced Records
 
-**Source experts:** Medical
-**Description:** Add structured tag prefixes to capture onset speed (`onset:sudden`, `onset:gradual`), physical symptoms (`symptom:palpitations`), and duration (`duration:short`). This enables pattern analysis by anxiety type without requiring a diagnostic classification.
-**Files:** `AnxietyWatch/Views/Journal/AddJournalEntryView.swift` (add structured tag chips)
-**Effort:** Small | **Impact:** Medium
-
----
-
-### 7.12 Add Data Completeness Metrics to Clinical Reports
-
-**Source experts:** Health App UX
-**Description:** The report doesn't indicate data completeness. "HRV data available for 25 of 30 days" helps a clinician interpret averages.
-**File:** `AnxietyWatch/Services/ReportGenerator.swift`
-**Effort:** Small | **Impact:** Low
+- **Source experts:** Retail Pharmacy
+- **Description:** `refillsRemaining` is set to 0 for CapRx imports because PBM data does not include this. "0 refills" is misleading. Show "Unknown" instead.
+- **Pros:** No user confusion.
+- **Cons:** None.
+- **Risks:** None.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
-### 7.13 Log HealthKit Background Delivery and Anchored Query Errors
+### 7.6 Group Prescription History by Medication
 
-**Source experts:** HealthKit
-**Description:** Both `enableBackgroundDelivery` and anchored query error handlers silently discard errors. At minimum, log them.
-**File:** `AnxietyWatch/Services/HealthKitManager.swift`, `AnxietyWatch/Services/HealthDataCoordinator.swift`
-**Effort:** Small | **Impact:** Low
-
----
-
-### 7.14 Add `HealthKitManager` Protocol for Mock Data in Simulator
-
-**Source experts:** Developer Experience
-**Description:** The app is data-driven but the simulator has no HealthKit data. A protocol + mock implementation would make development feasible without a physical device.
-**Files:** `AnxietyWatch/Services/HealthKitManager.swift`, new `AnxietyWatch/Services/MockHealthKitManager.swift`
-**Effort:** Medium | **Impact:** High (for development)
+- **Source experts:** Retail Pharmacy
+- **Description:** Each CapRx claim is a separate row. Show medications as groups: most-recent fill details, expandable history, cost trends. Patients think "I take 4 medications" not "I have 12 prescriptions."
+- **Pros:** Matches mental model. Cleaner UI. Enables cost tracking.
+- **Cons:** Grouping logic needed.
+- **Risks:** Incorrect grouping of different formulations.
+- **Mitigations:** Include doseMg and dosageForm in grouping key.
+- **Effort:** Medium
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
-### 7.15 Consider Expanding Baseline Window to 90 Days
+### 7.7 Detect Therapy Gaps Between Fills
 
-**Source experts:** Medical
-**Description:** A fixed 30-day window means that prolonged anxiety episodes contaminate the baseline. A 90-day window with a 7-day rolling average for "current" comparison would be more robust.
-**Files:** `AnxietyWatch/Services/BaselineCalculator.swift`, `AnxietyWatch/Utilities/Constants.swift`
-**Effort:** Small | **Impact:** Medium
+- **Source experts:** Retail Pharmacy
+- **Description:** Compare expected refill dates with actual fill dates. Flag gaps. SSRI gaps cause discontinuation syndrome. Benzo gaps cause rebound.
+- **Pros:** Clinical safety. Adherence insight for reports.
+- **Cons:** Depends on reliable fill data.
+- **Risks:** Partial fills or manual sources create false positives.
+- **Mitigations:** Only flag gaps > 3 days. Allow override.
+- **Effort:** Medium
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
 
-## 8. Rejected Suggestions
+### 7.8 Filter Out Reversed/Rejected Claims from CapRx
 
-Suggestions that were considered but not included in the plan, with rationale.
+- **Source experts:** Retail Pharmacy
+- **Description:** The server does not check claim status. Reversed claims (medication returned, claim reprocessed) are imported as valid fills. Filter on the server side.
+- **Pros:** Prevents phantom fills.
+- **Cons:** Depends on CapRx exposing claim status.
+- **Risks:** Low.
+- **Mitigations:** Check if CapRx API provides status field. If not, defer.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
 
 ---
+
+## 8. Nice-to-Haves
+
+---
+
+### 8.1 Home Screen Widget (WidgetKit)
+
+- **Source experts:** Health App UX
+- **Description:** Quick-log widget opening to severity picker. Status widget with HRV, anxiety, sleep. Lock Screen widget for HRV vs baseline.
+- **Pros:** Fastest path to logging. Glanceable metrics.
+- **Cons:** WidgetKit limitations on interactivity and freshness.
+- **Risks:** Stale data.
+- **Mitigations:** Appropriate refresh intervals.
+- **Effort:** Large
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
+
+---
+
+### 8.2 Implement watchOS Complication
+
+- **Source experts:** Health App UX, Lived Experience
+- **Description:** REQUIREMENTS.md lists a complication but none is implemented. Show HRV or last anxiety, or "time since last log."
+- **Pros:** Glanceable from watch face.
+- **Cons:** Severe data refresh limitations.
+- **Risks:** Stale data.
+- **Mitigations:** Timeline-based updates.
+- **Effort:** Medium
+- **Impact:** Medium
+- **Expert consensus:** Two experts mentioned this.
+
+---
+
+### 8.3 "This Too Shall Pass" View
+
+- **Source experts:** Lived Experience
+- **Description:** Show personal history of panic attacks resolving: "You have logged 47 episodes rated 7+. Average duration until improvement: 34 minutes. You have survived every one." Personal evidence of recovery is uniquely grounding during panic.
+- **Pros:** Direct therapeutic value from the user's own data.
+- **Cons:** Requires sufficient history.
+- **Risks:** Could feel patronizing.
+- **Mitigations:** Only show after 5+ high-severity episodes with subsequent lower entries. Frame factually.
+- **Effort:** Medium
+- **Impact:** Medium
+- **Expert consensus:** Single expert. Compelling rationale.
+
+---
+
+### 8.4 Proactive Pattern Detection and Insight Surfacing
+
+- **Source experts:** Lived Experience, Health App UX
+- **Description:** Surface simple insights proactively: "Anxiety is higher on days with <6h sleep." "Exercise 30+ min correlates with 3.2 avg anxiety vs 5.8 sedentary." Currently deferred to V2/Claude exports.
+- **Pros:** Transforms app from data collection to insight delivery.
+- **Cons:** Complex computation. Risk of misleading insights.
+- **Risks:** Statistical noise presented as patterns. Acting on spurious correlations.
+- **Mitigations:** 30+ day minimums. Confidence qualifiers. Start with simplest correlations (sleep, exercise).
+- **Effort:** Large
+- **Impact:** High
+- **Expert consensus:** Two experts identified this as the biggest opportunity gap. Called "the missing layer."
+
+---
+
+### 8.5 Medication Adherence Tracking (Expected vs. Actual)
+
+- **Source experts:** Health App UX, Retail Pharmacy
+- **Description:** Optional "doses per day" on `MedicationDefinition`. Show adherence percentage in meds section and reports. Not applicable to PRN.
+- **Pros:** Critical clinical data. Most common question at psychiatric visits.
+- **Cons:** Users must set expected frequency.
+- **Risks:** Guilt about missed doses could worsen anxiety.
+- **Mitigations:** Frame positively ("18 of 21 days"). Never "missed" or "failed." Optional.
+- **Effort:** Medium
+- **Impact:** Medium
+- **Expert consensus:** Two experts recommended this.
+
+---
+
+### 8.6 Cross-Metric Correlation View in Trends
+
+- **Source experts:** Health App UX, Lived Experience
+- **Description:** Explicit correlation visualizations: "Sleep vs Next-Day Anxiety" scatter plot, "Exercise vs Anxiety," medication-aware overlays.
+- **Pros:** Surfaces the patterns the system is designed to find.
+- **Cons:** Complex chart design.
+- **Risks:** Misleading with small datasets.
+- **Mitigations:** Minimum data requirements. Show correlation strength.
+- **Effort:** Large
+- **Impact:** Medium
+- **Expert consensus:** Two experts recommended this.
+
+---
+
+### 8.7 Accessibility Improvements (VoiceOver, Dynamic Type)
+
+- **Source experts:** iOS UI/UX
+- **Description:** Multiple gaps: LiveMetricCard has no accessibilityElement grouping. SparklineView, ProgressBarView, SleepStagesView are invisible to VoiceOver. SeverityBadge has poor contrast (white on yellow). Several views use fixed-size fonts that don't scale.
+- **Pros:** VoiceOver usability. Accessibility compliance.
+- **Cons:** Effort across many views.
+- **Risks:** Low.
+- **Mitigations:** Address incrementally starting with most-used views.
+- **Effort:** Medium (cumulative)
+- **Impact:** Medium (critical for accessibility users)
+- **Expert consensus:** Single expert with detailed findings.
+
+---
+
+### 8.8 Dashboard Loading State and HealthKit Error Guidance
+
+- **Source experts:** iOS UI/UX
+- **Description:** No loading state during data fetch. No guidance when HealthKit isn't authorized. Add ProgressView and permission banner.
+- **Pros:** Better first-launch experience.
+- **Cons:** Minor effort.
+- **Risks:** None.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
+
+---
+
+### 8.9 FetchDescriptor Limit on Dashboard loadSamples()
+
+- **Source experts:** iOS UI/UX
+- **Description:** Fetches ALL HealthSample records with no date filter or limit. With months of data this is a memory/performance problem. Add a 7-day date filter.
+- **Pros:** Prevents unbounded memory growth.
+- **Cons:** Historical data needs separate query if needed.
+- **Risks:** Low.
+- **Mitigations:** 7-day window is sufficient for sparklines.
+- **Effort:** Small
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
+
+---
+
+### 8.10 Add Notification Actions to Follow-Up Notifications
+
+- **Source experts:** Health App UX
+- **Description:** `UNNotificationAction` for "Rate Anxiety" directly from notification banner.
+- **Pros:** Lower friction. Higher completion rate.
+- **Cons:** iOS action UI is limited.
+- **Risks:** Low.
+- **Mitigations:** N/A.
+- **Effort:** Medium
+- **Impact:** Medium
+- **Expert consensus:** Single expert.
+
+---
+
+### 8.11 Weekday/Weekend Baseline Stratification
+
+- **Source experts:** HealthKit, Medical
+- **Description:** Many people have different HRV/sleep on weekdays vs weekends. A blended average causes every Monday to flag. Consider separate baselines.
+- **Pros:** Fewer false-positive Monday alerts.
+- **Cons:** Doubles computation. Only ~9 weekend days per 30-day window.
+- **Risks:** Insufficient per-bucket data.
+- **Mitigations:** Fall back to combined when sample count is low.
+- **Effort:** Medium
+- **Impact:** Low
+- **Expert consensus:** Both mentioned this.
+
+---
+
+### 8.12 Reduce Background Delivery Frequency for Low-Change Metrics
+
+- **Source experts:** HealthKit
+- **Description:** `.immediate` for all types is aggressive. Use `.hourly`/`.daily` for VO2 max, walking steadiness, AFib burden. Keep `.immediate` for HR, HRV, SpO2.
+- **Pros:** Better battery life.
+- **Cons:** Slightly delayed updates for infrequent metrics.
+- **Risks:** None.
+- **Mitigations:** N/A.
+- **Effort:** Small
+- **Impact:** Low
+- **Expert consensus:** Single expert.
+
+---
+
+## 9. Rejected Suggestions
 
 ### Location Tagging on Journal Entries
-**Source:** REQUIREMENTS.md (optional feature)
-**Rejected because:** Lived Experience expert explicitly recommended against it. "I know where I was when I got anxious. I do not need GPS to tell me. The privacy implications of a detailed anxiety-location map make me uncomfortable." The data model supports it optionally, but actively building the UI is not worth the effort.
+- **Source:** REQUIREMENTS.md mentions optional location
+- **Why rejected:** The lived experience expert: "I know where I was when I got anxious. I do not need GPS to tell me it was at work. And the privacy implications of a detailed anxiety-location map make me uncomfortable." Tags capture location context more safely.
 
-### Environmental Sound and Headphone Audio on Dashboard
-**Source:** Currently implemented on Dashboard
-**Rejected for elevation, not removal:** Lived Experience expert flagged these as noise ("I have never once thought 'I bet my anxiety is high because the ambient noise level is 72 dBA'"). These should remain available but be moved to the "Other" section at the bottom of the grouped dashboard (item 2.2), not removed entirely. The HealthKit expert noted environmental sound has a cortisol correlation, but it's a low-priority signal.
+### Environmental Sound and Headphone Audio as Dashboard Cards
+- **Source:** Currently displayed on dashboard
+- **Why rejected:** Lived experience expert: "I have never once thought 'I bet my anxiety is high because the ambient noise level is 72 dBA.'" Not actionable daily. Keep collecting the data but demote or hide from the dashboard.
+
+### Walking Steadiness and VO2 Max on Dashboard
+- **Source:** Currently displayed on dashboard
+- **Why rejected:** Lived experience expert: "Walking steadiness is a fall risk metric. VO2 Max is a fitness metric that changes over weeks." Neither is anxiety-relevant daily. Move to a secondary section or remove.
+
+### Full MVVM Architecture for All Views
+- **Source:** Refactoring expert
+- **Why rejected:** The expert themselves concluded: "The app does not need a formal architectural framework." Simple CRUD views (AddMedicationView, AddPharmacyView) are fine as-is. Only extract view models where complexity warrants it (Dashboard, MedicationsHub).
 
 ### SwiftFormat Enforcement
-**Source:** Developer Experience
-**Rejected because:** Low priority for a single-developer project. SwiftLint is already configured and covers the important cases. Adding a formatter introduces friction without proportional benefit.
+- **Source:** Developer Experience expert
+- **Why rejected:** Rated "Low" priority by the expert for a solo project. SwiftLint already covers meaningful issues. The cost of setup and maintenance outweighs the benefit.
 
-### Full MVVM Architecture Overhaul
-**Source:** Refactoring
-**Rejected as stated:** The expert explicitly said "the app does not need a formal architectural framework." The recommendation is selective ViewModel extraction for complex screens (items 4.1), not a wholesale MVVM migration.
+### Serena Plugin Configuration
+- **Source:** Xcode/Claude Code expert
+- **Why rejected:** `swift-lsp` already provides symbol navigation for Swift, making Serena redundant. Remove to reduce tool noise rather than investing in configuration.
 
-### Screen Time API Integration
-**Source:** Medical
-**Rejected because:** The medical expert themselves deferred it: "high friction to implement." The API is also limited in what it can share with apps.
+### Playwright MCP Cleanup
+- **Source:** Xcode/Claude Code expert
+- **Why rejected:** Pure housekeeping with no functional impact. Not worth including in a prioritized plan.
 
-### Pre-Commit Git Hooks
-**Source:** Developer Experience
-**Rejected because:** CI enforcement (items 1.1, 5.5) provides the same quality gate without the local developer friction. For a personal project, pre-commit hooks slow down the rapid iteration cycle.
+### Blood Glucose / CGM Integration
+- **Source:** REQUIREMENTS.md Tier 3
+- **Why rejected:** Lived experience expert: "For most anxiety patients, the CGM integration is a solution looking for a problem." Remains Tier 3 / deferred until there is a confirmed personal need.
 
-### Full Prescription/Fill Data Model Split
-**Source:** Pharmacy
-**Rejected because:** The pharmacy expert themselves recommended against it: "Since you do not have the original Rx number from CapRx, you cannot reliably group fills. My pragmatic recommendation: keep the current flat model but add computed grouping." The suggestion to group by `(medicationName, doseMg)` in the UI (item 7.7) achieves the same UX benefit without a schema redesign.
+### Separate Prescription/PrescriptionFill Data Model
+- **Source:** Retail Pharmacy expert
+- **Why rejected:** The expert themselves concluded: "Since you do not have the original Rx number from CapRx, you cannot reliably group fills. Keep the current flat model but add computed grouping." The cleaner model is not feasible with available data.
 
-### VO2 Max and Walking Steadiness on Dashboard
-**Source:** Currently implemented
-**Considered for removal:** Lived Experience expert flagged these as irrelevant to anxiety tracking. However, they should stay in the app (in the "Other" section) because they are read from HealthKit anyway and the marginal cost of displaying them is zero.
-
-### Composite "Anxiety Risk Score"
-**Source:** Health App UX
-**Deferred, not rejected:** Computing a composite score from HRV deviation, sleep quality, exercise, and CPAP compliance is the eventual killer feature. But it requires significant data science work and validated weightings. The "Today's Summary" card (item 7.1) is the practical intermediate step.
-
-### Caffeine/Alcohol Dedicated Logging
-**Source:** Medical
-**Deferred, not rejected:** High clinical value, but adds UI surface area. The existing tag system (`"trigger:caffeine"`) provides a lightweight alternative until dedicated logging is justified by usage patterns.
+### Screen Time Integration
+- **Source:** Medical expert
+- **Why rejected:** The expert rated it "high friction to implement" and recommended deferring. The Screen Time API is restricted and the signal-to-effort ratio is poor.
 
 ---
 
-## Implementation Priority Order
-
-For maximum value with minimum risk, implement in this order:
+## Implementation Sequence
 
 ### Phase 1: Critical Fixes (1-2 days)
-1. Fix iOS CI `continue-on-error` (1.1)
-2. Fix anchored query predicate (1.2)
-3. Fix BaselineCalculator variance and minimum (1.3, 1.4)
-4. Fix `navigationDestination` scoping (1.7)
-5. Fix `.alert` binding pattern (1.8)
+Items 1.1-1.7. Bugs, broken behavior, and silent-failure conditions.
 
-### Phase 2: High-Impact Quick Wins (3-5 days)
-6. Extract `severityColor` to shared utility (4.3)
-7. Delete `MedicationListView` dead code (4.4)
-8. Extract `SupplyAlertFilter` utility (4.2)
-9. Fix trend arrow colors (2.9)
-10. Add `timeInDaylight` reading (3.2)
-11. Add `physicalEffort` reading (3.3)
-12. Add pull-to-refresh (7.9)
-13. Show "Last taken" time on Quick Log (2.5)
-14. Fix prescription staleness filter (1.5)
-15. Fix refillsRemaining display for CapRx (1.6)
+### Phase 2: Foundation for Quality (1 week)
+- Architecture: 4.1 (DashboardViewModel), 4.2 (supply alert filter), 4.3 (severity color)
+- DX: 5.1 (Makefile), 5.3 (TestHelpers), 5.4 (build phase)
+- Cleanup: 4.4 (delete dead code), 4.5 (error logging)
 
-### Phase 3: Core UX Improvements (1-2 weeks)
-16. Dashboard section grouping (2.2)
-17. Add "Log Anxiety" quick action on Dashboard (2.1)
-18. Replace severity slider with tappable circles + anchors (2.3, 2.4)
-19. Add quick tags to journal form (2.7)
-20. Watch Quick Log improvements (2.10)
-21. Move Export/Reports to discoverable location (2.11)
+### Phase 3: Core UX (1-2 weeks)
+Items 2.1-2.5, 2.7-2.9 -- quick log on dashboard, section grouping, severity circles, quick tags, last-taken timestamps, trend colors, pull-to-refresh, Watch improvements.
 
-### Phase 4: Architecture & Testing (1-2 weeks)
-22. Create Makefile (5.1)
-23. Create TestHelpers + ModelFactory (5.2)
-24. Extract DashboardViewModel (4.1)
-25. Extract PrescriptionImporter (4.7)
-26. Replace `try?` with structured logging (4.5, 5.6)
-27. Add `#Preview` blocks + SampleData (5.3)
-28. Fix CLAUDE.md docs (5.7)
+### Phase 4: HealthKit Expansion (1 week)
+Items 3.1-3.2, 3.4-3.9 -- workout type, time in daylight, physical effort, overnight HRV, sleep onset latency, BP correlation, breathing disturbances, sleep/respiratory baselines.
 
-### Phase 5: HealthKit & Clinical (2-3 weeks)
-29. Add `HKWorkoutType` reading (3.1)
-30. Store `daysSupply` on Prescription (3.6)
-31. Implement `HKStateOfMind` writing (3.4)
-32. Add medication dose markers to trend charts (6.1)
-33. Derive overnight HRV (3.5)
-34. Add sleep/respiratory rate baselines (3.7)
-35. Add dose-anxiety efficacy to clinical report (6.2)
-36. Add breathing exercise (2.6)
+### Phase 5: Clinical Value (2 weeks)
+Items 6.1, 6.4-6.7, 7.1, 7.5 -- medication markers on charts, efficacy in reports, before/after delta, configurable follow-ups, structured tags, days supply, refill display fix.
 
-### Phase 6: Advanced Clinical Features (ongoing)
-37. Embed charts in PDF report (6.3)
-38. Sleep onset latency derivation (6.8)
-39. Refill eligibility date (6.5)
-40. DEA schedule awareness (6.6)
-41. Therapy gap detection (6.7)
-42. Benzo tolerance detection (6.4)
-43. Show before/after delta on follow-up (2.8)
-44. Configurable follow-up timing (7.4)
-45. Accessibility improvements (7.10)
+### Phase 6: Advanced Features (ongoing)
+Breathing exercise (2.6), composite summary (2.11), HKStateOfMind (3.3), medication pattern engine (6.2), charts in PDF (6.3), proactive insights (8.4), widgets/complications (8.1-8.2), and remaining items.
 
 ---
 
 ## Expert Agreement Matrix
 
-| Topic | Experts Who Agreed | Dissent |
-|-------|-------------------|---------|
-| Dashboard needs section grouping | iOS UI/UX, Health App UX, Lived Experience | None |
+| Topic | Experts in Agreement | Dissent |
+|-------|---------------------|---------|
 | Quick log on Dashboard | iOS UI/UX, Health App UX, Lived Experience | None |
-| DashboardView is too large, needs ViewModel | iOS UI/UX, Refactoring | None |
+| Dashboard needs section grouping | iOS UI/UX, Health App UX, Lived Experience | None |
+| Quick tags for journal | iOS UI/UX, Health App UX, Lived Experience | None |
+| CI must actually enforce tests | Developer Experience, Xcode/Claude Code | None |
 | Delete MedicationListView (dead code) | iOS UI/UX, Health App UX, Refactoring | None |
+| Configurable follow-up timing | Health App UX, Medical, Lived Experience | None |
 | Add HKWorkoutType | HealthKit, Medical | None |
 | Add timeInDaylight | HealthKit, Medical | None |
 | BaselineCalculator needs N-1 and higher minimum | HealthKit, Medical | None |
-| Severity slider should be tappable circles | Health App UX, Lived Experience | None |
+| Severity slider -> tappable circles | Health App UX, Lived Experience | None |
 | Medication dose markers on trend charts | Health App UX, Medical | None |
 | Breathing exercise needed | Health App UX, Lived Experience | None |
-| Quick tags for journal | iOS UI/UX, Health App UX, Lived Experience | None |
-| CI continue-on-error must be removed | Developer Experience, Xcode/Claude Code | None |
-| Supply alert filtering is triplicated | Refactoring, (implied by others) | None |
-| Reports should have efficacy data | Health App UX, Lived Experience | None |
-| Environmental sound/VO2 Max low value on dashboard | Lived Experience | Medical expert noted sound has some value |
-| Location tagging not worth building | Lived Experience | REQUIREMENTS.md lists it as optional |
+| DashboardView needs ViewModel extraction | iOS UI/UX, Refactoring | None |
+| Overnight HRV as separate field | HealthKit, Medical | None |
+| Reports should include efficacy data | Health App UX, Lived Experience | None |
+| Supply alert filtering is triplicated | Refactoring (confirmed by others) | None |
+| Environmental sound/VO2 Max low dashboard value | Lived Experience | Medical notes some aggregate value for sound |
+| Location tagging not useful to build | Lived Experience | REQUIREMENTS.md lists as optional |
