@@ -6,6 +6,8 @@ import Testing
 
 /// Tests that expensive computations used by the dashboard are fast enough
 /// to avoid scroll jank when called per-render.
+/// Serialized to prevent resource contention from skewing timing measurements.
+@Suite(.serialized)
 struct DashboardPerfTests {
 
     private func makeContainer() throws -> ModelContainer {

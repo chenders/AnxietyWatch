@@ -94,8 +94,9 @@ struct PrescriptionListView: View {
             if status == .good || status == .warning || status == .low {
                 return true
             }
-            // Show recently filled even if expired/unknown
-            return rx.dateFilled >= cutoff && status != .expired
+            // Show recently filled even if unknown status
+            let fillDate = rx.lastFillDate ?? rx.dateFilled
+            return fillDate >= cutoff && status != .expired
         }
     }
 
@@ -104,13 +105,15 @@ struct PrescriptionListView: View {
         let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: .now) ?? .distantPast
         return prescriptions.filter { rx in
             let status = PrescriptionSupplyCalculator.supplyStatus(for: rx)
-            return status == .expired && rx.dateFilled >= cutoff
+            let fillDate = rx.lastFillDate ?? rx.dateFilled
+            return status == .expired && fillDate >= cutoff
         }
     }
 
     private func deleteFromFiltered(_ offsets: IndexSet, in filtered: [Prescription]) {
+        let snapshot = filtered
         for index in offsets {
-            modelContext.delete(filtered[index])
+            modelContext.delete(snapshot[index])
         }
     }
 
