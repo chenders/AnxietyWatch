@@ -368,6 +368,103 @@ def walgreens_settings():
 
 
 # ---------------------------------------------------------------------------
+# CapRx Settings
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/settings/caprx", methods=["GET", "POST"])
+@require_admin
+def caprx_settings():
+    from crypto import encrypt_value
+
+    db = get_db()
+    cur = db.cursor()
+    secret_key = os.environ.get("SECRET_KEY")
+    if not secret_key:
+        flash("SECRET_KEY not configured — cannot encrypt credentials.", "error")
+        return redirect(url_for("admin.dashboard"))
+
+    if request.method == "POST":
+        action = request.form.get("action", "save")
+        email = request.form.get("email", "").strip()
+        password = request.form.get("password", "")
+
+        if email:
+            encrypted = encrypt_value(email, secret_key)
+            cur.execute(
+                "INSERT INTO settings (key, value, updated_at) VALUES ('caprx_username', %s, NOW()) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+                (encrypted,),
+            )
+
+        if password:
+            encrypted = encrypt_value(password, secret_key)
+            cur.execute(
+                "INSERT INTO settings (key, value, updated_at) VALUES ('caprx_password', %s, NOW()) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+                (encrypted,),
+            )
+
+        db.commit()
+        flash("Settings saved.", "success")
+
+        if action == "sync_now":
+            try:
+                from caprx_sync import run_sync
+                status, count = run_sync(conn=db)
+                if status == "success":
+                    flash(f"Sync completed: {count} prescriptions upserted", "success")
+                else:
+                    flash(f"Sync failed: {status}", "error")
+            except Exception as e:
+                flash(f"Sync error: {str(e)[:500]}", "error")
+
+        return redirect(url_for("admin.caprx_settings"))
+
+    # GET
+    def _get(key):
+        cur.execute("SELECT value FROM settings WHERE key = %s", (key,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+    has_email = _get("caprx_username") is not None
+    has_password = _get("caprx_password") is not None
+    last_sync = _get("caprx_last_sync")
+    last_status = _get("caprx_last_status")
+
+    return render_template(
+        "caprx_settings.html",
+        has_email=has_email,
+        has_password=has_password,
+        last_sync=last_sync,
+        last_status=last_status,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Prescription Management
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/prescriptions/clear", methods=["POST"])
+@require_admin
+def clear_prescriptions():
+    source = request.form.get("source", "all")
+    db = get_db()
+    cur = db.cursor()
+
+    if source == "all":
+        cur.execute("DELETE FROM prescriptions")
+        flash(f"Deleted {cur.rowcount} prescriptions.", "success")
+    else:
+        cur.execute("DELETE FROM prescriptions WHERE import_source = %s", (source,))
+        flash(f"Deleted {cur.rowcount} {source} prescriptions.", "success")
+
+    db.commit()
+    return redirect(url_for("admin.caprx_settings"))
+
+
+# ---------------------------------------------------------------------------
 # Data Browser
 # ---------------------------------------------------------------------------
 
