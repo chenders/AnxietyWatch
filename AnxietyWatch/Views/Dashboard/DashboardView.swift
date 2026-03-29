@@ -140,7 +140,7 @@ struct DashboardView: View {
                 unitLabel: "bpm",
                 trend: trend(for: hrType),
                 freshness: freshnessLabel(latest.timestamp),
-                color: baselineColor(value: latest.value, baseline: rhrBaseline, higherIsBetter: false),
+                color: .red,
                 visualization: .sparkline(
                     segments: sparklineSegments(for: hrType),
                     color: .red
