@@ -31,6 +31,9 @@ struct AnxietyWatchApp: App {
     }()
 
     @State private var coordinator: HealthDataCoordinator?
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var followUpDose: MedicationDose?
+    @State private var followUpMedication: MedicationDefinition?
 
     // BGTask registration must happen before app finishes launching.
     init() {
@@ -79,8 +82,52 @@ struct AnxietyWatchApp: App {
                     await coord.setupIfNeeded()
                     coord.scheduleBackgroundRefresh()
                 }
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .active {
+                        checkPendingFollowUp()
+                    }
+                }
+                .sheet(item: $followUpMedication) { med in
+                    if let dose = followUpDose {
+                        DoseAnxietyPromptView(medication: med, existingDose: dose)
+                    }
+                }
         }
         .modelContainer(sharedModelContainer)
+    }
+
+    private func checkPendingFollowUp() {
+        DoseFollowUpManager.cleanupStale()
+
+        guard let pending = DoseFollowUpManager.pendingFollowUpIfDue() else { return }
+
+        // Look up the dose and its medication
+        let context = ModelContext(sharedModelContainer)
+        let doseID = pending.doseID
+        let descriptor = FetchDescriptor<MedicationDose>(
+            predicate: #Predicate<MedicationDose> { $0.id == doseID }
+        )
+        guard let dose = try? context.fetch(descriptor).first,
+              let medication = dose.medication else {
+            // Dose was deleted or medication unlinked — clean up
+            DoseFollowUpManager.completeFollowUp(doseID: pending.doseID)
+            return
+        }
+
+        // Check if a follow-up entry already exists for this dose
+        let entryDescriptor = FetchDescriptor<AnxietyEntry>(
+            predicate: #Predicate<AnxietyEntry> { $0.isFollowUp == true }
+        )
+        let followUpEntries = (try? context.fetch(entryDescriptor)) ?? []
+        let alreadyCompleted = followUpEntries.contains { $0.triggerDose?.id == doseID }
+
+        if alreadyCompleted {
+            DoseFollowUpManager.completeFollowUp(doseID: pending.doseID)
+            return
+        }
+
+        followUpDose = dose
+        followUpMedication = medication
     }
 
     private func backfillOverlay(_ coordinator: HealthDataCoordinator) -> some View {

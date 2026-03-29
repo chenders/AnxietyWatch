@@ -35,13 +35,13 @@ enum PrescriptionSupplyCalculator {
 
     /// Computes the supply status for a prescription based on its estimated run-out date.
     /// Returns `.unknown` when no run-out date can be determined.
-    static func supplyStatus(for prescription: Prescription) -> SupplyStatus {
+    static func supplyStatus(for prescription: Prescription, now: Date = .now) -> SupplyStatus {
         guard let runOut = effectiveRunOutDate(for: prescription) else {
             return .unknown
         }
         let days = Calendar.current.dateComponents(
             [.day],
-            from: Calendar.current.startOfDay(for: .now),
+            from: Calendar.current.startOfDay(for: now),
             to: Calendar.current.startOfDay(for: runOut)
         ).day ?? 0
 
@@ -61,13 +61,13 @@ enum PrescriptionSupplyCalculator {
 
     /// Days between today and the estimated run-out date. Negative values mean overdue.
     /// Returns nil when no estimate is available.
-    static func daysRemaining(for prescription: Prescription) -> Int? {
+    static func daysRemaining(for prescription: Prescription, now: Date = .now) -> Int? {
         guard let runOut = effectiveRunOutDate(for: prescription) else {
             return nil
         }
         return Calendar.current.dateComponents(
             [.day],
-            from: Calendar.current.startOfDay(for: .now),
+            from: Calendar.current.startOfDay(for: now),
             to: Calendar.current.startOfDay(for: runOut)
         ).day
     }
@@ -79,13 +79,14 @@ enum PrescriptionSupplyCalculator {
     static func inferDailyDoseCount(
         for medicationName: String,
         doses: [MedicationDose],
-        windowDays: Int = 14
+        windowDays: Int = 14,
+        now: Date = .now
     ) -> Double? {
         guard windowDays > 0 else { return nil }
         let cutoff = Calendar.current.date(
             byAdding: .day,
             value: -windowDays,
-            to: .now
+            to: now
         ) ?? .distantPast
 
         let matchingDoses = doses.filter {

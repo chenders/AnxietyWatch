@@ -16,6 +16,7 @@ struct MedicationListView: View {
     @Query(sort: \MedicationDose.timestamp, order: .reverse)
     private var recentDoses: [MedicationDose]
     @State private var showingAddMed = false
+    @State private var promptMedication: MedicationDefinition?
 
     var body: some View {
         NavigationStack {
@@ -106,16 +107,23 @@ struct MedicationListView: View {
             .sheet(isPresented: $showingAddMed) {
                 AddMedicationView()
             }
+            .sheet(item: $promptMedication) { med in
+                DoseAnxietyPromptView(medication: med, existingDose: nil)
+            }
         }
     }
 
     private func logDose(for med: MedicationDefinition) {
-        let dose = MedicationDose(
-            medicationName: med.name,
-            doseMg: med.defaultDoseMg,
-            medication: med
-        )
-        modelContext.insert(dose)
+        if med.promptAnxietyOnLog == true {
+            promptMedication = med
+        } else {
+            let dose = MedicationDose(
+                medicationName: med.name,
+                doseMg: med.defaultDoseMg,
+                medication: med
+            )
+            modelContext.insert(dose)
+        }
     }
 
     private func deleteDoses(offsets: IndexSet) {

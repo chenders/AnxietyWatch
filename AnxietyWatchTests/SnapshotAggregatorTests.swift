@@ -10,6 +10,13 @@ struct SnapshotAggregatorTests {
 
     // MARK: - Overnight window calculation
 
+    /// Fixed UTC calendar for deterministic tests across timezones.
+    private var utcCalendar: Calendar {
+        var cal = Calendar.current
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal
+    }
+
     /// Replicates the noon-to-noon window logic from SnapshotAggregator.
     /// Accepts a calendar parameter so tests can use a consistent timezone.
     private func overnightWindow(for date: Date, calendar: Calendar = .current) -> (start: Date, end: Date)? {
@@ -44,14 +51,10 @@ struct SnapshotAggregatorTests {
 
     @Test("Overnight window for March 14 starts at noon March 13")
     func overnightWindowStartsCorrectly() {
-        let calendar = Calendar.current
-        var components = DateComponents()
-        components.year = 2026
-        components.month = 3
-        components.day = 14
-        let march14 = calendar.date(from: components)!
+        let calendar = utcCalendar
+        let march14 = calendar.date(from: DateComponents(year: 2026, month: 3, day: 14))!
 
-        guard let window = overnightWindow(for: march14) else {
+        guard let window = overnightWindow(for: march14, calendar: calendar) else {
             Issue.record("Failed to compute overnight window")
             return
         }
@@ -64,14 +67,10 @@ struct SnapshotAggregatorTests {
 
     @Test("Overnight window for March 14 ends at noon March 14")
     func overnightWindowEndsCorrectly() {
-        let calendar = Calendar.current
-        var components = DateComponents()
-        components.year = 2026
-        components.month = 3
-        components.day = 14
-        let march14 = calendar.date(from: components)!
+        let calendar = utcCalendar
+        let march14 = calendar.date(from: DateComponents(year: 2026, month: 3, day: 14))!
 
-        guard let window = overnightWindow(for: march14) else {
+        guard let window = overnightWindow(for: march14, calendar: calendar) else {
             Issue.record("Failed to compute overnight window")
             return
         }
@@ -84,23 +83,11 @@ struct SnapshotAggregatorTests {
 
     @Test("11 PM sleep start falls within overnight window")
     func lateSleepStartCaptured() {
-        let calendar = Calendar.current
-        // Sleep started at 11 PM on March 13
-        var sleepComponents = DateComponents()
-        sleepComponents.year = 2026
-        sleepComponents.month = 3
-        sleepComponents.day = 13
-        sleepComponents.hour = 23
-        let sleepStart = calendar.date(from: sleepComponents)!
+        let calendar = utcCalendar
+        let sleepStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 13, hour: 23))!
+        let snapshotDate = calendar.date(from: DateComponents(year: 2026, month: 3, day: 14))!
 
-        // The snapshot is for March 14 (the "morning of" date)
-        var dayComponents = DateComponents()
-        dayComponents.year = 2026
-        dayComponents.month = 3
-        dayComponents.day = 14
-        let snapshotDate = calendar.date(from: dayComponents)!
-
-        guard let window = overnightWindow(for: snapshotDate) else {
+        guard let window = overnightWindow(for: snapshotDate, calendar: calendar) else {
             Issue.record("Failed to compute overnight window")
             return
         }
@@ -111,22 +98,11 @@ struct SnapshotAggregatorTests {
 
     @Test("7 AM wake-up falls within overnight window")
     func morningWakeUpCaptured() {
-        let calendar = Calendar.current
-        // Woke up at 7 AM on March 14
-        var wakeComponents = DateComponents()
-        wakeComponents.year = 2026
-        wakeComponents.month = 3
-        wakeComponents.day = 14
-        wakeComponents.hour = 7
-        let wakeUp = calendar.date(from: wakeComponents)!
+        let calendar = utcCalendar
+        let wakeUp = calendar.date(from: DateComponents(year: 2026, month: 3, day: 14, hour: 7))!
+        let snapshotDate = calendar.date(from: DateComponents(year: 2026, month: 3, day: 14))!
 
-        var dayComponents = DateComponents()
-        dayComponents.year = 2026
-        dayComponents.month = 3
-        dayComponents.day = 14
-        let snapshotDate = calendar.date(from: dayComponents)!
-
-        guard let window = overnightWindow(for: snapshotDate) else {
+        guard let window = overnightWindow(for: snapshotDate, calendar: calendar) else {
             Issue.record("Failed to compute overnight window")
             return
         }
@@ -137,7 +113,7 @@ struct SnapshotAggregatorTests {
 
     @Test("Midnight-to-midnight would miss post-midnight sleep (regression check)")
     func midnightWindowMissesMorningSleep() {
-        let calendar = Calendar.current
+        let calendar = utcCalendar
         // Old broken behavior: midnight Mar 14 to midnight Mar 15
         var dayComponents = DateComponents()
         dayComponents.year = 2026
@@ -148,12 +124,7 @@ struct SnapshotAggregatorTests {
         let oldEnd = calendar.date(byAdding: .day, value: 1, to: oldStart)!
 
         // Sleep at 11 PM Mar 13 — OUTSIDE the old midnight-to-midnight window for Mar 14
-        var sleepComponents = DateComponents()
-        sleepComponents.year = 2026
-        sleepComponents.month = 3
-        sleepComponents.day = 13
-        sleepComponents.hour = 23
-        let sleepStart = calendar.date(from: sleepComponents)!
+        let sleepStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 13, hour: 23))!
 
         #expect(sleepStart < oldStart,
                 "Old midnight window excludes pre-midnight sleep — this was the bug")
@@ -163,15 +134,14 @@ struct SnapshotAggregatorTests {
 
     @Test("Daytime metrics still use midnight-to-midnight")
     func daytimeWindowUnchanged() {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: .now)
+        let calendar = utcCalendar
+        let today = calendar.date(from: DateComponents(year: 2026, month: 6, day: 15))!
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
 
-        // Use calendar components instead of raw seconds (avoids DST flakiness)
         let dayDiff = calendar.dateComponents([.day], from: today, to: tomorrow)
         #expect(dayDiff.day == 1, "Midnight-to-midnight should span 1 calendar day")
 
-        // Steps logged at 2 PM today are within the daytime window
+        // Steps logged at 2 PM are within the daytime window
         let afternoon = calendar.date(byAdding: .hour, value: 14, to: today)!
         #expect(afternoon >= today && afternoon < tomorrow)
     }
