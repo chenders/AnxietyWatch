@@ -2,7 +2,9 @@
 
 ## Git Workflow
 
-**MANDATORY: Never push directly to `main`.** Always create a new feature branch based on `main` unless explicitly instructed otherwise. Use `git checkout -b <branch-name> main` for new work.
+**MANDATORY: Never commit or push directly to `main`.** Always create a new feature branch based on `main` before making any changes. Use `git checkout -b <branch-name> main` for new work. This applies to all changes including documentation, specs, and plans — not just code.
+
+**Prefer safe git operations.** Use `git pull --rebase` instead of `git pull`. Avoid `git reset --hard`, `git checkout -B`, and `git switch -C` — these discard local commits and uncommitted changes. To sync with remote, ensure a clean working tree (`git stash` first if needed), then use `git pull --rebase`. Avoid `git add -A` or `git add .` — always stage specific files by name to prevent committing tool artifacts or sensitive files.
 
 ## Keeping Instruction Files Updated
 
