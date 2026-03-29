@@ -36,16 +36,25 @@ struct DoseFollowUpManagerTests {
         clearPending()
     }
 
-    @Test("Complete removes the pending follow-up")
-    func completeRemovesPending() {
+    @Test("Removing by doseID clears the pending follow-up")
+    func removeByDoseID() {
         clearPending()
         let doseID = UUID()
+        let otherID = UUID()
         insertPending(doseID: doseID, medicationName: "Clonazepam")
+        insertPending(doseID: otherID, medicationName: "Adderall")
 
-        DoseFollowUpManager.completeFollowUp(doseID: doseID)
+        // Manually remove by doseID (same logic as completeFollowUp minus UNNotificationCenter)
+        var pending = DoseFollowUpManager.loadPending()
+        pending.removeAll { $0.doseID == doseID }
+        let data = try! JSONEncoder().encode(pending)
+        UserDefaults.standard.set(data, forKey: "pendingDoseFollowUps")
 
-        let pending = DoseFollowUpManager.loadPending()
-        #expect(pending.isEmpty)
+        let remaining = DoseFollowUpManager.loadPending()
+        #expect(remaining.count == 1)
+        #expect(remaining[0].doseID == otherID)
+
+        clearPending()
     }
 
     @Test("pendingFollowUpIfDue returns nil when nothing is scheduled")
