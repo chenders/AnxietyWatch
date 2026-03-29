@@ -32,6 +32,13 @@ from caprx_client import (
 
 logger = logging.getLogger(__name__)
 
+
+def _unquote(s: str) -> str:
+    """Remove a single matching pair of outer quotes (single or double)."""
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+        return s[1:-1]
+    return s
+
 # ---------------------------------------------------------------------------
 # Database helpers
 # ---------------------------------------------------------------------------
@@ -108,7 +115,7 @@ def upsert_prescriptions(conn, prescriptions):
                    ndc_code = EXCLUDED.ndc_code,
                    last_fill_date = EXCLUDED.last_fill_date,
                    import_source = EXCLUDED.import_source
-               WHERE prescriptions.import_source != 'manual'""",
+               WHERE prescriptions.import_source = 'caprx'""",
             (
                 rx_number,
                 rx["medication_name"],
@@ -183,12 +190,13 @@ def run_sync(conn=None, email=None, password=None):
                 password = decrypt_value(enc_password, secret_key)
             else:
                 # Fall back to env vars
-                email = os.environ.get("CAPRX_USERNAME", "").strip("'")
-                password = os.environ.get("CAPRX_PASSWORD", "").strip("'")
+                email = _unquote(os.environ.get("CAPRX_USERNAME", ""))
+                password = _unquote(os.environ.get("CAPRX_PASSWORD", ""))
 
         if not email or not password:
-            log_sync(conn, "error: no credentials configured", 0)
-            return ("error", 0)
+            msg = "error: no credentials configured"
+            log_sync(conn, msg, 0)
+            return (msg, 0)
 
         # Authenticate
         client = CapRxClient(email, password)
