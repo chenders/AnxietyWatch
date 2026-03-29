@@ -296,6 +296,7 @@ final class SyncService {
         }
     }
 
+
     private func parseDate(_ value: Any?, formatter: ISO8601DateFormatter) -> Date? {
         guard let string = value as? String, !string.isEmpty else { return nil }
         // Try ISO 8601 with fractional seconds first, then without
