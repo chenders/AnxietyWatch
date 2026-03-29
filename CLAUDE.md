@@ -220,6 +220,8 @@ NSLocationWhenInUseUsageDescription — "Anxiety Watch optionally tags journal e
 
 **All new or changed code must include tests.** When adding a feature or fixing a bug, add tests that cover the new/changed logic. Extract pure logic into testable helpers (see `TrendWindow`, `BarometerService.shouldCapture`) rather than burying it in views or private methods.
 
+**Fixing failing tests is always in scope.** If any test is failing — whether related to your current work or not — fix it. Never dismiss a failing test as "not my problem" or "out of scope." A green test suite is a prerequisite for all work.
+
 ### Framework
 
 - **Swift Testing** (`import Testing`) — use `@Test` macro, `#expect()` assertions. Do not use legacy XCTest for new tests.
