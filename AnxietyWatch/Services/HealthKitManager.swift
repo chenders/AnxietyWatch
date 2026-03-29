@@ -27,6 +27,16 @@ actor HealthKitManager {
             .bloodPressureSystolic,           // Systolic BP (mmHg)
             .bloodPressureDiastolic,          // Diastolic BP (mmHg)
             .bloodGlucose,                    // Blood glucose (mg/dL)
+            // New: Apple Watch Series 8 types
+            .vo2Max,                          // Cardiorespiratory fitness (mL/kg/min)
+            .walkingHeartRateAverage,         // Average HR during walking (bpm)
+            .headphoneAudioExposure,          // Headphone volume (dBA)
+            .appleWalkingSteadiness,          // Balance/fall risk (0–1)
+            .atrialFibrillationBurden,        // % time in AFib (0–1)
+            .walkingSpeed,                    // Gait pace (m/s)
+            .walkingStepLength,               // Stride length (m)
+            .walkingDoubleSupportPercentage,  // Both feet on ground (0–1)
+            .walkingAsymmetryPercentage,      // Left/right asymmetry (0–1)
         ]
 
         var types = Set<HKObjectType>()
@@ -206,16 +216,10 @@ actor HealthKitManager {
 
     // MARK: - Observer Queries
 
-    /// Types worth observing — these change frequently and drive dashboard/trends updates.
+    /// Sleep analysis stays on HKObserverQuery since it's a category type.
+    /// All quantity types have moved to HKAnchoredObjectQuery.
     private var observedSampleTypes: [HKSampleType] {
-        [
-            HKQuantityType(.heartRateVariabilitySDNN),
-            HKQuantityType(.restingHeartRate),
-            HKQuantityType(.stepCount),
-            HKQuantityType(.activeEnergyBurned),
-            HKQuantityType(.appleExerciseTime),
-            HKCategoryType(.sleepAnalysis),
-        ]
+        [HKCategoryType(.sleepAnalysis)]
     }
 
     private var activeObserverQueries: [HKObserverQuery] = []
@@ -244,6 +248,83 @@ actor HealthKitManager {
             // Request background delivery so the app is woken when new data arrives
             healthStore.enableBackgroundDelivery(for: type, frequency: .immediate) { _, _ in }
         }
+    }
+
+    // MARK: - Anchored Object Queries
+
+    private var activeAnchoredQueries: [HKAnchoredObjectQuery] = []
+
+    /// UserDefaults key prefix for persisting query anchors per type.
+    private static let anchorKeyPrefix = "HKAnchor_"
+
+    /// Start anchored object queries for all types in SampleTypeConfig.anchoredTypes.
+    /// Calls onNewSamples with an array of (type raw identifier, value, timestamp, source)
+    /// for each batch of new samples received.
+    func startAnchoredQueries(
+        onNewSamples: @Sendable @escaping ([(type: String, value: Double, timestamp: Date, source: String?)]) -> Void
+    ) {
+        guard isAvailable else { return }
+
+        for query in activeAnchoredQueries {
+            healthStore.stop(query)
+        }
+        activeAnchoredQueries.removeAll()
+
+        for config in SampleTypeConfig.anchoredTypes {
+            let sampleType = HKQuantityType(config.identifier)
+            let anchor = loadAnchor(for: config.identifier.rawValue)
+
+            let handler: (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, (any Error)?) -> Void = {
+                [weak self] query, newSamples, _, newAnchor, error in
+                guard error == nil else { return }
+
+                // Always advance the anchor, even when there are no samples
+                if let newAnchor {
+                    Task { await self?.saveAnchor(newAnchor, for: config.identifier.rawValue) }
+                }
+
+                let samples = (newSamples as? [HKQuantitySample]) ?? []
+                guard !samples.isEmpty else { return }
+
+                let converted: [(type: String, value: Double, timestamp: Date, source: String?)] = samples.map { sample in
+                    let value = sample.quantity.doubleValue(for: config.unit)
+                    let source = sample.sourceRevision.source.name
+                    return (config.identifier.rawValue, value, sample.endDate, source)
+                }
+                onNewSamples(converted)
+            }
+
+            // Scope to 7-day retention window to avoid fetching entire history on first run
+            let retentionStart = Calendar.current.date(byAdding: .day, value: -7, to: .now)
+            let predicate = retentionStart.map { HKQuery.predicateForSamples(withStart: $0, end: nil) }
+
+            let query = HKAnchoredObjectQuery(
+                type: sampleType,
+                predicate: predicate,
+                anchor: anchor,
+                limit: HKObjectQueryNoLimit,
+                resultsHandler: handler
+            )
+            query.updateHandler = handler
+            healthStore.execute(query)
+            activeAnchoredQueries.append(query)
+
+            healthStore.enableBackgroundDelivery(for: sampleType, frequency: .immediate) { _, _ in }
+        }
+    }
+
+    private func loadAnchor(for typeKey: String) -> HKQueryAnchor? {
+        guard let data = UserDefaults.standard.data(forKey: Self.anchorKeyPrefix + typeKey) else {
+            return nil
+        }
+        return try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: data)
+    }
+
+    private func saveAnchor(_ anchor: HKQueryAnchor, for typeKey: String) {
+        guard let data = try? NSKeyedArchiver.archivedData(withRootObject: anchor, requiringSecureCoding: true) else {
+            return
+        }
+        UserDefaults.standard.set(data, forKey: Self.anchorKeyPrefix + typeKey)
     }
 
     // MARK: - Sleep Analysis
