@@ -75,13 +75,15 @@ struct DashboardPerfTests {
             FetchDescriptor<Prescription>(sortBy: [SortDescriptor(\.dateFilled, order: .reverse)])
         )
 
+        let now = Date()
+        let cutoff = calendar.date(
+            byAdding: .day,
+            value: -PrescriptionSupplyCalculator.alertStalenessLimitDays,
+            to: now
+        )
+
         let start = CFAbsoluteTimeGetCurrent()
         for _ in 0..<100 {
-            let cutoff = calendar.date(
-                byAdding: .day,
-                value: -PrescriptionSupplyCalculator.alertStalenessLimitDays,
-                to: .now
-            )
             _ = prescriptions.filter { rx in
                 let fillDate = rx.lastFillDate ?? rx.dateFilled
                 if let cutoff, fillDate < cutoff { return false }

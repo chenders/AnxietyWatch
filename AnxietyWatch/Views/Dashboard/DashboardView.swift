@@ -44,8 +44,8 @@ struct DashboardView: View {
             .task {
                 loadSamples()
                 computeSupplyAlerts()
-                computeBaselines()
                 await refreshSnapshot()
+                computeBaselines()
                 sendStatsToWatch()
                 await autoSync()
             }
@@ -506,9 +506,8 @@ struct DashboardView: View {
         date.formatted(.dateTime.month().day())
     }
 
-    /// Fetch all HealthSamples and group by type. Called once on appear,
-    /// not on every insert (unlike @Query which re-renders per-insert).
-    /// Compute baselines once on appear, not on every render.
+    /// Compute HRV and resting HR baselines from recent snapshots.
+    /// Called once on appear (after refreshSnapshot), not on every render.
     private func computeBaselines() {
         hrvBaseline = BaselineCalculator.hrvBaseline(from: recentSnapshots)
         rhrBaseline = BaselineCalculator.restingHRBaseline(from: recentSnapshots)
