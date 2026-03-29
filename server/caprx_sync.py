@@ -33,12 +33,6 @@ from caprx_client import (
 logger = logging.getLogger(__name__)
 
 
-def _unquote(s: str) -> str:
-    """Remove a single matching pair of outer quotes (single or double)."""
-    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
-        return s[1:-1]
-    return s
-
 # ---------------------------------------------------------------------------
 # Database helpers
 # ---------------------------------------------------------------------------
@@ -190,8 +184,8 @@ def run_sync(conn=None, email=None, password=None):
                 password = decrypt_value(enc_password, secret_key)
             else:
                 # Fall back to env vars
-                email = _unquote(os.environ.get("CAPRX_USERNAME", ""))
-                password = _unquote(os.environ.get("CAPRX_PASSWORD", ""))
+                email = os.environ.get("CAPRX_USERNAME", "")
+                password = os.environ.get("CAPRX_PASSWORD", "")
 
         if not email or not password:
             msg = "error: no credentials configured"
