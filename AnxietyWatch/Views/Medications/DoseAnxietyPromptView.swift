@@ -57,7 +57,12 @@ struct DoseAnxietyPromptView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        if isFollowUp, let existingDose {
+                            DoseFollowUpManager.completeFollowUp(doseID: existingDose.id)
+                        }
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isFollowUp ? "Log" : "Log Dose") {
