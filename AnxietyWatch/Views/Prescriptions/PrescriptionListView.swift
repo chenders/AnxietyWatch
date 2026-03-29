@@ -35,18 +35,39 @@ struct PrescriptionListView: View {
                     }
                 }
 
-                if prescriptions.isEmpty {
+                if activePrescriptions.isEmpty && expiredPrescriptions.isEmpty {
                     Text("No prescriptions yet. Tap + to add one.")
                         .foregroundStyle(.secondary)
-                } else {
-                    ForEach(prescriptions) { rx in
-                        NavigationLink {
-                            PrescriptionDetailView(prescription: rx)
-                        } label: {
-                            PrescriptionRow(prescription: rx)
+                }
+
+                if !activePrescriptions.isEmpty {
+                    Section("Active") {
+                        ForEach(activePrescriptions) { rx in
+                            NavigationLink {
+                                PrescriptionDetailView(prescription: rx)
+                            } label: {
+                                PrescriptionRow(prescription: rx)
+                            }
+                        }
+                        .onDelete { offsets in
+                            deleteFromFiltered(offsets, in: activePrescriptions)
                         }
                     }
-                    .onDelete(perform: deletePrescriptions)
+                }
+
+                if !expiredPrescriptions.isEmpty {
+                    Section("Recently Expired") {
+                        ForEach(expiredPrescriptions) { rx in
+                            NavigationLink {
+                                PrescriptionDetailView(prescription: rx)
+                            } label: {
+                                PrescriptionRow(prescription: rx)
+                            }
+                        }
+                        .onDelete { offsets in
+                            deleteFromFiltered(offsets, in: expiredPrescriptions)
+                        }
+                    }
                 }
             }
             .navigationTitle("Prescriptions")
@@ -65,6 +86,37 @@ struct PrescriptionListView: View {
         }
     }
 
+    /// Prescriptions with supply remaining or filled within the last 60 days.
+    private var activePrescriptions: [Prescription] {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -60, to: .now) ?? .distantPast
+        return prescriptions.filter { rx in
+            let status = PrescriptionSupplyCalculator.supplyStatus(for: rx)
+            if status == .good || status == .warning || status == .low {
+                return true
+            }
+            // Show recently filled even if unknown status
+            let fillDate = rx.lastFillDate ?? rx.dateFilled
+            return fillDate >= cutoff && status != .expired
+        }
+    }
+
+    /// Recently expired prescriptions (within the last 30 days) worth tracking.
+    private var expiredPrescriptions: [Prescription] {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: .now) ?? .distantPast
+        return prescriptions.filter { rx in
+            let status = PrescriptionSupplyCalculator.supplyStatus(for: rx)
+            let fillDate = rx.lastFillDate ?? rx.dateFilled
+            return status == .expired && fillDate >= cutoff
+        }
+    }
+
+    private func deleteFromFiltered(_ offsets: IndexSet, in filtered: [Prescription]) {
+        let snapshot = filtered
+        for index in offsets {
+            modelContext.delete(snapshot[index])
+        }
+    }
+
     private func fetchFromServer() async {
         isFetching = true
         fetchResult = nil
@@ -79,11 +131,6 @@ struct PrescriptionListView: View {
         isFetching = false
     }
 
-    private func deletePrescriptions(offsets: IndexSet) {
-        for index in offsets {
-            modelContext.delete(prescriptions[index])
-        }
-    }
 }
 
 // MARK: - Row
@@ -96,11 +143,19 @@ private struct PrescriptionRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(prescription.medicationName)
                     .font(.headline)
-                if !prescription.rxNumber.isEmpty {
-                    Text("Rx# \(prescription.rxNumber)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    if !prescription.doseDescription.isEmpty {
+                        Text(prescription.doseDescription)
+                    } else if prescription.doseMg > 0 {
+                        Text(String(format: "%.0fmg", prescription.doseMg))
+                    }
+                    if prescription.quantity > 0 {
+                        Text("qty \(prescription.quantity)")
+                    }
+                    Text((prescription.lastFillDate ?? prescription.dateFilled).formatted(.dateTime.month().day()))
                 }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             Spacer()
             SupplyBadge(prescription: prescription)
