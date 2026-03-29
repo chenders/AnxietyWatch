@@ -9,6 +9,7 @@ struct AddMedicationView: View {
     @State private var defaultDoseMg: Double = 0
     @State private var category = ""
     @State private var promptAnxietyOnLog = false
+    @State private var userToggledPrompt = false
 
     private let categories = [
         "SSRI", "SNRI", "Benzodiazepine", "Stimulant",
@@ -37,7 +38,10 @@ struct AddMedicationView: View {
                 }
 
                 Section {
-                    Toggle("Prompt anxiety rating on dose", isOn: $promptAnxietyOnLog)
+                    Toggle("Prompt anxiety rating on dose", isOn: Binding(
+                        get: { promptAnxietyOnLog },
+                        set: { promptAnxietyOnLog = $0; userToggledPrompt = true }
+                    ))
                 } footer: {
                     Text("When enabled, logging a dose will ask for your current anxiety level and follow up 30 minutes later.")
                 }
@@ -54,7 +58,9 @@ struct AddMedicationView: View {
                 }
             }
             .onChange(of: category) { _, newValue in
-                promptAnxietyOnLog = Self.promptCategories.contains(newValue)
+                if !userToggledPrompt {
+                    promptAnxietyOnLog = Self.promptCategories.contains(newValue)
+                }
             }
         }
     }

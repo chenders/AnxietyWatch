@@ -30,8 +30,9 @@ enum DoseFollowUpManager {
     static func scheduleFollowUp(doseID: UUID, medicationName: String) {
         let scheduledTime = Date.now.addingTimeInterval(followUpDelay)
 
-        // Save to UserDefaults
+        // Save to UserDefaults (dedup first)
         var pending = loadPending()
+        pending.removeAll { $0.doseID == doseID }
         pending.append(PendingFollowUp(
             doseID: doseID,
             medicationName: medicationName,
@@ -81,8 +82,12 @@ enum DoseFollowUpManager {
         }
     }
 
-    /// Mark a follow-up as completed or dismissed. Removes it from pending.
+    /// Mark a follow-up as completed or dismissed. Removes from pending and cancels notification.
     static func completeFollowUp(doseID: UUID) {
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: [notificationID(for: doseID)])
+        UNUserNotificationCenter.current()
+            .removeDeliveredNotifications(withIdentifiers: [notificationID(for: doseID)])
         var pending = loadPending()
         pending.removeAll { $0.doseID == doseID }
         savePending(pending)
