@@ -152,7 +152,7 @@ private struct PrescriptionRow: View {
                     if prescription.quantity > 0 {
                         Text("qty \(prescription.quantity)")
                     }
-                    Text(prescription.dateFilled.formatted(.dateTime.month().day()))
+                    Text((prescription.lastFillDate ?? prescription.dateFilled).formatted(.dateTime.month().day()))
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
