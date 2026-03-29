@@ -2,17 +2,13 @@
 
 import hashlib
 import json
-import logging
 import os
-import threading
 from datetime import datetime, timezone
 from functools import wraps
 
 import psycopg2
 import psycopg2.extras
 from flask import Flask, g, jsonify, request
-
-logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -479,34 +475,6 @@ def create_app(test_config=None):
             return jsonify({"status": "ok"})
         except Exception:
             return jsonify({"status": "error"}), 500
-
-    # ---------------------------------------------------------------------------
-    # Scheduled CapRx sync (every 12 hours)
-    # ---------------------------------------------------------------------------
-
-    def _run_caprx_sync():
-        """Background CapRx sync — runs in a separate thread."""
-        try:
-            from caprx_sync import run_sync
-            with app.app_context():
-                status, count = run_sync()
-                logger.info("Scheduled CapRx sync: %s (%d prescriptions)", status, count)
-        except Exception:
-            logger.exception("Scheduled CapRx sync failed")
-        finally:
-            _schedule_caprx_sync()
-
-    def _schedule_caprx_sync():
-        """Schedule the next CapRx sync in 12 hours."""
-        interval = 12 * 3600  # 12 hours
-        t = threading.Timer(interval, _run_caprx_sync)
-        t.daemon = True
-        t.start()
-
-    # Start the scheduler (only in the main process, not in reloader)
-    if not app.debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-        _schedule_caprx_sync()
-        logger.info("CapRx sync scheduled every 12 hours")
 
     return app
 
