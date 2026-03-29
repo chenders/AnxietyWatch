@@ -28,7 +28,7 @@ These are bugs, broken behavior, or silent-failure conditions that undermine exi
 ### 1.1 iOS CI Is Non-Blocking (`continue-on-error: true`)
 
 - **Source experts:** Developer Experience, Xcode/Claude Code Tooling
-- **Description:** The `ios-ci.yml` workflow has `continue-on-error: true`, meaning test failures are silently ignored. All 21 test files are effectively decorative. Remove it or pin to an available Xcode version so tests actually gate merges.
+- **Description:** The `ios-ci.yml` workflow has `continue-on-error: true`, meaning test failures are silently ignored. All 20 test files are effectively decorative. Remove it or pin to an available Xcode version so tests actually gate merges.
 - **Pros:** Tests prevent regressions; CI becomes trustworthy.
 - **Cons:** May require fixing currently-broken tests first.
 - **Risks:** If tests are currently failing, this blocks all PRs until fixed.
