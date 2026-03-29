@@ -19,21 +19,20 @@ struct DashboardView: View {
     /// Manually fetched instead of @Query to avoid re-rendering on every
     /// HealthSample insert (13 anchored queries can fire hundreds of inserts on launch).
     @State private var samplesByType: [String: [HealthSample]] = [:]
+    @State private var lowSupplyCount = 0
+    @State private var hrvBaseline: BaselineCalculator.BaselineResult?
+    @State private var rhrBaseline: BaselineCalculator.BaselineResult?
 
     private let barometer = BarometerService.shared
 
     var body: some View {
-        // Compute baselines once per render — these are O(n) over recentSnapshots.
-        let hrvBL = BaselineCalculator.hrvBaseline(from: recentSnapshots)
-        let rhrBL = BaselineCalculator.restingHRBaseline(from: recentSnapshots)
-
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    baselineAlert(hrvBaseline: hrvBL)
+                    baselineAlert(hrvBaseline: hrvBaseline)
                     supplyAlertCard
                     anxietySection
-                    healthSection(hrvBaseline: hrvBL, rhrBaseline: rhrBL)
+                    healthSection(hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline)
                     labResultsSection
                     cpapSection
                     barometricSection
@@ -44,6 +43,8 @@ struct DashboardView: View {
             .navigationTitle("Dashboard")
             .task {
                 loadSamples()
+                computeSupplyAlerts()
+                computeBaselines()
                 await refreshSnapshot()
                 sendStatsToWatch()
                 await autoSync()
@@ -77,19 +78,8 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var supplyAlertCard: some View {
-        let cutoff = Calendar.current.date(
-            byAdding: .day,
-            value: -PrescriptionSupplyCalculator.alertStalenessLimitDays,
-            to: .now
-        )
-        let lowCount = prescriptions.filter { rx in
-            let fillDate = rx.lastFillDate ?? rx.dateFilled
-            if let cutoff, fillDate < cutoff { return false }
-            if rx.medication?.isActive == false { return false }
-            let status = PrescriptionSupplyCalculator.supplyStatus(for: rx)
-            return status == .low || status == .warning || status == .expired
-        }.count
-        if lowCount > 0 {
+        if lowSupplyCount > 0 {
+            let lowCount = lowSupplyCount
             HStack(spacing: 8) {
                 Image(systemName: "pills.fill")
                     .foregroundStyle(.red)
@@ -518,6 +508,28 @@ struct DashboardView: View {
 
     /// Fetch all HealthSamples and group by type. Called once on appear,
     /// not on every insert (unlike @Query which re-renders per-insert).
+    /// Compute baselines once on appear, not on every render.
+    private func computeBaselines() {
+        hrvBaseline = BaselineCalculator.hrvBaseline(from: recentSnapshots)
+        rhrBaseline = BaselineCalculator.restingHRBaseline(from: recentSnapshots)
+    }
+
+    /// Compute supply alert count once, not on every render.
+    private func computeSupplyAlerts() {
+        let cutoff = Calendar.current.date(
+            byAdding: .day,
+            value: -PrescriptionSupplyCalculator.alertStalenessLimitDays,
+            to: .now
+        )
+        lowSupplyCount = prescriptions.filter { rx in
+            let fillDate = rx.lastFillDate ?? rx.dateFilled
+            if let cutoff, fillDate < cutoff { return false }
+            if rx.medication?.isActive == false { return false }
+            let status = PrescriptionSupplyCalculator.supplyStatus(for: rx)
+            return status == .low || status == .warning || status == .expired
+        }.count
+    }
+
     private func loadSamples() {
         let descriptor = FetchDescriptor<HealthSample>(
             sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
