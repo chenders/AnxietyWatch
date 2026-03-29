@@ -4,6 +4,8 @@
 
 **MANDATORY: Never push directly to `main`.** Always create a new feature branch based on `main` unless explicitly instructed otherwise. Use `git checkout -b <branch-name> main` for new work.
 
+**Prefer safe git operations.** Use `git pull --rebase` instead of `git pull`. Never use `git reset --hard` — use `git checkout -B <branch> origin/<branch>` to sync with remote, or `git stash` to save work before switching. Avoid `git add -A` or `git add .` — always stage specific files by name to prevent committing tool artifacts or sensitive files.
+
 ## Keeping Instruction Files Updated
 
 When making changes that affect project structure, conventions, commands, or workflows, update the relevant instruction files:
