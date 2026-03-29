@@ -200,11 +200,15 @@ def run_sync(conn=None, email=None, password=None):
             logger.error("CapRx auth failed: %s", e)
             log_sync(conn, f"auth_error: {e}", 0)
             return ("auth_error", 0)
+        except requests.exceptions.RequestException as e:
+            logger.error("CapRx auth network error: %s", e)
+            log_sync(conn, f"api_error: {e}", 0)
+            return ("api_error", 0)
 
         # Fetch claims
         try:
             raw_claims = client.fetch_all_claims()
-        except (CapRxAuthError, CapRxAPIError, requests.HTTPError) as e:
+        except (CapRxAuthError, CapRxAPIError, requests.exceptions.RequestException) as e:
             logger.error("CapRx fetch failed: %s", e)
             log_sync(conn, f"api_error: {e}", 0)
             return ("api_error", 0)
