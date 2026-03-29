@@ -34,7 +34,7 @@ jobs:
           echo "Using simulator: $SIM_NAME"
 
       - name: Generate BuildVersion.swift
-        run: SRCROOT="${GITHUB_WORKSPACE}" scripts/generate-version.sh
+        run: SRCROOT="${GITHUB_WORKSPACE}" bash scripts/generate-version.sh
 
       - name: Run tests with coverage
         run: |
