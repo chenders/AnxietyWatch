@@ -34,7 +34,7 @@ struct PrescriptionListView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                } else if !dismissedSyncHint {
+                } else if prescriptions.isEmpty && !dismissedSyncHint {
                     Section {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
