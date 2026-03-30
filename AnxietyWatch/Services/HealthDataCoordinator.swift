@@ -46,7 +46,13 @@ final class HealthDataCoordinator {
         let calendar = Calendar.current
 
         // Ask HealthKit how far back data goes
-        let oldestDate = try? await HealthKitManager.shared.oldestSampleDate()
+        let oldestDate: Date?
+        do {
+            oldestDate = try await HealthKitManager.shared.oldestSampleDate()
+        } catch {
+            Log.health.error("Failed to query oldest sample date: \(error)")
+            oldestDate = nil
+        }
         let startDate = oldestDate ?? calendar.date(byAdding: .day, value: -90, to: .now)!
         let totalDays = max(1, (calendar.dateComponents([.day], from: startDate, to: .now).day ?? 90) + 1)
 
@@ -62,7 +68,11 @@ final class HealthDataCoordinator {
 
         for offset in 0..<totalDays {
             let date = calendar.date(byAdding: .day, value: offset, to: startDate)!
-            try? await aggregator.aggregateDay(date)
+            do {
+                try await aggregator.aggregateDay(date)
+            } catch {
+                Log.data.error("Backfill failed for day \(offset): \(error)")
+            }
             backfillProgress = offset + 1
         }
 
@@ -103,7 +113,14 @@ final class HealthDataCoordinator {
         )
         descriptor.fetchLimit = 1
 
-        guard let lastSnapshot = try? context.fetch(descriptor).first else { return }
+        let lastSnapshot: HealthSnapshot?
+        do {
+            lastSnapshot = try context.fetch(descriptor).first
+        } catch {
+            Log.data.error("Failed to fetch last snapshot for gap fill: \(error)")
+            return
+        }
+        guard let lastSnapshot else { return }
 
         let dates = Self.gapDates(lastSnapshotDate: lastSnapshot.date, today: today)
         guard !dates.isEmpty else { return }
@@ -115,7 +132,11 @@ final class HealthDataCoordinator {
 
         for date in dates {
             if Task.isCancelled { return }
-            try? await aggregator.aggregateDay(date)
+            do {
+                try await aggregator.aggregateDay(date)
+            } catch {
+                Log.data.error("Gap fill failed for \(date): \(error)")
+            }
         }
     }
 
@@ -216,7 +237,11 @@ final class HealthDataCoordinator {
                 healthKit: HealthKitManager.shared,
                 modelContext: context
             )
-            try? await aggregator.aggregateDay(.now)
+            do {
+                try await aggregator.aggregateDay(.now)
+            } catch {
+                Log.data.error("Background refresh aggregation failed: \(error)")
+            }
         }
 
         task.expirationHandler = {
@@ -245,7 +270,11 @@ final class HealthDataCoordinator {
                 healthKit: HealthKitManager.shared,
                 modelContext: context
             )
-            try? await aggregator.aggregateDay(.now)
+            do {
+                try await aggregator.aggregateDay(.now)
+            } catch {
+                Log.data.error("Refresh aggregation failed: \(error)")
+            }
 
             await importClinicalRecordsIfNeeded()
         }
@@ -264,7 +293,11 @@ final class HealthDataCoordinator {
                 source: sample.source
             ))
         }
-        try? context.save()
+        do {
+            try context.save()
+        } catch {
+            Log.data.error("Failed to save \(samples.count) health samples: \(error)")
+        }
     }
 
     /// Delete HealthSample rows older than 7 days.
@@ -272,13 +305,17 @@ final class HealthDataCoordinator {
         let context = ModelContext(modelContainer)
         let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: .now)
             ?? Date(timeIntervalSinceNow: -7 * 86400)
-        let old = try? context.fetch(FetchDescriptor<HealthSample>(
-            predicate: #Predicate<HealthSample> { $0.timestamp < cutoff }
-        ))
-        for sample in old ?? [] {
-            context.delete(sample)
+        do {
+            let old = try context.fetch(FetchDescriptor<HealthSample>(
+                predicate: #Predicate<HealthSample> { $0.timestamp < cutoff }
+            ))
+            for sample in old {
+                context.delete(sample)
+            }
+            try context.save()
+        } catch {
+            Log.data.error("Failed to prune old samples: \(error)")
         }
-        try? context.save()
     }
 
     // MARK: - Barometer Persistence
@@ -295,7 +332,11 @@ final class HealthDataCoordinator {
                 relativeAltitudeM: altitude
             )
             context.insert(reading)
-            try? context.save()
+            do {
+                try context.save()
+            } catch {
+                Log.data.error("Failed to save barometric reading: \(error)")
+            }
         }
         BarometerService.shared.startMonitoring()
     }
