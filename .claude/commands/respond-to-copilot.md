@@ -101,4 +101,4 @@ When complete, report a summary: total rounds, comments addressed, comments decl
 - Never defer work without explicit user approval
 - Thread IDs (PRRT*) are NOT the same as comment IDs (PRRC*)
 - Track comment IDs across rounds to distinguish new comments from previously addressed ones
-- **CRITICAL:** GitHub has two comment endpoints — `pulls/{pr}/comments` (PR-level) and `pulls/{pr}/reviews/{review_id}/comments` (review-level). Copilot uses BOTH. Always check both endpoints or you will miss comments.
+- **CRITICAL:** GitHub has two comment endpoints — `pulls/{pr_number}/comments` (PR-level) and `pulls/{pr_number}/reviews/{review_id}/comments` (review-level). Copilot uses BOTH. Always check both endpoints or you will miss comments.
