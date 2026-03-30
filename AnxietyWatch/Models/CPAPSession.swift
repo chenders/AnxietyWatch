@@ -3,6 +3,17 @@ import SwiftData
 
 @Model
 final class CPAPSession {
+    enum ImportSource: String {
+        case csv
+        case caprx
+        case manual
+    }
+
+    var source: ImportSource {
+        get { ImportSource(rawValue: importSource) ?? .csv }
+        set { importSource = newValue.rawValue }
+    }
+
     var id: UUID
     var date: Date
     /// Apnea-Hypopnea Index — events per hour
