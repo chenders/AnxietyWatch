@@ -4,7 +4,7 @@
 
 A personal iOS + watchOS app for tracking anxiety through a combination of subjective journaling and objective physiological data from multiple sources. The app correlates these data streams to surface patterns, predict anxiety episodes, and generate clinical reports for psychiatric care.
 
-This app is for personal use only (single user, never published to the App Store). It will be distributed via Xcode direct install or TestFlight for personal devices.
+This app started as a personal tool and is now open-source. It is not a commercial product — there are no App Store plans, no subscriptions, no telemetry. It is designed to be built from source via Xcode and adapted to each user's own devices and data sources.
 
 ---
 

@@ -29,7 +29,16 @@ xcuserdata/
 .xcodebuildmcp/
 .idea/
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+
 # Server (supplements server/.gitignore)
 server/.env
 server/__pycache__/
 AnxietyWatch/Utilities/BuildVersion.swift
+
+# Scratch screenshots / images not intended for the repo (root level only)
+/modal.png
+/watch.png
