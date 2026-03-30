@@ -34,7 +34,7 @@ struct PrescriptionListView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                } else if prescriptions.isEmpty && !dismissedSyncHint {
+                } else if activePrescriptions.isEmpty && expiredPrescriptions.isEmpty && !dismissedSyncHint {
                     Section {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
@@ -51,8 +51,11 @@ struct PrescriptionListView: View {
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
                                     .foregroundStyle(.tertiary)
+                                    .padding(8)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Dismiss sync setup hint")
+                            .accessibilityHint("Hides this message about configuring sync")
                         }
                     }
                 }
