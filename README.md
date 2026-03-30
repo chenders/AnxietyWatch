@@ -18,19 +18,26 @@ Anxiety Watch is an iOS and watchOS app that tracks anxiety from both sides: the
 
 The result is not a wall of numbers. It is your own data, interpreted through your own history, making the invisible patterns visible. Anxiety is less frightening when it is less mysterious.
 
+> [!IMPORTANT]
 > **Your data never leaves your devices.** There is no cloud service, no account to create, no telemetry, no analytics. Health data stays in HealthKit on your iPhone. App data stays in local SwiftData storage. The only time data goes anywhere is when *you* explicitly choose to export a report, sync to *your own* self-hosted server, or share a clinical PDF with *your* doctor. You are in complete control.
 
+> [!NOTE]
 > **This project is under active development.** The data collection layer is thorough — 20+ HealthKit data types, medication tracking with efficacy measurement, CPAP integration, clinical reports, a sync server. The intelligence layer — pattern detection, compound triggers, proactive insights — is where the project is headed next.
 
-<div align="center">
-  <img src="docs/screenshots/dashboard.png" width="200" alt="Dashboard showing HRV baseline alert, anxiety rating, health metrics with sparklines" />
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/trends.png" width="200" alt="HRV trend chart with personal baseline band, anxiety severity scatter plot, and sleep stages" />
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/report.png" width="165" alt="Clinical PDF report with anxiety summary, medication adherence, sleep quality, HRV, and CPAP data" />
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/watch.png" width="105" alt="watchOS Quick Log — Digital Crown severity picker designed for use during panic" />
-</div>
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/screenshots/dashboard.png" width="180" alt="Dashboard showing HRV baseline alert, anxiety rating, health metrics with sparklines" /></td>
+    <td align="center"><img src="docs/screenshots/trends.png" width="180" alt="HRV trend chart with personal baseline band, anxiety severity scatter plot, and sleep stages" /></td>
+    <td align="center"><img src="docs/screenshots/report.png" width="150" alt="Clinical PDF report with anxiety summary, medication adherence, sleep quality, HRV, and CPAP data" /></td>
+    <td align="center"><img src="docs/screenshots/watch.png" width="90" alt="watchOS Quick Log — Digital Crown severity picker designed for use during panic" /></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Dashboard</em></td>
+    <td align="center"><em>Trends</em></td>
+    <td align="center"><em>Clinical Report</em></td>
+    <td align="center"><em>Quick Log</em></td>
+  </tr>
+</table>
 
 ---
 
@@ -141,13 +148,18 @@ Before your appointment, you generate a one-page clinical summary. Your psychiat
 
 **This is the direction. Not a deadline.** Every change must make the app either more useful during an anxiety episode, more insightful during calm reflection, or more effective in a clinical conversation. If it doesn't serve at least one of those purposes, it probably isn't worth building.
 
-<div align="center">
-  <img src="docs/screenshots/future-dashboard.png" width="200" alt="Future dashboard with Today's Summary card, Log button, breathing pacer, and grouped metric sections" />
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/future-insights.png" width="200" alt="Future Insights tab showing sleep-anxiety correlation, compound triggers, exercise effect, and medication efficacy trends" />
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/future-trends.png" width="200" alt="Future trends with weekly summary stats, HRV chart with medication dose markers, and anxiety dose-response visualization showing tolerance" />
-</div>
+<table align="center">
+  <tr>
+    <td align="center"><img src="docs/screenshots/future-dashboard.png" width="180" alt="Future dashboard with Today's Summary card, Log button, breathing pacer, and grouped metric sections" /></td>
+    <td align="center"><img src="docs/screenshots/future-insights.png" width="180" alt="Future Insights tab showing sleep-anxiety correlation, compound triggers, exercise effect, and medication efficacy trends" /></td>
+    <td align="center"><img src="docs/screenshots/future-trends.png" width="180" alt="Future trends with weekly summary stats, HRV chart with medication dose markers, and anxiety dose-response visualization showing tolerance" /></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Dashboard</em></td>
+    <td align="center"><em>Insights</em></td>
+    <td align="center"><em>Trends</em></td>
+  </tr>
+</table>
 
 *Design mockups of planned features — a redesigned dashboard that tells stories instead of dumping numbers, an intelligence layer that surfaces your personal patterns, and trend charts with medication dose markers that make tolerance visible.*
 
