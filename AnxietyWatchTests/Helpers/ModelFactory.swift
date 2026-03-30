@@ -12,9 +12,16 @@ enum ModelFactory {
     /// to prevent flakiness when tests run across midnight.
     static let referenceDate = Date(timeIntervalSince1970: 1_711_929_600) // 2024-04-01 00:00:00 UTC
 
+    /// Fixed Gregorian calendar in UTC for deterministic date arithmetic in tests.
+    private static let utcCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }()
+
     /// Returns a date N days before the reference date.
     static func daysAgo(_ n: Int, from base: Date = referenceDate) -> Date {
-        Calendar.current.date(byAdding: .day, value: -n, to: base)!
+        utcCalendar.date(byAdding: .day, value: -n, to: base)!
     }
 
     // MARK: - Journal
