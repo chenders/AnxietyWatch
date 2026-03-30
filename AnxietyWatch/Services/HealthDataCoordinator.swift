@@ -200,7 +200,7 @@ final class HealthDataCoordinator {
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
-            Log.health.error("Background refresh scheduling failed: \(error)")
+            Log.health.error("Background refresh scheduling failed: \(error, privacy: .public)")
         }
     }
 

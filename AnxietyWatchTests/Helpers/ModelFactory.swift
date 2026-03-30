@@ -6,6 +6,13 @@ import Foundation
 /// All default values use obviously fictional data per project conventions.
 enum ModelFactory {
 
+    /// Counter for generating unique but deterministic test identifiers.
+    private static var _counter = 0
+    private static func nextID() -> String {
+        _counter += 1
+        return "test-\(_counter)"
+    }
+
     // MARK: - Reference date
 
     /// Fixed reference date for deterministic tests. Use this instead of Date.now
@@ -184,7 +191,7 @@ enum ModelFactory {
         referenceRangeHigh: Double? = 200.0,
         interpretation: String? = nil,
         sourceName: String? = "Test Provider",
-        healthKitSampleUUID: String = UUID().uuidString
+        healthKitSampleUUID: String = nextID()
     ) -> ClinicalLabResult {
         ClinicalLabResult(
             loincCode: loincCode,
