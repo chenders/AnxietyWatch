@@ -6,6 +6,8 @@ import SwiftData
 /// handles long-term trending.
 @Model
 final class HealthSample {
+    #Unique<HealthSample>([\.type, \.timestamp, \.source])
+
     var id: UUID
     var type: String
     var value: Double
