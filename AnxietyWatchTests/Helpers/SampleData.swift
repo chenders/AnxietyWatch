@@ -1,7 +1,7 @@
 import SwiftData
 @testable import AnxietyWatch
 
-/// Pre-built data sets for tests and previews. All data uses ModelFactory
+/// Pre-built data sets for tests. All data uses ModelFactory
 /// defaults and fictional values per project conventions.
 enum SampleData {
 
@@ -88,7 +88,7 @@ enum SampleData {
         }
     }
 
-    /// Creates a seeded in-memory container ready for use in tests or previews.
+    /// Creates a seeded in-memory container ready for use in tests.
     static func makeSeededContainer() throws -> ModelContainer {
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
