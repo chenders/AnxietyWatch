@@ -1,5 +1,6 @@
 import BackgroundTasks
 import Foundation
+import os
 import SwiftData
 
 /// Coordinates HealthKit data flow: backfills historical snapshots on first launch
@@ -199,7 +200,7 @@ final class HealthDataCoordinator {
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
-            print("Background refresh scheduling failed: \(error)")
+            Log.health.error("Background refresh scheduling failed: \(error)")
         }
     }
 
