@@ -6,6 +6,10 @@ AnxietyWatch is a personal iOS + watchOS anxiety tracking app with a Python sync
 
 This is an open-source personal project — not a commercial product, no App Store plans.
 
+## Keeping Instruction Files in Sync
+
+**When reviewing PRs that change coding conventions, project rules, workflows, or add new guidance: flag if the change only appears in one instruction file.** `CLAUDE.md` and this file (`.github/copilot-instructions.md`) cover overlapping ground. A rule added to one must be reflected in the other. Also check `AGENTS.md` and `REQUIREMENTS.md` for relevance. A rule that exists in one instruction file but not the others is a bug — flag it.
+
 ## Git Workflow
 
 **Never push directly to `main`.** Always create a feature branch from `main`. Use descriptive branch names like `feat/add-export-csv` or `fix/healthkit-auth-crash`.

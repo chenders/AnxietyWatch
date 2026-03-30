@@ -39,11 +39,13 @@
 
 ## Keeping Instruction Files Updated
 
-When making changes that affect project structure, conventions, commands, or workflows, update the relevant instruction files:
+**MANDATORY:** When making changes that affect project structure, conventions, commands, workflows, coding standards, or rules, you MUST update all relevant instruction files in the same commit. These files must stay in sync:
 - **`CLAUDE.md`** — Project context for Claude Code (this file)
 - **`AGENTS.md`** — Multi-agent tooling instructions
 - **`.github/copilot-instructions.md`** — GitHub Copilot review instructions
 - **`REQUIREMENTS.md`** — Full specification and data model
+
+**When editing any instruction file, check the others for the same topic and update them too.** `CLAUDE.md` and `.github/copilot-instructions.md` cover overlapping ground (coding conventions, testing rules, sensitive data rules, design principles). If you change a rule in one, apply the equivalent change to the other. A rule that exists in `CLAUDE.md` but not `copilot-instructions.md` (or vice versa) is a bug.
 
 ## Commands
 
