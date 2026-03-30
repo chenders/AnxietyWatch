@@ -84,11 +84,13 @@ struct MedicationsHubView: View {
 
     @ViewBuilder
     private var supplyAlertSection: some View {
+        let calendar = Calendar.current
+        let now = Date.now
         let alerts = prescriptions.filter { rx in
             // Skip prescriptions past their staleness limit
             let fillDate = rx.lastFillDate ?? rx.dateFilled
             let stalenessLimit = PrescriptionSupplyCalculator.alertStalenessLimitDays(for: rx)
-            let cutoff = Calendar.current.date(byAdding: .day, value: -stalenessLimit, to: .now)
+            let cutoff = calendar.date(byAdding: .day, value: -stalenessLimit, to: now)
             if let cutoff, fillDate < cutoff {
                 return false
             }
