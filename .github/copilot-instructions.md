@@ -81,6 +81,26 @@ The iOS app's `SyncService` POSTs JSON to the server's `/api/sync` endpoint. The
 - Use fixed reference dates for deterministic assertions.
 - Server tests use pytest; run `cd server && python -m pytest tests/`.
 
+## Public Repository — Sensitive Data Rules
+
+**This is a public repository.** Every file, commit, and PR is visible to the world. Flag any of the following in code review:
+
+### Test data must be obviously fictional
+- **Flag** real-looking Rx numbers, doctor names, addresses, phone numbers, device names, insurance claim numbers, or pharmacy store identifiers in test fixtures. Acceptable: `9999999-00001`, `Jane Smith MD`, `100 Example Blvd, Anytown, ST 00000`, `555-0100`, `Test iPhone`, `#12345`, `TESTPLAN`.
+- **OK:** Generic medication names like "Clonazepam 1mg" — these are public drug names.
+
+### Never log credentials
+- **Flag** any `logger.info/debug/warning/error` call that includes a password, API key, token, or security answer value — even in debug code.
+- **OK:** Logging credential metadata like `password_present=True` or `username=%r`.
+
+### No personal info in code
+- **Flag** "Created by [real name]" Xcode file headers — these should be removed or generic.
+- **Flag** references to real people, real device names, or real locations in code, comments, or PR descriptions.
+- **Flag** committed screenshots or images that haven't been reviewed for personal data (Xcode team names, device identifiers, real health data).
+
+### Project name
+- The project was renamed from AnxietyScope to AnxietyWatch. **Flag** any remaining `AnxietyScope` references.
+
 ## What NOT to Do
 
 - Don't add features or fix bugs without adding corresponding tests.
@@ -89,3 +109,4 @@ The iOS app's `SyncService` POSTs JSON to the server's `/api/sync` endpoint. The
 - Don't expose completion handlers in app code — use async/await, wrapping callback-based system APIs with continuations.
 - Don't use an ORM in the server — raw SQL with psycopg2 is intentional.
 - Don't store secrets in code or commit `.env` files.
+- Don't commit screenshots or images without reviewing for personal data.

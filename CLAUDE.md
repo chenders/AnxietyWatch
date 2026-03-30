@@ -6,6 +6,37 @@
 
 **Prefer safe git operations.** Use `git pull --rebase` instead of `git pull`. Avoid `git reset --hard`, `git checkout -B`, and `git switch -C` — these discard local commits and uncommitted changes. To sync with remote, ensure a clean working tree (`git stash` first if needed), then use `git pull --rebase`. Avoid `git add -A` or `git add .` — always stage specific files by name to prevent committing tool artifacts or sensitive files.
 
+## Public Repository — Sensitive Data Rules
+
+**This is an open-source repository. Every file, commit message, and PR description is publicly visible.** Never introduce personal, medical, or identifying information. The rules below are based on real incidents that required history rewrites to fix.
+
+### Test data must be obviously fictional
+- **Rx numbers:** Use `9999999-00001`, `7654321`, etc. Never use a number that could be a real prescription.
+- **Doctor/provider names:** Use `Jane Smith MD`, `Dr. Test Provider`. Never use real names.
+- **Addresses:** Use `100 Example Blvd, Anytown, ST 00000`. Never use real addresses.
+- **Phone numbers:** Use `555-0100` through `555-0199` (reserved fictional range).
+- **Device names:** Use `Test iPhone`, `Test Apple Watch`. Never `Chris's iPhone` or any personalized name.
+- **Pharmacy store numbers:** Use `#12345`. Never a real store identifier.
+- **Insurance/claim data:** Use `TESTPLAN`, `0000000000`. Never real claim numbers.
+- **Medication names in test data are OK** (e.g., "Clonazepam 1mg") — these are public drug names, not personal info.
+
+### Never log credentials
+- Never log passwords, API keys, tokens, or security answers — not even at DEBUG level.
+- Log only metadata about credentials: `"Credentials decrypted successfully for username=%r"` — never the credential value itself.
+- When debugging auth flows, log presence/length (`password_present=True, password_len=12`), not values.
+
+### No personal info in code or comments
+- Do not add "Created by [real name]" headers to new Swift files. Xcode adds these by default — remove them.
+- Do not reference real people, real devices, real locations, or real medical providers in code comments, commit messages, or PR descriptions.
+- Do not commit screenshots that contain personal information (Xcode team names, device names, real health data).
+
+### Images and binary files
+- Do not commit screenshots, images, or PDFs without reviewing them for personal data.
+- Add any scratch images to `.gitignore` before they can be accidentally staged.
+
+### The old project name
+- The project was renamed from **AnxietyScope** to **AnxietyWatch**. If you encounter any remaining `AnxietyScope` references, fix them.
+
 ## Keeping Instruction Files Updated
 
 When making changes that affect project structure, conventions, commands, or workflows, update the relevant instruction files:
