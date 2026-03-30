@@ -14,13 +14,29 @@ Review and respond to GitHub Copilot review comments on a pull request. Loops un
    - If PR number provided, use directly
    - Otherwise find PR for current branch via `gh pr view`
 
-2. **Fetch all review comments**
+2. **Fetch all review comments from BOTH endpoints**
 
+   Copilot posts comments via two different mechanisms. You MUST check both:
+
+   **Endpoint A — PR-level comments** (inline diff comments):
    ```bash
-   gh api repos/chenders/AnxietyWatch/pulls/{pr_number}/comments | jq '.[] | {id, body, path, line}'
+   gh api repos/chenders/AnxietyWatch/pulls/{pr_number}/comments --jq '.[] | {id, body, path, line}'
    ```
 
-3. **Check for new comments** — If there are no new unaddressed comments since the last round, the loop is done. Report the final status and stop.
+   **Endpoint B — Review-attached comments** (comments posted as part of a review):
+   ```bash
+   # First get all review IDs from Copilot
+   REVIEW_IDS=$(gh api repos/chenders/AnxietyWatch/pulls/{pr_number}/reviews --jq '.[] | select(.user.login == "copilot-pull-request-reviewer[bot]") | .id')
+
+   # Then fetch comments for each review
+   for rid in $REVIEW_IDS; do
+     gh api repos/chenders/AnxietyWatch/pulls/{pr_number}/reviews/$rid/comments --jq '.[] | {id, body, path, line}'
+   done
+   ```
+
+   Merge the results from both endpoints, deduplicating by comment ID (the same comment may appear in both).
+
+3. **Check for new comments** — If there are no new unaddressed comments (from either endpoint) since the last round, the loop is done. Report the final status and stop.
 
 4. **Analyze each new comment**
    - Validity: Is the suggestion technically correct?
@@ -85,3 +101,4 @@ When complete, report a summary: total rounds, comments addressed, comments decl
 - Never defer work without explicit user approval
 - Thread IDs (PRRT*) are NOT the same as comment IDs (PRRC*)
 - Track comment IDs across rounds to distinguish new comments from previously addressed ones
+- **CRITICAL:** GitHub has two comment endpoints — `pulls/{pr}/comments` (PR-level) and `pulls/{pr}/reviews/{review_id}/comments` (review-level). Copilot uses BOTH. Always check both endpoints or you will miss comments.
