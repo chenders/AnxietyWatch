@@ -1,9 +1,5 @@
-//
 //  AnxietyWatchWidgetsBundle.swift
 //  AnxietyWatchWidgets
-//
-//  AnxietyWatchWidgets
-//
 
 import WidgetKit
 import SwiftUI
