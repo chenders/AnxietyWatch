@@ -10,20 +10,9 @@ import Testing
 @Suite(.serialized)
 struct DashboardPerfTests {
 
-    private func makeContainer() throws -> ModelContainer {
-        let schema = Schema([
-            HealthSnapshot.self, AnxietyEntry.self, MedicationDose.self,
-            MedicationDefinition.self, Prescription.self, Pharmacy.self,
-            PharmacyCallLog.self, CPAPSession.self, BarometricReading.self,
-            ClinicalLabResult.self, HealthSample.self,
-        ])
-        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-        return try ModelContainer(for: schema, configurations: [config])
-    }
-
     @Test("Baseline calculation with 365 snapshots completes quickly")
     func baselinePerformance() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
         let calendar = Calendar.current
 
@@ -55,7 +44,7 @@ struct DashboardPerfTests {
 
     @Test("Supply status computation with 200 prescriptions completes quickly")
     func supplyAlertPerformance() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
         let calendar = Calendar.current
 
@@ -101,7 +90,7 @@ struct DashboardPerfTests {
 
     @Test("HealthSample grouping with 5000 samples completes quickly")
     func sampleGroupingPerformance() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let types = ["hr", "hrv", "spo2", "rr", "env", "head", "vo2", "walkHR", "rhr", "bpSys", "bpDia", "bg", "steady"]
