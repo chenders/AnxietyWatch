@@ -74,19 +74,28 @@ struct LabTestHistoryView: View {
 
     // MARK: - Chart
 
-    private var chartView: some View {
-        Chart {
-            // Reference range band
-            RectangleMark(
-                xStart: .value("Start", results.first?.effectiveDate ?? .now),
-                xEnd: .value("End", results.last?.effectiveDate ?? .now),
-                yStart: .value("Low", definition.normalRangeLow),
-                yEnd: .value("High", definition.normalRangeHigh)
-            )
-            .foregroundStyle(.green.opacity(0.1))
+    private var labChartData: [LabChartDatum] {
+        var data: [LabChartDatum] = []
+        if let first = results.first?.effectiveDate, let last = results.last?.effectiveDate {
+            data.append(.referenceRange(xStart: first, xEnd: last,
+                                        yLow: definition.normalRangeLow, yHigh: definition.normalRangeHigh))
+        }
+        data += results.map { .result($0) }
+        return data
+    }
 
-            // Data points and line
-            ForEach(results, id: \.id) { result in
+    private var chartView: some View {
+        Chart(labChartData) { datum in
+            switch datum {
+            case .referenceRange(let xStart, let xEnd, let yLow, let yHigh):
+                RectangleMark(
+                    xStart: .value("Start", xStart),
+                    xEnd: .value("End", xEnd),
+                    yStart: .value("Low", yLow),
+                    yEnd: .value("High", yHigh)
+                )
+                .foregroundStyle(.green.opacity(0.1))
+            case .result(let result):
                 LineMark(
                     x: .value("Date", result.effectiveDate),
                     y: .value(definition.unit, result.value)
@@ -132,6 +141,18 @@ struct LabTestHistoryView: View {
         case "LL": return "Critical Low"
         case "A": return "Abnormal"
         default: return code
+        }
+    }
+}
+
+private enum LabChartDatum: Identifiable {
+    case referenceRange(xStart: Date, xEnd: Date, yLow: Double, yHigh: Double)
+    case result(ClinicalLabResult)
+
+    var id: String {
+        switch self {
+        case .referenceRange: "reference-range"
+        case .result(let r): "result-\(r.id)"
         }
     }
 }

@@ -20,15 +20,25 @@ struct HRVTrendChart: View {
         BaselineCalculator.isHRVBelowBaseline(snapshots: allSnapshots)
     }
 
+    private var chartData: [ChartDatum] {
+        var data: [ChartDatum] = hrvSnapshots.map { .snapshot($0) }
+        if let baseline {
+            data.append(.baselineMean(baseline.mean))
+            data.append(.baselineLower(baseline.lowerBound))
+        }
+        data += entries.map { .entry($0) }
+        return data
+    }
+
     var body: some View {
         ChartCard(
             title: "Heart Rate Variability (SDNN)",
             subtitle: baselineSubtitle,
             isEmpty: hrvSnapshots.isEmpty
         ) {
-            Chart {
-                // HRV line
-                ForEach(hrvSnapshots) { snapshot in
+            Chart(chartData) { datum in
+                switch datum {
+                case .snapshot(let snapshot):
                     LineMark(
                         x: .value("Date", snapshot.date, unit: .day),
                         y: .value("HRV (ms)", snapshot.hrvAvg!)
@@ -42,11 +52,8 @@ struct HRVTrendChart: View {
                     )
                     .foregroundStyle(.blue)
                     .symbolSize(30)
-                }
-
-                // Baseline reference line
-                if let baseline {
-                    RuleMark(y: .value("Baseline", baseline.mean))
+                case .baselineMean(let value):
+                    RuleMark(y: .value("Baseline", value))
                         .foregroundStyle(.green.opacity(0.6))
                         .lineStyle(StrokeStyle(dash: [5, 3]))
                         .annotation(position: .trailing, alignment: .leading) {
@@ -54,15 +61,11 @@ struct HRVTrendChart: View {
                                 .font(.caption2)
                                 .foregroundStyle(.green)
                         }
-
-                    // Lower bound (deviation threshold)
-                    RuleMark(y: .value("Lower", baseline.lowerBound))
+                case .baselineLower(let value):
+                    RuleMark(y: .value("Lower", value))
                         .foregroundStyle(.red.opacity(0.3))
                         .lineStyle(StrokeStyle(dash: [3, 3]))
-                }
-
-                // Anxiety entries as vertical markers
-                ForEach(entries) { entry in
+                case .entry(let entry):
                     RuleMark(x: .value("Date", entry.timestamp, unit: .day))
                         .foregroundStyle(anxietyColor(entry.severity).opacity(0.25))
                         .lineStyle(StrokeStyle(lineWidth: 2))
@@ -90,6 +93,22 @@ struct HRVTrendChart: View {
         case 4...6: return .yellow
         case 7...8: return .orange
         default: return .red
+        }
+    }
+}
+
+private enum ChartDatum: Identifiable {
+    case snapshot(HealthSnapshot)
+    case baselineMean(Double)
+    case baselineLower(Double)
+    case entry(AnxietyEntry)
+
+    var id: String {
+        switch self {
+        case .snapshot(let s): "snapshot-\(s.id)"
+        case .baselineMean: "baseline-mean"
+        case .baselineLower: "baseline-lower"
+        case .entry(let e): "entry-\(e.id)"
         }
     }
 }

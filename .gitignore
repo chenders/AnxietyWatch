@@ -22,7 +22,8 @@ xcuserdata/
 !default.perspectivev3
 
 # AI / local tooling
-.claude/
+.claude/settings.local.json
+.claude/worktrees/
 .serena/
 .superpowers/
 .playwright-mcp/
