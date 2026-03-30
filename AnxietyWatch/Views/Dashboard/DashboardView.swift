@@ -16,23 +16,18 @@ struct DashboardView: View {
     private var recentLabResults: [ClinicalLabResult]
     @Query(sort: \Prescription.dateFilled, order: .reverse)
     private var prescriptions: [Prescription]
-    /// Manually fetched instead of @Query to avoid re-rendering on every
-    /// HealthSample insert (13 anchored queries can fire hundreds of inserts on launch).
-    @State private var samplesByType: [String: [HealthSample]] = [:]
-    @State private var lowSupplyCount = 0
-    @State private var hrvBaseline: BaselineCalculator.BaselineResult?
-    @State private var rhrBaseline: BaselineCalculator.BaselineResult?
 
+    @State private var vm = DashboardViewModel()
     private let barometer = BarometerService.shared
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    baselineAlert(hrvBaseline: hrvBaseline)
+                    baselineAlert
                     supplyAlertCard
                     anxietySection
-                    healthSection(hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline)
+                    healthSection
                     labResultsSection
                     cpapSection
                     barometricSection
@@ -42,12 +37,15 @@ struct DashboardView: View {
             }
             .navigationTitle("Dashboard")
             .task {
-                loadSamples()
-                computeSupplyAlerts()
-                await refreshSnapshot()
-                computeBaselines()
-                sendStatsToWatch()
-                await autoSync()
+                vm.loadSamples(from: modelContext)
+                vm.computeSupplyAlerts(from: prescriptions)
+                await vm.refreshSnapshot(context: modelContext)
+                vm.computeBaselines(from: recentSnapshots)
+                vm.sendStatsToWatch(
+                    lastAnxiety: recentEntries.first?.severity,
+                    todaySnapshot: vm.todaySnapshot(from: recentSnapshots)
+                )
+                await vm.autoSync(context: modelContext)
             }
         }
     }
@@ -55,8 +53,8 @@ struct DashboardView: View {
     // MARK: - Sections
 
     @ViewBuilder
-    private func baselineAlert(hrvBaseline: BaselineCalculator.BaselineResult?) -> some View {
-        if let baseline = hrvBaseline,
+    private var baselineAlert: some View {
+        if let baseline = vm.hrvBaseline,
            let recent = BaselineCalculator.recentAverage(from: recentSnapshots, days: 3, keyPath: \.hrvAvg),
            recent < baseline.lowerBound {
             HStack(spacing: 8) {
@@ -78,8 +76,8 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var supplyAlertCard: some View {
-        if lowSupplyCount > 0 {
-            let lowCount = lowSupplyCount
+        if vm.lowSupplyCount > 0 {
+            let lowCount = vm.lowSupplyCount
             HStack(spacing: 8) {
                 Image(systemName: "pills.fill")
                     .foregroundStyle(.red)
@@ -117,22 +115,19 @@ struct DashboardView: View {
     }
 
     @ViewBuilder
-    private func healthSection(
-        hrvBaseline: BaselineCalculator.BaselineResult?,
-        rhrBaseline: BaselineCalculator.BaselineResult?
-    ) -> some View {
+    private var healthSection: some View {
         // Heart Rate — sparkline
         let hrType = HKQuantityTypeIdentifier.heartRate.rawValue
-        if let latest = latestSample(for: hrType) {
+        if let latest = vm.latestSample(for: hrType) {
             LiveMetricCard(
                 title: "Heart Rate",
                 value: String(format: "%.0f", latest.value),
                 unitLabel: "bpm",
-                trend: trend(for: hrType),
-                freshness: freshnessLabel(latest.timestamp),
+                trend: vm.trend(for: hrType),
+                freshness: vm.freshnessLabel(latest.timestamp),
                 color: .red,
                 visualization: .sparkline(
-                    segments: sparklineSegments(for: hrType),
+                    segments: vm.sparklineSegments(for: hrType),
                     color: .red
                 )
             )
@@ -140,64 +135,64 @@ struct DashboardView: View {
 
         // HRV — sparkline
         let hrvType = HKQuantityTypeIdentifier.heartRateVariabilitySDNN.rawValue
-        if let latest = latestSample(for: hrvType) {
+        if let latest = vm.latestSample(for: hrvType) {
             LiveMetricCard(
                 title: "HRV",
                 value: String(format: "%.0f", latest.value),
                 unitLabel: "ms",
-                trend: trend(for: hrvType),
-                freshness: freshnessLabel(latest.timestamp),
-                color: baselineColor(value: latest.value, baseline: hrvBaseline, higherIsBetter: true),
+                trend: vm.trend(for: hrvType),
+                freshness: vm.freshnessLabel(latest.timestamp),
+                color: vm.baselineColor(value: latest.value, baseline: vm.hrvBaseline, higherIsBetter: true),
                 visualization: .sparkline(
-                    segments: sparklineSegments(for: hrvType),
+                    segments: vm.sparklineSegments(for: hrvType),
                     color: .blue
                 )
             )
         }
 
-        // Resting HR — recent bars (usually 1/day)
+        // Resting HR — recent bars
         let rhrType = HKQuantityTypeIdentifier.restingHeartRate.rawValue
-        if let latest = latestSample(for: rhrType) {
+        if let latest = vm.latestSample(for: rhrType) {
             LiveMetricCard(
                 title: "Resting HR",
                 value: String(format: "%.0f", latest.value),
                 unitLabel: "bpm",
-                trend: trend(for: rhrType),
-                freshness: freshnessLabel(latest.timestamp),
-                color: baselineColor(value: latest.value, baseline: rhrBaseline, higherIsBetter: false),
-                visualization: .recentBars(values: recentValues(for: rhrType), color: .red)
+                trend: vm.trend(for: rhrType),
+                freshness: vm.freshnessLabel(latest.timestamp),
+                color: vm.baselineColor(value: latest.value, baseline: vm.rhrBaseline, higherIsBetter: false),
+                visualization: .recentBars(values: vm.recentValues(for: rhrType), color: .red)
             )
         }
 
-        // SpO2 — sparkline (sleep cluster)
+        // SpO2 — sparkline
         let spo2Type = HKQuantityTypeIdentifier.oxygenSaturation.rawValue
-        if let latest = latestSample(for: spo2Type) {
+        if let latest = vm.latestSample(for: spo2Type) {
             LiveMetricCard(
                 title: "Blood Oxygen",
                 value: String(format: "%.0f", latest.value * 100),
                 unitLabel: "%",
-                trend: trend(for: spo2Type),
-                freshness: freshnessLabel(latest.timestamp),
+                trend: vm.trend(for: spo2Type),
+                freshness: vm.freshnessLabel(latest.timestamp),
                 color: .green,
                 visualization: .sparkline(
-                    segments: sparklineSegments(for: spo2Type),
+                    segments: vm.sparklineSegments(for: spo2Type),
                     color: .green
                 )
             )
         }
 
-        // Respiratory Rate — sparkline (sleep cluster)
+        // Respiratory Rate — sparkline
         let rrType = HKQuantityTypeIdentifier.respiratoryRate.rawValue
-        if let latest = latestSample(for: rrType) {
+        if let latest = vm.latestSample(for: rrType) {
             LiveMetricCard(
                 title: "Respiratory Rate",
                 value: String(format: "%.0f", latest.value),
                 unitLabel: "breaths/min",
-                trend: trend(for: rrType),
-                freshness: freshnessLabel(latest.timestamp),
+                trend: vm.trend(for: rrType),
+                freshness: vm.freshnessLabel(latest.timestamp),
                 color: .mint,
                 visualization: .sparkline(
-                    segments: sparklineSegments(for: rrType),
+                    segments: vm.sparklineSegments(for: rrType),
                     color: .mint
                 )
             )
@@ -205,62 +200,62 @@ struct DashboardView: View {
 
         // VO2 Max — recent bars
         let vo2Type = HKQuantityTypeIdentifier.vo2Max.rawValue
-        if let latest = latestSample(for: vo2Type) {
+        if let latest = vm.latestSample(for: vo2Type) {
             LiveMetricCard(
                 title: "VO₂ Max",
                 value: String(format: "%.1f", latest.value),
                 unitLabel: "mL/kg/min",
-                trend: trend(for: vo2Type),
-                freshness: freshnessLabel(latest.timestamp),
+                trend: vm.trend(for: vo2Type),
+                freshness: vm.freshnessLabel(latest.timestamp),
                 color: .indigo,
-                visualization: .recentBars(values: recentValues(for: vo2Type), color: .indigo)
+                visualization: .recentBars(values: vm.recentValues(for: vo2Type), color: .indigo)
             )
         }
 
         // Walking HR — recent bars
         let walkHRType = HKQuantityTypeIdentifier.walkingHeartRateAverage.rawValue
-        if let latest = latestSample(for: walkHRType) {
+        if let latest = vm.latestSample(for: walkHRType) {
             LiveMetricCard(
                 title: "Walking HR",
                 value: String(format: "%.0f", latest.value),
                 unitLabel: "bpm",
-                trend: trend(for: walkHRType),
-                freshness: freshnessLabel(latest.timestamp),
+                trend: vm.trend(for: walkHRType),
+                freshness: vm.freshnessLabel(latest.timestamp),
                 color: .orange,
-                visualization: .recentBars(values: recentValues(for: walkHRType), color: .orange)
+                visualization: .recentBars(values: vm.recentValues(for: walkHRType), color: .orange)
             )
         }
 
         // Walking Steadiness — recent bars
         let steadyType = HKQuantityTypeIdentifier.appleWalkingSteadiness.rawValue
-        if let latest = latestSample(for: steadyType) {
+        if let latest = vm.latestSample(for: steadyType) {
             LiveMetricCard(
                 title: "Walking Steadiness",
                 value: String(format: "%.0f", latest.value * 100),
                 unitLabel: "%",
-                trend: trend(for: steadyType),
-                freshness: freshnessLabel(latest.timestamp),
+                trend: vm.trend(for: steadyType),
+                freshness: vm.freshnessLabel(latest.timestamp),
                 color: .cyan,
-                visualization: .recentBars(values: recentValues(for: steadyType), color: .cyan)
+                visualization: .recentBars(values: vm.recentValues(for: steadyType), color: .cyan)
             )
         }
 
-        // AFib Burden — from daily snapshot (single value per day)
-        if let (snapshot, isToday) = lastSnapshotWith(\.atrialFibrillationBurden) {
+        // AFib Burden — from daily snapshot
+        if let (snapshot, isToday) = vm.lastSnapshotWith(\.atrialFibrillationBurden, from: recentSnapshots) {
             let burden = snapshot.atrialFibrillationBurden!
             LiveMetricCard(
                 title: "AFib Burden",
                 value: String(format: "%.1f", burden * 100),
                 unitLabel: "%",
                 trend: nil,
-                freshness: isToday ? "today" : staleLabel(snapshot.date),
+                freshness: isToday ? "today" : vm.staleLabel(snapshot.date),
                 color: burden < 0.01 ? .green : .orange,
                 visualization: .none
             )
         }
 
-        // Sleep — stage breakdown (from HealthSnapshot, not sample cache)
-        if let (snapshot, isToday) = lastSnapshotWith(\.sleepDurationMin) {
+        // Sleep — stage breakdown
+        if let (snapshot, isToday) = vm.lastSnapshotWith(\.sleepDurationMin, from: recentSnapshots) {
             let sleep = snapshot.sleepDurationMin!
             let hours = sleep / 60
             let mins = sleep % 60
@@ -269,8 +264,8 @@ struct DashboardView: View {
                 value: "\(hours)h \(mins)m",
                 unitLabel: "",
                 trend: nil,
-                freshness: isToday ? "last night" : staleLabel(snapshot.date),
-                color: isToday ? sleepColor(minutes: sleep) : .secondary,
+                freshness: isToday ? "last night" : vm.staleLabel(snapshot.date),
+                color: isToday ? vm.sleepColor(minutes: sleep) : .secondary,
                 visualization: .sleepStages(
                     deep: snapshot.sleepDeepMin ?? 0,
                     rem: snapshot.sleepREMMin ?? 0,
@@ -280,43 +275,43 @@ struct DashboardView: View {
             )
         }
 
-        // Steps — progress bar (from HealthSnapshot)
-        if let (snapshot, isToday) = lastSnapshotWith(\.steps) {
+        // Steps — progress bar
+        if let (snapshot, isToday) = vm.lastSnapshotWith(\.steps, from: recentSnapshots) {
             let steps = snapshot.steps!
             LiveMetricCard(
                 title: "Steps",
                 value: steps.formatted(),
                 unitLabel: "",
                 trend: nil,
-                freshness: isToday ? "today" : staleLabel(snapshot.date),
-                color: isToday ? stepsColor(steps) : .secondary,
-                visualization: .progressBar(current: Double(steps), goal: 8000, color: stepsColor(steps))
+                freshness: isToday ? "today" : vm.staleLabel(snapshot.date),
+                color: isToday ? vm.stepsColor(steps) : .secondary,
+                visualization: .progressBar(current: Double(steps), goal: 8000, color: vm.stepsColor(steps))
             )
         }
 
-        // Active Calories — progress bar (from HealthSnapshot)
-        if let (snapshot, isToday) = lastSnapshotWith(\.activeCalories) {
+        // Active Calories — progress bar
+        if let (snapshot, isToday) = vm.lastSnapshotWith(\.activeCalories, from: recentSnapshots) {
             let cals = snapshot.activeCalories!
             LiveMetricCard(
                 title: "Active Calories",
                 value: String(format: "%.0f", cals),
                 unitLabel: "kcal",
                 trend: nil,
-                freshness: isToday ? "today" : staleLabel(snapshot.date),
+                freshness: isToday ? "today" : vm.staleLabel(snapshot.date),
                 color: isToday ? .orange : .secondary,
                 visualization: .progressBar(current: cals, goal: 500, color: .orange)
             )
         }
 
-        // Exercise — progress bar (from HealthSnapshot)
-        if let (snapshot, isToday) = lastSnapshotWith(\.exerciseMinutes) {
+        // Exercise — progress bar
+        if let (snapshot, isToday) = vm.lastSnapshotWith(\.exerciseMinutes, from: recentSnapshots) {
             let mins = snapshot.exerciseMinutes!
             LiveMetricCard(
                 title: "Exercise",
                 value: "\(mins)",
                 unitLabel: "min",
                 trend: nil,
-                freshness: isToday ? "today" : staleLabel(snapshot.date),
+                freshness: isToday ? "today" : vm.staleLabel(snapshot.date),
                 color: isToday ? .green : .secondary,
                 visualization: .progressBar(current: Double(mins), goal: 30, color: .green)
             )
@@ -324,16 +319,16 @@ struct DashboardView: View {
 
         // Environmental Sound — sparkline
         let envType = HKQuantityTypeIdentifier.environmentalAudioExposure.rawValue
-        if let latest = latestSample(for: envType) {
+        if let latest = vm.latestSample(for: envType) {
             LiveMetricCard(
                 title: "Env. Sound",
                 value: String(format: "%.0f", latest.value),
                 unitLabel: "dBA",
-                trend: trend(for: envType),
-                freshness: freshnessLabel(latest.timestamp),
+                trend: vm.trend(for: envType),
+                freshness: vm.freshnessLabel(latest.timestamp),
                 color: .gray,
                 visualization: .sparkline(
-                    segments: sparklineSegments(for: envType),
+                    segments: vm.sparklineSegments(for: envType),
                     color: .gray
                 )
             )
@@ -341,50 +336,50 @@ struct DashboardView: View {
 
         // Headphone Audio — sparkline
         let headType = HKQuantityTypeIdentifier.headphoneAudioExposure.rawValue
-        if let latest = latestSample(for: headType) {
+        if let latest = vm.latestSample(for: headType) {
             LiveMetricCard(
                 title: "Headphone Audio",
                 value: String(format: "%.0f", latest.value),
                 unitLabel: "dBA",
-                trend: trend(for: headType),
-                freshness: freshnessLabel(latest.timestamp),
+                trend: vm.trend(for: headType),
+                freshness: vm.freshnessLabel(latest.timestamp),
                 color: .teal,
                 visualization: .sparkline(
-                    segments: sparklineSegments(for: headType),
+                    segments: vm.sparklineSegments(for: headType),
                     color: .teal
                 )
             )
         }
 
-        // Blood Pressure — latest value only
+        // Blood Pressure
         let bpSysType = HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue
         let bpDiaType = HKQuantityTypeIdentifier.bloodPressureDiastolic.rawValue
-        if let sys = latestSample(for: bpSysType),
-           let dia = latestSample(for: bpDiaType) {
+        if let sys = vm.latestSample(for: bpSysType),
+           let dia = vm.latestSample(for: bpDiaType) {
             LiveMetricCard(
                 title: "Blood Pressure",
                 value: "\(String(format: "%.0f", sys.value))/\(String(format: "%.0f", dia.value))",
                 unitLabel: "mmHg",
                 trend: nil,
-                freshness: freshnessLabel(sys.timestamp),
+                freshness: vm.freshnessLabel(sys.timestamp),
                 color: .pink,
                 visualization: .none
             )
         }
 
-        // Blood Glucose — sparkline if dense, value only if sparse
+        // Blood Glucose
         let bgType = HKQuantityTypeIdentifier.bloodGlucose.rawValue
-        if let latest = latestSample(for: bgType) {
-            let todayCount = todaySamples(for: bgType).count
+        if let latest = vm.latestSample(for: bgType) {
+            let todayCount = vm.todaySamples(for: bgType).count
             LiveMetricCard(
                 title: "Blood Glucose",
                 value: String(format: "%.0f", latest.value),
                 unitLabel: "mg/dL",
-                trend: trend(for: bgType),
-                freshness: freshnessLabel(latest.timestamp),
+                trend: vm.trend(for: bgType),
+                freshness: vm.freshnessLabel(latest.timestamp),
                 color: .purple,
                 visualization: todayCount >= 3
-                    ? .sparkline(segments: sparklineSegments(for: bgType), color: .purple)
+                    ? .sparkline(segments: vm.sparklineSegments(for: bgType), color: .purple)
                     : .none
             )
         }
@@ -432,7 +427,7 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var labResultsSection: some View {
-        let latestPerTest = latestLabResultPerTest
+        let latestPerTest = vm.latestLabResultPerTest(from: recentLabResults)
         if !latestPerTest.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 NavigationLink {
@@ -461,197 +456,6 @@ struct DashboardView: View {
                     }
                 }
             }
-        }
-    }
-
-    // MARK: - Helpers
-
-    /// Returns the most recent lab result for each unique test from the last 7 days, limited to 4 for dashboard space.
-    private var latestLabResultPerTest: [ClinicalLabResult] {
-        let calendar = Calendar.current
-        let weekAgoBase = calendar.date(byAdding: .day, value: -7, to: .now) ?? .now
-        let oneWeekAgo = calendar.startOfDay(for: weekAgoBase)
-        var seen = Set<String>()
-        var results: [ClinicalLabResult] = []
-        for result in recentLabResults {
-            // Sorted descending by effectiveDate — once we hit an older result, we're done
-            if result.effectiveDate < oneWeekAgo { break }
-            guard LabTestRegistry.isTracked(result.loincCode),
-                  !seen.contains(result.loincCode) else { continue }
-            seen.insert(result.loincCode)
-            results.append(result)
-            if results.count >= 4 { break }
-        }
-        return results
-    }
-
-    private var todaySnapshot: HealthSnapshot? {
-        let startOfDay = Calendar.current.startOfDay(for: .now)
-        return recentSnapshots.first { $0.date == startOfDay }
-    }
-
-    /// Returns the most recent snapshot that has a non-nil value for the given key path,
-    /// along with a Bool indicating whether the snapshot is from today.
-    private func lastSnapshotWith<T>(_ keyPath: KeyPath<HealthSnapshot, T?>) -> (HealthSnapshot, Bool)? {
-        guard let snapshot = recentSnapshots.first(where: { $0[keyPath: keyPath] != nil }) else {
-            return nil
-        }
-        let startOfDay = Calendar.current.startOfDay(for: .now)
-        let isToday = snapshot.date == startOfDay
-        return (snapshot, isToday)
-    }
-
-    /// A human-readable label for a stale snapshot date.
-    private func staleLabel(_ date: Date) -> String {
-        date.formatted(.dateTime.month().day())
-    }
-
-    /// Compute HRV and resting HR baselines from recent snapshots.
-    /// Called once on appear (after refreshSnapshot), not on every render.
-    private func computeBaselines() {
-        hrvBaseline = BaselineCalculator.hrvBaseline(from: recentSnapshots)
-        rhrBaseline = BaselineCalculator.restingHRBaseline(from: recentSnapshots)
-    }
-
-    /// Compute supply alert count once, not on every render.
-    private func computeSupplyAlerts() {
-        lowSupplyCount = PrescriptionSupplyCalculator.alertPrescriptions(from: prescriptions).count
-    }
-
-    private func loadSamples() {
-        let descriptor = FetchDescriptor<HealthSample>(
-            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
-        )
-        let samples = (try? modelContext.fetch(descriptor)) ?? []
-        samplesByType = Dictionary(grouping: samples, by: \.type)
-    }
-
-    /// Get today's samples for a given HealthKit type identifier.
-    private func todaySamples(for typeRawValue: String) -> [HealthSample] {
-        let midnight = Calendar.current.startOfDay(for: .now)
-        return (samplesByType[typeRawValue] ?? []).filter { $0.timestamp >= midnight }
-    }
-
-    /// Get the most recent sample for a given type (any day in the cache).
-    private func latestSample(for typeRawValue: String) -> HealthSample? {
-        samplesByType[typeRawValue]?.first
-    }
-
-    /// Get the last N values for a given type (for RecentBarsView).
-    private func recentValues(for typeRawValue: String, count: Int = 7) -> [Double] {
-        let samples = (samplesByType[typeRawValue] ?? []).prefix(count)
-        return samples.reversed().map(\.value)
-    }
-
-    /// Build sparkline segments for a given type using today's samples.
-    private func sparklineSegments(for typeRawValue: String) -> [[SparklinePoint]] {
-        let samples = todaySamples(for: typeRawValue)
-        let midnight = Calendar.current.startOfDay(for: .now)
-        return SparklineData.segments(from: samples, midnight: midnight, now: .now)
-    }
-
-    /// Freshness label for a sample timestamp.
-    private func freshnessLabel(_ date: Date) -> String {
-        let calendar = Calendar.current
-        let midnight = calendar.startOfDay(for: .now)
-        if date >= midnight {
-            return date.formatted(.relative(presentation: .named))
-        }
-        // Only say "last night" for overnight readings (6 PM or later)
-        let hour = calendar.component(.hour, from: date)
-        if let yesterdayMidnight = calendar.date(byAdding: .day, value: -1, to: midnight),
-           date >= yesterdayMidnight && date < midnight && hour >= 18 {
-            return "last night"
-        }
-        return date.formatted(.relative(presentation: .named))
-    }
-
-    /// Compute trend direction for a given type.
-    private func trend(for typeRawValue: String) -> TrendCalculator.Direction? {
-        let config = SampleTypeConfig.config(for: typeRawValue)
-        let samples = todaySamples(for: typeRawValue)
-        return TrendCalculator.direction(
-            samples: samples,
-            threshold: config?.trendThreshold ?? 3
-        )
-    }
-
-    private func refreshSnapshot() async {
-        let aggregator = SnapshotAggregator(
-            healthKit: HealthKitManager.shared,
-            modelContext: modelContext
-        )
-        try? await aggregator.aggregateDay(.now)
-    }
-
-    private func sleepBreakdown(_ snapshot: HealthSnapshot) -> String {
-        var parts: [String] = []
-        if let deep = snapshot.sleepDeepMin { parts.append("Deep \(deep)m") }
-        if let rem = snapshot.sleepREMMin { parts.append("REM \(rem)m") }
-        if let core = snapshot.sleepCoreMin { parts.append("Core \(core)m") }
-        return parts.isEmpty ? "Last night" : parts.joined(separator: " · ")
-    }
-
-    private func autoSync() async {
-        let sync = SyncService.shared
-        guard sync.autoSyncEnabled, sync.isConfigured else { return }
-        await sync.sync(modelContext: modelContext)
-    }
-
-    private func sendStatsToWatch() {
-        PhoneConnectivityManager.shared.sendStatsToWatch(
-            lastAnxiety: recentEntries.first?.severity,
-            hrvAvg: todaySnapshot?.hrvAvg,
-            restingHR: todaySnapshot?.restingHR
-        )
-    }
-
-    /// Color a metric based on personal baseline deviation.
-    /// Green = normal or better, yellow = slightly off, red = significantly off.
-    /// - `higherIsBetter`: true for HRV (higher = calmer), false for RHR (lower = calmer)
-    private func baselineColor(
-        value: Double,
-        baseline: BaselineCalculator.BaselineResult?,
-        higherIsBetter: Bool
-    ) -> Color {
-        guard let baseline else { return .primary }
-
-        if higherIsBetter {
-            // HRV: higher is better, worry when it drops
-            if value >= baseline.lowerBound { return .green }  // within or above normal
-            if value >= baseline.lowerBound - baseline.standardDeviation { return .yellow }  // slightly low
-            return .red  // significantly low
-        } else {
-            // RHR: lower is better, worry when it rises
-            if value <= baseline.upperBound { return .green }  // within or below normal
-            if value <= baseline.upperBound + baseline.standardDeviation { return .yellow }  // slightly high
-            return .red  // significantly high
-        }
-    }
-
-    private func baselineSubtitle(
-        value: Double,
-        baseline: BaselineCalculator.BaselineResult?
-    ) -> String {
-        guard let baseline else { return "Today" }
-        let diff = value - baseline.mean
-        let direction = diff >= 0 ? "above" : "below"
-        return String(format: "%.0f %@ avg", abs(diff), direction)
-    }
-
-    private func sleepColor(minutes: Int) -> Color {
-        switch minutes {
-        case 420...: return .green      // 7+ hours
-        case 360..<420: return .yellow  // 6–7 hours
-        default: return .red            // <6 hours
-        }
-    }
-
-    private func stepsColor(_ steps: Int) -> Color {
-        switch steps {
-        case 8000...: return .green
-        case 5000..<8000: return .yellow
-        default: return .red
         }
     }
 }
