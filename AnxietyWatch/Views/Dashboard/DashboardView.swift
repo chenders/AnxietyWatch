@@ -104,7 +104,7 @@ struct DashboardView: View {
                 title: "Last Anxiety",
                 value: "\(latest.severity)/10",
                 subtitle: latest.timestamp.formatted(.relative(presentation: .named)),
-                color: severityColor(latest.severity)
+                color: Color.severity(latest.severity)
             )
         } else {
             MetricCard(
@@ -616,15 +616,6 @@ struct DashboardView: View {
         )
     }
 
-    private func severityColor(_ severity: Int) -> Color {
-        switch severity {
-        case 1...3: return .green
-        case 4...6: return .yellow
-        case 7...8: return .orange
-        default: return .red
-        }
-    }
-
     /// Color a metric based on personal baseline deviation.
     /// Green = normal or better, yellow = slightly off, red = significantly off.
     /// - `higherIsBetter`: true for HRV (higher = calmer), false for RHR (lower = calmer)
@@ -672,31 +663,5 @@ struct DashboardView: View {
         case 5000..<8000: return .yellow
         default: return .red
         }
-    }
-}
-
-// MARK: - MetricCard
-
-struct MetricCard: View {
-    let title: String
-    let value: String
-    let subtitle: String
-    let color: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.title2.bold())
-                .foregroundStyle(color)
-            Text(subtitle)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(.fill.tertiary, in: .rect(cornerRadius: 12))
     }
 }
