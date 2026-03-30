@@ -20,17 +20,17 @@ Review and respond to GitHub Copilot review comments on a pull request. Loops un
 
    **Endpoint A — PR-level comments** (inline diff comments):
    ```bash
-   gh api repos/chenders/AnxietyWatch/pulls/{pr_number}/comments --jq '.[] | {id, body, path, line}'
+   gh api --paginate repos/chenders/AnxietyWatch/pulls/{pr_number}/comments --jq '.[] | {id, body, path, line}'
    ```
 
    **Endpoint B — Review-attached comments** (comments posted as part of a review):
    ```bash
    # First get all review IDs from Copilot
-   REVIEW_IDS=$(gh api repos/chenders/AnxietyWatch/pulls/{pr_number}/reviews --jq '.[] | select(.user.login == "copilot-pull-request-reviewer[bot]") | .id')
+   REVIEW_IDS=$(gh api --paginate repos/chenders/AnxietyWatch/pulls/{pr_number}/reviews --jq '.[] | select(.user.login == "copilot-pull-request-reviewer[bot]") | .id')
 
    # Then fetch comments for each review
    for rid in $REVIEW_IDS; do
-     gh api repos/chenders/AnxietyWatch/pulls/{pr_number}/reviews/$rid/comments --jq '.[] | {id, body, path, line}'
+     gh api --paginate repos/chenders/AnxietyWatch/pulls/{pr_number}/reviews/$rid/comments --jq '.[] | {id, body, path, line}'
    done
    ```
 
