@@ -53,14 +53,14 @@ Review and respond to GitHub Copilot review comments on a pull request. Loops un
 7. **Reply to each comment**
 
    ```bash
-   gh api -X POST repos/chenders/AnxietyWatch/pulls/{pr}/comments/{id}/replies -f body="Fixed in $(git rev-parse --short HEAD). Explanation."
+   gh api -X POST repos/chenders/AnxietyWatch/pulls/{pr_number}/comments/{id}/replies -f body="Fixed in $(git rev-parse --short HEAD). Explanation."
    ```
 
 8. **Resolve implemented threads** (use PRRT* thread IDs, not PRRC* comment IDs)
 
    ```bash
    # Get thread IDs
-   gh api graphql -f query='query { repository(owner: "chenders", name: "AnxietyWatch") { pullRequest(number: PR) { reviewThreads(first: 50) { nodes { id isResolved comments(first: 1) { nodes { body } } } } } } }'
+   gh api graphql -f query='query { repository(owner: "chenders", name: "AnxietyWatch") { pullRequest(number: {pr_number}) { reviewThreads(first: 50) { nodes { id isResolved comments(first: 1) { nodes { body } } } } } } }'
 
    # Resolve
    gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "PRRT_..."}) { thread { isResolved } } }'
@@ -73,13 +73,13 @@ Review and respond to GitHub Copilot review comments on a pull request. Loops un
 9. **Re-request Copilot review**:
 
    ```bash
-   gh api repos/chenders/AnxietyWatch/pulls/{PR_NUMBER}/requested_reviewers -X POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
+   gh api repos/chenders/AnxietyWatch/pulls/{pr_number}/requested_reviewers -X POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
    ```
 
 10. **Wait for the new review** — Poll until a new review appears (review count increases):
 
     ```bash
-    gh api repos/chenders/AnxietyWatch/pulls/{PR_NUMBER}/reviews --jq 'length'
+    gh api repos/chenders/AnxietyWatch/pulls/{pr_number}/reviews --jq 'length'
     ```
 
     Poll every 15 seconds. Timeout after 5 minutes (assume review is delayed).
