@@ -119,7 +119,7 @@ struct PrescriptionLabelScannerTests {
             "Clonazepam 1mg Tablets",
             "Qty: 60  Refills: 3",
             "Date Filled: 12/31/2025",
-            "Dr. Jane Smith MD",
+            "Dr. Jane Smith",
         ]
         let result = PrescriptionLabelScanner.parse(lines: lines)
         #expect(result.rxNumber == "7654321")

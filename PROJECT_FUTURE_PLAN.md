@@ -2,7 +2,7 @@
 
 ## Where the App Is Today
 
-AnxietyWatch is a deeply personal tool built by someone who lives with anxiety and panic disorder, for that same person. It is not a commercial product and never will be. That constraint is also its greatest strength: every design decision serves one user's actual needs, not a product manager's engagement metrics.
+AnxietyWatch is a deeply personal tool built by someone who lives with anxiety and panic disorder. It started as a tool for one person and is now open-source because the approach could help others in the same situation. It is not a commercial product. That constraint is also its greatest strength: every design decision serves actual needs, not a product manager's engagement metrics.
 
 ### What Has Been Built
 
@@ -339,9 +339,37 @@ Phase 4 closes the loop between personal tracking and clinical care. The app bec
 
 ---
 
+## Phase 5: The Desktop App
+
+*A dedicated desktop application for deep analysis, complex visualizations, and clinical report authoring — the things that don't fit on a phone.*
+
+### What the User Experiences After Phase 5
+
+You sit down at your computer on a Sunday morning to review the past month. The desktop app pulls from the same sync server that your iPhone pushes to, but with a canvas large enough to show things the phone never could.
+
+A compound trigger explorer lets you drag factors into a query builder: "Show me days where sleep < 6 hours AND CPAP AHI > 5 AND I had caffeine after 2 PM" -- and the app highlights every matching day on a timeline, with next-day anxiety overlaid. You can see it immediately: those triple-trigger days average 7.8 anxiety, vs. 3.9 for days with none of the three.
+
+A medication timeline -- Gantt chart style -- shows every medication you have taken over the past year: start dates, dose changes, stops, overlaps. Anxiety trend runs underneath. You can see the SSRI onset lag, the benzo tolerance curve, the discontinuation dip. Your entire pharmacological history, visualized.
+
+Trend overlays let you stack any metrics on a shared time axis: HRV + sleep duration + anxiety + exercise, all aligned, with correlation coefficients computed live. On the phone, you get one chart at a time. Here, you get the whole picture.
+
+The clinical report authoring view gives you full control over what goes into your psychiatrist's summary. Drag sections, annotate charts, add your own notes. Export a polished multi-page PDF with embedded visualizations -- the kind of document that changes a clinical conversation.
+
+### Why This Requires a Separate App
+
+The iPhone and Apple Watch are the right tools for data *collection* -- they are always with you, they read HealthKit in real time, and they enable crisis-moment interactions. But they are the wrong tools for data *analysis*. Complex multi-stream visualizations, interactive query builders, and report authoring need screen real estate, pointer precision, and the ability to hold multiple views open simultaneously.
+
+The sync server already exists as the bridge. The desktop app reads from PostgreSQL and provides the analysis layer that would be cramped and unusable on mobile. The iPhone captures the data. The desktop makes it speak.
+
+### Technical Direction
+
+This phase will be fully specified once the iOS app reaches feature completeness through Phases 1-4. Likely candidates for the stack include a native macOS app (SwiftUI + AppKit for the analysis-heavy views), a cross-platform Electron/Tauri app, or a web application served from the existing Flask server. The decision depends on where the project's contributor community is by that point and what best serves the analysis use cases.
+
+---
+
 ## The Killer Features: What Only AnxietyWatch Can Do
 
-Several features emerge from this plan that no other anxiety app -- consumer, clinical, or research -- currently offers. These are possible because AnxietyWatch uniquely combines deep HealthKit integration, medication tracking with efficacy measurement, personal baseline calculations, and the context of a single user who knows their own data intimately.
+Several features emerge from this plan that no other anxiety app -- consumer, clinical, or research -- currently offers. These are possible because AnxietyWatch uniquely combines deep HealthKit integration, medication tracking with efficacy measurement, personal baseline calculations, and the context of someone who knows their own data intimately.
 
 ### 1. Quantified Medication Efficacy
 
@@ -394,7 +422,7 @@ The north star is not "show all the data." It is "tell the story that helps."
 
 ## A Note on Scope and Realism
 
-This document describes years of work. It should be read as a direction, not a deadline. The phases are sequential but open-ended -- Phase 1 might take months, Phase 3 might take a year. The user is a single developer working on a personal project. The app does not need to ship to the App Store. There are no stakeholders to satisfy, no engagement metrics to hit, no quarterly roadmap to deliver.
+This document describes years of work. It should be read as a direction, not a deadline. The phases are sequential but open-ended -- Phase 1 might take months, Phase 3 might take a year. The project is open-source but not commercially driven. There are no stakeholders to satisfy, no engagement metrics to hit, no quarterly roadmap to deliver.
 
 That is the liberating part. Every feature can be built when it is ready, tested until it is right, and refined based on actual lived experience. The app evolves alongside the person using it. The expert recommendations in this document are guideposts, not mandates. If a feature does not help when it is built, it can be removed. If something unexpected emerges from the data, the app can pivot to follow it.
 

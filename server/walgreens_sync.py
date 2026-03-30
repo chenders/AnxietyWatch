@@ -236,10 +236,7 @@ def main(argv=None):
         conn.close()
         return 3
 
-    logger.info(
-        "Credentials decrypted successfully for username=%r",
-        username,
-    )
+    logger.info("Credentials decrypted successfully for username=%r", username)
 
     # Security question answer (also encrypted)
     encrypted_answer = get_setting(conn, "walgreens_security_answer")

@@ -41,7 +41,7 @@ docker compose --env-file server/.env -f server/docker-compose.yml up  # run ser
 
 ## Project Overview
 
-**Anxiety Watch** is a personal iOS + watchOS app for anxiety tracking. It combines subjective journaling with objective physiological data from HealthKit, an AirSense 11 CPAP, and smart blood pressure monitors. Single user, never published to App Store.
+**Anxiety Watch** is an open-source iOS + watchOS app for anxiety tracking. It combines subjective journaling with objective physiological data from HealthKit, an AirSense 11 CPAP, and smart blood pressure monitors. Started as a personal tool, now shared publicly for others to learn from, adapt, and contribute to. Not a commercial product — no App Store plans, no telemetry.
 
 See `REQUIREMENTS.md` for full specification, data model, and build plan.
 

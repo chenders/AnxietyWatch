@@ -4,7 +4,7 @@
 
 AnxietyWatch is a personal iOS + watchOS anxiety tracking app with a Python sync server. It combines subjective journaling with objective physiological data from HealthKit, an AirSense 11 CPAP machine, and smart blood pressure monitors.
 
-This is a personal project — single user, never published to the App Store.
+This is an open-source personal project — not a commercial product, no App Store plans.
 
 ## Git Workflow
 

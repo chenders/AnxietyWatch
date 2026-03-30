@@ -313,11 +313,7 @@ class WalgreensClient:
                 raise WalgreensAuthError(
                     "Could not find login form fields"
                 )
-            logger.info(
-                "Found login form fields, typing credentials: "
-                "username=%r",
-                self._username,
-            )
+            logger.info("Found login form fields, typing credentials for username=%r", self._username)
             email_input.click()
             email_input.type(self._username, delay=50)
             page.wait_for_timeout(500)
