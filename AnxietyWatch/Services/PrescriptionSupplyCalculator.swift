@@ -108,6 +108,23 @@ enum PrescriptionSupplyCalculator {
         return Double(matchingDoses.count) / Double(windowDays)
     }
 
+    // MARK: - Alert Filtering
+
+    /// Filters prescriptions to those with supply alerts (low, warning, or expired).
+    /// Excludes stale prescriptions and those for inactive medications.
+    /// Consolidates the filter logic used by Dashboard, MedicationsHub, and tests.
+    static func alertPrescriptions(from prescriptions: [Prescription], now: Date = .now) -> [Prescription] {
+        prescriptions.filter { rx in
+            let fillDate = rx.lastFillDate ?? rx.dateFilled
+            let stalenessLimit = alertStalenessLimitDays(for: rx)
+            let cutoff = Calendar.current.date(byAdding: .day, value: -stalenessLimit, to: now)
+            if let cutoff, fillDate < cutoff { return false }
+            if rx.medication?.isActive == false { return false }
+            let status = supplyStatus(for: rx, now: now)
+            return status == .low || status == .warning || status == .expired
+        }
+    }
+
     // MARK: - Private
 
     /// Resolves the best available run-out date: the stored value, or one computed
