@@ -23,13 +23,13 @@ The result is not a wall of numbers. It is your own data, interpreted through yo
 > **This project is under active development.** The data collection layer is thorough — 20+ HealthKit data types, medication tracking with efficacy measurement, CPAP integration, clinical reports, a sync server. The intelligence layer — pattern detection, compound triggers, proactive insights — is where the project is headed next.
 
 <div align="center">
-  <img src="docs/screenshots/dashboard.png" width="220" alt="Dashboard showing HRV baseline alert, anxiety rating, health metrics with sparklines" />
+  <img src="docs/screenshots/dashboard.png" width="200" alt="Dashboard showing HRV baseline alert, anxiety rating, health metrics with sparklines" />
   &nbsp;&nbsp;
-  <img src="docs/screenshots/trends.png" width="220" alt="HRV trend chart with personal baseline band, anxiety severity scatter plot, and sleep stages" />
+  <img src="docs/screenshots/trends.png" width="200" alt="HRV trend chart with personal baseline band, anxiety severity scatter plot, and sleep stages" />
   &nbsp;&nbsp;
-  <img src="docs/screenshots/watch.png" width="140" alt="watchOS Quick Log — Digital Crown severity picker designed for use during panic" />
+  <img src="docs/screenshots/report.png" width="165" alt="Clinical PDF report with anxiety summary, medication adherence, sleep quality, HRV, and CPAP data" />
   &nbsp;&nbsp;
-  <img src="docs/screenshots/report.png" width="180" alt="Clinical PDF report with anxiety summary, medication adherence, sleep quality, HRV, and CPAP data" />
+  <img src="docs/screenshots/watch.png" width="105" alt="watchOS Quick Log — Digital Crown severity picker designed for use during panic" />
 </div>
 
 ---
