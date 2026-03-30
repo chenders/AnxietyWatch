@@ -10,10 +10,15 @@ struct HeartRateTrendChart: View {
         snapshots.filter { $0.restingHR != nil }
     }
 
+    private var chartData: [ChartDatum] {
+        hrSnapshots.map { .snapshot($0) } + entries.map { .entry($0) }
+    }
+
     var body: some View {
         ChartCard(title: "Resting Heart Rate", isEmpty: hrSnapshots.isEmpty) {
-            Chart {
-                ForEach(hrSnapshots) { snapshot in
+            Chart(chartData) { datum in
+                switch datum {
+                case .snapshot(let snapshot):
                     LineMark(
                         x: .value("Date", snapshot.date, unit: .day),
                         y: .value("BPM", snapshot.restingHR!)
@@ -27,10 +32,7 @@ struct HeartRateTrendChart: View {
                     )
                     .foregroundStyle(.red)
                     .symbolSize(30)
-                }
-
-                // Anxiety overlay
-                ForEach(entries) { entry in
+                case .entry(let entry):
                     RuleMark(x: .value("Date", entry.timestamp, unit: .day))
                         .foregroundStyle(anxietyColor(entry.severity).opacity(0.2))
                         .lineStyle(StrokeStyle(lineWidth: 2))
@@ -47,6 +49,18 @@ struct HeartRateTrendChart: View {
         case 4...6: return .yellow
         case 7...8: return .orange
         default: return .red
+        }
+    }
+}
+
+private enum ChartDatum: Identifiable {
+    case snapshot(HealthSnapshot)
+    case entry(AnxietyEntry)
+
+    var id: String {
+        switch self {
+        case .snapshot(let s): "snapshot-\(s.id)"
+        case .entry(let e): "entry-\(e.id)"
         }
     }
 }
