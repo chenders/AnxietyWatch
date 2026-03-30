@@ -141,26 +141,17 @@ Before your appointment, you generate a one-page clinical summary. Your psychiat
 
 **This is the direction. Not a deadline.** Every change must make the app either more useful during an anxiety episode, more insightful during calm reflection, or more effective in a clinical conversation. If it doesn't serve at least one of those purposes, it probably isn't worth building.
 
-See [PROJECT_FUTURE_PLAN.md](PROJECT_FUTURE_PLAN.md) for the full phased roadmap.
-
-</details>
-
-<details>
-<summary><strong>What it will look like</strong></summary>
-
-&nbsp;
-
-These mockups show where the app is headed — a redesigned dashboard that tells stories instead of dumping numbers, an intelligence layer that surfaces your personal patterns, and trend charts with medication dose markers that make efficacy visible at a glance.
-
 <div align="center">
-  <img src="docs/screenshots/future-dashboard.png" width="220" alt="Future dashboard with Today's Summary card, Log button, breathing pacer, and grouped metric sections" />
+  <img src="docs/screenshots/future-dashboard.png" width="200" alt="Future dashboard with Today's Summary card, Log button, breathing pacer, and grouped metric sections" />
   &nbsp;&nbsp;
-  <img src="docs/screenshots/future-insights.png" width="220" alt="Future Insights tab showing sleep-anxiety correlation, compound triggers, exercise effect, and medication efficacy trends" />
+  <img src="docs/screenshots/future-insights.png" width="200" alt="Future Insights tab showing sleep-anxiety correlation, compound triggers, exercise effect, and medication efficacy trends" />
   &nbsp;&nbsp;
-  <img src="docs/screenshots/future-trends.png" width="220" alt="Future trends with weekly summary stats, HRV chart with medication dose markers, and anxiety dose-response visualization showing tolerance" />
+  <img src="docs/screenshots/future-trends.png" width="200" alt="Future trends with weekly summary stats, HRV chart with medication dose markers, and anxiety dose-response visualization showing tolerance" />
 </div>
 
-*These are design mockups representing planned features, not screenshots of the current app.*
+*Design mockups of planned features — a redesigned dashboard that tells stories instead of dumping numbers, an intelligence layer that surfaces your personal patterns, and trend charts with medication dose markers that make tolerance visible.*
+
+See [PROJECT_FUTURE_PLAN.md](PROJECT_FUTURE_PLAN.md) for the full phased roadmap.
 
 </details>
 
