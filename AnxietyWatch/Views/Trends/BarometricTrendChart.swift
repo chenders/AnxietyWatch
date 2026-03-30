@@ -16,20 +16,22 @@ struct BarometricTrendChart: View {
         return Array(Swift.stride(from: 0, to: readings.count, by: stride).map { readings[$0] }.prefix(maxPoints))
     }
 
+    private var chartData: [ChartDatum] {
+        displayReadings.map { .reading($0) } + entries.map { .entry($0) }
+    }
+
     var body: some View {
         ChartCard(title: "Barometric Pressure", isEmpty: readings.isEmpty) {
-            Chart {
-                ForEach(displayReadings) { reading in
+            Chart(chartData) { datum in
+                switch datum {
+                case .reading(let reading):
                     LineMark(
                         x: .value("Time", reading.timestamp, unit: .hour),
                         y: .value("kPa", reading.pressureKPa)
                     )
                     .foregroundStyle(.gray)
                     .interpolationMethod(.catmullRom)
-                }
-
-                // Anxiety overlay
-                ForEach(entries) { entry in
+                case .entry(let entry):
                     RuleMark(x: .value("Time", entry.timestamp, unit: .hour))
                         .foregroundStyle(anxietyColor(entry.severity).opacity(0.2))
                         .lineStyle(StrokeStyle(lineWidth: 2))
@@ -47,6 +49,20 @@ struct BarometricTrendChart: View {
         case 4...6: return .yellow
         case 7...8: return .orange
         default: return .red
+        }
+    }
+}
+
+/// Tagged union for combining multiple data sources in a single Chart(data:) call,
+/// avoiding ForEach inside Chart bodies (which has availability issues across Xcode versions).
+private enum ChartDatum: Identifiable {
+    case reading(BarometricReading)
+    case entry(AnxietyEntry)
+
+    var id: String {
+        switch self {
+        case .reading(let r): "reading-\(r.id)"
+        case .entry(let e): "entry-\(e.id)"
         }
     }
 }
