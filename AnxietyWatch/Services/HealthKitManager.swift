@@ -250,9 +250,9 @@ actor HealthKitManager {
             // Request background delivery so the app is woken when new data arrives
             healthStore.enableBackgroundDelivery(for: type, frequency: .immediate) { success, error in
                 if let error {
-                    Log.health.error("enableBackgroundDelivery failed for \(type.identifier): \(error)")
+                    Log.health.error("enableBackgroundDelivery failed for \(type.identifier, privacy: .public): \(error, privacy: .public)")
                 } else if !success {
-                    Log.health.warning("enableBackgroundDelivery returned false for \(type.identifier)")
+                    Log.health.warning("enableBackgroundDelivery returned false for \(type.identifier, privacy: .public)")
                 }
             }
         }
@@ -285,7 +285,7 @@ actor HealthKitManager {
             let handler: (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, (any Error)?) -> Void = {
                 [weak self] query, newSamples, _, newAnchor, error in
                 if let error {
-                    Log.health.error("Anchored query error for \(config.identifier.rawValue): \(error)")
+                    Log.health.error("Anchored query error for \(config.identifier.rawValue, privacy: .public): \(error, privacy: .public)")
                     return
                 }
 
@@ -329,9 +329,9 @@ actor HealthKitManager {
 
             healthStore.enableBackgroundDelivery(for: sampleType, frequency: .immediate) { success, error in
                 if let error {
-                    Log.health.error("enableBackgroundDelivery failed for \(config.identifier.rawValue): \(error)")
+                    Log.health.error("enableBackgroundDelivery failed for \(config.identifier.rawValue, privacy: .public): \(error, privacy: .public)")
                 } else if !success {
-                    Log.health.warning("enableBackgroundDelivery returned false for \(config.identifier.rawValue)")
+                    Log.health.warning("enableBackgroundDelivery returned false for \(config.identifier.rawValue, privacy: .public)")
                 }
             }
         }
