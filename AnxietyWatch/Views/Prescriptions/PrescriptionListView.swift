@@ -8,6 +8,7 @@ struct PrescriptionListView: View {
     @State private var showingAdd = false
     @State private var isFetching = false
     @State private var fetchResult: String?
+    @State private var dismissedSyncHint = false
 
     var body: some View {
         NavigationStack {
@@ -31,6 +32,30 @@ struct PrescriptionListView: View {
                             Text(fetchResult)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                        }
+                    }
+                } else if activePrescriptions.isEmpty && expiredPrescriptions.isEmpty && !dismissedSyncHint {
+                    Section {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Label("Sync Not Configured", systemImage: "exclamationmark.triangle.fill")
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.orange)
+                                Text("Set up your sync server in Settings to automatically import prescriptions. You can also add them manually with +.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button {
+                                withAnimation { dismissedSyncHint = true }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.tertiary)
+                                    .padding(8)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Dismiss sync setup hint")
+                            .accessibilityHint("Hides this message about configuring sync")
                         }
                     }
                 }
