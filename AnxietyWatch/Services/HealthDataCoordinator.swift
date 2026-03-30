@@ -67,11 +67,21 @@ final class HealthDataCoordinator {
         )
 
         for offset in 0..<totalDays {
+            guard !Task.isCancelled else {
+                Log.data.info("Backfill cancelled at offset \(offset, privacy: .public)/\(totalDays, privacy: .public)")
+                isBackfilling = false
+                return
+            }
             let date = calendar.date(byAdding: .day, value: offset, to: startDate)!
             do {
                 try await aggregator.aggregateDay(date)
+            } catch is CancellationError {
+                Log.data.info("Backfill cancelled during aggregation at offset \(offset, privacy: .public)")
+                isBackfilling = false
+                return
             } catch {
-                Log.data.error("Backfill failed for day \(offset, privacy: .public): \(error, privacy: .public)")
+                let dateString = date.formatted(.iso8601.year().month().day())
+                Log.data.error("Backfill failed for \(dateString, privacy: .public) (offset \(offset, privacy: .public)): \(error, privacy: .public)")
             }
             backfillProgress = offset + 1
         }
