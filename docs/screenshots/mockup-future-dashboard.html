@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: transparent; display: flex; justify-content: center; padding: 20px; }
+  .iphone-frame { width: 280px; height: 600px; background: #000; border-radius: 36px; padding: 12px; }
+  .iphone-screen { width: 100%; height: 100%; background: #0a0a0a; border-radius: 26px; overflow: hidden; display: flex; flex-direction: column; }
+  .ios-status-bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 20px 4px; font-size: 10px; font-weight: 600; color: #fff; flex-shrink: 0; position: relative; }
+  .notch { width: 80px; height: 22px; background: #000; border-radius: 0 0 14px 14px; position: absolute; top: 0; left: 50%; transform: translateX(-50%); }
+  .ios-nav { padding: 6px 16px 8px; flex-shrink: 0; }
+  .ios-nav-title { font-size: 22px; font-weight: 700; color: #fff; }
+  .ios-content { flex: 1; overflow: hidden; padding: 0 12px 12px; }
+
+  /* Log button */
+  .log-button {
+    background: linear-gradient(135deg, #007aff, #5856d6);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: default;
+  }
+  .log-button-icon { font-size: 22px; }
+  .log-button-text { font-size: 14px; font-weight: 600; color: #fff; }
+  .log-button-sub { font-size: 9px; color: rgba(255,255,255,0.6); }
+
+  /* Today's summary */
+  .summary-card {
+    background: rgba(255,255,255,0.06);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+  .summary-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 8px;
+  }
+  .summary-bullet {
+    font-size: 9.5px;
+    color: #bbb;
+    line-height: 1.6;
+    padding-left: 12px;
+    position: relative;
+  }
+  .summary-bullet::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 6px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+  }
+  .summary-bullet.warn::before { background: #ff9500; }
+  .summary-bullet.bad::before { background: #ff3b30; }
+  .summary-bullet.good::before { background: #34c759; }
+  .summary-bullet.neutral::before { background: #636366; }
+  .summary-bullet strong { color: #fff; font-weight: 600; }
+
+  /* Section header */
+  .section-header {
+    font-size: 10px;
+    font-weight: 600;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 10px 0 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .section-chevron { font-size: 10px; color: #555; }
+
+  /* Compact metric */
+  .metric-compact {
+    background: rgba(255,255,255,0.06);
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin-bottom: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .mc-left { flex: 1; }
+  .mc-title { font-size: 9px; color: #888; }
+  .mc-value { font-size: 16px; font-weight: 700; line-height: 1.2; }
+  .mc-unit { font-size: 8px; color: #888; }
+  .mc-context { font-size: 8px; color: #555; margin-top: 1px; }
+  .sparkline-sm { width: 60px; height: 28px; flex-shrink: 0; }
+
+  /* Breathing shortcut */
+  .breathe-card {
+    background: rgba(0, 122, 255, 0.08);
+    border: 1px solid rgba(0, 122, 255, 0.15);
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .breathe-ring {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 2px solid #007aff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+    animation: breathe-pulse 4s ease-in-out infinite;
+  }
+  @keyframes breathe-pulse {
+    0%, 100% { transform: scale(0.85); opacity: 0.6; }
+    50% { transform: scale(1.1); opacity: 1; }
+  }
+  .breathe-text { font-size: 11px; color: #007aff; font-weight: 500; }
+  .breathe-sub { font-size: 8px; color: #555; }
+
+  /* Meds today */
+  .med-row {
+    background: rgba(255,255,255,0.06);
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin-bottom: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .med-name { font-size: 11px; color: #fff; font-weight: 500; }
+  .med-status { font-size: 8px; }
+  .med-taken { color: #34c759; }
+  .med-pending { color: #ff9500; }
+</style>
+</head>
+<body>
+<div class="iphone-frame">
+  <div class="iphone-screen">
+    <div class="ios-status-bar"><span>9:41</span><div class="notch"></div><span>100%</span></div>
+    <div class="ios-nav"><div class="ios-nav-title">Dashboard</div></div>
+    <div class="ios-content">
+
+      <!-- Log Anxiety button -->
+      <div class="log-button">
+        <div class="log-button-icon">📝</div>
+        <div>
+          <div class="log-button-text">Log How You Feel</div>
+          <div class="log-button-sub">Last entry: 6/10, 32 min ago</div>
+        </div>
+      </div>
+
+      <!-- Today's Summary -->
+      <div class="summary-card">
+        <div class="summary-title">Today's Summary</div>
+        <div class="summary-bullet bad">Sleep was <strong>poor</strong> last night — 5h 12m, high CPAP leak</div>
+        <div class="summary-bullet warn">HRV is <strong>18% below</strong> your 30-day baseline</div>
+        <div class="summary-bullet good">You've <strong>exercised 24 min</strong> today — above your anxiety-reduction threshold</div>
+        <div class="summary-bullet neutral">Sertraline taken at 8:15 AM · Lorazepam: <strong>none today</strong></div>
+      </div>
+
+      <!-- Breathing shortcut -->
+      <div class="breathe-card">
+        <div class="breathe-ring">🫁</div>
+        <div>
+          <div class="breathe-text">Breathing Pacer</div>
+          <div class="breathe-sub">4-4-6 guided breathing · Tap to start</div>
+        </div>
+      </div>
+
+      <!-- Heart & Autonomic section -->
+      <div class="section-header">
+        <span>Heart & Autonomic</span>
+        <span class="section-chevron">▼</span>
+      </div>
+
+      <div class="metric-compact">
+        <div class="mc-left">
+          <div class="mc-title">HRV</div>
+          <div class="mc-value" style="color:#ff9500;">28 <span class="mc-unit">ms</span></div>
+          <div class="mc-context">18% below baseline</div>
+        </div>
+        <div class="sparkline-sm">
+          <svg viewBox="0 0 60 28" fill="none"><rect x="0" y="8" width="60" height="10" fill="#007aff" opacity="0.08" rx="2"/><path d="M0,16 L7,12 L14,18 L21,10 L28,14 L35,20 L42,16 L49,22 L56,18 L60,20" stroke="#007aff" stroke-width="1.5" fill="none"/></svg>
+        </div>
+      </div>
+
+      <div class="metric-compact">
+        <div class="mc-left">
+          <div class="mc-title">Heart Rate</div>
+          <div class="mc-value" style="color:#ff3b30;">72 <span class="mc-unit">bpm</span></div>
+          <div class="mc-context">Normal for this time of day</div>
+        </div>
+        <div class="sparkline-sm">
+          <svg viewBox="0 0 60 28" fill="none"><path d="M0,22 L7,18 L14,20 L21,14 L28,16 L35,10 L42,14 L49,12 L56,16 L60,12" stroke="#ff3b30" stroke-width="1.5" fill="none"/></svg>
+        </div>
+      </div>
+
+      <!-- Sleep section -->
+      <div class="section-header">
+        <span>Sleep</span>
+        <span class="section-chevron">▼</span>
+      </div>
+
+      <div class="metric-compact">
+        <div class="mc-left">
+          <div class="mc-title">Sleep Duration</div>
+          <div class="mc-value" style="color:#ff9500;">5h 12m</div>
+          <div class="mc-context">Below your 6.8h average — expect higher anxiety</div>
+        </div>
+      </div>
+
+      <!-- Today's Meds -->
+      <div class="section-header">
+        <span>Today's Medications</span>
+        <span class="section-chevron">▼</span>
+      </div>
+
+      <div class="med-row">
+        <div>
+          <div class="med-name">Sertraline 50mg</div>
+          <div class="med-status med-taken">✓ Taken at 8:15 AM</div>
+        </div>
+      </div>
+      <div class="med-row">
+        <div>
+          <div class="med-name">Lorazepam 0.5mg</div>
+          <div class="med-status med-pending">PRN · None today</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

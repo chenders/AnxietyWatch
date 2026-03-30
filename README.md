@@ -22,23 +22,15 @@ The result is not a wall of numbers. It is your own data, interpreted through yo
 
 > **This project is under active development.** The data collection layer is thorough — 20+ HealthKit data types, medication tracking with efficacy measurement, CPAP integration, clinical reports, a sync server. The intelligence layer — pattern detection, compound triggers, proactive insights — is where the project is headed next.
 
-<!--
-TODO: Screenshots — build browser mockups of key screens for consistent,
-high-quality images, then screenshot them. Needed:
-  1. Dashboard (today's health summary with metric cards and sparklines)
-  2. Trend chart (HRV with baseline band + anxiety overlay)
-  3. watchOS Quick Log (Digital Crown severity picker)
-  4. Medication dose follow-up (before/after anxiety rating)
-  5. Clinical PDF report (structured psychiatric summary)
-
 <div align="center">
-  <img src="docs/screenshots/dashboard.png" width="250" alt="Dashboard showing today's health summary" />
+  <img src="docs/screenshots/dashboard.png" width="220" alt="Dashboard showing HRV baseline alert, anxiety rating, health metrics with sparklines" />
   &nbsp;&nbsp;
-  <img src="docs/screenshots/trends.png" width="250" alt="HRV trend chart with anxiety overlay" />
+  <img src="docs/screenshots/trends.png" width="220" alt="HRV trend chart with personal baseline band, anxiety severity scatter plot, and sleep stages" />
   &nbsp;&nbsp;
-  <img src="docs/screenshots/watch.png" width="150" alt="watchOS Quick Log with Digital Crown" />
+  <img src="docs/screenshots/watch.png" width="140" alt="watchOS Quick Log — Digital Crown severity picker designed for use during panic" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/report.png" width="180" alt="Clinical PDF report with anxiety summary, medication adherence, sleep quality, HRV, and CPAP data" />
 </div>
--->
 
 ---
 
@@ -68,11 +60,13 @@ For some people, tracking health data can increase anxiety rather than reduce it
 
 ### Your Physiology
 
-The app reads **20+ data types from HealthKit** via an [actor-isolated](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/concurrency/#Actors) manager with anchored queries and background delivery:
+The app reads **20+ data types from HealthKit** via an [actor-isolated](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/concurrency/#Actors) manager with anchored queries and background delivery.
+
+The most important of these is **heart rate variability (HRV)** — the variation in time between consecutive heartbeats, measured in milliseconds. HRV is the strongest single peripheral biomarker of your autonomic nervous system's state. When HRV drops, your body is shifting into fight-or-flight mode — often before you consciously feel anxious. When it rises, your parasympathetic system (rest-and-digest) is in control. The app tracks *your* personal HRV baseline over 30 days and alerts you when your recent average drops below it, turning an invisible autonomic shift into something you can see and act on.
 
 | Category | What's Tracked |
 |----------|---------------|
-| **Heart & autonomic** | Heart rate variability (SDNN), resting heart rate, raw heart rate, VO2 max, walking heart rate |
+| **Heart & autonomic** | Heart rate variability (HRV), resting heart rate, raw heart rate, VO2 max, walking heart rate |
 | **Sleep** | Total duration, stages (REM, deep, core, awake), skin temperature deviation, respiratory rate |
 | **Blood oxygen** | SpO2 averages |
 | **Activity** | Steps, active calories, exercise minutes |
@@ -148,6 +142,25 @@ Before your appointment, you generate a one-page clinical summary. Your psychiat
 **This is the direction. Not a deadline.** Every change must make the app either more useful during an anxiety episode, more insightful during calm reflection, or more effective in a clinical conversation. If it doesn't serve at least one of those purposes, it probably isn't worth building.
 
 See [PROJECT_FUTURE_PLAN.md](PROJECT_FUTURE_PLAN.md) for the full phased roadmap.
+
+</details>
+
+<details>
+<summary><strong>What it will look like</strong></summary>
+
+&nbsp;
+
+These mockups show where the app is headed — a redesigned dashboard that tells stories instead of dumping numbers, an intelligence layer that surfaces your personal patterns, and trend charts with medication dose markers that make efficacy visible at a glance.
+
+<div align="center">
+  <img src="docs/screenshots/future-dashboard.png" width="220" alt="Future dashboard with Today's Summary card, Log button, breathing pacer, and grouped metric sections" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/future-insights.png" width="220" alt="Future Insights tab showing sleep-anxiety correlation, compound triggers, exercise effect, and medication efficacy trends" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/future-trends.png" width="220" alt="Future trends with weekly summary stats, HRV chart with medication dose markers, and anxiety dose-response visualization showing tolerance" />
+</div>
+
+*These are design mockups representing planned features, not screenshots of the current app.*
 
 </details>
 

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: transparent; display: flex; justify-content: center; padding: 20px; }
+  .iphone-frame { width: 280px; height: 580px; background: #000; border-radius: 36px; padding: 12px; }
+  .iphone-screen { width: 100%; height: 100%; background: #0a0a0a; border-radius: 26px; overflow: hidden; display: flex; flex-direction: column; }
+  .ios-status-bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 20px 4px; font-size: 10px; font-weight: 600; color: #fff; flex-shrink: 0; position: relative; }
+  .notch { width: 80px; height: 22px; background: #000; border-radius: 0 0 14px 14px; position: absolute; top: 0; left: 50%; transform: translateX(-50%); }
+  .ios-nav { padding: 6px 16px 10px; flex-shrink: 0; }
+  .ios-nav-title { font-size: 22px; font-weight: 700; color: #fff; }
+  .ios-content { flex: 1; overflow: hidden; padding: 0 12px 12px; }
+  .chart-area { background: rgba(255,255,255,0.04); border-radius: 12px; padding: 12px; margin-bottom: 8px; }
+  .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .chart-title { font-size: 13px; font-weight: 600; color: #fff; }
+  .chart-period { display: flex; background: rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; }
+  .chart-period span { font-size: 8px; padding: 3px 8px; color: #666; }
+  .chart-period span.active { background: rgba(255,255,255,0.15); color: #fff; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="iphone-frame">
+  <div class="iphone-screen">
+    <div class="ios-status-bar"><span>9:41</span><div class="notch"></div><span>100%</span></div>
+    <div class="ios-nav"><div class="ios-nav-title">Trends</div></div>
+    <div class="ios-content">
+      <div class="chart-area">
+        <div class="chart-header">
+          <div class="chart-title">Heart Rate Variability</div>
+          <div class="chart-period"><span>7D</span><span class="active">30D</span><span>90D</span></div>
+        </div>
+        <svg viewBox="0 0 256 140" style="width:100%;" fill="none">
+          <text x="4" y="18" font-size="7" fill="#666" font-family="Inter,sans-serif">50</text>
+          <text x="4" y="52" font-size="7" fill="#666" font-family="Inter,sans-serif">40</text>
+          <text x="4" y="86" font-size="7" fill="#666" font-family="Inter,sans-serif">30</text>
+          <text x="4" y="120" font-size="7" fill="#666" font-family="Inter,sans-serif">20</text>
+          <line x1="22" y1="15" x2="252" y2="15" stroke="#222" stroke-width="0.5"/>
+          <line x1="22" y1="49" x2="252" y2="49" stroke="#222" stroke-width="0.5"/>
+          <line x1="22" y1="83" x2="252" y2="83" stroke="#222" stroke-width="0.5"/>
+          <line x1="22" y1="117" x2="252" y2="117" stroke="#222" stroke-width="0.5"/>
+          <rect x="22" y="36" width="230" height="30" fill="#007aff" opacity="0.08" rx="2"/>
+          <line x1="22" y1="49" x2="252" y2="49" stroke="#007aff" stroke-width="0.8" stroke-dasharray="4,3" opacity="0.4"/>
+          <path d="M26,42 L38,46 L50,38 L62,52 L74,44 L86,40 L98,48 L110,36 L122,50 L134,56 L146,62 L158,70 L170,58 L182,66 L194,72 L206,80 L218,76 L230,84 L242,78 L252,82" stroke="#007aff" stroke-width="2" fill="none"/>
+          <path d="M26,42 L38,46 L50,38 L62,52 L74,44 L86,40 L98,48 L110,36 L122,50 L134,56 L146,62 L158,70 L170,58 L182,66 L194,72 L206,80 L218,76 L230,84 L242,78 L252,82 L252,120 L26,120Z" fill="url(#hrvG)" opacity="0.3"/>
+          <defs><linearGradient id="hrvG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#007aff"/><stop offset="100%" stop-color="transparent"/></linearGradient></defs>
+          <text x="26" y="132" font-size="6" fill="#555" font-family="Inter,sans-serif">Mar 1</text>
+          <text x="86" y="132" font-size="6" fill="#555" font-family="Inter,sans-serif">Mar 8</text>
+          <text x="146" y="132" font-size="6" fill="#555" font-family="Inter,sans-serif">Mar 15</text>
+          <text x="206" y="132" font-size="6" fill="#555" font-family="Inter,sans-serif">Mar 22</text>
+          <text x="240" y="132" font-size="6" fill="#555" font-family="Inter,sans-serif">29</text>
+          <text x="196" y="45" font-size="7" fill="#007aff" opacity="0.6" font-family="Inter,sans-serif">baseline</text>
+        </svg>
+      </div>
+      <div class="chart-area">
+        <div class="chart-header"><div class="chart-title">Anxiety Severity</div></div>
+        <svg viewBox="0 0 256 100" style="width:100%;" fill="none">
+          <text x="4" y="18" font-size="7" fill="#666" font-family="Inter,sans-serif">10</text>
+          <text x="4" y="50" font-size="7" fill="#666" font-family="Inter,sans-serif">5</text>
+          <text x="4" y="82" font-size="7" fill="#666" font-family="Inter,sans-serif">1</text>
+          <line x1="22" y1="15" x2="252" y2="15" stroke="#222" stroke-width="0.5"/>
+          <line x1="22" y1="47" x2="252" y2="47" stroke="#222" stroke-width="0.5"/>
+          <line x1="22" y1="79" x2="252" y2="79" stroke="#222" stroke-width="0.5"/>
+          <circle cx="30" cy="55" r="3" fill="#ff9500"/><circle cx="42" cy="62" r="3" fill="#34c759"/>
+          <circle cx="58" cy="48" r="3" fill="#ff9500"/><circle cx="74" cy="30" r="3" fill="#ff3b30"/>
+          <circle cx="82" cy="55" r="3" fill="#ff9500"/><circle cx="98" cy="68" r="3" fill="#34c759"/>
+          <circle cx="114" cy="62" r="3" fill="#34c759"/><circle cx="130" cy="40" r="3" fill="#ff9500"/>
+          <circle cx="138" cy="25" r="3" fill="#ff3b30"/><circle cx="154" cy="48" r="3" fill="#ff9500"/>
+          <circle cx="170" cy="38" r="3" fill="#ff3b30"/><circle cx="186" cy="55" r="3" fill="#ff9500"/>
+          <circle cx="198" cy="42" r="3" fill="#ff9500"/><circle cx="210" cy="32" r="3" fill="#ff3b30"/>
+          <circle cx="226" cy="48" r="3" fill="#ff9500"/><circle cx="244" cy="40" r="3" fill="#ff9500"/>
+          <path d="M30,58 L252,38" stroke="#ff9500" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>
+          <text x="26" y="95" font-size="6" fill="#555" font-family="Inter,sans-serif">Mar 1</text>
+          <text x="146" y="95" font-size="6" fill="#555" font-family="Inter,sans-serif">Mar 15</text>
+          <text x="240" y="95" font-size="6" fill="#555" font-family="Inter,sans-serif">29</text>
+        </svg>
+      </div>
+      <div class="chart-area">
+        <div class="chart-header"><div class="chart-title">Sleep</div></div>
+        <svg viewBox="0 0 256 60" style="width:100%;" fill="none">
+          <g transform="translate(26,0)">
+            <rect x="0" y="5" width="14" height="10" fill="#5e5ce6" rx="1"/><rect x="0" y="15" width="14" height="8" fill="#30d158" rx="1"/><rect x="0" y="23" width="14" height="22" fill="#007aff" rx="1"/><rect x="0" y="45" width="14" height="4" fill="#ff9500" rx="1"/>
+            <rect x="20" y="10" width="14" height="8" fill="#5e5ce6" rx="1"/><rect x="20" y="18" width="14" height="6" fill="#30d158" rx="1"/><rect x="20" y="24" width="14" height="20" fill="#007aff" rx="1"/><rect x="20" y="44" width="14" height="6" fill="#ff9500" rx="1"/>
+            <rect x="40" y="2" width="14" height="12" fill="#5e5ce6" rx="1"/><rect x="40" y="14" width="14" height="10" fill="#30d158" rx="1"/><rect x="40" y="24" width="14" height="24" fill="#007aff" rx="1"/><rect x="40" y="48" width="14" height="2" fill="#ff9500" rx="1"/>
+            <rect x="60" y="18" width="14" height="6" fill="#5e5ce6" rx="1"/><rect x="60" y="24" width="14" height="4" fill="#30d158" rx="1"/><rect x="60" y="28" width="14" height="14" fill="#007aff" rx="1"/><rect x="60" y="42" width="14" height="8" fill="#ff9500" rx="1"/>
+          </g>
+          <rect x="120" y="10" width="6" height="6" fill="#5e5ce6" rx="1"/><text x="129" y="16" font-size="6" fill="#888" font-family="Inter,sans-serif">Deep</text>
+          <rect x="150" y="10" width="6" height="6" fill="#30d158" rx="1"/><text x="159" y="16" font-size="6" fill="#888" font-family="Inter,sans-serif">REM</text>
+          <rect x="178" y="10" width="6" height="6" fill="#007aff" rx="1"/><text x="187" y="16" font-size="6" fill="#888" font-family="Inter,sans-serif">Core</text>
+          <rect x="210" y="10" width="6" height="6" fill="#ff9500" rx="1"/><text x="219" y="16" font-size="6" fill="#888" font-family="Inter,sans-serif">Awake</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

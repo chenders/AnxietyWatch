@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: transparent; display: flex; justify-content: center; padding: 20px; }
+  .iphone-frame { width: 280px; height: 600px; background: #000; border-radius: 36px; padding: 12px; }
+  .iphone-screen { width: 100%; height: 100%; background: #0a0a0a; border-radius: 26px; overflow: hidden; display: flex; flex-direction: column; }
+  .ios-status-bar { display: flex; justify-content: space-between; padding: 8px 20px 4px; font-size: 10px; font-weight: 600; color: #fff; flex-shrink: 0; position: relative; }
+  .notch { width: 80px; height: 22px; background: #000; border-radius: 0 0 14px 14px; position: absolute; top: 0; left: 50%; transform: translateX(-50%); }
+  .ios-nav { padding: 6px 16px 8px; flex-shrink: 0; }
+  .ios-nav-title { font-size: 22px; font-weight: 700; color: #fff; }
+  .ios-content { flex: 1; overflow: hidden; padding: 0 12px 12px; }
+  .chart-area { background: rgba(255,255,255,0.04); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+  .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .chart-title { font-size: 13px; font-weight: 600; color: #fff; }
+  .chart-period { display: flex; background: rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden; }
+  .chart-period span { font-size: 8px; padding: 3px 8px; color: #666; }
+  .chart-period span.active { background: rgba(255,255,255,0.15); color: #fff; font-weight: 600; }
+  .trend-summary {
+    background: rgba(255,255,255,0.06);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+  }
+  .trend-stat { text-align: center; }
+  .trend-stat-value { font-size: 18px; font-weight: 700; }
+  .trend-stat-label { font-size: 8px; color: #888; margin-top: 2px; }
+  .trend-stat-delta { font-size: 8px; font-weight: 600; margin-top: 1px; }
+</style>
+</head>
+<body>
+<div class="iphone-frame">
+  <div class="iphone-screen">
+    <div class="ios-status-bar"><span>9:41</span><div class="notch"></div><span>100%</span></div>
+    <div class="ios-nav"><div class="ios-nav-title">Trends</div></div>
+    <div class="ios-content">
+
+      <!-- Week summary -->
+      <div class="trend-summary">
+        <div class="trend-stat">
+          <div class="trend-stat-value" style="color:#ff9500;">4.8</div>
+          <div class="trend-stat-label">Avg Anxiety</div>
+          <div class="trend-stat-delta" style="color:#34c759;">↓ 0.8 from last week</div>
+        </div>
+        <div class="trend-stat">
+          <div class="trend-stat-value" style="color:#ff3b30;">2</div>
+          <div class="trend-stat-label">High Episodes</div>
+          <div class="trend-stat-delta" style="color:#34c759;">↓ 2 fewer</div>
+        </div>
+        <div class="trend-stat">
+          <div class="trend-stat-value" style="color:#007aff;">32</div>
+          <div class="trend-stat-label">Avg HRV (ms)</div>
+          <div class="trend-stat-delta" style="color:#ff9500;">↓ 4 from baseline</div>
+        </div>
+      </div>
+
+      <!-- HRV chart with medication dose markers -->
+      <div class="chart-area">
+        <div class="chart-header">
+          <div class="chart-title">HRV + Medication Doses</div>
+          <div class="chart-period"><span>7D</span><span class="active">30D</span><span>90D</span></div>
+        </div>
+        <svg viewBox="0 0 256 130" style="width:100%;" fill="none">
+          <text x="4" y="18" font-size="7" fill="#666" font-family="Inter,sans-serif">50</text>
+          <text x="4" y="48" font-size="7" fill="#666" font-family="Inter,sans-serif">40</text>
+          <text x="4" y="78" font-size="7" fill="#666" font-family="Inter,sans-serif">30</text>
+          <text x="4" y="108" font-size="7" fill="#666" font-family="Inter,sans-serif">20</text>
+          <line x1="22" y1="15" x2="252" y2="15" stroke="#222" stroke-width="0.5"/>
+          <line x1="22" y1="45" x2="252" y2="45" stroke="#222" stroke-width="0.5"/>
+          <line x1="22" y1="75" x2="252" y2="75" stroke="#222" stroke-width="0.5"/>
+          <line x1="22" y1="105" x2="252" y2="105" stroke="#222" stroke-width="0.5"/>
+          <!-- Baseline band -->
+          <rect x="22" y="32" width="230" height="26" fill="#007aff" opacity="0.08" rx="2"/>
+          <line x1="22" y1="45" x2="252" y2="45" stroke="#007aff" stroke-width="0.8" stroke-dasharray="4,3" opacity="0.4"/>
+          <!-- HRV line -->
+          <path d="M26,38 L42,42 L58,36 L74,48 L90,40 L106,38 L122,44 L138,34 L154,46 L170,52 L186,58 L202,66 L218,54 L234,62 L250,72" stroke="#007aff" stroke-width="2" fill="none"/>
+          <path d="M26,38 L42,42 L58,36 L74,48 L90,40 L106,38 L122,44 L138,34 L154,46 L170,52 L186,58 L202,66 L218,54 L234,62 L250,72 L250,108 L26,108Z" fill="url(#hrvFG)" opacity="0.2"/>
+          <defs><linearGradient id="hrvFG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#007aff"/><stop offset="100%" stop-color="transparent"/></linearGradient></defs>
+          <!-- Medication dose markers (pill icons as circles with cross) -->
+          <g>
+            <!-- Dose 1 -->
+            <circle cx="74" cy="112" r="5" fill="#ff9500" opacity="0.8"/>
+            <text x="74" y="114.5" font-size="6" fill="#000" text-anchor="middle" font-weight="700" font-family="Inter,sans-serif">💊</text>
+            <line x1="74" y1="48" x2="74" y2="107" stroke="#ff9500" stroke-width="0.5" stroke-dasharray="2,2" opacity="0.4"/>
+            <!-- Dose 2 -->
+            <circle cx="138" cy="112" r="5" fill="#ff9500" opacity="0.8"/>
+            <text x="138" y="114.5" font-size="6" fill="#000" text-anchor="middle" font-weight="700" font-family="Inter,sans-serif">💊</text>
+            <line x1="138" y1="34" x2="138" y2="107" stroke="#ff9500" stroke-width="0.5" stroke-dasharray="2,2" opacity="0.4"/>
+            <!-- Dose 3 -->
+            <circle cx="202" cy="112" r="5" fill="#ff9500" opacity="0.8"/>
+            <text x="202" y="114.5" font-size="6" fill="#000" text-anchor="middle" font-weight="700" font-family="Inter,sans-serif">💊</text>
+            <line x1="202" y1="66" x2="202" y2="107" stroke="#ff9500" stroke-width="0.5" stroke-dasharray="2,2" opacity="0.4"/>
+          </g>
+          <text x="26" y="124" font-size="6" fill="#555" font-family="Inter,sans-serif">Mar 1</text>
+          <text x="138" y="124" font-size="6" fill="#555" font-family="Inter,sans-serif">Mar 15</text>
+          <text x="240" y="124" font-size="6" fill="#555" font-family="Inter,sans-serif">29</text>
+          <!-- Legend -->
+          <rect x="170" y="10" width="6" height="6" fill="#007aff" rx="1"/>
+          <text x="179" y="16" font-size="6" fill="#888" font-family="Inter,sans-serif">HRV</text>
+          <circle cx="203" cy="13" r="3" fill="#ff9500"/>
+          <text x="209" y="16" font-size="6" fill="#888" font-family="Inter,sans-serif">Dose</text>
+        </svg>
+      </div>
+
+      <!-- Anxiety with medication overlay -->
+      <div class="chart-area">
+        <div class="chart-header"><div class="chart-title">Anxiety + Dose Response</div></div>
+        <svg viewBox="0 0 256 90" style="width:100%;" fill="none">
+          <text x="4" y="15" font-size="7" fill="#666" font-family="Inter,sans-serif">10</text>
+          <text x="4" y="45" font-size="7" fill="#666" font-family="Inter,sans-serif">5</text>
+          <text x="4" y="75" font-size="7" fill="#666" font-family="Inter,sans-serif">1</text>
+          <line x1="22" y1="12" x2="252" y2="12" stroke="#222" stroke-width="0.5"/>
+          <line x1="22" y1="42" x2="252" y2="42" stroke="#222" stroke-width="0.5"/>
+          <line x1="22" y1="72" x2="252" y2="72" stroke="#222" stroke-width="0.5"/>
+          <!-- Anxiety points -->
+          <circle cx="34" cy="50" r="3" fill="#ff9500"/>
+          <circle cx="50" cy="58" r="3" fill="#34c759"/>
+          <circle cx="66" cy="44" r="3" fill="#ff9500"/>
+          <!-- Pre-dose high -->
+          <circle cx="74" cy="22" r="4" fill="#ff3b30" stroke="#ff3b30" stroke-width="1"/>
+          <!-- Post-dose drop (connected) -->
+          <circle cx="82" cy="44" r="3" fill="#34c759"/>
+          <path d="M74,22 L82,44" stroke="#34c759" stroke-width="1.5" stroke-dasharray="3,2"/>
+          <text x="84" y="36" font-size="6" fill="#34c759" font-family="Inter,sans-serif">-4</text>
+          <!-- Continue -->
+          <circle cx="98" cy="50" r="3" fill="#ff9500"/>
+          <circle cx="114" cy="56" r="3" fill="#34c759"/>
+          <circle cx="130" cy="38" r="3" fill="#ff9500"/>
+          <!-- Pre-dose -->
+          <circle cx="138" cy="18" r="4" fill="#ff3b30" stroke="#ff3b30" stroke-width="1"/>
+          <!-- Post-dose -->
+          <circle cx="146" cy="38" r="3" fill="#34c759"/>
+          <path d="M138,18 L146,38" stroke="#34c759" stroke-width="1.5" stroke-dasharray="3,2"/>
+          <text x="148" y="30" font-size="6" fill="#34c759" font-family="Inter,sans-serif">-3</text>
+          <!-- Continue -->
+          <circle cx="162" cy="44" r="3" fill="#ff9500"/>
+          <circle cx="178" cy="50" r="3" fill="#ff9500"/>
+          <circle cx="194" cy="38" r="3" fill="#ff9500"/>
+          <!-- Pre-dose -->
+          <circle cx="202" cy="20" r="4" fill="#ff3b30" stroke="#ff3b30" stroke-width="1"/>
+          <!-- Post-dose (smaller drop = tolerance) -->
+          <circle cx="210" cy="32" r="3" fill="#ff9500"/>
+          <path d="M202,20 L210,32" stroke="#ff9500" stroke-width="1.5" stroke-dasharray="3,2"/>
+          <text x="212" y="28" font-size="6" fill="#ff9500" font-family="Inter,sans-serif">-2</text>
+          <circle cx="226" cy="40" r="3" fill="#ff9500"/>
+          <circle cx="244" cy="36" r="3" fill="#ff9500"/>
+          <text x="26" y="85" font-size="6" fill="#555" font-family="Inter,sans-serif">Mar 1</text>
+          <text x="138" y="85" font-size="6" fill="#555" font-family="Inter,sans-serif">Mar 15</text>
+          <text x="240" y="85" font-size="6" fill="#555" font-family="Inter,sans-serif">29</text>
+        </svg>
+        <div style="font-size:8px;color:#ff9500;margin-top:4px;text-align:center;">⚠ Dose response declining: -4 → -3 → -2 pts over 4 weeks</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
