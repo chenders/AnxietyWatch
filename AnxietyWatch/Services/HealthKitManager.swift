@@ -1,4 +1,5 @@
 import HealthKit
+import os
 
 /// Single point of contact for all HealthKit reads. Never query HealthKit directly from views.
 actor HealthKitManager {
@@ -44,6 +45,7 @@ actor HealthKitManager {
             types.insert(HKQuantityType(id))
         }
         types.insert(HKCategoryType(.sleepAnalysis))
+        types.insert(HKWorkoutType.workoutType())
         return types
     }
 
@@ -246,7 +248,13 @@ actor HealthKitManager {
             activeObserverQueries.append(query)
 
             // Request background delivery so the app is woken when new data arrives
-            healthStore.enableBackgroundDelivery(for: type, frequency: .immediate) { _, _ in }
+            healthStore.enableBackgroundDelivery(for: type, frequency: .immediate) { success, error in
+                if let error {
+                    Log.health.error("enableBackgroundDelivery failed for \(type.identifier, privacy: .public): \(error, privacy: .public)")
+                } else if !success {
+                    Log.health.warning("enableBackgroundDelivery returned false for \(type.identifier, privacy: .public)")
+                }
+            }
         }
     }
 
@@ -276,7 +284,10 @@ actor HealthKitManager {
 
             let handler: (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, (any Error)?) -> Void = {
                 [weak self] query, newSamples, _, newAnchor, error in
-                guard error == nil else { return }
+                if let error {
+                    Log.health.error("Anchored query error for \(config.identifier.rawValue, privacy: .public): \(error, privacy: .public)")
+                    return
+                }
 
                 // Always advance the anchor, even when there are no samples
                 if let newAnchor {
@@ -294,9 +305,16 @@ actor HealthKitManager {
                 onNewSamples(converted)
             }
 
-            // Scope to 7-day retention window to avoid fetching entire history on first run
-            let retentionStart = Calendar.current.date(byAdding: .day, value: -7, to: .now)
-            let predicate = retentionStart.map { HKQuery.predicateForSamples(withStart: $0, end: nil) }
+            // Only scope to 7-day window on first run (no anchor) to avoid fetching
+            // entire history. When an anchor exists, pass nil predicate so HealthKit
+            // returns everything since the anchor — even if the app hasn't been opened
+            // for more than 7 days.
+            let predicate: NSPredicate? = if anchor == nil {
+                Calendar.current.date(byAdding: .day, value: -7, to: .now)
+                    .map { HKQuery.predicateForSamples(withStart: $0, end: nil) }
+            } else {
+                nil
+            }
 
             let query = HKAnchoredObjectQuery(
                 type: sampleType,
@@ -309,7 +327,13 @@ actor HealthKitManager {
             healthStore.execute(query)
             activeAnchoredQueries.append(query)
 
-            healthStore.enableBackgroundDelivery(for: sampleType, frequency: .immediate) { _, _ in }
+            healthStore.enableBackgroundDelivery(for: sampleType, frequency: .immediate) { success, error in
+                if let error {
+                    Log.health.error("enableBackgroundDelivery failed for \(config.identifier.rawValue, privacy: .public): \(error, privacy: .public)")
+                } else if !success {
+                    Log.health.warning("enableBackgroundDelivery returned false for \(config.identifier.rawValue, privacy: .public)")
+                }
+            }
         }
     }
 
@@ -383,5 +407,51 @@ actor HealthKitManager {
         }
         data.totalMinutes = data.deepMinutes + data.remMinutes + data.coreMinutes
         return data
+    }
+
+    // MARK: - Workout Queries
+
+    struct WorkoutData: Sendable {
+        let startDate: Date
+        let endDate: Date
+        let durationMinutes: Int
+        let activityType: UInt   // HKWorkoutActivityType raw value
+        let totalCalories: Double?
+    }
+
+    /// Query workouts for a date range. Used to identify exercise periods
+    /// so exercise HR can be excluded from anxiety-related baselines.
+    func queryWorkouts(start: Date, end: Date) async throws -> [WorkoutData] {
+        guard isAvailable else { return [] }
+        let type = HKWorkoutType.workoutType()
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
+
+        let samples: [HKWorkout] = try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+            ) { _, results, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: (results as? [HKWorkout]) ?? [])
+                }
+            }
+            healthStore.execute(query)
+        }
+
+        return samples.map { workout in
+            let minutes = Int(workout.endDate.timeIntervalSince(workout.startDate) / 60)
+            let calories = workout.totalEnergyBurned?.doubleValue(for: .kilocalorie())
+            return WorkoutData(
+                startDate: workout.startDate,
+                endDate: workout.endDate,
+                durationMinutes: minutes,
+                activityType: workout.workoutActivityType.rawValue,
+                totalCalories: calories
+            )
+        }
     }
 }
