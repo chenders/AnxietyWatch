@@ -26,9 +26,11 @@ lint: ## Lint the server code (flake8)
 	cd server && flake8 . --max-line-length=120 --exclude=__pycache__
 
 server: ## Start the sync server via Docker
+	@test -f server/.env || { echo "Error: server/.env not found. Copy server/.env.example and fill in values."; exit 1; }
 	docker compose --env-file server/.env -f server/docker-compose.yml up -d
 
 server-down: ## Stop the sync server
+	@test -f server/.env || { echo "Error: server/.env not found."; exit 1; }
 	docker compose --env-file server/.env -f server/docker-compose.yml down
 
 server-test: ## Run server tests
