@@ -1,7 +1,7 @@
 import SwiftData
 @testable import AnxietyWatch
 
-/// Pre-built data sets for tests and previews. All data uses ModelFactory
+/// Pre-built data sets for tests. All data uses ModelFactory
 /// defaults and fictional values per project conventions.
 enum SampleData {
 
