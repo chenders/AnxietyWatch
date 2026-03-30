@@ -6,15 +6,9 @@ import Testing
 
 struct HealthSampleTests {
 
-    private func makeContainer() throws -> ModelContainer {
-        let schema = Schema([HealthSample.self])
-        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-        return try ModelContainer(for: schema, configurations: [config])
-    }
-
     @Test("HealthSample stores type, value, timestamp, and source")
     func basicCreation() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let ts = Date(timeIntervalSince1970: 1_700_000_000)
@@ -32,7 +26,7 @@ struct HealthSampleTests {
 
     @Test("Query samples by type and date range")
     func queryByTypeAndRange() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -62,7 +56,7 @@ struct HealthSampleTests {
 
     @Test("Prune deletes samples older than retention period")
     func pruneOldSamples() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let now = Date(timeIntervalSince1970: 1_700_000_000)
