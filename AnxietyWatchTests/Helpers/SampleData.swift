@@ -88,7 +88,7 @@ enum SampleData {
         }
     }
 
-    /// Creates a seeded in-memory container ready for use in tests or previews.
+    /// Creates a seeded in-memory container ready for use in tests.
     static func makeSeededContainer() throws -> ModelContainer {
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
