@@ -313,15 +313,15 @@ class WalgreensClient:
                 raise WalgreensAuthError(
                     "Could not find login form fields"
                 )
-            logger.info("Found login form fields, typing credentials for username=%r", self._username)
+            logger.debug("Found login form fields, entering credentials")
             email_input.click()
             email_input.type(self._username, delay=50)
             page.wait_for_timeout(500)
-            logger.info("Typed username, now typing password")
+            logger.debug("Username entered, typing password")
             pwd_input.click()
             pwd_input.type(self._password, delay=50)
             page.wait_for_timeout(1000)
-            logger.info("Credentials entered")
+            logger.debug("Credentials entered")
         except WalgreensAuthError:
             raise
         except Exception as exc:
