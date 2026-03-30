@@ -52,49 +52,18 @@ For some people, tracking health data can increase anxiety rather than reduce it
 
 ## What It Tracks
 
-### Your Experience
+| Feature | What It Does |
+|---------|-------------|
+| **Anxiety journal** | Severity (1-10), notes, tags — timestamped entries that anchor all physiological data |
+| **Medication tracking** | Dose logging with 30-min before/after efficacy follow-up (a personal [N-of-1 trial](https://en.wikipedia.org/wiki/N-of-1_trial)) |
+| **watchOS Quick Log** | Digital Crown severity picker — works during panic, under five seconds |
+| **HealthKit integration** | 20+ data types (HRV, sleep stages, heart rate, SpO2, activity, blood pressure, and more) with personal rolling baselines |
+| **CPAP import** | AirSense 11 SD card — AHI, leak rates, usage hours; connects sleep apnea treatment to anxiety outcomes |
+| **Prescription management** | Supply tracking, refill alerts, OCR label scanning, pharmacy search with call logging |
+| **Clinical reports** | PDF summaries structured for psychiatric appointments — anxiety, meds, sleep, HRV, CPAP, labs |
+| **Data export** | JSON/CSV across 10 entity types, plus self-hosted Flask + PostgreSQL sync server |
 
-- **Anxiety journal** — severity (1–10), free-text notes, and tags. Timestamped entries that anchor all the objective data to how you actually feel.
-- **Medication doses** — one-tap logging with a novel **dose-triggered anxiety prompt**: rate your anxiety when you take a medication, then again 30 minutes later via notification. Over time, this builds paired before/after efficacy data — something closer to a personal [N-of-1 trial](https://en.wikipedia.org/wiki/N-of-1_trial) than anything a consumer app typically produces.
-- **watchOS Quick Log** — Digital Crown severity selection with haptic confirmation. When your hands are shaking and your thinking is clouded, you can still log how you feel in under five seconds.
-
-### Your Physiology
-
-The app reads **20+ data types from HealthKit** via an [actor-isolated](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/concurrency/#Actors) manager with anchored queries and background delivery.
-
-The most important of these is **heart rate variability (HRV)** — the variation in time between consecutive heartbeats, measured in milliseconds. HRV is the strongest single peripheral biomarker of your autonomic nervous system's state. When HRV drops, your body is shifting into fight-or-flight mode — often before you consciously feel anxious. When it rises, your parasympathetic system (rest-and-digest) is in control. The app tracks *your* personal HRV baseline over 30 days and alerts you when your recent average drops below it, turning an invisible autonomic shift into something you can see and act on.
-
-| Category | What's Tracked |
-|----------|---------------|
-| **Heart & autonomic** | Heart rate variability (HRV), resting heart rate, raw heart rate, VO2 max, walking heart rate |
-| **Sleep** | Total duration, stages (REM, deep, core, awake), skin temperature deviation, respiratory rate |
-| **Blood oxygen** | SpO2 averages |
-| **Activity** | Steps, active calories, exercise minutes |
-| **Blood pressure** | Systolic/diastolic (via compatible cuff → HealthKit) |
-| **Environment** | Barometric pressure (Core Motion), environmental sound levels |
-| **Other** | Walking steadiness, gait metrics, atrial fibrillation burden |
-
-Daily **HealthSnapshot** aggregation rolls these into efficient local trending and export. Personal **rolling baselines** compare you to yourself — not population norms. The dashboard shows alerts when your HRV drops below your own 30-day baseline, not when it crosses an arbitrary threshold.
-
-**Privacy by design:** All health data stays on your device. HealthKit is the source of truth — the app reads your health data but never writes to it (except the planned Apple Health State of Mind integration). There are no third-party SDKs, no analytics, no tracking pixels, no data collection of any kind. The optional sync server is self-hosted on infrastructure you own and control. Data only leaves your device when you explicitly trigger an export, generate a clinical report, or sync to your own server.
-
-### Your Sleep Apnea Treatment
-
-- **CPAP import** from AirSense 11 SD card data — AHI, leak rates, usage hours, pressure stats, event breakdowns (obstructive, central, hypopnea)
-- Connects sleep apnea treatment quality to anxiety outcomes — a correlation that is [well-established in research](https://pubmed.ncbi.nlm.nih.gov/25766719/) but almost never quantified for a specific patient
-
-### Your Medications
-
-- **Prescription management** — supply tracking with days-remaining calculations, refill alerts, expiration monitoring
-- **Pharmacy search** via MapKit with call tracking and logging
-- **OCR label scanning** — point your camera at a pill bottle and the Vision framework extracts Rx number, medication name, dosage, quantity, and refill count
-- **CapRx claims import** — automated prescription sync from pharmacy benefit data via the sync server
-
-### Your Reports
-
-- **Clinical PDF reports** — multi-page summaries structured for psychiatric appointments: anxiety severity distribution, medication adherence per drug, sleep quality with stage breakdowns, HRV trends with baseline status, CPAP compliance, blood pressure, and lab results with reference ranges
-- **JSON/CSV export** — complete data dump across 10 entity types for external analysis (pairs well with [Claude](https://claude.ai) for AI-assisted pattern detection)
-- **Server sync** — self-hosted Flask + PostgreSQL backend mirrors your data for web access
+All health data stays on your device. No cloud service, no third-party SDKs, no analytics, no telemetry. See [docs/FEATURES.md](docs/FEATURES.md) for the full breakdown of every data source, the HealthKit data types table, and how personal baselines work.
 
 ---
 
@@ -126,20 +95,7 @@ Every piece of data is exportable — JSON, CSV, or clinical PDF — from day on
 
 ## The Road Ahead
 
-<details open>
-<summary><strong>The North Star</strong></summary>
-
-&nbsp;
-
-Imagine opening Anxiety Watch on a difficult morning and seeing: "Rough night — 5h 12m of sleep, high CPAP leak, HRV below baseline. On mornings like this, your anxiety has averaged 6.2 compared to 3.8 after a good night."
-
-The anxiety is still there, but it has been demystified. You are not spiraling into *what is wrong with me?* because the app has already answered: bad sleep, predictable consequence, you have seen this before.
-
-At the end of the week, medication dose markers appear on your HRV and anxiety charts. You can see the medication working — HRV lifts within 30 minutes of each dose. But you also notice the before/after improvement has been shrinking. The app surfaces it: "Your average anxiety reduction per dose has decreased from 3.4 points to 1.9 points over the past 6 weeks." That is a tolerance signal, and it is something to bring to your psychiatrist with evidence.
-
-Before your appointment, you generate a one-page clinical summary. Your psychiatrist scans it in 60 seconds and says, "I see what you mean about the medication. Let's talk about options." The conversation is grounded in your data. You feel heard because your experience is validated by measurement.
-
-**This is the direction. Not a deadline.** Every change must make the app either more useful during an anxiety episode, more insightful during calm reflection, or more effective in a clinical conversation. If it doesn't serve at least one of those purposes, it probably isn't worth building.
+The data collection layer is built. Next: an intelligence layer that turns your data into stories — sleep-to-anxiety correlation, medication efficacy trends, compound trigger identification, and proactive morning briefings that demystify bad days before they spiral.
 
 <div align="center">
   <img src="docs/screenshots/future-dashboard.png" width="200" alt="Future dashboard with Today's Summary card, Log button, breathing pacer, and grouped metric sections" />
@@ -149,22 +105,9 @@ Before your appointment, you generate a one-page clinical summary. Your psychiat
   <img src="docs/screenshots/future-trends.png" width="200" alt="Future trends with weekly summary stats, HRV chart with medication dose markers, and anxiety dose-response visualization showing tolerance" />
 </div>
 
-*Design mockups of planned features — a redesigned dashboard that tells stories instead of dumping numbers, an intelligence layer that surfaces your personal patterns, and trend charts with medication dose markers that make tolerance visible.*
+*Design mockups — a dashboard that tells stories instead of dumping numbers, an intelligence layer that surfaces personal patterns, and trend charts with medication dose markers that make tolerance visible.*
 
-See [PROJECT_FUTURE_PLAN.md](PROJECT_FUTURE_PLAN.md) for the full phased roadmap.
-
-</details>
-
-### Current Status
-
-| Phase | Status | What's Included |
-|-------|--------|----------------|
-| **Foundation** | Working | HealthKit integration (20+ types), anxiety journal, medication tracking with dose-triggered efficacy measurement, prescription/pharmacy management with OCR, 7 trend charts, CPAP import, clinical PDF reports, JSON/CSV export, server sync, watchOS companion with widgets, 23 test files |
-| **Solid Ground** | Active | Dashboard performance, baseline calculator improvements, HealthKit data gap fixes, test infrastructure hardening |
-| **UX Transformation** | Next | Crisis-mode interactions (large tap targets, no fine motor control required), dashboard redesign with "Today's Summary" card, breathing pacer, home screen widgets, accessibility |
-| **Intelligence Layer** | Planned | Sleep-to-anxiety correlation, exercise dose-response, medication efficacy trends, benzo tolerance detection, compound trigger identification, proactive alerts |
-| **Clinical Integration** | Vision | Enhanced reports with embedded charts, Apple Health State of Mind (iOS 18+), FHIR export, medication timeline visualization |
-| **Desktop App** | Vision | A dedicated desktop application powered by the sync server's data, enabling deep-dive visualizations and analysis too complex for a phone or watch — compound trigger exploration, long-range trend overlays, medication timeline Gantt charts, and full clinical report authoring |
+See [PROJECT_FUTURE_PLAN.md](PROJECT_FUTURE_PLAN.md) for the full phased roadmap, North Star vision, and current status by phase.
 
 ---
 
@@ -219,37 +162,15 @@ If you're browsing this codebase to learn from it, here are the parts worth stud
 
 ## Getting Started
 
-<details>
-<summary><strong>Prerequisites</strong></summary>
-
-- **Xcode 15+** with iOS 17 and watchOS 10 SDKs
-- **Apple Watch** paired with your iPhone (for real HealthKit data — the simulator has limited health data support)
-- **Python 3.12+** and **Docker** (optional — only needed for the sync server)
-
-</details>
+Requires **Xcode 15+** with iOS 17 and watchOS 10 SDKs. An Apple Watch with real HealthKit data is recommended.
 
 ```bash
-# Build the iOS app
-xcodebuild build -scheme AnxietyWatch \
-  -destination 'generic/platform=iOS Simulator'
-
-# Build the watchOS companion
-xcodebuild build -scheme "AnxietyWatch Watch App" \
-  -destination 'generic/platform=watchOS Simulator'
-
-# Run tests (23 test files, Swift Testing framework)
-xcodebuild test -scheme AnxietyWatch \
-  -destination 'generic/platform=iOS Simulator' \
-  -only-testing:AnxietyWatchTests
-
-# Sync server (optional)
-cd server && pip install -r requirements.txt
-docker compose --env-file server/.env -f server/docker-compose.yml up
+# Build and test
+xcodebuild build -scheme AnxietyWatch -destination 'generic/platform=iOS Simulator'
+xcodebuild test -scheme AnxietyWatch -destination 'generic/platform=iOS Simulator' -only-testing:AnxietyWatchTests
 ```
 
-See [SETUP_GUIDE.md](SETUP_GUIDE.md) for environment setup and [CLAUDE.md](CLAUDE.md) for the full project structure and coding conventions.
-
-> **Note:** This started as a personal project for one user's devices. You will need to configure your own HealthKit permissions, CPAP data source, and (optionally) sync server. The codebase is designed to be readable and adaptable to your own setup.
+See [SETUP_GUIDE.md](SETUP_GUIDE.md) for full environment setup (Apple Developer account, signing, device installation, watchOS, and sync server).
 
 ---
 
