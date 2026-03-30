@@ -155,4 +155,87 @@ struct BaselineCalculatorTests {
         let avg = BaselineCalculator.recentAverage(from: snapshots, days: 3, keyPath: \.hrvAvg)
         #expect(avg == nil)
     }
+
+    // MARK: - Sleep baseline
+
+    private func makeSnapshotWithSleep(daysAgo: Int, sleepMin: Int?) -> HealthSnapshot {
+        let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: referenceDate)!
+        let snapshot = HealthSnapshot(date: date)
+        snapshot.sleepDurationMin = sleepMin
+        return snapshot
+    }
+
+    @Test("Sleep baseline requires 14+ data points")
+    func sleepBaselineRequiresMinimum() {
+        let snapshots = (0..<13).map { makeSnapshotWithSleep(daysAgo: $0, sleepMin: 420) }
+        #expect(BaselineCalculator.sleepBaseline(from: snapshots) == nil)
+    }
+
+    @Test("Sleep baseline computed with enough data")
+    func sleepBaselineComputed() {
+        let snapshots = (0..<14).map { makeSnapshotWithSleep(daysAgo: $0, sleepMin: 420) }
+        let result = BaselineCalculator.sleepBaseline(from: snapshots)
+        #expect(result != nil)
+        #expect(abs(result!.mean - 420.0) < 0.01)
+    }
+
+    @Test("Sleep baseline excludes snapshots outside window")
+    func sleepBaselineWindowFilter() {
+        var snapshots = [makeSnapshotWithSleep(daysAgo: 31, sleepMin: 600)] // outside
+        snapshots += (0..<14).map { makeSnapshotWithSleep(daysAgo: $0, sleepMin: 400) }
+        let result = BaselineCalculator.sleepBaseline(from: snapshots, windowDays: 30)
+        #expect(result != nil)
+        #expect(abs(result!.mean - 400.0) < 0.01)
+    }
+
+    @Test("Sleep baseline ignores snapshots with nil sleep")
+    func sleepBaselineIgnoresNil() {
+        var snapshots = (0..<14).map { makeSnapshotWithSleep(daysAgo: $0, sleepMin: 420) }
+        snapshots.append(makeSnapshotWithSleep(daysAgo: 14, sleepMin: nil))
+        let result = BaselineCalculator.sleepBaseline(from: snapshots)
+        #expect(result != nil)
+        #expect(abs(result!.mean - 420.0) < 0.01)
+    }
+
+    // MARK: - Respiratory rate baseline
+
+    private func makeSnapshotWithRR(daysAgo: Int, rr: Double?) -> HealthSnapshot {
+        let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: referenceDate)!
+        let snapshot = HealthSnapshot(date: date)
+        snapshot.respiratoryRate = rr
+        return snapshot
+    }
+
+    @Test("Respiratory rate baseline requires 14+ data points")
+    func respiratoryRateBaselineRequiresMinimum() {
+        let snapshots = (0..<13).map { makeSnapshotWithRR(daysAgo: $0, rr: 15.0) }
+        #expect(BaselineCalculator.respiratoryRateBaseline(from: snapshots) == nil)
+    }
+
+    @Test("Respiratory rate baseline computed with enough data")
+    func respiratoryRateBaselineComputed() {
+        let snapshots = (0..<14).map { makeSnapshotWithRR(daysAgo: $0, rr: 15.0) }
+        let result = BaselineCalculator.respiratoryRateBaseline(from: snapshots)
+        #expect(result != nil)
+        #expect(abs(result!.mean - 15.0) < 0.01)
+    }
+
+    @Test("Respiratory rate baseline excludes snapshots outside window")
+    func respiratoryRateBaselineWindowFilter() {
+        var snapshots = [makeSnapshotWithRR(daysAgo: 31, rr: 25.0)] // outside
+        snapshots += (0..<14).map { makeSnapshotWithRR(daysAgo: $0, rr: 14.0) }
+        let result = BaselineCalculator.respiratoryRateBaseline(from: snapshots, windowDays: 30)
+        #expect(result != nil)
+        #expect(abs(result!.mean - 14.0) < 0.01)
+    }
+
+    @Test("Respiratory rate baseline uses sample variance (N-1)")
+    func respiratoryRateBaselineVariance() {
+        // 14 values alternating 12 and 18 → mean = 15
+        let snapshots = (0..<14).map { makeSnapshotWithRR(daysAgo: $0, rr: $0 % 2 == 0 ? 12.0 : 18.0) }
+        let result = BaselineCalculator.respiratoryRateBaseline(from: snapshots)!
+        // Sum of squared deviations = 14 * 9 = 126, sample variance = 126/13
+        let expectedStdDev = (126.0 / 13.0).squareRoot()
+        #expect(abs(result.standardDeviation - expectedStdDev) < 0.01)
+    }
 }
