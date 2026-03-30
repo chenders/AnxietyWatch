@@ -6,11 +6,6 @@ import Testing
 
 struct CPAPImporterTests {
 
-    private func makeContainer() throws -> ModelContainer {
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        return try ModelContainer(for: CPAPSession.self, configurations: config)
-    }
-
     private func writeTempCSV(_ content: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -31,7 +26,7 @@ struct CPAPImporterTests {
         let url = try writeTempCSV(csv)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let count = try CPAPImporter.importCSV(from: url, into: context)
@@ -54,7 +49,7 @@ struct CPAPImporterTests {
         let url = try writeTempCSV(csv)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
         _ = try CPAPImporter.importCSV(from: url, into: context)
 
@@ -78,7 +73,7 @@ struct CPAPImporterTests {
         let url = try writeTempCSV(csv)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         #expect(throws: CPAPImporter.ImportError.noData) {
@@ -91,7 +86,7 @@ struct CPAPImporterTests {
         let url = try writeTempCSV("")
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         #expect(throws: CPAPImporter.ImportError.noData) {
@@ -109,7 +104,7 @@ struct CPAPImporterTests {
         let url = try writeTempCSV(csv)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let count = try CPAPImporter.importCSV(from: url, into: context)
@@ -126,7 +121,7 @@ struct CPAPImporterTests {
         let url = try writeTempCSV(csv)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let count = try CPAPImporter.importCSV(from: url, into: context)
@@ -142,7 +137,7 @@ struct CPAPImporterTests {
         let url = try writeTempCSV(csv)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let count = try CPAPImporter.importCSV(from: url, into: context)

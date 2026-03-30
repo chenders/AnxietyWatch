@@ -11,15 +11,6 @@ struct TrendsDateFilteringTests {
 
     // MARK: - Helpers
 
-    /// Creates an in-memory model container for isolated tests.
-    private func makeContainer() throws -> ModelContainer {
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        return try ModelContainer(
-            for: HealthSnapshot.self, AnxietyEntry.self, CPAPSession.self, BarometricReading.self,
-            configurations: config
-        )
-    }
-
     /// Creates a HealthSnapshot for N days ago (normalized to midnight).
     private func makeSnapshot(daysAgo: Int, hrvAvg: Double? = 42.0) -> HealthSnapshot {
         let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: .now)!
@@ -74,7 +65,7 @@ struct TrendsDateFilteringTests {
 
     @Test("SwiftData filter returns correct count for 7-day window")
     func swiftDataFilterCorrectCount() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         // Insert snapshots for days 0 through 9
