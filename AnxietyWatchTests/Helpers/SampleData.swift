@@ -81,7 +81,11 @@ enum SampleData {
         )
         context.insert(rx)
 
-        try? context.save()
+        do {
+            try context.save()
+        } catch {
+            preconditionFailure("SampleData.seed(into:) failed to save seeded data: \(error)")
+        }
     }
 
     /// Creates a seeded in-memory container ready for use in tests or previews.
