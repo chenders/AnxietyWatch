@@ -50,7 +50,7 @@ final class HealthDataCoordinator {
         do {
             oldestDate = try await HealthKitManager.shared.oldestSampleDate()
         } catch {
-            Log.health.error("Failed to query oldest sample date: \(error)")
+            Log.health.error("Failed to query oldest sample date: \(error, privacy: .public)")
             oldestDate = nil
         }
         let startDate = oldestDate ?? calendar.date(byAdding: .day, value: -90, to: .now)!
@@ -71,7 +71,7 @@ final class HealthDataCoordinator {
             do {
                 try await aggregator.aggregateDay(date)
             } catch {
-                Log.data.error("Backfill failed for day \(offset): \(error)")
+                Log.data.error("Backfill failed for day \(offset, privacy: .public): \(error, privacy: .public)")
             }
             backfillProgress = offset + 1
         }
@@ -117,7 +117,7 @@ final class HealthDataCoordinator {
         do {
             lastSnapshot = try context.fetch(descriptor).first
         } catch {
-            Log.data.error("Failed to fetch last snapshot for gap fill: \(error)")
+            Log.data.error("Failed to fetch last snapshot for gap fill: \(error, privacy: .public)")
             return
         }
         guard let lastSnapshot else { return }
@@ -135,7 +135,7 @@ final class HealthDataCoordinator {
             do {
                 try await aggregator.aggregateDay(date)
             } catch {
-                Log.data.error("Gap fill failed for \(date): \(error)")
+                Log.data.error("Gap fill failed for \(date, privacy: .public): \(error, privacy: .public)")
             }
         }
     }
@@ -240,7 +240,7 @@ final class HealthDataCoordinator {
             do {
                 try await aggregator.aggregateDay(.now)
             } catch {
-                Log.data.error("Background refresh aggregation failed: \(error)")
+                Log.data.error("Background refresh aggregation failed: \(error, privacy: .public)")
             }
         }
 
@@ -273,7 +273,7 @@ final class HealthDataCoordinator {
             do {
                 try await aggregator.aggregateDay(.now)
             } catch {
-                Log.data.error("Refresh aggregation failed: \(error)")
+                Log.data.error("Refresh aggregation failed: \(error, privacy: .public)")
             }
 
             await importClinicalRecordsIfNeeded()
@@ -296,7 +296,7 @@ final class HealthDataCoordinator {
         do {
             try context.save()
         } catch {
-            Log.data.error("Failed to save \(samples.count) health samples: \(error)")
+            Log.data.error("Failed to save \(samples.count, privacy: .public) health samples: \(error, privacy: .public)")
         }
     }
 
@@ -314,7 +314,7 @@ final class HealthDataCoordinator {
             }
             try context.save()
         } catch {
-            Log.data.error("Failed to prune old samples: \(error)")
+            Log.data.error("Failed to prune old samples: \(error, privacy: .public)")
         }
     }
 
@@ -335,7 +335,7 @@ final class HealthDataCoordinator {
             do {
                 try context.save()
             } catch {
-                Log.data.error("Failed to save barometric reading: \(error)")
+                Log.data.error("Failed to save barometric reading: \(error, privacy: .public)")
             }
         }
         BarometerService.shared.startMonitoring()
