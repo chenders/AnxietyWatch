@@ -20,10 +20,10 @@
 - **Insurance/claim data:** Use `TESTPLAN`, `0000000000`. Never real claim numbers.
 - **Medication names in test data are OK** (e.g., "Clonazepam 1mg") — these are public drug names, not personal info.
 
-### Never log credentials
-- Never log passwords, API keys, tokens, or security answers — not even at DEBUG level.
-- Log only metadata about credentials: `"Credentials decrypted successfully for username=%r"` — never the credential value itself.
-- When debugging auth flows, log presence/length (`password_present=True, password_len=12`), not values.
+### Never log credentials or PII
+- Never log passwords, API keys, tokens, security answers, usernames, or emails — not even at DEBUG level.
+- Log only non-identifying metadata about credentials (e.g., auth step success/failure, field presence/length) — never decrypted values or identifiers.
+- When debugging auth flows, log presence/length (`password_present=True, password_len=12`) for credential fields, not their actual values, and do not log usernames or email addresses.
 
 ### No personal info in code or comments
 - Do not add "Created by [real name]" headers to new Swift files. Xcode adds these by default — remove them.

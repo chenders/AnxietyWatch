@@ -93,9 +93,9 @@ The iOS app's `SyncService` POSTs JSON to the server's `/api/sync` endpoint. The
 - **Flag** real-looking Rx numbers, doctor names, addresses, phone numbers, device names, insurance claim numbers, or pharmacy store identifiers in test fixtures. Acceptable: `9999999-00001`, `Jane Smith MD`, `100 Example Blvd, Anytown, ST 00000`, `555-0100`, `Test iPhone`, `#12345`, `TESTPLAN`.
 - **OK:** Generic medication names like "Clonazepam 1mg" — these are public drug names.
 
-### Never log credentials
-- **Flag** any `logger.info/debug/warning/error` call that includes a password, API key, token, or security answer value — even in debug code.
-- **OK:** Logging credential metadata like `password_present=True` or `username=%r`.
+### Never log credentials or PII
+- **Flag** any log call that includes a password, API key, token, security answer, username, or email address — even at DEBUG level.
+- **OK:** Logging non-identifying metadata like `password_present=True`, `auth_step=success`, or `field_len=12`. Not OK: `username=%r` (usernames/emails are PII).
 
 ### No personal info in code
 - **Flag** "Created by [real name]" Xcode file headers — these should be removed or generic.
