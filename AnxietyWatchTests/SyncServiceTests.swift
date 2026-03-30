@@ -9,17 +9,6 @@ struct SyncServiceTests {
 
     private static let syncKeys = ["syncServerURL", "syncApiKey", "syncAutoEnabled", "lastSyncDate"]
 
-    private func makeContainer() throws -> ModelContainer {
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        return try ModelContainer(
-            for: AnxietyEntry.self, MedicationDefinition.self, MedicationDose.self,
-            CPAPSession.self, HealthSnapshot.self, BarometricReading.self,
-            ClinicalLabResult.self, Prescription.self, Pharmacy.self,
-            PharmacyCallLog.self,
-            configurations: config
-        )
-    }
-
     /// Save current UserDefaults values and return a restore closure.
     private func saveSyncDefaults() -> (() -> Void) {
         let saved = Self.syncKeys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
@@ -162,7 +151,7 @@ struct SyncServiceTests {
         UserDefaults.standard.removeObject(forKey: "syncServerURL")
         UserDefaults.standard.removeObject(forKey: "syncApiKey")
 
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
         let service = SyncService()
         await service.sync(modelContext: context)
@@ -174,7 +163,7 @@ struct SyncServiceTests {
 
     @Test("Creates new MedicationDefinition when none exists")
     func findOrCreateNew() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let med = try SyncService.findOrCreateMedication(
@@ -191,7 +180,7 @@ struct SyncServiceTests {
 
     @Test("Finds existing MedicationDefinition by case-insensitive name")
     func findOrCreateExisting() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let existing = MedicationDefinition(name: "Lorazepam", defaultDoseMg: 0.5)
@@ -211,7 +200,7 @@ struct SyncServiceTests {
 
     @Test("Reactivates inactive MedicationDefinition when found")
     func findOrCreateReactivates() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let inactive = MedicationDefinition(
@@ -230,7 +219,7 @@ struct SyncServiceTests {
 
     @Test("Returns nil when medication name is empty")
     func findOrCreateEmptyName() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let result = try SyncService.findOrCreateMedication(
@@ -244,7 +233,7 @@ struct SyncServiceTests {
 
     @Test("Returns nil when medication name is whitespace only")
     func findOrCreateWhitespaceName() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let result = try SyncService.findOrCreateMedication(

@@ -6,16 +6,6 @@ import Testing
 
 struct DataExporterTests {
 
-    private func makeContainer() throws -> ModelContainer {
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        return try ModelContainer(
-            for: AnxietyEntry.self, MedicationDefinition.self, MedicationDose.self,
-            CPAPSession.self, HealthSnapshot.self, BarometricReading.self,
-            ClinicalLabResult.self,
-            configurations: config
-        )
-    }
-
     private func seedData(into context: ModelContext) {
         let entry = AnxietyEntry(
             timestamp: Date(timeIntervalSince1970: 1_711_300_000),
@@ -50,7 +40,7 @@ struct DataExporterTests {
 
     @Test("JSON export produces valid JSON with all entity types")
     func jsonExportValid() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
         seedData(into: context)
         try context.save()
@@ -67,7 +57,7 @@ struct DataExporterTests {
 
     @Test("JSON export with empty database returns empty arrays")
     func jsonExportEmpty() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let data = try DataExporter.exportJSON(from: context)
@@ -79,7 +69,7 @@ struct DataExporterTests {
 
     @Test("JSON export encodes anxiety entry fields correctly")
     func jsonAnxietyFields() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
         seedData(into: context)
         try context.save()
@@ -97,7 +87,7 @@ struct DataExporterTests {
 
     @Test("CSV export produces files for all entity types")
     func csvExportAllFiles() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
         seedData(into: context)
         try context.save()
@@ -116,7 +106,7 @@ struct DataExporterTests {
 
     @Test("CSV files have header rows")
     func csvHeaders() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let files = try DataExporter.exportCSV(from: context)
@@ -130,7 +120,7 @@ struct DataExporterTests {
 
     @Test("CSV anxiety entries contain data row")
     func csvAnxietyData() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
         seedData(into: context)
         try context.save()
@@ -150,7 +140,7 @@ struct DataExporterTests {
 
     @Test("Date range filters entries correctly")
     func dateRangeFiltering() throws {
-        let container = try makeContainer()
+        let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         // Insert entries at different times

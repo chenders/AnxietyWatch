@@ -1,4 +1,5 @@
 import BackgroundTasks
+import os
 import SwiftUI
 import SwiftData
 
@@ -74,7 +75,7 @@ struct AnxietyWatchApp: App {
                             UserDefaults.standard.set(true, forKey: Self.reactivateMedsKey)
                         } catch {
                             // Leave flag unset so we retry on next launch
-                            print("ReactivateMeds fixup failed: \(error)")
+                            Log.data.error("ReactivateMeds fixup failed: \(error, privacy: .public)")
                         }
                     }
 
