@@ -10,6 +10,16 @@ struct DashboardViewModelTests {
 
     private let calendar = Calendar.current
 
+    /// Fixed reference date for deterministic tests — 2026-06-15 at noon.
+    private let referenceDate: Date = {
+        Calendar.current.date(from: DateComponents(year: 2026, month: 6, day: 15, hour: 12))!
+    }()
+
+    /// Start of the reference day.
+    private var referenceStartOfDay: Date {
+        Calendar.current.startOfDay(for: referenceDate)
+    }
+
     // MARK: - baselineColor
 
     @Test("Color is green when value is within baseline (higher is better)")
@@ -116,8 +126,8 @@ struct DashboardViewModelTests {
     func latestSampleReturnsFirst() throws {
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
-        let s1 = HealthSample(type: "hr", value: 80, timestamp: Date.now)
-        let s2 = HealthSample(type: "hr", value: 70, timestamp: Date.now.addingTimeInterval(-60))
+        let s1 = HealthSample(type: "hr", value: 80, timestamp: referenceDate)
+        let s2 = HealthSample(type: "hr", value: 70, timestamp: referenceDate.addingTimeInterval(-60))
         context.insert(s1)
         context.insert(s2)
         try context.save()
@@ -139,7 +149,7 @@ struct DashboardViewModelTests {
         let context = ModelContext(container)
         for i in 0..<5 {
             let sample = HealthSample(type: "hr", value: Double(100 - i * 10),
-                                      timestamp: Date.now.addingTimeInterval(-Double(i) * 60))
+                                      timestamp: referenceDate.addingTimeInterval(-Double(i) * 60))
             context.insert(sample)
         }
         try context.save()
@@ -153,33 +163,31 @@ struct DashboardViewModelTests {
 
     // MARK: - todaySnapshot / lastSnapshotWith
 
-    @Test("todaySnapshot returns snapshot matching start of today")
+    @Test("todaySnapshot returns snapshot matching start of reference day")
     func todaySnapshotFound() {
         let vm = DashboardViewModel()
-        let today = calendar.startOfDay(for: .now)
-        let snapshot = HealthSnapshot(date: today)
+        let snapshot = HealthSnapshot(date: referenceStartOfDay)
         snapshot.hrvAvg = 45
-        #expect(vm.todaySnapshot(from: [snapshot])?.hrvAvg == 45)
+        #expect(vm.todaySnapshot(from: [snapshot], now: referenceDate)?.hrvAvg == 45)
     }
 
-    @Test("todaySnapshot returns nil when no today snapshot")
+    @Test("todaySnapshot returns nil when no matching snapshot")
     func todaySnapshotNil() {
         let vm = DashboardViewModel()
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: .now))!
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: referenceStartOfDay)!
         let snapshot = HealthSnapshot(date: yesterday)
-        #expect(vm.todaySnapshot(from: [snapshot]) == nil)
+        #expect(vm.todaySnapshot(from: [snapshot], now: referenceDate) == nil)
     }
 
     @Test("lastSnapshotWith finds first snapshot with non-nil value")
     func lastSnapshotWithFindsNonNil() {
         let vm = DashboardViewModel()
-        let today = calendar.startOfDay(for: .now)
-        let s1 = HealthSnapshot(date: today)
+        let s1 = HealthSnapshot(date: referenceStartOfDay)
         s1.hrvAvg = nil
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: referenceStartOfDay)!
         let s2 = HealthSnapshot(date: yesterday)
         s2.hrvAvg = 42
-        let result = vm.lastSnapshotWith(\.hrvAvg, from: [s1, s2])
+        let result = vm.lastSnapshotWith(\.hrvAvg, from: [s1, s2], now: referenceDate)
         #expect(result != nil)
         #expect(result?.0.hrvAvg == 42)
         #expect(result?.1 == false) // not today
@@ -188,10 +196,9 @@ struct DashboardViewModelTests {
     @Test("lastSnapshotWith returns isToday true for today's snapshot")
     func lastSnapshotWithIsToday() {
         let vm = DashboardViewModel()
-        let today = calendar.startOfDay(for: .now)
-        let s = HealthSnapshot(date: today)
+        let s = HealthSnapshot(date: referenceStartOfDay)
         s.hrvAvg = 50
-        let result = vm.lastSnapshotWith(\.hrvAvg, from: [s])
+        let result = vm.lastSnapshotWith(\.hrvAvg, from: [s], now: referenceDate)
         #expect(result?.1 == true)
     }
 
@@ -200,17 +207,16 @@ struct DashboardViewModelTests {
     @Test("Returns up to 4 unique tracked results from last 7 days")
     func latestLabResultPerTestBasic() {
         let vm = DashboardViewModel()
-        let now = Date.now
         let results = [
             ClinicalLabResult(loincCode: "3016-3", testName: "TSH", value: 2.5, unit: "mIU/L",
-                              effectiveDate: now, healthKitSampleUUID: "uuid-1"),
+                              effectiveDate: referenceDate, healthKitSampleUUID: "uuid-1"),
             ClinicalLabResult(loincCode: "3024-7", testName: "Free T4", value: 1.2, unit: "ng/dL",
-                              effectiveDate: now.addingTimeInterval(-3600), healthKitSampleUUID: "uuid-2"),
+                              effectiveDate: referenceDate.addingTimeInterval(-3600), healthKitSampleUUID: "uuid-2"),
             // Duplicate TSH — should be skipped
             ClinicalLabResult(loincCode: "3016-3", testName: "TSH", value: 2.0, unit: "mIU/L",
-                              effectiveDate: now.addingTimeInterval(-7200), healthKitSampleUUID: "uuid-3"),
+                              effectiveDate: referenceDate.addingTimeInterval(-7200), healthKitSampleUUID: "uuid-3"),
         ]
-        let filtered = vm.latestLabResultPerTest(from: results)
+        let filtered = vm.latestLabResultPerTest(from: results, now: referenceDate)
         #expect(filtered.count == 2)
         #expect(filtered[0].loincCode == "3016-3")
         #expect(filtered[1].loincCode == "3024-7")
@@ -219,12 +225,12 @@ struct DashboardViewModelTests {
     @Test("Excludes results older than 7 days")
     func latestLabResultPerTestExcludesOld() {
         let vm = DashboardViewModel()
-        let oldDate = calendar.date(byAdding: .day, value: -10, to: .now)!
+        let oldDate = calendar.date(byAdding: .day, value: -10, to: referenceDate)!
         let results = [
             ClinicalLabResult(loincCode: "3016-3", testName: "TSH", value: 2.5, unit: "mIU/L",
                               effectiveDate: oldDate, healthKitSampleUUID: "uuid-old"),
         ]
-        #expect(vm.latestLabResultPerTest(from: results).isEmpty)
+        #expect(vm.latestLabResultPerTest(from: results, now: referenceDate).isEmpty)
     }
 
     @Test("Excludes untracked LOINC codes")
@@ -232,23 +238,22 @@ struct DashboardViewModelTests {
         let vm = DashboardViewModel()
         let results = [
             ClinicalLabResult(loincCode: "99999-9", testName: "Unknown", value: 1.0, unit: "x",
-                              effectiveDate: .now, healthKitSampleUUID: "uuid-untracked"),
+                              effectiveDate: referenceDate, healthKitSampleUUID: "uuid-untracked"),
         ]
-        #expect(vm.latestLabResultPerTest(from: results).isEmpty)
+        #expect(vm.latestLabResultPerTest(from: results, now: referenceDate).isEmpty)
     }
 
     @Test("Caps at 4 results")
     func latestLabResultPerTestMaxFour() {
         let vm = DashboardViewModel()
-        let now = Date.now
         // Use 5 distinct tracked LOINC codes from LabTestRegistry
         let codes = ["3016-3", "3024-7", "5765-2", "2143-6", "14979-9"]
         let results = codes.enumerated().map { i, code in
             ClinicalLabResult(loincCode: code, testName: "Test \(i)", value: 1.0, unit: "x",
-                              effectiveDate: now.addingTimeInterval(-Double(i) * 60),
+                              effectiveDate: referenceDate.addingTimeInterval(-Double(i) * 60),
                               healthKitSampleUUID: "uuid-\(i)")
         }
-        #expect(vm.latestLabResultPerTest(from: results).count == 4)
+        #expect(vm.latestLabResultPerTest(from: results, now: referenceDate).count == 4)
     }
 
     // MARK: - freshnessLabel
@@ -256,21 +261,20 @@ struct DashboardViewModelTests {
     @Test("Freshness label says 'last night' for yesterday evening sample")
     func freshnessLabelLastNight() {
         let vm = DashboardViewModel()
-        let midnight = calendar.startOfDay(for: .now)
-        // Yesterday at 9pm
-        var comps = calendar.dateComponents([.year, .month, .day], from: midnight)
+        // Yesterday at 9pm relative to reference date
+        var comps = calendar.dateComponents([.year, .month, .day], from: referenceStartOfDay)
         comps.day! -= 1
         comps.hour = 21
         let lastNight = calendar.date(from: comps)!
-        #expect(vm.freshnessLabel(lastNight) == "last night")
+        #expect(vm.freshnessLabel(lastNight, now: referenceDate) == "last night")
     }
 
     @Test("Freshness label uses relative format for today's sample")
     func freshnessLabelToday() {
         let vm = DashboardViewModel()
-        // A sample from 1 minute ago should produce a relative string, not "last night"
-        let recent = Date.now.addingTimeInterval(-60)
-        let label = vm.freshnessLabel(recent)
+        // A sample from 1 minute before reference time
+        let recent = referenceDate.addingTimeInterval(-60)
+        let label = vm.freshnessLabel(recent, now: referenceDate)
         #expect(label != "last night")
     }
 }

@@ -79,8 +79,8 @@ final class DashboardViewModel {
     }
 
     /// Today's samples for a given type.
-    func todaySamples(for typeRawValue: String) -> [HealthSample] {
-        let midnight = Calendar.current.startOfDay(for: .now)
+    func todaySamples(for typeRawValue: String, now: Date = .now) -> [HealthSample] {
+        let midnight = Calendar.current.startOfDay(for: now)
         return (samplesByType[typeRawValue] ?? []).filter { $0.timestamp >= midnight }
     }
 
@@ -91,16 +91,16 @@ final class DashboardViewModel {
     }
 
     /// Sparkline segments for a given type using today's samples.
-    func sparklineSegments(for typeRawValue: String) -> [[SparklinePoint]] {
-        let samples = todaySamples(for: typeRawValue)
-        let midnight = Calendar.current.startOfDay(for: .now)
-        return SparklineData.segments(from: samples, midnight: midnight, now: .now)
+    func sparklineSegments(for typeRawValue: String, now: Date = .now) -> [[SparklinePoint]] {
+        let samples = todaySamples(for: typeRawValue, now: now)
+        let midnight = Calendar.current.startOfDay(for: now)
+        return SparklineData.segments(from: samples, midnight: midnight, now: now)
     }
 
     /// Trend direction for a given type.
-    func trend(for typeRawValue: String) -> TrendCalculator.Direction? {
+    func trend(for typeRawValue: String, now: Date = .now) -> TrendCalculator.Direction? {
         let config = SampleTypeConfig.config(for: typeRawValue)
-        let samples = todaySamples(for: typeRawValue)
+        let samples = todaySamples(for: typeRawValue, now: now)
         return TrendCalculator.direction(
             samples: samples,
             threshold: config?.trendThreshold ?? 3
@@ -110,28 +110,29 @@ final class DashboardViewModel {
     // MARK: - Snapshot Queries
 
     /// Today's snapshot from the provided list.
-    func todaySnapshot(from snapshots: [HealthSnapshot]) -> HealthSnapshot? {
-        let startOfDay = Calendar.current.startOfDay(for: .now)
+    func todaySnapshot(from snapshots: [HealthSnapshot], now: Date = .now) -> HealthSnapshot? {
+        let startOfDay = Calendar.current.startOfDay(for: now)
         return snapshots.first { $0.date == startOfDay }
     }
 
     /// Most recent snapshot with a non-nil value for a key path, plus whether it's today.
     func lastSnapshotWith<T>(
         _ keyPath: KeyPath<HealthSnapshot, T?>,
-        from snapshots: [HealthSnapshot]
+        from snapshots: [HealthSnapshot],
+        now: Date = .now
     ) -> (HealthSnapshot, Bool)? {
         guard let snapshot = snapshots.first(where: { $0[keyPath: keyPath] != nil }) else {
             return nil
         }
-        let startOfDay = Calendar.current.startOfDay(for: .now)
+        let startOfDay = Calendar.current.startOfDay(for: now)
         let isToday = snapshot.date == startOfDay
         return (snapshot, isToday)
     }
 
     /// Latest lab result per unique test from last 7 days (max 4 for dashboard).
-    func latestLabResultPerTest(from labResults: [ClinicalLabResult]) -> [ClinicalLabResult] {
+    func latestLabResultPerTest(from labResults: [ClinicalLabResult], now: Date = .now) -> [ClinicalLabResult] {
         let calendar = Calendar.current
-        let weekAgoBase = calendar.date(byAdding: .day, value: -7, to: .now) ?? .now
+        let weekAgoBase = calendar.date(byAdding: .day, value: -7, to: now) ?? now
         let oneWeekAgo = calendar.startOfDay(for: weekAgoBase)
         let sorted = labResults.sorted { $0.effectiveDate > $1.effectiveDate }
         var seen = Set<String>()
@@ -150,9 +151,9 @@ final class DashboardViewModel {
     // MARK: - Formatting
 
     /// Freshness label for a sample timestamp.
-    func freshnessLabel(_ date: Date) -> String {
+    func freshnessLabel(_ date: Date, now: Date = .now) -> String {
         let calendar = Calendar.current
-        let midnight = calendar.startOfDay(for: .now)
+        let midnight = calendar.startOfDay(for: now)
         if date >= midnight {
             return date.formatted(.relative(presentation: .named))
         }
