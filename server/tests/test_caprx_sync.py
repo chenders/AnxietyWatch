@@ -11,7 +11,7 @@ class TestNormalizeClaim:
         claim = {
             "drug_name": "Clonazepam",
             "date_of_service": "2024-03-15T00:00:00Z",
-            "id": 12345,
+            "id": 9999999,
             "quantity_dispensed": 30,
             "days_supply": 30,
             "strength": "1",
@@ -30,7 +30,7 @@ class TestNormalizeClaim:
     def test_basic_normalization(self):
         result = normalize_claim(self._make_claim())
         assert result is not None
-        assert result["rx_number"] == "CRX-12345"
+        assert result["rx_number"] == "CRX-9999999"
         assert result["medication_name"] == "Clonazepam"
         assert result["quantity"] == 30
         assert result["days_supply"] == 30
