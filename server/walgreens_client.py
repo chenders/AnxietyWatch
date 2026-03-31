@@ -113,7 +113,9 @@ def normalize_prescription(raw: dict[str, Any]) -> dict[str, Any] | None:
     if prescriber:
         first = prescriber.get("firstName", "")
         last = prescriber.get("lastName", "")
-        prescriber_name = f"{first} {last}".strip()
+        suffix = prescriber.get("suffix", "") or prescriber.get("credential", "")
+        parts = [f"{first} {last}".strip(), suffix.strip()]
+        prescriber_name = " ".join(p for p in parts if p)
 
     # Use enriched data from fillhistory if available
     directions = raw.get("_directions", "").strip()
