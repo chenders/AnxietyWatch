@@ -812,5 +812,5 @@ Expected: All tests pass
 
 - [ ] **Test with real OSCAR CSV**
 
-Run: Import `/Users/chris/Desktop/OSCAR_chris_Summary_2007-12-31.csv` through the app's CPAP import UI.
+Run: Import an OSCAR Summary CSV file through the app's CPAP import UI.
 Expected: 1 session imported with AHI 4.073, usage 544 min, leak nil, import source "oscar"

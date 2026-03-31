@@ -480,7 +480,8 @@ def cpap_upload():
                     flash(f"{f.filename}: no leak data found", "warning")
 
             except Exception as e:
-                flash(f"{f.filename}: {e}", "error")
+                current_app.logger.exception("CPAP EDF upload failed for %s", f.filename)
+                flash(f"{f.filename}: {str(e)[:500]}", "error")
             finally:
                 if tmp_path:
                     try:

@@ -1,11 +1,12 @@
 """ResMed AirSense 11 EDF file parser.
 
-Extracts CPAP session data from EDF files found on the SD card.
-Primary purpose: extract leak 95th percentile (not available in OSCAR CSV exports).
+Extracts a single CPAP session summary from an EDF file found on the SD card.
+Primary purpose: extract the leak 95th percentile (not available in OSCAR CSV exports).
 
-Supports two file types:
-- STR.edf: Pre-computed per-session summaries (preferred, fast)
-- Detail .edf files: Raw signal data (fallback, computes percentiles)
+Locates the first signal whose label contains "leak", computes the 95th percentile,
+and derives session date and duration from the EDF file header. Returns at most one
+session dict per file. STR.edf and detail .edf files are processed the same way;
+ResMed-specific STR summary structures are not yet parsed.
 """
 
 from __future__ import annotations
@@ -21,10 +22,9 @@ def parse_edf_file(filepath: str | Path) -> list[dict[str, Any]]:
     """Parse an EDF file and extract CPAP session data.
 
     Returns a list of dicts, each with:
-        - date: datetime (start of day)
+        - date: datetime.date (calendar date of session)
         - leak_rate_95th: float (L/min)
-        - ahi: float (if available)
-        - total_usage_minutes: int (if available)
+        - total_usage_minutes: int
 
     Raises ImportError if pyedflib is not installed.
     """
@@ -73,10 +73,9 @@ def _extract_sessions(reader, np) -> list[dict[str, Any]]:
 
     leak_95 = float(np.percentile(leak_data, 95))
 
-    # Extract session date from EDF header
-    start_date = reader.getStartdatetime()
-    # Normalize to calendar date (the sleep session date is the night it started)
-    session_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Extract session date from EDF header, normalize to calendar date
+    start_datetime = reader.getStartdatetime()
+    session_date = start_datetime.date()
 
     # Duration from header
     duration_seconds = reader.getFileDuration()
@@ -90,7 +89,7 @@ def _extract_sessions(reader, np) -> list[dict[str, Any]]:
 
     logger.info(
         "Extracted: date=%s, leak_95th=%.2f, duration=%d min",
-        session_date.date(), leak_95, duration_minutes,
+        session_date, leak_95, duration_minutes,
     )
 
     return [result]
@@ -111,7 +110,10 @@ def upsert_cpap_leak(conn, sessions: list[dict[str, Any]]) -> int:
     affected = 0
 
     for session in sessions:
-        date = session["date"]
+        # Ensure we have a date object, not datetime
+        d = session["date"]
+        if hasattr(d, "date"):
+            d = d.date()
         leak = session.get("leak_rate_95th")
         duration = session.get("total_usage_minutes")
 
@@ -122,14 +124,14 @@ def upsert_cpap_leak(conn, sessions: list[dict[str, Any]]) -> int:
         cur.execute(
             "UPDATE cpap_sessions SET leak_rate_95th = %s "
             "WHERE date = %s AND leak_rate_95th IS NULL",
-            (leak, date),
+            (leak, d),
         )
         if cur.rowcount > 0:
             affected += cur.rowcount
             continue
 
         # Check if row exists at all
-        cur.execute("SELECT 1 FROM cpap_sessions WHERE date = %s", (date,))
+        cur.execute("SELECT 1 FROM cpap_sessions WHERE date = %s", (d,))
         if cur.fetchone():
             # Row exists with leak already set — skip
             continue
@@ -142,7 +144,7 @@ def upsert_cpap_leak(conn, sessions: list[dict[str, Any]]) -> int:
                VALUES (%s, %s, %s, %s, 'edf')
                ON CONFLICT (date) DO NOTHING""",
             (
-                date,
+                d,
                 0.0,  # AHI unknown from detail EDF
                 duration or 0,
                 leak,

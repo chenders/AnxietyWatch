@@ -58,7 +58,7 @@ OSCAR imports use `importSource: "oscar"` to distinguish from simple CSV (`"csv"
 
 ### Endpoint
 
-`POST /api/cpap/upload-edf` — accepts multipart file upload of one or more EDF files.
+`GET/POST /admin/cpap/upload` — admin UI page with multipart file upload for one or more EDF files.
 
 ### Parser Module
 

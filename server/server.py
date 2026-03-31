@@ -235,7 +235,7 @@ def create_app(test_config=None):
                        hypopnea_events = EXCLUDED.hypopnea_events,
                        import_source = EXCLUDED.import_source""",
                 (
-                    s["date"], s["ahi"], s["totalUsageMinutes"], s["leakRate95th"],
+                    s["date"], s["ahi"], s["totalUsageMinutes"], s.get("leakRate95th"),
                     s["pressureMin"], s["pressureMax"], s["pressureMean"],
                     s.get("obstructiveEvents", 0), s.get("centralEvents", 0),
                     s.get("hypopneaEvents", 0), s.get("importSource", "sd_card"),
