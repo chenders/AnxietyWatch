@@ -176,6 +176,20 @@ struct SnapshotAggregator {
             start: start, end: end
         )
 
+        // Time in daylight (cumulative daily total, like steps)
+        if let daylight = try await healthKit.cumulativeQuantity(
+            .timeInDaylight, unit: .minute(), start: start, end: end
+        ) {
+            snapshot.timeInDaylightMin = Int(daylight)
+        }
+
+        // Physical effort (daily average, unit: kcal/(kg*hr))
+        snapshot.physicalEffortAvg = try await healthKit.averageQuantity(
+            .physicalEffort,
+            unit: .kilocalorie().unitDivided(by: .gramUnit(with: .kilo).unitMultiplied(by: .hour())),
+            start: start, end: end
+        )
+
         try modelContext.save()
     }
 }

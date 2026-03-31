@@ -158,3 +158,11 @@ struct TrendsView: View {
         try? await aggregator.aggregateDay(.now)
     }
 }
+
+#if DEBUG
+#Preview {
+    let container = try! PreviewHelpers.makeSeededContainer()
+    TrendsView()
+        .modelContainer(container)
+}
+#endif

@@ -86,7 +86,7 @@ Review and respond to GitHub Copilot review comments on a pull request. Loops un
     gh api --paginate repos/chenders/AnxietyWatch/pulls/{pr_number}/reviews --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]")] | length'
     ```
 
-    Poll every 15 seconds. Timeout after 5 minutes (assume review is delayed).
+    Poll every 15 seconds. Timeout after 10 minutes (assume review is delayed).
 
     **CRITICAL:** The baseline count MUST be captured before re-requesting (step 9). If captured after, the new review may already be included, causing the poll to never trigger.
 

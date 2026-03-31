@@ -57,21 +57,52 @@ struct DashboardView: View {
         if let baseline = vm.hrvBaseline,
            let recent = BaselineCalculator.recentAverage(from: recentSnapshots, days: 3, keyPath: \.hrvAvg),
            recent < baseline.lowerBound {
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("HRV Below Baseline")
-                        .font(.subheadline.bold())
-                    Text("Your 3-day HRV average is below your 30-day baseline")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .padding()
-            .background(.orange.opacity(0.1), in: .rect(cornerRadius: 12))
+            baselineAlertCard(
+                icon: "heart.fill",
+                title: "HRV Below Baseline",
+                message: "Your 3-day HRV average is below your 30-day baseline",
+                color: .orange
+            )
         }
+        if let baseline = vm.sleepBaseline,
+           let lastSleep = recentSnapshots.first?.sleepDurationMin.map(Double.init),
+           lastSleep < baseline.lowerBound, baseline.mean > 0 {
+            let pct = Int(((baseline.mean - lastSleep) / baseline.mean) * 100)
+            baselineAlertCard(
+                icon: "bed.double.fill",
+                title: "Sleep Below Baseline",
+                message: "Last night's sleep was \(pct)% below your 30-day average",
+                color: .indigo
+            )
+        }
+        if let baseline = vm.respiratoryBaseline,
+           let lastRR = recentSnapshots.first?.respiratoryRate,
+           lastRR > baseline.upperBound, baseline.mean > 0 {
+            let pct = Int(((lastRR - baseline.mean) / baseline.mean) * 100)
+            baselineAlertCard(
+                icon: "lungs.fill",
+                title: "Respiratory Rate Elevated",
+                message: "Your respiratory rate is \(pct)% above your 30-day average",
+                color: .teal
+            )
+        }
+    }
+
+    private func baselineAlertCard(icon: String, title: String, message: String, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.bold())
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding()
+        .background(color.opacity(0.1), in: .rect(cornerRadius: 12))
     }
 
     @ViewBuilder
@@ -459,3 +490,11 @@ struct DashboardView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview {
+    let container = try! PreviewHelpers.makeSeededContainer()
+    DashboardView()
+        .modelContainer(container)
+}
+#endif

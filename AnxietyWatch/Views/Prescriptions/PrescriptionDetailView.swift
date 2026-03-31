@@ -209,3 +209,19 @@ private struct PharmacyDetailFromPrescription: View {
         .navigationTitle(pharmacy.name)
     }
 }
+
+#if DEBUG
+#Preview {
+    let container = try! PreviewHelpers.makeSeededContainer()
+    let context = ModelContext(container)
+    let rx = (try? context.fetch(FetchDescriptor<Prescription>()))?.first
+    NavigationStack {
+        if let rx {
+            PrescriptionDetailView(prescription: rx)
+        } else {
+            Text("No prescription in preview data")
+        }
+    }
+    .modelContainer(container)
+}
+#endif

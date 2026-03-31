@@ -35,6 +35,16 @@ final class Prescription {
     var walgreensRxId: String?
     /// Prescription directions, e.g. "Take 1 tablet by mouth daily"
     var directions: String = ""
+    /// Days of medication supply from PBM (more authoritative than quantity-based estimate)
+    var daysSupply: Int?
+    /// Patient copay amount from PBM claims
+    var patientPay: Double?
+    /// Insurance payment amount from PBM claims
+    var planPay: Double?
+    /// Dosage form: tablet, capsule, solution, etc.
+    var dosageForm: String = ""
+    /// Drug type: brand, generic, specialty
+    var drugType: String = ""
     var medication: MedicationDefinition?
     var pharmacy: Pharmacy?
 
@@ -57,6 +67,11 @@ final class Prescription {
         importSource: String = "manual",
         walgreensRxId: String? = nil,
         directions: String = "",
+        daysSupply: Int? = nil,
+        patientPay: Double? = nil,
+        planPay: Double? = nil,
+        dosageForm: String = "",
+        drugType: String = "",
         medication: MedicationDefinition? = nil,
         pharmacy: Pharmacy? = nil
     ) {
@@ -79,6 +94,11 @@ final class Prescription {
         self.importSource = importSource
         self.walgreensRxId = walgreensRxId
         self.directions = directions
+        self.daysSupply = daysSupply
+        self.patientPay = patientPay
+        self.planPay = planPay
+        self.dosageForm = dosageForm
+        self.drugType = drugType
         self.medication = medication
         self.pharmacy = pharmacy
     }

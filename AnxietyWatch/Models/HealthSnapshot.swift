@@ -62,6 +62,10 @@ final class HealthSnapshot {
     var walkingDoubleSupportPct: Double?
     var walkingAsymmetryPct: Double?
 
+    // Daylight and effort (iOS 17+ / watchOS 10+)
+    var timeInDaylightMin: Int?
+    var physicalEffortAvg: Double?
+
     init(date: Date) {
         self.id = UUID()
         // Normalize to start of day so the unique constraint works on calendar days

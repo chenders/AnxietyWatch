@@ -15,6 +15,8 @@ final class DashboardViewModel {
     private(set) var lowSupplyCount = 0
     private(set) var hrvBaseline: BaselineCalculator.BaselineResult?
     private(set) var rhrBaseline: BaselineCalculator.BaselineResult?
+    private(set) var sleepBaseline: BaselineCalculator.BaselineResult?
+    private(set) var respiratoryBaseline: BaselineCalculator.BaselineResult?
 
     // MARK: - Data Loading
 
@@ -32,6 +34,8 @@ final class DashboardViewModel {
     func computeBaselines(from snapshots: [HealthSnapshot]) {
         hrvBaseline = BaselineCalculator.hrvBaseline(from: snapshots)
         rhrBaseline = BaselineCalculator.restingHRBaseline(from: snapshots)
+        sleepBaseline = BaselineCalculator.sleepBaseline(from: snapshots)
+        respiratoryBaseline = BaselineCalculator.respiratoryRateBaseline(from: snapshots)
     }
 
     /// Compute supply alert count.

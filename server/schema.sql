@@ -113,7 +113,12 @@ CREATE TABLE IF NOT EXISTS prescriptions (
     last_fill_date          TIMESTAMPTZ,
     import_source           TEXT NOT NULL DEFAULT 'manual',
     walgreens_rx_id         TEXT,
-    directions              TEXT NOT NULL DEFAULT ''
+    directions              TEXT NOT NULL DEFAULT '',
+    days_supply             INTEGER,
+    patient_pay             DOUBLE PRECISION,
+    plan_pay                DOUBLE PRECISION,
+    dosage_form             TEXT NOT NULL DEFAULT '',
+    drug_type               TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS pharmacy_call_logs (
