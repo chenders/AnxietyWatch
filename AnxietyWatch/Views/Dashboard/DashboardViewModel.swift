@@ -7,7 +7,7 @@ import SwiftUI
 /// results from the view and computes derived state (baselines, trends,
 /// sparklines, grouped metrics). This separation makes the computation
 /// testable and keeps the view focused on layout.
-@Observable
+@MainActor @Observable
 final class DashboardViewModel {
     // MARK: - Computed State
 
