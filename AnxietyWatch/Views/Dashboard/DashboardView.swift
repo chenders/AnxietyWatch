@@ -515,13 +515,12 @@ struct DashboardView: View {
 
     /// Compute supply alert count once, not on every render.
     private func computeSupplyAlerts() {
-        let cutoff = Calendar.current.date(
-            byAdding: .day,
-            value: -PrescriptionSupplyCalculator.alertStalenessLimitDays,
-            to: .now
-        )
+        let calendar = Calendar.current
+        let now = Date.now
         lowSupplyCount = prescriptions.filter { rx in
             let fillDate = rx.lastFillDate ?? rx.dateFilled
+            let stalenessLimit = PrescriptionSupplyCalculator.alertStalenessLimitDays(for: rx)
+            let cutoff = calendar.date(byAdding: .day, value: -stalenessLimit, to: now)
             if let cutoff, fillDate < cutoff { return false }
             if rx.medication?.isActive == false { return false }
             let status = PrescriptionSupplyCalculator.supplyStatus(for: rx)

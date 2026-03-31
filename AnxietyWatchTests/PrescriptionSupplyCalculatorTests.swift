@@ -28,6 +28,52 @@ struct PrescriptionSupplyCalculatorTests {
         )
     }
 
+    // MARK: - alertStalenessLimitDays
+
+    @Test("Staleness limit is 2x supply for 30-day fill (1/day)")
+    func stalenessLimit30Day() throws {
+        let rx = try makeRx(quantity: 30, dailyDoseCount: 1.0)
+        #expect(PrescriptionSupplyCalculator.alertStalenessLimitDays(for: rx) == 60)
+    }
+
+    @Test("Staleness limit is 2x supply for 90-day fill (1/day)")
+    func stalenessLimit90Day() throws {
+        let rx = try makeRx(quantity: 90, dailyDoseCount: 1.0)
+        #expect(PrescriptionSupplyCalculator.alertStalenessLimitDays(for: rx) == 180)
+    }
+
+    @Test("Staleness limit floors at default (60) for short fills")
+    func stalenessLimitFloor() throws {
+        // 10 pills / 1 per day = 10-day supply, 2x = 20, but min is 60
+        let rx = try makeRx(quantity: 10, dailyDoseCount: 1.0)
+        #expect(PrescriptionSupplyCalculator.alertStalenessLimitDays(for: rx) == 60)
+    }
+
+    @Test("Staleness limit returns default when dailyDoseCount is nil")
+    func stalenessLimitNilDose() throws {
+        let rx = try makeRx(quantity: 30, dailyDoseCount: nil)
+        #expect(PrescriptionSupplyCalculator.alertStalenessLimitDays(for: rx) == 60)
+    }
+
+    @Test("Staleness limit returns default when dailyDoseCount is zero")
+    func stalenessLimitZeroDose() throws {
+        let rx = try makeRx(quantity: 30, dailyDoseCount: 0)
+        #expect(PrescriptionSupplyCalculator.alertStalenessLimitDays(for: rx) == 60)
+    }
+
+    @Test("Staleness limit returns default when dailyDoseCount is negative")
+    func stalenessLimitNegativeDose() throws {
+        let rx = try makeRx(quantity: 30, dailyDoseCount: -1.0)
+        #expect(PrescriptionSupplyCalculator.alertStalenessLimitDays(for: rx) == 60)
+    }
+
+    @Test("Staleness limit rounds up fractional supply days")
+    func stalenessLimitFractional() throws {
+        // 30 pills / 0.5 per day = 60-day supply, 2x = 120
+        let rx = try makeRx(quantity: 30, dailyDoseCount: 0.5)
+        #expect(PrescriptionSupplyCalculator.alertStalenessLimitDays(for: rx) == 120)
+    }
+
     // MARK: - estimateRunOutDate
 
     @Test("Run-out date calculated from quantity and daily dose")

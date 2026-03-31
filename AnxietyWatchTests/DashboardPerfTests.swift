@@ -54,9 +54,10 @@ struct DashboardPerfTests {
                 rxNumber: "CRX-\(i)",
                 medicationName: "Drug \(i % 10)",
                 doseMg: 10.0,
-                quantity: 30,
+                quantity: i % 3 == 0 ? 90 : 30,
                 dateFilled: calendar.date(byAdding: .day, value: -(i * 2), to: .now)!,
-                estimatedRunOutDate: calendar.date(byAdding: .day, value: -(i * 2) + 30, to: .now)
+                estimatedRunOutDate: calendar.date(byAdding: .day, value: -(i * 2) + 30, to: .now),
+                dailyDoseCount: i % 2 == 0 ? 1.0 : nil
             )
             context.insert(rx)
         }
@@ -67,16 +68,13 @@ struct DashboardPerfTests {
         )
 
         let now = Date()
-        let cutoff = calendar.date(
-            byAdding: .day,
-            value: -PrescriptionSupplyCalculator.alertStalenessLimitDays,
-            to: now
-        )
 
         let start = CFAbsoluteTimeGetCurrent()
         for _ in 0..<100 {
             _ = prescriptions.filter { rx in
                 let fillDate = rx.lastFillDate ?? rx.dateFilled
+                let stalenessLimit = PrescriptionSupplyCalculator.alertStalenessLimitDays(for: rx)
+                let cutoff = calendar.date(byAdding: .day, value: -stalenessLimit, to: now)
                 if let cutoff, fillDate < cutoff { return false }
                 let status = PrescriptionSupplyCalculator.supplyStatus(for: rx)
                 return status == .low || status == .warning || status == .expired
