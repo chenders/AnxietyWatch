@@ -312,6 +312,8 @@ def normalize_claim(claim_wrapper: dict[str, Any]) -> dict[str, Any] | None:
     Returns None if the claim is missing required fields.
     """
     claim = claim_wrapper.get("claim") or {}
+    if not isinstance(claim, dict):
+        return None
 
     # Log available fields on first call for API documentation
     if not hasattr(normalize_claim, "_keys_logged"):
@@ -382,12 +384,12 @@ def normalize_claim(claim_wrapper: dict[str, Any]) -> dict[str, Any] | None:
         "dose_description": dose_description,
         "quantity": quantity,
         "date_filled": date_filled,
-        "pharmacy_name": claim.get("pharmacy_name", ""),
-        "ndc_code": claim.get("ndc", ""),
+        "pharmacy_name": claim.get("pharmacy_name") or "",
+        "ndc_code": claim.get("ndc") or "",
         "days_supply": days_supply,
         "patient_pay": _parse_float(claim.get("patient_pay_amount")),
         "plan_pay": _parse_float(claim.get("plan_pay_amount")),
-        "drug_type": claim.get("drug_type", ""),
-        "dosage_form": claim.get("dosage_form", ""),
+        "drug_type": claim.get("drug_type") or "",
+        "dosage_form": claim.get("dosage_form") or "",
         "rx_status": str(claim_status) if claim_status else "",
     }
