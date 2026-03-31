@@ -20,7 +20,7 @@ The result is not a wall of numbers. It is your own data, interpreted through yo
 
 > **Your data never leaves your devices.** There is no cloud service, no account to create, no telemetry, no analytics. Health data stays in HealthKit on your iPhone. App data stays in local SwiftData storage. The only time data goes anywhere is when *you* explicitly choose to export a report, sync to *your own* self-hosted server, or share a clinical PDF with *your* doctor. You are in complete control.
 
-> **This project is under active development.** The data collection layer is thorough — 20+ HealthKit data types, medication tracking with efficacy measurement, CPAP integration, clinical reports, a sync server. The intelligence layer — pattern detection, compound triggers, proactive insights — is where the project is headed next.
+> **This project is under active development.** The data collection layer is thorough — 25+ HealthKit data types, medication tracking with efficacy measurement, OSCAR CPAP import with EDF parsing, pharmacy benefit (CapRx) integration, clinical reports, a sync server, and a growing test suite. The intelligence layer — pattern detection, compound triggers, proactive insights — is where the project is headed next.
 
 <div align="center">
   <img src="docs/screenshots/dashboard.png" width="200" alt="Dashboard showing HRV baseline alert, anxiety rating, health metrics with sparklines" />
@@ -57,9 +57,9 @@ For some people, tracking health data can increase anxiety rather than reduce it
 | **Anxiety journal** | Severity (1-10), notes, tags — timestamped entries that anchor all physiological data |
 | **Medication tracking** | Dose logging with 30-min before/after efficacy follow-up (a personal [N-of-1 trial](https://en.wikipedia.org/wiki/N-of-1_trial)) |
 | **watchOS Quick Log** | Digital Crown severity picker — works during panic, under five seconds |
-| **HealthKit integration** | 20+ data types (HRV, sleep stages, heart rate, SpO2, activity, blood pressure, and more) with personal rolling baselines |
-| **CPAP import** | AirSense 11 SD card — AHI, leak rates, usage hours; connects sleep apnea treatment to anxiety outcomes |
-| **Prescription management** | Supply tracking, refill alerts, OCR label scanning, pharmacy search with call logging |
+| **HealthKit integration** | 25+ data types (HRV, sleep stages, heart rate, SpO2, activity, blood pressure, walking metrics, daylight exposure, physical effort, AFib burden, and more) with personal rolling baselines |
+| **CPAP import** | AirSense 11 SD card — AHI, leak rates, usage hours via OSCAR CSV auto-detection + EDF leak rate parsing; connects sleep apnea treatment to anxiety outcomes |
+| **Prescription management** | Supply tracking, refill alerts, OCR label scanning, pharmacy search with call logging, CapRx pharmacy benefit claim import |
 | **Clinical reports** | PDF summaries structured for psychiatric appointments — anxiety, meds, sleep, HRV, CPAP, labs |
 | **Data export** | JSON/CSV across 10 entity types, plus self-hosted Flask + PostgreSQL sync server |
 
@@ -77,7 +77,7 @@ The dose-triggered anxiety prompt with 30-minute follow-up produces paired befor
 
 ### Sleep-apnea-anxiety pipeline
 
-CPAP data integrated with sleep quality metrics and next-day anxiety ratings. No anxiety app tracks CPAP compliance. No CPAP app tracks anxiety. For the millions of people who have both sleep apnea and an anxiety disorder, this connection has been invisible.
+CPAP data integrated with sleep quality metrics and next-day anxiety ratings. The CPAP importer auto-detects OSCAR Summary CSV exports, and the sync server parses EDF waveform files from the SD card to extract detailed leak rate percentiles. No anxiety app tracks CPAP compliance. No CPAP app tracks anxiety. For the millions of people who have both sleep apnea and an anxiety disorder, this connection has been invisible.
 
 ### Personal baselines over population norms
 
@@ -95,7 +95,7 @@ Every piece of data is exportable — JSON, CSV, or clinical PDF — from day on
 
 ## The Road Ahead
 
-The data collection layer is built. Next: an intelligence layer that turns your data into stories — sleep-to-anxiety correlation, medication efficacy trends, compound trigger identification, and proactive morning briefings that demystify bad days before they spiral.
+The data collection layer is solid and getting stronger — 25+ HealthKit data types, OSCAR CPAP parsing, CapRx pharmacy benefit import, and a growing test suite. Next: an intelligence layer that turns your data into stories — sleep-to-anxiety correlation, medication efficacy trends, compound trigger identification, and proactive morning briefings that demystify bad days before they spiral.
 
 <div align="center">
   <img src="docs/screenshots/future-dashboard.png" width="200" alt="Future dashboard with Today's Summary card, Log button, breathing pacer, and grouped metric sections" />
@@ -116,18 +116,18 @@ See [PROJECT_FUTURE_PLAN.md](PROJECT_FUTURE_PLAN.md) for the full phased roadmap
 ```
 ┌─────────────────────────────────────────────────────┐
 │                     SwiftUI Views                    │
-│   39 views across Dashboard, Journal, Medications,   │
+│   Views across Dashboard, Journal, Medications,      │
 │   Trends (7 charts), Prescriptions, Pharmacy,        │
 │   CPAP, Lab Results, Reports, Settings               │
 ├─────────────────────────────────────────────────────┤
-│                     16 Services                      │
+│                      Services                        │
 │   HealthKitManager (actor) · HealthDataCoordinator   │
 │   SnapshotAggregator · BaselineCalculator            │
 │   CPAPImporter · ReportGenerator · DataExporter      │
 │   SyncService · PrescriptionLabelScanner · ...       │
 ├────────────────────┬────────────────────────────────┤
 │     HealthKit      │       SwiftData (local)         │
-│  20+ data types    │  11 @Model classes: journal,    │
+│  25+ data types    │  11 @Model classes: journal,    │
 │  Actor-isolated    │  meds, Rx, CPAP, snapshots,     │
 │  Anchored queries  │  health samples, barometric,    │
 │  Background sync   │  lab results, pharmacy          │
@@ -139,7 +139,7 @@ See [PROJECT_FUTURE_PLAN.md](PROJECT_FUTURE_PLAN.md) for the full phased roadmap
     + WidgetKit (lock screen: HRV, anxiety, RHR)
 ```
 
-**Zero external Swift dependencies.** 101 Swift files across iOS, watchOS, and WidgetKit targets — built entirely on Apple frameworks: HealthKit, SwiftData, Swift Charts, Vision, MapKit, WatchConnectivity, Core Motion, CallKit, PDFKit. No SPM packages.
+**Zero external Swift dependencies.** Built entirely on Apple frameworks across iOS, watchOS, WidgetKit, and test targets: HealthKit, SwiftData, Swift Charts, Vision, MapKit, WatchConnectivity, Core Motion, CallKit, PDFKit. No SPM packages.
 
 See [REQUIREMENTS.md](REQUIREMENTS.md) for the full data model and specification.
 
@@ -149,14 +149,16 @@ See [REQUIREMENTS.md](REQUIREMENTS.md) for the full data model and specification
 
 If you're browsing this codebase to learn from it, here are the parts worth studying:
 
-- **Actor-isolated HealthKit at scale** — `HealthKitManager` handles 20+ data types with anchored object queries, background delivery, and structured concurrency. Most open-source HealthKit examples demonstrate 2-3 types. This is a reference implementation for the real thing.
+- **Actor-isolated HealthKit at scale** — `HealthKitManager` handles 25+ data types with anchored object queries, background delivery, and structured concurrency. Most open-source HealthKit examples demonstrate 2-3 types. This is a reference implementation for the real thing.
 - **Dose-triggered notification follow-up** — `DoseAnxietyPromptView` + `DoseFollowUpManager`: schedules a `UNNotificationRequest` 30 minutes post-dose, captures the follow-up rating, pairs it with the pre-dose entry via a shared `MedicationDose` relationship, and cleans up stale follow-ups after 2 hours.
 - **HealthSnapshot materialized view** — `SnapshotAggregator` queries HealthKit once per day and aggregates 19+ metrics into a single SwiftData record. Charts and exports read from this local model, not from HealthKit directly. Rebuildable from source if needed.
-- **CPAP SD card parsing** — `CPAPImporter` reads AirSense 11 CSV data in the format documented by the [OSCAR](https://www.sleepfiles.com/OSCAR/) project. One of the few Swift implementations.
+- **CPAP SD card parsing** — `CPAPImporter` auto-detects [OSCAR](https://www.sleepfiles.com/OSCAR/) Summary CSV exports on the iOS side, and the sync server includes an EDF parser (`edf_parser.py`) that extracts 95th-percentile leak rates from AirSense 11 waveform files. One of the few Swift/Python CPAP parsing implementations.
 - **Vision OCR for prescription labels** — `PrescriptionLabelScanner` extracts Rx number, medication name, dosage, quantity, and refills from photographed pill bottles using regex patterns against `VNRecognizeTextRequest` output.
-- **Personal baseline statistics** — `BaselineCalculator` computes rolling mean/stddev per metric with configurable windows and deviation detection. Design principle: flag when *you* deviate from *your own* normal.
+- **Personal baseline statistics** — `BaselineCalculator` computes rolling mean/stddev per metric with configurable windows, outlier trimming, and deviation detection. Minimum 14 samples, sample variance (N-1). Design principle: flag when *you* deviate from *your own* normal.
+- **Extracted view model pattern** — `DashboardViewModel` shows how to pull business logic out of SwiftUI views into testable `@Observable` classes, with a thorough test suite covering sample loading, baseline computation, supply alerts, and trend calculation.
 - **SwiftData with 11 related models** — relationships, cascade deletes, and query-driven views across a non-trivial schema. Good reference for SwiftData beyond the single-model tutorials.
 - **Full-stack sync** — `SyncService` (Swift actor) pushes to a Flask/PostgreSQL backend with API key auth, upsert logic across 10 entity types, and CapRx/Walgreens prescription import pipelines.
+- **Test suite** — Swift Testing (`@Test`, `#expect`) with in-memory SwiftData containers, fixed reference dates, and a model factory. Good reference for testing SwiftData services without mocking.
 
 ---
 
@@ -182,7 +184,7 @@ If you live with anxiety and this approach resonates with you, I'd especially va
 
 **Good first contributions:**
 - **Tests** — service layer has good coverage; views and coordinators need more (Swift Testing framework, in-memory SwiftData containers)
-- **SwiftUI `#Preview` blocks** — none exist yet, high-impact developer experience improvement
+- **SwiftUI `#Preview` blocks** — a few exist for the most-used views; most views still need them
 - **Accessibility** — Dynamic Type support, VoiceOver grouping, contrast fixes
 - **Server features** — Python/Flask, lower barrier if you're not a Swift developer
 - **Bug reports and UI/UX suggestions** via [issues](../../issues)
