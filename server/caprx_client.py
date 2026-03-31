@@ -296,12 +296,42 @@ class CapRxClient:
 # Claim normalization
 # ---------------------------------------------------------------------------
 
+def _parse_float(value) -> float | None:
+    """Parse a float from a string or number, returning None on failure."""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
 def normalize_claim(claim_wrapper: dict[str, Any]) -> dict[str, Any] | None:
     """Convert a CapRx claim API result into a prescription dict for upsert.
 
     Returns None if the claim is missing required fields.
     """
     claim = claim_wrapper.get("claim", {})
+
+    # Log available fields on first call for API documentation
+    if not hasattr(normalize_claim, "_keys_logged"):
+        wrapper_keys = sorted(claim_wrapper.keys())
+        claim_keys = sorted(claim.keys())
+        logger.info("CapRx claim wrapper keys: %s", wrapper_keys)
+        logger.info("CapRx claim keys: %s", claim_keys)
+        normalize_claim._keys_logged = True
+
+    # Filter reversed/rejected claims if the API provides status
+    claim_status = (
+        claim.get("claim_status", "")
+        or claim.get("status", "")
+        or claim_wrapper.get("status", "")
+    )
+    if isinstance(claim_status, str) and claim_status.lower() in (
+        "reversed", "rejected", "denied", "voided",
+    ):
+        logger.info("Skipping %s claim (id=%s)", claim_status, claim.get("id"))
+        return None
 
     drug_name = claim.get("drug_name", "").strip()
     if not drug_name:
@@ -352,8 +382,9 @@ def normalize_claim(claim_wrapper: dict[str, Any]) -> dict[str, Any] | None:
         "pharmacy_name": claim.get("pharmacy_name", ""),
         "ndc_code": claim.get("ndc", ""),
         "days_supply": days_supply,
-        "patient_pay": claim.get("patient_pay_amount", ""),
-        "plan_pay": claim.get("plan_pay_amount", ""),
+        "patient_pay": _parse_float(claim.get("patient_pay_amount")),
+        "plan_pay": _parse_float(claim.get("plan_pay_amount")),
         "drug_type": claim.get("drug_type", ""),
         "dosage_form": claim.get("dosage_form", ""),
+        "rx_status": str(claim_status) if claim_status else "",
     }

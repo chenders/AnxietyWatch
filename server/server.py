@@ -72,6 +72,22 @@ def create_app(test_config=None):
             )
             cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS walgreens_rx_id TEXT")
             cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS directions TEXT NOT NULL DEFAULT ''")
+            # Migrate: add CapRx columns if missing
+            migrate_cols = [
+                ("prescriptions", "days_supply", "INTEGER"),
+                ("prescriptions", "patient_pay", "DOUBLE PRECISION"),
+                ("prescriptions", "plan_pay", "DOUBLE PRECISION"),
+                ("prescriptions", "dosage_form", "TEXT NOT NULL DEFAULT ''"),
+                ("prescriptions", "drug_type", "TEXT NOT NULL DEFAULT ''"),
+            ]
+            for table, col, col_type in migrate_cols:
+                cur.execute(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name = %s AND column_name = %s",
+                    (table, col),
+                )
+                if not cur.fetchone():
+                    cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
         db.commit()
 
     @app.cli.command("init-db")
