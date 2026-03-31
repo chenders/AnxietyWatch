@@ -120,9 +120,19 @@ enum PrescriptionImporter {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
+        // Try exact match first (fast, predicate-based)
+        var descriptor = FetchDescriptor<MedicationDefinition>(
+            predicate: #Predicate { $0.name == trimmed }
+        )
+        descriptor.fetchLimit = 1
+        if let existing = try context.fetch(descriptor).first {
+            if !existing.isActive { existing.isActive = true }
+            return existing
+        }
+
+        // Fallback: case-insensitive match (SwiftData predicates don't support lowercased())
         let allMeds = try context.fetch(FetchDescriptor<MedicationDefinition>())
         let lowered = trimmed.lowercased()
-
         if let existing = allMeds.first(where: { $0.name.lowercased() == lowered }) {
             if !existing.isActive { existing.isActive = true }
             return existing

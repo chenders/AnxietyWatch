@@ -66,7 +66,7 @@ struct DashboardView: View {
         }
         if let baseline = vm.sleepBaseline,
            let lastSleep = recentSnapshots.first?.sleepDurationMin.map(Double.init),
-           lastSleep < baseline.lowerBound {
+           lastSleep < baseline.lowerBound, baseline.mean > 0 {
             let pct = Int(((baseline.mean - lastSleep) / baseline.mean) * 100)
             baselineAlertCard(
                 icon: "bed.double.fill",
@@ -77,7 +77,7 @@ struct DashboardView: View {
         }
         if let baseline = vm.respiratoryBaseline,
            let lastRR = recentSnapshots.first?.respiratoryRate,
-           lastRR > baseline.upperBound {
+           lastRR > baseline.upperBound, baseline.mean > 0 {
             let pct = Int(((lastRR - baseline.mean) / baseline.mean) * 100)
             baselineAlertCard(
                 icon: "lungs.fill",

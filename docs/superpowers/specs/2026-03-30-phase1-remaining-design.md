@@ -70,7 +70,7 @@ Add `#Preview` to 5 views using existing `SampleData.makeSeededContainer()`.
 
 1. **DashboardView** — seeded container with snapshots, entries, doses, prescriptions
 2. **MedicationsHubView** — medication definitions, doses, prescriptions, pharmacies
-3. **AddAnxietyEntryView** — medication definitions for dose-trigger picker
+3. **AddJournalEntryView** — medication definitions for dose-trigger picker
 4. **TrendsView** — 30 days of snapshots and entries for charts
 5. **PrescriptionDetailView** — prescription with linked medication and pharmacy
 
