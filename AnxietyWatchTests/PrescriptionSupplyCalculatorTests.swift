@@ -211,4 +211,59 @@ struct PrescriptionSupplyCalculatorTests {
         )
         #expect(result == nil)
     }
+
+    // MARK: - alertPrescriptions
+
+    @Test("Alert includes low-supply prescription")
+    func alertIncludesLow() throws {
+        let runOut = calendar.date(byAdding: .day, value: 3, to: referenceDate)!
+        let rx = try makeRx(dateFilled: referenceDate, dailyDoseCount: 1.0, estimatedRunOutDate: runOut)
+        let alerts = PrescriptionSupplyCalculator.alertPrescriptions(from: [rx], now: referenceDate)
+        #expect(alerts.count == 1)
+    }
+
+    @Test("Alert excludes good-supply prescription")
+    func alertExcludesGood() throws {
+        let runOut = calendar.date(byAdding: .day, value: 30, to: referenceDate)!
+        let rx = try makeRx(dateFilled: referenceDate, dailyDoseCount: 1.0, estimatedRunOutDate: runOut)
+        let alerts = PrescriptionSupplyCalculator.alertPrescriptions(from: [rx], now: referenceDate)
+        #expect(alerts.isEmpty)
+    }
+
+    @Test("Alert excludes unknown-status prescription (no run-out date)")
+    func alertExcludesUnknown() throws {
+        let rx = try makeRx(dateFilled: referenceDate)
+        let alerts = PrescriptionSupplyCalculator.alertPrescriptions(from: [rx], now: referenceDate)
+        #expect(alerts.isEmpty)
+    }
+
+    @Test("Alert includes expired prescription")
+    func alertIncludesExpired() throws {
+        let pastRunOut = calendar.date(byAdding: .day, value: -5, to: referenceDate)!
+        let rx = try makeRx(dateFilled: calendar.date(byAdding: .day, value: -35, to: referenceDate)!,
+                            dailyDoseCount: 1.0, estimatedRunOutDate: pastRunOut)
+        let alerts = PrescriptionSupplyCalculator.alertPrescriptions(from: [rx], now: referenceDate)
+        #expect(alerts.count == 1)
+    }
+
+    @Test("Alert excludes stale prescription past staleness limit")
+    func alertExcludesStale() throws {
+        // 30 pills / 1 per day = 30-day supply, staleness = max(60, 60) = 60
+        // Fill 90 days ago → well past the 60-day staleness limit
+        let oldFill = calendar.date(byAdding: .day, value: -90, to: referenceDate)!
+        let pastRunOut = calendar.date(byAdding: .day, value: -60, to: referenceDate)!
+        let rx = try makeRx(dateFilled: oldFill, quantity: 30, dailyDoseCount: 1.0, estimatedRunOutDate: pastRunOut)
+        let alerts = PrescriptionSupplyCalculator.alertPrescriptions(from: [rx], now: referenceDate)
+        #expect(alerts.isEmpty)
+    }
+
+    @Test("Alert excludes prescription for inactive medication")
+    func alertExcludesInactiveMedication() throws {
+        let runOut = calendar.date(byAdding: .day, value: 3, to: referenceDate)!
+        let rx = try makeRx(dateFilled: referenceDate, dailyDoseCount: 1.0, estimatedRunOutDate: runOut)
+        let med = MedicationDefinition(name: "Test Drug", defaultDoseMg: 10.0, category: "test", isActive: false)
+        rx.medication = med
+        let alerts = PrescriptionSupplyCalculator.alertPrescriptions(from: [rx], now: referenceDate)
+        #expect(alerts.isEmpty)
+    }
 }
