@@ -10,6 +10,10 @@ enum PrescriptionSupplyCalculator {
     /// duration, or the default if supply can't be calculated. A 90-day fill should
     /// not expire from alerts at 60 days.
     static func alertStalenessLimitDays(for prescription: Prescription) -> Int {
+        // Prefer daysSupply from PBM over quantity-based calculation
+        if let daysSupply = prescription.daysSupply, daysSupply > 0 {
+            return max(daysSupply * 2, defaultStalenessLimitDays)
+        }
         if let daily = prescription.dailyDoseCount, daily > 0 {
             let supplyDays = Int(ceil(Double(prescription.quantity) / daily))
             return max(supplyDays * 2, defaultStalenessLimitDays)
@@ -132,6 +136,14 @@ enum PrescriptionSupplyCalculator {
     private static func effectiveRunOutDate(for prescription: Prescription) -> Date? {
         if let stored = prescription.estimatedRunOutDate {
             return stored
+        }
+        // Prefer daysSupply from PBM (most authoritative) over quantity-based calculation
+        if let daysSupply = prescription.daysSupply, daysSupply > 0 {
+            return Calendar.current.date(
+                byAdding: .day,
+                value: daysSupply,
+                to: prescription.dateFilled
+            )
         }
         guard let daily = prescription.dailyDoseCount else { return nil }
         return estimateRunOutDate(

@@ -238,7 +238,12 @@ enum ModelFactory {
         prescriberName: String = "Jane Smith MD",
         importSource: String = "manual",
         medication: MedicationDefinition? = nil,
-        pharmacy: Pharmacy? = nil
+        pharmacy: Pharmacy? = nil,
+        daysSupply: Int? = nil,
+        patientPay: Double? = nil,
+        planPay: Double? = nil,
+        dosageForm: String = "",
+        drugType: String = ""
     ) -> Prescription {
         Prescription(
             rxNumber: rxNumber,
@@ -250,6 +255,11 @@ enum ModelFactory {
             pharmacyName: pharmacyName,
             prescriberName: prescriberName,
             importSource: importSource,
+            daysSupply: daysSupply,
+            patientPay: patientPay,
+            planPay: planPay,
+            dosageForm: dosageForm,
+            drugType: drugType,
             medication: medication,
             pharmacy: pharmacy
         )
