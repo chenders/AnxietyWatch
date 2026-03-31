@@ -1,0 +1,4 @@
+// watchOS.xcconfig
+// Pinned deployment target — edit here, not in Xcode build settings.
+
+WATCHOS_DEPLOYMENT_TARGET = 11.0

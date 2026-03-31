@@ -1,0 +1,6 @@
+// Project.xcconfig
+// Pinned deployment targets — edit here, not in Xcode build settings.
+// Xcode may silently bump these when opening with a newer version.
+// CI validates these values have not been overridden in the pbxproj.
+
+IPHONEOS_DEPLOYMENT_TARGET = 18.0
