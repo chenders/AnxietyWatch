@@ -442,6 +442,70 @@ def caprx_settings():
 
 
 # ---------------------------------------------------------------------------
+# CPAP EDF Upload
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/cpap/upload", methods=["GET", "POST"])
+@require_admin
+def cpap_upload():
+    if request.method == "POST":
+        files = request.files.getlist("edf_files")
+        if not files or all(f.filename == "" for f in files):
+            flash("No files selected.", "error")
+            return redirect(url_for("admin.cpap_upload"))
+
+        import tempfile
+        import os as _os
+        from edf_parser import parse_edf_file, upsert_cpap_leak
+
+        db = get_db()
+        total_sessions = 0
+
+        max_size = 100 * 1024 * 1024  # 100 MB limit
+
+        for f in files:
+            if not f.filename:
+                continue
+            if not f.filename.lower().endswith(".edf"):
+                flash(f"{f.filename}: skipped (not an .edf file)", "error")
+                continue
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".edf", delete=False) as tmp:
+                    f.save(tmp)
+                    tmp_path = tmp.name
+                if _os.path.getsize(tmp_path) > max_size:
+                    flash(f"{f.filename}: skipped (exceeds 100 MB limit)", "error")
+                    continue
+
+                sessions = parse_edf_file(tmp_path)
+                if sessions:
+                    count = upsert_cpap_leak(db, sessions)
+                    total_sessions += count
+                    flash(f"{f.filename}: {count} session(s) updated", "success")
+                else:
+                    flash(f"{f.filename}: no leak data found", "error")
+
+            except Exception as e:
+                current_app.logger.exception("CPAP EDF upload failed for %s", f.filename)
+                flash(f"{f.filename}: {str(e)[:500]}", "error")
+            finally:
+                if tmp_path:
+                    try:
+                        _os.unlink(tmp_path)
+                    except Exception:
+                        pass
+
+        if total_sessions > 0:
+            flash(f"Total: {total_sessions} CPAP session(s) updated with leak data.", "success")
+
+        return redirect(url_for("admin.cpap_upload"))
+
+    return render_template("cpap_upload.html")
+
+
+# ---------------------------------------------------------------------------
 # Prescription Management
 # ---------------------------------------------------------------------------
 

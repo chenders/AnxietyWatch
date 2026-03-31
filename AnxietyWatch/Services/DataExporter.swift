@@ -65,7 +65,7 @@ enum DataExporter {
         // CPAP sessions
         csv = "date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea,source\n"
         for s in bundle.cpapSessions {
-            csv += "\(s.date),\(s.ahi),\(s.totalUsageMinutes),\(s.leakRate95th),"
+            csv += "\(s.date),\(s.ahi),\(s.totalUsageMinutes),\(opt(s.leakRate95th)),"
             csv += "\(s.pressureMin),\(s.pressureMax),\(s.pressureMean),"
             csv += "\(s.obstructiveEvents),\(s.centralEvents),\(s.hypopneaEvents),\(s.importSource)\n"
         }
@@ -245,7 +245,7 @@ enum DataExporter {
         let timestamp: String; let medicationName: String; let doseMg: Double; let notes: String?
     }
     struct CPAPSessionDTO: Codable {
-        let date: String; let ahi: Double; let totalUsageMinutes: Int; let leakRate95th: Double
+        let date: String; let ahi: Double; let totalUsageMinutes: Int; let leakRate95th: Double?
         let pressureMin: Double; let pressureMax: Double; let pressureMean: Double
         let obstructiveEvents: Int; let centralEvents: Int; let hypopneaEvents: Int
         let importSource: String
