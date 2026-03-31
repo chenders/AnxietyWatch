@@ -70,19 +70,25 @@ Review and respond to GitHub Copilot review comments on a pull request. Loops un
    - Resolve threads where you implemented the fix
    - Do NOT resolve threads where you declined
 
-9. **Re-request Copilot review**:
+9. **Re-request Copilot review** — capture the review count BEFORE re-requesting to avoid a race condition where the review arrives instantly:
 
    ```bash
+   # Capture baseline FIRST
+   BEFORE_COUNT=$(gh api repos/chenders/AnxietyWatch/pulls/{pr_number}/reviews --jq 'length')
+
+   # Then re-request
    gh api repos/chenders/AnxietyWatch/pulls/{pr_number}/requested_reviewers -X POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
    ```
 
-10. **Wait for the new review** — Poll until a new review appears (review count increases):
+10. **Wait for the new review** — Poll until review count exceeds `BEFORE_COUNT`:
 
     ```bash
     gh api repos/chenders/AnxietyWatch/pulls/{pr_number}/reviews --jq 'length'
     ```
 
     Poll every 15 seconds. Timeout after 5 minutes (assume review is delayed).
+
+    **CRITICAL:** The baseline count MUST be captured before re-requesting (step 9). If captured after, the new review may already be included, causing the poll to never trigger.
 
 11. **Loop back to step 2** — Fetch comments again and check for new ones.
 
