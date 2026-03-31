@@ -1,5 +1,4 @@
 import Foundation
-import HealthKit
 import os
 import SwiftData
 import SwiftUI
@@ -134,9 +133,10 @@ final class DashboardViewModel {
         let calendar = Calendar.current
         let weekAgoBase = calendar.date(byAdding: .day, value: -7, to: .now) ?? .now
         let oneWeekAgo = calendar.startOfDay(for: weekAgoBase)
+        let sorted = labResults.sorted { $0.effectiveDate > $1.effectiveDate }
         var seen = Set<String>()
         var results: [ClinicalLabResult] = []
-        for result in labResults {
+        for result in sorted {
             if result.effectiveDate < oneWeekAgo { break }
             guard LabTestRegistry.isTracked(result.loincCode),
                   !seen.contains(result.loincCode) else { continue }

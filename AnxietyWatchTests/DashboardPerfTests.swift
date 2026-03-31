@@ -67,9 +67,10 @@ struct DashboardPerfTests {
             FetchDescriptor<Prescription>(sortBy: [SortDescriptor(\.dateFilled, order: .reverse)])
         )
 
+        let now = Date.now
         let start = CFAbsoluteTimeGetCurrent()
         for _ in 0..<100 {
-            _ = PrescriptionSupplyCalculator.alertPrescriptions(from: prescriptions).count
+            _ = PrescriptionSupplyCalculator.alertPrescriptions(from: prescriptions, now: now).count
         }
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 
