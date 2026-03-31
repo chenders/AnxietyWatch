@@ -111,7 +111,11 @@ enum PreviewHelpers {
         )
         context.insert(rx)
 
-        try? context.save()
+        do {
+            try context.save()
+        } catch {
+            preconditionFailure("PreviewHelpers.seedData failed to save: \(error)")
+        }
     }
 }
 #endif

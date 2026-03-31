@@ -7,7 +7,6 @@ enum PrescriptionImporter {
 
     enum ImportError: Error {
         case missingRxNumber
-        case invalidDateFormat(String)
     }
 
     private static let isoFormatterFractional: ISO8601DateFormatter = {
