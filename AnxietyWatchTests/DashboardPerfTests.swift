@@ -54,9 +54,10 @@ struct DashboardPerfTests {
                 rxNumber: "CRX-\(i)",
                 medicationName: "Drug \(i % 10)",
                 doseMg: 10.0,
-                quantity: 30,
+                quantity: i % 3 == 0 ? 90 : 30,
                 dateFilled: calendar.date(byAdding: .day, value: -(i * 2), to: .now)!,
-                estimatedRunOutDate: calendar.date(byAdding: .day, value: -(i * 2) + 30, to: .now)
+                estimatedRunOutDate: calendar.date(byAdding: .day, value: -(i * 2) + 30, to: .now),
+                dailyDoseCount: i % 2 == 0 ? 1.0 : nil
             )
             context.insert(rx)
         }
