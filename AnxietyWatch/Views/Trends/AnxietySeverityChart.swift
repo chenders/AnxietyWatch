@@ -12,7 +12,7 @@ struct AnxietySeverityChart: View {
                     x: .value("Date", entry.timestamp, unit: .hour),
                     y: .value("Severity", entry.severity)
                 )
-                .foregroundStyle(severityColor(entry.severity))
+                .foregroundStyle(Color.severity(entry.severity))
                 .symbolSize(60)
 
                 if entries.count > 1 {
@@ -30,15 +30,6 @@ struct AnxietySeverityChart: View {
                 AxisMarks(values: [1, 3, 5, 7, 10])
             }
             .frame(height: 200)
-        }
-    }
-
-    private func severityColor(_ severity: Int) -> Color {
-        switch severity {
-        case 1...3: return .green
-        case 4...6: return .yellow
-        case 7...8: return .orange
-        default: return .red
         }
     }
 }
