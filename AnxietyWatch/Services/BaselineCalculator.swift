@@ -96,7 +96,7 @@ enum BaselineCalculator {
 
     /// Minimum data points required for a meaningful baseline. With fewer than 14
     /// days of data, rolling statistics are too noisy to be clinically useful.
-    static let minimumSampleCount = 14
+    private static let minimumSampleCount = 14
 
     private static func baseline(from values: [Double]) -> BaselineResult? {
         guard values.count >= minimumSampleCount else { return nil }
