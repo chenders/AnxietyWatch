@@ -442,6 +442,61 @@ def caprx_settings():
 
 
 # ---------------------------------------------------------------------------
+# CPAP EDF Upload
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/cpap/upload", methods=["GET", "POST"])
+@require_admin
+def cpap_upload():
+    if request.method == "POST":
+        files = request.files.getlist("edf_files")
+        if not files or all(f.filename == "" for f in files):
+            flash("No files selected.", "error")
+            return redirect(url_for("admin.cpap_upload"))
+
+        import tempfile
+        import os as _os
+        from edf_parser import parse_edf_file, upsert_cpap_leak
+
+        db = get_db()
+        total_sessions = 0
+
+        for f in files:
+            if not f.filename:
+                continue
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".edf", delete=False) as tmp:
+                    f.save(tmp)
+                    tmp_path = tmp.name
+
+                sessions = parse_edf_file(tmp_path)
+                if sessions:
+                    count = upsert_cpap_leak(db, sessions)
+                    total_sessions += count
+                    flash(f"{f.filename}: {count} session(s) updated", "success")
+                else:
+                    flash(f"{f.filename}: no leak data found", "warning")
+
+            except Exception as e:
+                flash(f"{f.filename}: {e}", "error")
+            finally:
+                if tmp_path:
+                    try:
+                        _os.unlink(tmp_path)
+                    except Exception:
+                        pass
+
+        if total_sessions > 0:
+            flash(f"Total: {total_sessions} CPAP session(s) updated with leak data.", "success")
+
+        return redirect(url_for("admin.cpap_upload"))
+
+    return render_template("cpap_upload.html")
+
+
+# ---------------------------------------------------------------------------
 # Prescription Management
 # ---------------------------------------------------------------------------
 

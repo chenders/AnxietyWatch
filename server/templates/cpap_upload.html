@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}CPAP EDF Upload — Anxiety Watch Admin{% endblock %}
+{% block content %}
+<h1>CPAP EDF Upload</h1>
+
+<div class="card">
+    <p>Upload EDF files from your ResMed AirSense 11 SD card to extract leak rate data.
+    This fills in the leak 95th percentile that OSCAR CSV exports don't include.</p>
+
+    <p><strong>Tip:</strong> Upload the <code>STR.edf</code> file from the SD card root
+    for pre-computed session summaries. Or upload individual session EDF files from
+    the <code>DATALOG/</code> directory.</p>
+
+    <form method="POST" enctype="multipart/form-data">
+        <div style="margin: 1rem 0;">
+            <label for="edf_files"><strong>Select EDF file(s):</strong></label><br>
+            <input type="file" name="edf_files" id="edf_files" accept=".edf"
+                   multiple style="margin-top: 0.5rem;">
+        </div>
+        <button type="submit">Upload &amp; Process</button>
+    </form>
+</div>
+{% endblock %}
