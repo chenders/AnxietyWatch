@@ -330,7 +330,7 @@ def normalize_claim(claim_wrapper: dict[str, Any]) -> dict[str, Any] | None:
     if isinstance(claim_status, str) and claim_status.lower() in (
         "reversed", "rejected", "denied", "voided",
     ):
-        logger.info("Skipping %s claim (id=%s)", claim_status, claim.get("id"))
+        logger.info("Skipping %s claim", claim_status)
         return None
 
     drug_name = claim.get("drug_name", "").strip()

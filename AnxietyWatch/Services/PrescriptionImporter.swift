@@ -58,7 +58,7 @@ enum PrescriptionImporter {
         )
         descriptor.fetchLimit = 1
         if let rx = try context.fetch(descriptor).first {
-            return update(rx, from: record, directions: directions, refills: refills, context: context)
+            return try update(rx, from: record, directions: directions, refills: refills, context: context)
         }
 
         // Insert new
@@ -151,7 +151,7 @@ enum PrescriptionImporter {
         directions: String,
         refills: Int,
         context: ModelContext
-    ) -> Prescription {
+    ) throws -> Prescription {
         if !directions.isEmpty && rx.directions.isEmpty {
             rx.directions = directions
         }
@@ -183,7 +183,7 @@ enum PrescriptionImporter {
         if !dtype.isEmpty { rx.drugType = dtype }
 
         if rx.medication == nil || rx.medication?.isActive == false {
-            rx.medication = try? findOrCreateMedication(
+            rx.medication = try findOrCreateMedication(
                 name: rx.medicationName, doseMg: rx.doseMg, in: context
             )
         }

@@ -1,4 +1,4 @@
-"""Tests for CapRx claim normalization and upsert."""
+"""Tests for CapRx claim normalization."""
 
 from caprx_client import normalize_claim
 
