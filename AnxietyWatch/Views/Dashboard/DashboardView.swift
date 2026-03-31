@@ -490,3 +490,11 @@ struct DashboardView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview {
+    let container = try! PreviewHelpers.makeSeededContainer()
+    DashboardView()
+        .modelContainer(container)
+}
+#endif
