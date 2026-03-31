@@ -12,7 +12,7 @@ struct JournalEntryDetailView: View {
                     VStack {
                         Text("\(entry.severity)")
                             .font(.system(size: 48, weight: .bold))
-                            .foregroundStyle(severityColor)
+                            .foregroundStyle(Color.severity(entry.severity))
                         Slider(
                             value: Binding(
                                 get: { Double(entry.severity) },
@@ -21,7 +21,7 @@ struct JournalEntryDetailView: View {
                             in: 1...10,
                             step: 1
                         )
-                        .tint(severityColor)
+                        .tint(Color.severity(entry.severity))
                     }
                 } else {
                     HStack {
@@ -71,12 +71,4 @@ struct JournalEntryDetailView: View {
         }
     }
 
-    private var severityColor: Color {
-        switch entry.severity {
-        case 1...3: return .green
-        case 4...6: return .yellow
-        case 7...8: return .orange
-        default: return .red
-        }
-    }
 }

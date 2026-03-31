@@ -33,12 +33,12 @@ struct DoseAnxietyPromptView: View {
                     VStack(spacing: 8) {
                         Text("\(Int(severity))")
                             .font(.system(size: 48, weight: .bold, design: .rounded))
-                            .foregroundStyle(severityColor)
+                            .foregroundStyle(Color.severity(Int(severity)))
                             .contentTransition(.numericText())
                             .animation(.snappy, value: Int(severity))
 
                         Slider(value: $severity, in: 1...10, step: 1)
-                            .tint(severityColor)
+                            .tint(Color.severity(Int(severity)))
 
                         HStack {
                             Text("Minimal").font(.caption2).foregroundStyle(.secondary)
@@ -133,12 +133,4 @@ struct DoseAnxietyPromptView: View {
         dismiss()
     }
 
-    private var severityColor: Color {
-        switch Int(severity) {
-        case 1...3: .green
-        case 4...6: .yellow
-        case 7...8: .orange
-        default: .red
-        }
-    }
 }

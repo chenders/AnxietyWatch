@@ -18,7 +18,7 @@ struct AddJournalEntryView: View {
                     VStack {
                         Text("\(severity)")
                             .font(.system(size: 48, weight: .bold))
-                            .foregroundStyle(severityColor)
+                            .foregroundStyle(Color.severity(severity))
                         Slider(
                             value: Binding(
                                 get: { Double(severity) },
@@ -27,7 +27,7 @@ struct AddJournalEntryView: View {
                             in: 1...10,
                             step: 1
                         )
-                        .tint(severityColor)
+                        .tint(Color.severity(severity))
                         HStack {
                             Text("Calm").font(.caption).foregroundStyle(.secondary)
                             Spacer()
@@ -76,15 +76,6 @@ struct AddJournalEntryView: View {
                     Button("Save") { save() }
                 }
             }
-        }
-    }
-
-    private var severityColor: Color {
-        switch severity {
-        case 1...3: return .green
-        case 4...6: return .yellow
-        case 7...8: return .orange
-        default: return .red
         }
     }
 

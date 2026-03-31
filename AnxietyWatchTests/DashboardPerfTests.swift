@@ -67,18 +67,10 @@ struct DashboardPerfTests {
             FetchDescriptor<Prescription>(sortBy: [SortDescriptor(\.dateFilled, order: .reverse)])
         )
 
-        let now = Date()
-
+        let now = Date.now
         let start = CFAbsoluteTimeGetCurrent()
         for _ in 0..<100 {
-            _ = prescriptions.filter { rx in
-                let fillDate = rx.lastFillDate ?? rx.dateFilled
-                let stalenessLimit = PrescriptionSupplyCalculator.alertStalenessLimitDays(for: rx)
-                let cutoff = calendar.date(byAdding: .day, value: -stalenessLimit, to: now)
-                if let cutoff, fillDate < cutoff { return false }
-                let status = PrescriptionSupplyCalculator.supplyStatus(for: rx)
-                return status == .low || status == .warning || status == .expired
-            }.count
+            _ = PrescriptionSupplyCalculator.alertPrescriptions(from: prescriptions, now: now).count
         }
         let elapsed = CFAbsoluteTimeGetCurrent() - start
 

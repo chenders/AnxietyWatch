@@ -3,6 +3,19 @@ import SwiftData
 
 @Model
 final class PharmacyCallLog {
+    enum Direction: String {
+        case outgoing
+        case incoming
+        case attempted
+        case connected
+        case completed
+    }
+
+    var callDirection: Direction {
+        get { Direction(rawValue: direction) ?? .attempted }
+        set { direction = newValue.rawValue }
+    }
+
     var id: UUID
     var timestamp: Date
     /// "outgoing", "incoming", "attempted", "connected", or "completed"

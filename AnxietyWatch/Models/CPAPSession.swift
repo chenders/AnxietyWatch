@@ -3,6 +3,17 @@ import SwiftData
 
 @Model
 final class CPAPSession {
+    enum ImportSource: String {
+        case csv
+        case caprx
+        case manual
+    }
+
+    var source: ImportSource {
+        get { ImportSource(rawValue: importSource) ?? .csv }
+        set { importSource = newValue.rawValue }
+    }
+
     var id: UUID
     var date: Date
     /// Apnea-Hypopnea Index — events per hour
@@ -16,7 +27,7 @@ final class CPAPSession {
     var obstructiveEvents: Int
     var centralEvents: Int
     var hypopneaEvents: Int
-    /// "sd_card" or "resmed_cloud"
+    /// Raw string backing the `source` enum — "csv", "caprx", or "manual".
     var importSource: String
 
     init(
