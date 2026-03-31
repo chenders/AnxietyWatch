@@ -74,13 +74,15 @@ struct AnxietyWatchApp: App {
                             }
                             UserDefaults.standard.set(true, forKey: Self.reactivateMedsKey)
                         } catch {
-                            // Leave flag unset so we retry on next launch
                             Log.data.error("ReactivateMeds fixup failed: \(error, privacy: .public)")
                         }
                     }
 
+                    // Don't await — let gap fill and observer setup run in background
+                    // while the dashboard renders immediately with cached data.
+                    // @Query properties react to SwiftData changes automatically.
                     guard let coord = coordinator else { return }
-                    await coord.setupIfNeeded()
+                    Task { await coord.setupIfNeeded() }
                     coord.scheduleBackgroundRefresh()
                 }
                 .onChange(of: scenePhase) { _, newPhase in

@@ -19,11 +19,13 @@ final class DashboardViewModel {
     // MARK: - Data Loading
 
     /// Load HealthSamples manually (not via @Query) to avoid re-rendering
-    /// on every anchored query insert.
+    /// on every anchored query insert. Capped at 500 most recent rows —
+    /// only need today's sparklines + 7 recent values per type.
     func loadSamples(from context: ModelContext) {
-        let descriptor = FetchDescriptor<HealthSample>(
+        var descriptor = FetchDescriptor<HealthSample>(
             sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
         )
+        descriptor.fetchLimit = 500
         let samples = (try? context.fetch(descriptor)) ?? []
         samplesByType = Dictionary(grouping: samples, by: \.type)
     }
