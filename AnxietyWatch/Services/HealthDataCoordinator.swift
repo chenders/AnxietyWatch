@@ -144,6 +144,8 @@ final class HealthDataCoordinator {
             if Task.isCancelled { return }
             do {
                 try await aggregator.aggregateDay(date)
+            } catch is CancellationError {
+                return
             } catch {
                 let dateString = date.formatted(.iso8601.year().month().day())
                 Log.data.error("Gap fill failed for \(dateString, privacy: .public): \(error, privacy: .public)")
@@ -250,6 +252,9 @@ final class HealthDataCoordinator {
             )
             do {
                 try await aggregator.aggregateDay(.now)
+            } catch is CancellationError {
+                // Expected when the background task expires and cancels workTask.
+                return
             } catch {
                 Log.data.error("Background refresh aggregation failed: \(error, privacy: .public)")
             }
@@ -283,10 +288,13 @@ final class HealthDataCoordinator {
             )
             do {
                 try await aggregator.aggregateDay(.now)
+            } catch is CancellationError {
+                return
             } catch {
                 Log.data.error("Refresh aggregation failed: \(error, privacy: .public)")
             }
 
+            guard !Task.isCancelled else { return }
             await importClinicalRecordsIfNeeded()
         }
     }
