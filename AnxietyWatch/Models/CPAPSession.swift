@@ -7,6 +7,7 @@ final class CPAPSession {
         case csv
         case caprx
         case manual
+        case oscar
     }
 
     var source: ImportSource {
@@ -19,8 +20,8 @@ final class CPAPSession {
     /// Apnea-Hypopnea Index — events per hour
     var ahi: Double
     var totalUsageMinutes: Int
-    /// 95th percentile leak rate in L/min
-    var leakRate95th: Double
+    /// 95th percentile leak rate in L/min (nil when not available, e.g. OSCAR CSV import)
+    var leakRate95th: Double?
     var pressureMin: Double
     var pressureMax: Double
     var pressureMean: Double
@@ -34,7 +35,7 @@ final class CPAPSession {
         date: Date,
         ahi: Double,
         totalUsageMinutes: Int,
-        leakRate95th: Double,
+        leakRate95th: Double? = nil,
         pressureMin: Double,
         pressureMax: Double,
         pressureMean: Double,

@@ -95,7 +95,9 @@ struct CPAPSessionRow: View {
             }
             HStack(spacing: 12) {
                 Label(usageString, systemImage: "clock")
-                Label(String(format: "%.1f L/min leak", session.leakRate95th), systemImage: "wind")
+                if let leak = session.leakRate95th {
+                    Label(String(format: "%.1f L/min leak", leak), systemImage: "wind")
+                }
                 Label(session.importSource, systemImage: "arrow.down.circle")
             }
             .font(.caption)

@@ -141,7 +141,7 @@ enum ModelFactory {
         date: Date = referenceDate,
         ahi: Double = 2.5,
         totalUsageMinutes: Int = 420,
-        leakRate95th: Double = 18.0,
+        leakRate95th: Double? = 18.0,
         pressureMin: Double = 6.0,
         pressureMax: Double = 12.0,
         pressureMean: Double = 9.5,
