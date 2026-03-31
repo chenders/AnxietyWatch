@@ -10,9 +10,15 @@ enum PrescriptionImporter {
         case invalidDateFormat(String)
     }
 
-    private static let isoFormatter: ISO8601DateFormatter = {
+    private static let isoFormatterFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let isoFormatterPlain: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
         return f
     }()
 
@@ -47,9 +53,12 @@ enum PrescriptionImporter {
                 dailyDoseCount: dailyDose
             )
 
-        // Check for existing prescription to update
-        let existing = try context.fetch(FetchDescriptor<Prescription>())
-        if let rx = existing.first(where: { $0.rxNumber == rxNumber }) {
+        // Check for existing prescription to update (predicate-based, not full scan)
+        var descriptor = FetchDescriptor<Prescription>(
+            predicate: #Predicate { $0.rxNumber == rxNumber }
+        )
+        descriptor.fetchLimit = 1
+        if let rx = try context.fetch(descriptor).first {
             return update(rx, from: record, directions: directions, refills: refills, context: context)
         }
 
@@ -179,6 +188,9 @@ enum PrescriptionImporter {
 
     private static func parseDate(_ value: Any?) -> Date? {
         guard let str = value as? String, !str.isEmpty else { return nil }
-        return isoFormatter.date(from: str)
+        // Try fractional seconds first (e.g. "2024-04-01T00:00:00.000Z"),
+        // then plain (e.g. "2025-12-31T00:00:00+00:00" from Python isoformat())
+        return isoFormatterFractional.date(from: str)
+            ?? isoFormatterPlain.date(from: str)
     }
 }

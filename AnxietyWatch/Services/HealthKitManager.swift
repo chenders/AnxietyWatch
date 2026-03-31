@@ -40,7 +40,7 @@ actor HealthKitManager {
             .walkingAsymmetryPercentage,      // Left/right asymmetry (0–1)
             // Anxiety-relevant Apple Watch metrics (iOS 17+)
             .timeInDaylight,                  // Outdoor daylight exposure (minutes) — circadian rhythm
-            .physicalEffort,                  // Effort level (0–1) — disambiguates exercise vs anxiety HR
+            .physicalEffort,                  // Relative physical effort (kcal/(kg·hr)) — disambiguates exercise vs anxiety HR
         ]
 
         var types = Set<HKObjectType>()

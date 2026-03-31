@@ -370,7 +370,10 @@ def normalize_claim(claim_wrapper: dict[str, Any]) -> dict[str, Any] | None:
     except (ValueError, TypeError):
         pass
 
-    days_supply = claim.get("days_supply", 0) or 0
+    try:
+        days_supply = int(float(claim.get("days_supply", 0) or 0))
+    except (ValueError, TypeError):
+        days_supply = 0
 
     return {
         "rx_number": rx_number,
