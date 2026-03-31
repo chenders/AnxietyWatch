@@ -311,7 +311,7 @@ def normalize_claim(claim_wrapper: dict[str, Any]) -> dict[str, Any] | None:
 
     Returns None if the claim is missing required fields.
     """
-    claim = claim_wrapper.get("claim", {})
+    claim = claim_wrapper.get("claim") or {}
 
     # Log available fields on first call for API documentation
     if not hasattr(normalize_claim, "_keys_logged"):
