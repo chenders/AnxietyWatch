@@ -462,14 +462,22 @@ def cpap_upload():
         db = get_db()
         total_sessions = 0
 
+        max_size = 100 * 1024 * 1024  # 100 MB limit
+
         for f in files:
             if not f.filename:
+                continue
+            if not f.filename.lower().endswith(".edf"):
+                flash(f"{f.filename}: skipped (not an .edf file)", "error")
                 continue
             tmp_path = None
             try:
                 with tempfile.NamedTemporaryFile(suffix=".edf", delete=False) as tmp:
                     f.save(tmp)
                     tmp_path = tmp.name
+                if _os.path.getsize(tmp_path) > max_size:
+                    flash(f"{f.filename}: skipped (exceeds 100 MB limit)", "error")
+                    continue
 
                 sessions = parse_edf_file(tmp_path)
                 if sessions:

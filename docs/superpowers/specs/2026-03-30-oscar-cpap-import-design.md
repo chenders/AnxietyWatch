@@ -70,7 +70,7 @@ OSCAR imports use `importSource: "oscar"` to distinguish from simple CSV (`"csv"
 4. Extract session date from the EDF header
 5. Return structured dict with date + leak 95th
 
-**`STR.edf` shortcut:** ResMed's `STR.edf` contains pre-computed per-session summaries including leak stats. If uploaded, the parser reads summary data directly instead of processing detail files. This is the preferred path — faster and more reliable.
+**Note on `STR.edf`:** ResMed's `STR.edf` contains per-session summary data, but the current parser does not implement STR-specific parsing. Both `STR.edf` and detail EDF files are processed the same way — the parser finds the leak channel and computes the 95th percentile. STR-specific summary extraction is future work.
 
 ### Storage
 

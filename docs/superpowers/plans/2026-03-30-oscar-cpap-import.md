@@ -438,9 +438,9 @@ Create `server/edf_parser.py`:
 Extracts CPAP session data from EDF files found on the SD card.
 Primary purpose: extract leak 95th percentile (not available in OSCAR CSV exports).
 
-Supports two file types:
-- STR.edf: Pre-computed per-session summaries (preferred, fast)
-- Detail .edf files: Raw signal data (fallback, computes percentiles)
+Locates the first signal whose label contains "leak", computes the 95th percentile,
+and derives session date and duration from the EDF file header. STR.edf and detail
+.edf files are processed the same way.
 """
 
 from __future__ import annotations
@@ -754,8 +754,9 @@ Create `server/templates/cpap_upload.html`:
     This fills in the leak 95th percentile that OSCAR CSV exports don't include.</p>
 
     <p><strong>Tip:</strong> Upload the <code>STR.edf</code> file from the SD card root
-    for pre-computed session summaries. Or upload individual session EDF files from
-    the <code>DATALOG/</code> directory.</p>
+    or individual session EDF files from the <code>DATALOG/</code> directory. Both are
+    processed the same way; the parser extracts the leak channel from whichever file
+    you provide.</p>
 
     <form method="POST" enctype="multipart/form-data">
         <div style="margin: 1rem 0;">

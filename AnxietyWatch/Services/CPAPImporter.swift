@@ -47,12 +47,19 @@ enum CPAPImporter {
 
     // MARK: - Format Detection
 
+    /// Normalize header for resilient format detection: strip BOM, whitespace, lowercase.
+    private static func normalizedHeader(_ header: String) -> String {
+        var result = header
+        if result.hasPrefix("\u{feff}") { result.removeFirst() }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
     private static func isOSCARFormat(_ header: String) -> Bool {
-        header.hasPrefix("Date,Session Count,Start,End,Total Time,AHI")
+        normalizedHeader(header).hasPrefix("date,session count,start,end,total time,ahi")
     }
 
     private static func isSimpleFormat(_ header: String) -> Bool {
-        header.hasPrefix("date,ahi,usage_minutes")
+        normalizedHeader(header).hasPrefix("date,ahi,usage_minutes")
     }
 
     // MARK: - Simple Format Parser
