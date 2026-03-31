@@ -21,7 +21,7 @@ Two complementary import paths for CPAP data from a ResMed AirSense 11:
 
 The importer reads the header row to detect format:
 - Header starts with `Date,Session Count,Start,End,Total Time,AHI` → OSCAR Summary
-- Header starts with `date,ahi,usage_minutes` or has ≤10 columns → existing simple format
+- Header starts with `date,ahi,usage_minutes` → existing simple format
 - Anything else → throw `invalidFormat`
 
 ### OSCAR Column Mapping
@@ -45,7 +45,7 @@ The importer reads the header row to detect format:
 `CPAPSession.leakRate95th` changes from `Double` to `Double?`:
 - Init parameter gets default `nil`
 - Existing callers that pass a value are unaffected
-- Views displaying leak show "—" when nil
+- Views displaying leak hide the leak metric when nil
 - `ImportSource` enum gains `.oscar` case
 
 ### Import Source

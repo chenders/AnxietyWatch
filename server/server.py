@@ -226,7 +226,7 @@ def create_app(test_config=None):
                    ON CONFLICT (date) DO UPDATE SET
                        ahi = EXCLUDED.ahi,
                        total_usage_minutes = EXCLUDED.total_usage_minutes,
-                       leak_rate_95th = EXCLUDED.leak_rate_95th,
+                       leak_rate_95th = COALESCE(EXCLUDED.leak_rate_95th, cpap_sessions.leak_rate_95th),
                        pressure_min = EXCLUDED.pressure_min,
                        pressure_max = EXCLUDED.pressure_max,
                        pressure_mean = EXCLUDED.pressure_mean,

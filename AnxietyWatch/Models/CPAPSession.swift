@@ -28,7 +28,7 @@ final class CPAPSession {
     var obstructiveEvents: Int
     var centralEvents: Int
     var hypopneaEvents: Int
-    /// Raw string backing the `source` enum — "csv", "caprx", or "manual".
+    /// Raw string backing the `source` enum — "csv", "oscar", "caprx", "edf", or "manual".
     var importSource: String
 
     init(

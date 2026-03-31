@@ -477,7 +477,7 @@ def cpap_upload():
                     total_sessions += count
                     flash(f"{f.filename}: {count} session(s) updated", "success")
                 else:
-                    flash(f"{f.filename}: no leak data found", "warning")
+                    flash(f"{f.filename}: no leak data found", "error")
 
             except Exception as e:
                 current_app.logger.exception("CPAP EDF upload failed for %s", f.filename)
