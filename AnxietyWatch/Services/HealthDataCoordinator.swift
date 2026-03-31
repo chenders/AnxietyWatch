@@ -145,7 +145,8 @@ final class HealthDataCoordinator {
             do {
                 try await aggregator.aggregateDay(date)
             } catch {
-                Log.data.error("Gap fill failed for \(date, privacy: .public): \(error, privacy: .public)")
+                let dateString = date.formatted(.iso8601.year().month().day())
+                Log.data.error("Gap fill failed for \(dateString, privacy: .public): \(error, privacy: .public)")
             }
         }
     }
