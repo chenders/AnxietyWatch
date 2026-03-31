@@ -69,7 +69,9 @@ enum ModelFactory {
         spo2Avg: Double? = 97.0,
         respiratoryRate: Double? = 14.0,
         bpSystolic: Double? = nil,
-        bpDiastolic: Double? = nil
+        bpDiastolic: Double? = nil,
+        timeInDaylightMin: Int? = nil,
+        physicalEffortAvg: Double? = nil
     ) -> HealthSnapshot {
         let snapshot = HealthSnapshot(date: date)
         snapshot.hrvAvg = hrvAvg
@@ -87,6 +89,8 @@ enum ModelFactory {
         snapshot.respiratoryRate = respiratoryRate
         snapshot.bpSystolic = bpSystolic
         snapshot.bpDiastolic = bpDiastolic
+        snapshot.timeInDaylightMin = timeInDaylightMin
+        snapshot.physicalEffortAvg = physicalEffortAvg
         return snapshot
     }
 
