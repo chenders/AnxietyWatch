@@ -87,17 +87,20 @@ def upsert_prescriptions(conn, prescriptions):
         rx_number = rx["rx_number"]
 
         # Compute estimated run-out date from days_supply
+        ds = rx.get("days_supply") or 0
         estimated_run_out = None
-        if rx.get("days_supply") and rx.get("days_supply") > 0:
-            estimated_run_out = rx["date_filled"] + timedelta(days=rx["days_supply"])
+        if ds > 0:
+            estimated_run_out = rx["date_filled"] + timedelta(days=ds)
 
         cur.execute(
             """INSERT INTO prescriptions
                    (rx_number, medication_name, dose_mg, dose_description,
                     quantity, date_filled, estimated_run_out_date,
                     pharmacy_name, ndc_code, last_fill_date,
-                    import_source)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'caprx')
+                    import_source,
+                    days_supply, patient_pay, plan_pay, dosage_form, drug_type, rx_status)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'caprx',
+                       %s, %s, %s, %s, %s, %s)
                ON CONFLICT (rx_number) DO UPDATE SET
                    medication_name = EXCLUDED.medication_name,
                    dose_mg = EXCLUDED.dose_mg,
@@ -108,7 +111,13 @@ def upsert_prescriptions(conn, prescriptions):
                    pharmacy_name = EXCLUDED.pharmacy_name,
                    ndc_code = EXCLUDED.ndc_code,
                    last_fill_date = EXCLUDED.last_fill_date,
-                   import_source = EXCLUDED.import_source
+                   import_source = EXCLUDED.import_source,
+                   days_supply = EXCLUDED.days_supply,
+                   patient_pay = EXCLUDED.patient_pay,
+                   plan_pay = EXCLUDED.plan_pay,
+                   dosage_form = EXCLUDED.dosage_form,
+                   drug_type = EXCLUDED.drug_type,
+                   rx_status = EXCLUDED.rx_status
                WHERE prescriptions.import_source = 'caprx'""",
             (
                 rx_number,
@@ -121,6 +130,12 @@ def upsert_prescriptions(conn, prescriptions):
                 rx.get("pharmacy_name", ""),
                 rx.get("ndc_code", ""),
                 rx["date_filled"],  # last_fill_date = date_filled
+                ds if ds > 0 else None,
+                rx.get("patient_pay"),
+                rx.get("plan_pay"),
+                rx.get("dosage_form", ""),
+                rx.get("drug_type", ""),
+                rx.get("rx_status", ""),
             ),
         )
         upserted += cur.rowcount

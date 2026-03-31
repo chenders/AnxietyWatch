@@ -197,6 +197,33 @@ struct BaselineCalculatorTests {
         #expect(abs(result!.mean - 420.0) < 0.01)
     }
 
+    // MARK: - Outlier trimming
+
+    @Test("Single extreme outlier does not skew baseline mean")
+    func outlierDoesNotSkewMean() {
+        // 14 values at 50, plus 1 extreme outlier at 200
+        var snapshots = (0..<14).map { makeSnapshot(daysAgo: $0, hrvAvg: 50.0) }
+        snapshots.append(makeSnapshot(daysAgo: 14, hrvAvg: 200.0))
+
+        let result = BaselineCalculator.hrvBaseline(from: snapshots)
+        #expect(result != nil)
+        // Mean should be close to 50, not pulled toward 200
+        #expect(result!.mean < 55.0)
+    }
+
+    @Test("Outlier trimming preserves normal variance")
+    func outlierTrimmingPreservesNormalVariance() {
+        // 14 values with normal spread (40-60), no outliers
+        let snapshots = makeSnapshotsWithHRV(
+            (0..<14).map { ($0, 40.0 + Double($0 % 3) * 10.0) }
+        )
+        let result = BaselineCalculator.hrvBaseline(from: snapshots)
+        #expect(result != nil)
+        // All values are within normal range — none should be trimmed
+        // Mean of [40,50,60,40,50,60,40,50,60,40,50,60,40,50] ≈ 49.3
+        #expect(abs(result!.mean - 49.286) < 0.01)
+    }
+
     // MARK: - Respiratory rate baseline
 
     private func makeSnapshotWithRR(daysAgo: Int, rr: Double?) -> HealthSnapshot {

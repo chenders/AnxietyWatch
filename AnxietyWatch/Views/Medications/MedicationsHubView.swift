@@ -226,3 +226,13 @@ private struct SupplyAlertRow: View {
         }
     }
 }
+
+#if DEBUG
+#Preview {
+    let container = try! PreviewHelpers.makeSeededContainer()
+    NavigationStack {
+        MedicationsHubView()
+    }
+    .modelContainer(container)
+}
+#endif

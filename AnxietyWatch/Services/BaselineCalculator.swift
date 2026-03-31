@@ -101,9 +101,35 @@ enum BaselineCalculator {
     private static func baseline(from values: [Double]) -> BaselineResult? {
         guard values.count >= minimumSampleCount else { return nil }
 
-        let mean = values.reduce(0, +) / Double(values.count)
+        // Trim outliers using median absolute deviation (MAD).
+        // The median is robust to the outliers we're trying to remove.
+        let sorted = values.sorted()
+        let median = sorted.count % 2 == 0
+            ? (sorted[sorted.count / 2 - 1] + sorted[sorted.count / 2]) / 2.0
+            : sorted[sorted.count / 2]
+        let absoluteDeviations = values.map { abs($0 - median) }.sorted()
+        let mad = absoluteDeviations.count % 2 == 0
+            ? (absoluteDeviations[absoluteDeviations.count / 2 - 1] + absoluteDeviations[absoluteDeviations.count / 2]) / 2.0
+            : absoluteDeviations[absoluteDeviations.count / 2]
+
+        // 2.5 * MAD * 1.4826 (scale factor for normal distribution equivalence).
+        // When MAD is 0 (most values identical), trim values that deviate from the
+        // median, which allows removing extreme outliers from a constant cluster.
+        let trimThreshold = 2.5 * mad * 1.4826
+        let trimmed: [Double]
+        if trimThreshold > 0 {
+            trimmed = values.filter { abs($0 - median) <= trimThreshold }
+        } else {
+            // MAD is 0 — keep only values equal to the median if that gives enough samples
+            let atMedian = values.filter { $0 == median }
+            trimmed = atMedian.count >= minimumSampleCount ? atMedian : values
+        }
+        // Fall back to untrimmed if too many values were removed
+        let effective = trimmed.count >= minimumSampleCount ? trimmed : values
+
+        let mean = effective.reduce(0, +) / Double(effective.count)
         // Sample variance (N-1) for correctness with finite samples
-        let variance = values.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / Double(values.count - 1)
+        let variance = effective.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / Double(effective.count - 1)
         let stddev = variance.squareRoot()
         let threshold = Constants.deviationThreshold
 

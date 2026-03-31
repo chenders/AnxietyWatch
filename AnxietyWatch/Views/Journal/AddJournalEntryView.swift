@@ -98,3 +98,13 @@ struct AddJournalEntryView: View {
         dismiss()
     }
 }
+
+#if DEBUG
+#Preview {
+    let container = try! PreviewHelpers.makeSeededContainer()
+    NavigationStack {
+        AddJournalEntryView()
+    }
+    .modelContainer(container)
+}
+#endif

@@ -69,7 +69,9 @@ enum ModelFactory {
         spo2Avg: Double? = 97.0,
         respiratoryRate: Double? = 14.0,
         bpSystolic: Double? = nil,
-        bpDiastolic: Double? = nil
+        bpDiastolic: Double? = nil,
+        timeInDaylightMin: Int? = nil,
+        physicalEffortAvg: Double? = nil
     ) -> HealthSnapshot {
         let snapshot = HealthSnapshot(date: date)
         snapshot.hrvAvg = hrvAvg
@@ -87,6 +89,8 @@ enum ModelFactory {
         snapshot.respiratoryRate = respiratoryRate
         snapshot.bpSystolic = bpSystolic
         snapshot.bpDiastolic = bpDiastolic
+        snapshot.timeInDaylightMin = timeInDaylightMin
+        snapshot.physicalEffortAvg = physicalEffortAvg
         return snapshot
     }
 
@@ -234,7 +238,12 @@ enum ModelFactory {
         prescriberName: String = "Jane Smith MD",
         importSource: String = "manual",
         medication: MedicationDefinition? = nil,
-        pharmacy: Pharmacy? = nil
+        pharmacy: Pharmacy? = nil,
+        daysSupply: Int? = nil,
+        patientPay: Double? = nil,
+        planPay: Double? = nil,
+        dosageForm: String = "",
+        drugType: String = ""
     ) -> Prescription {
         Prescription(
             rxNumber: rxNumber,
@@ -246,6 +255,11 @@ enum ModelFactory {
             pharmacyName: pharmacyName,
             prescriberName: prescriberName,
             importSource: importSource,
+            daysSupply: daysSupply,
+            patientPay: patientPay,
+            planPay: planPay,
+            dosageForm: dosageForm,
+            drugType: drugType,
             medication: medication,
             pharmacy: pharmacy
         )

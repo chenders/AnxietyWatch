@@ -72,6 +72,17 @@ def create_app(test_config=None):
             )
             cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS walgreens_rx_id TEXT")
             cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS directions TEXT NOT NULL DEFAULT ''")
+            # Migrate: add CapRx columns if missing
+            # Uses IF NOT EXISTS for safety — no need for information_schema check
+            _caprx_migrations = [
+                "ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS days_supply INTEGER",
+                "ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS patient_pay DOUBLE PRECISION",
+                "ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS plan_pay DOUBLE PRECISION",
+                "ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS dosage_form TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS drug_type TEXT NOT NULL DEFAULT ''",
+            ]
+            for stmt in _caprx_migrations:
+                cur.execute(stmt)
         db.commit()
 
     @app.cli.command("init-db")
