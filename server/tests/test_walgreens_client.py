@@ -24,7 +24,7 @@ VALID_RX = {
     "price": "$15.49",
     "quantity": "60",
     "rxNumber": "9999999-00001",
-    "prescriber": {"firstName": "Jane", "lastName": "Smith"},
+    "prescriber": {"firstName": "Jane", "lastName": "Smith", "suffix": "MD"},
     "insurance": {"claimRefNumber": "0000000000", "plan": "TESTPLAN"},
 }
 
