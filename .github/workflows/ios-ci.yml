@@ -35,6 +35,12 @@ jobs:
       - name: Generate BuildVersion.swift
         run: SRCROOT="${GITHUB_WORKSPACE}" bash scripts/generate-version.sh
 
+      - name: Run SwiftLint
+        continue-on-error: true
+        run: |
+          brew install swiftlint
+          swiftlint lint --reporter github-actions-logging
+
       - name: Run tests with coverage
         run: |
           xcodebuild test \
@@ -51,3 +57,10 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           xcrun xccov view --report TestResults.xcresult 2>/dev/null | grep -E "^AnxietyWatch\.app" >> $GITHUB_STEP_SUMMARY || echo "Coverage data not available" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Build watchOS app
+        run: |
+          xcodebuild build \
+            -scheme "AnxietyWatch Watch App" \
+            -destination 'generic/platform=watchOS Simulator' \
+            -quiet
