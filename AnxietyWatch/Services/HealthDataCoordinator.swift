@@ -46,7 +46,13 @@ final class HealthDataCoordinator {
         let calendar = Calendar.current
 
         // Ask HealthKit how far back data goes
-        let oldestDate = try? await HealthKitManager.shared.oldestSampleDate()
+        let oldestDate: Date?
+        do {
+            oldestDate = try await HealthKitManager.shared.oldestSampleDate()
+        } catch {
+            Log.health.error("Failed to query oldest sample date: \(error, privacy: .public)")
+            oldestDate = nil
+        }
         let startDate = oldestDate ?? calendar.date(byAdding: .day, value: -90, to: .now)!
         let totalDays = max(1, (calendar.dateComponents([.day], from: startDate, to: .now).day ?? 90) + 1)
 
@@ -61,8 +67,22 @@ final class HealthDataCoordinator {
         )
 
         for offset in 0..<totalDays {
+            guard !Task.isCancelled else {
+                Log.data.info("Backfill cancelled at offset \(offset, privacy: .public)/\(totalDays, privacy: .public)")
+                isBackfilling = false
+                return
+            }
             let date = calendar.date(byAdding: .day, value: offset, to: startDate)!
-            try? await aggregator.aggregateDay(date)
+            do {
+                try await aggregator.aggregateDay(date)
+            } catch is CancellationError {
+                Log.data.info("Backfill cancelled during aggregation at offset \(offset, privacy: .public)")
+                isBackfilling = false
+                return
+            } catch {
+                let dateString = date.formatted(.iso8601.year().month().day())
+                Log.data.error("Backfill failed for \(dateString, privacy: .public) (offset \(offset, privacy: .public)): \(error, privacy: .public)")
+            }
             backfillProgress = offset + 1
         }
 
@@ -103,7 +123,14 @@ final class HealthDataCoordinator {
         )
         descriptor.fetchLimit = 1
 
-        guard let lastSnapshot = try? context.fetch(descriptor).first else { return }
+        let lastSnapshot: HealthSnapshot?
+        do {
+            lastSnapshot = try context.fetch(descriptor).first
+        } catch {
+            Log.data.error("Failed to fetch last snapshot for gap fill: \(error, privacy: .public)")
+            return
+        }
+        guard let lastSnapshot else { return }
 
         let dates = Self.gapDates(lastSnapshotDate: lastSnapshot.date, today: today)
         guard !dates.isEmpty else { return }
@@ -115,7 +142,14 @@ final class HealthDataCoordinator {
 
         for date in dates {
             if Task.isCancelled { return }
-            try? await aggregator.aggregateDay(date)
+            do {
+                try await aggregator.aggregateDay(date)
+            } catch is CancellationError {
+                return
+            } catch {
+                let dateString = date.formatted(.iso8601.year().month().day())
+                Log.data.error("Gap fill failed for \(dateString, privacy: .public): \(error, privacy: .public)")
+            }
         }
     }
 
@@ -216,7 +250,14 @@ final class HealthDataCoordinator {
                 healthKit: HealthKitManager.shared,
                 modelContext: context
             )
-            try? await aggregator.aggregateDay(.now)
+            do {
+                try await aggregator.aggregateDay(.now)
+            } catch is CancellationError {
+                // Expected when the background task expires and cancels workTask.
+                return
+            } catch {
+                Log.data.error("Background refresh aggregation failed: \(error, privacy: .public)")
+            }
         }
 
         task.expirationHandler = {
@@ -245,8 +286,15 @@ final class HealthDataCoordinator {
                 healthKit: HealthKitManager.shared,
                 modelContext: context
             )
-            try? await aggregator.aggregateDay(.now)
+            do {
+                try await aggregator.aggregateDay(.now)
+            } catch is CancellationError {
+                return
+            } catch {
+                Log.data.error("Refresh aggregation failed: \(error, privacy: .public)")
+            }
 
+            guard !Task.isCancelled else { return }
             await importClinicalRecordsIfNeeded()
         }
     }
@@ -264,7 +312,11 @@ final class HealthDataCoordinator {
                 source: sample.source
             ))
         }
-        try? context.save()
+        do {
+            try context.save()
+        } catch {
+            Log.data.error("Failed to save \(samples.count, privacy: .public) health samples: \(error, privacy: .public)")
+        }
     }
 
     /// Delete HealthSample rows older than 7 days.
@@ -272,13 +324,17 @@ final class HealthDataCoordinator {
         let context = ModelContext(modelContainer)
         let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: .now)
             ?? Date(timeIntervalSinceNow: -7 * 86400)
-        let old = try? context.fetch(FetchDescriptor<HealthSample>(
-            predicate: #Predicate<HealthSample> { $0.timestamp < cutoff }
-        ))
-        for sample in old ?? [] {
-            context.delete(sample)
+        do {
+            let old = try context.fetch(FetchDescriptor<HealthSample>(
+                predicate: #Predicate<HealthSample> { $0.timestamp < cutoff }
+            ))
+            for sample in old {
+                context.delete(sample)
+            }
+            try context.save()
+        } catch {
+            Log.data.error("Failed to prune old samples: \(error, privacy: .public)")
         }
-        try? context.save()
     }
 
     // MARK: - Barometer Persistence
@@ -295,7 +351,11 @@ final class HealthDataCoordinator {
                 relativeAltitudeM: altitude
             )
             context.insert(reading)
-            try? context.save()
+            do {
+                try context.save()
+            } catch {
+                Log.data.error("Failed to save barometric reading: \(error, privacy: .public)")
+            }
         }
         BarometerService.shared.startMonitoring()
     }

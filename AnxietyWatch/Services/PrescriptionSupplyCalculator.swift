@@ -3,8 +3,19 @@ import Foundation
 /// Stateless helpers for computing prescription supply duration and status.
 enum PrescriptionSupplyCalculator {
 
-    /// Prescriptions filled more than this many days ago are excluded from supply alerts.
-    static let alertStalenessLimitDays = 60
+    /// Default staleness limit when a prescription's supply duration can't be determined.
+    static let defaultStalenessLimitDays = 60
+
+    /// Returns the staleness limit for a specific prescription — twice its supply
+    /// duration, or the default if supply can't be calculated. A 90-day fill should
+    /// not expire from alerts at 60 days.
+    static func alertStalenessLimitDays(for prescription: Prescription) -> Int {
+        if let daily = prescription.dailyDoseCount, daily > 0 {
+            let supplyDays = Int(ceil(Double(prescription.quantity) / daily))
+            return max(supplyDays * 2, defaultStalenessLimitDays)
+        }
+        return defaultStalenessLimitDays
+    }
 
     enum SupplyStatus {
         case good     // >14 days remaining
