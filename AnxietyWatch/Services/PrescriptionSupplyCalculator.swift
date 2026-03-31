@@ -131,19 +131,20 @@ enum PrescriptionSupplyCalculator {
 
     // MARK: - Private
 
-    /// Resolves the best available run-out date: the stored value, or one computed
-    /// from quantity and dailyDoseCount.
+    /// Resolves the best available run-out date. Prefers daysSupply from PBM
+    /// (most authoritative), then stored estimatedRunOutDate, then quantity-based.
     private static func effectiveRunOutDate(for prescription: Prescription) -> Date? {
-        if let stored = prescription.estimatedRunOutDate {
-            return stored
-        }
-        // Prefer daysSupply from PBM (most authoritative) over quantity-based calculation
+        // daysSupply from PBM is most authoritative — check first so stale
+        // server-computed estimatedRunOutDate values don't override it
         if let daysSupply = prescription.daysSupply, daysSupply > 0 {
             return Calendar.current.date(
                 byAdding: .day,
                 value: daysSupply,
                 to: prescription.dateFilled
             )
+        }
+        if let stored = prescription.estimatedRunOutDate {
+            return stored
         }
         guard let daily = prescription.dailyDoseCount else { return nil }
         return estimateRunOutDate(
