@@ -226,7 +226,7 @@ actor HealthKitManager {
         guard !correlations.isEmpty else { return nil }
 
         let mmHg = HKUnit.millimeterOfMercury()
-        var sysTotal = 0.0, diaTotal = 0.0, count = 0.0
+        var sysTotal = 0.0, diaTotal = 0.0, count = 0
 
         for correlation in correlations {
             if let sys = correlation.objects(for: HKQuantityType(.bloodPressureSystolic)).first as? HKQuantitySample,
@@ -238,7 +238,7 @@ actor HealthKitManager {
         }
 
         guard count > 0 else { return nil }
-        return (sysTotal / count, diaTotal / count)
+        return (sysTotal / Double(count), diaTotal / Double(count))
     }
 
     // MARK: - History Discovery
