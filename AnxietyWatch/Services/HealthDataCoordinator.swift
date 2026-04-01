@@ -8,6 +8,7 @@ import SwiftData
 @Observable
 final class HealthDataCoordinator {
     private let modelContainer: ModelContainer
+    private let healthKit: any HealthKitDataSource
     private var hasSetupObservers = false
     private var pendingRefreshTask: Task<Void, Never>?
     private var lastClinicalImport: Date = .distantPast
@@ -17,8 +18,9 @@ final class HealthDataCoordinator {
     var backfillProgress = 0
     var backfillTotal = 0
 
-    init(modelContainer: ModelContainer) {
+    init(modelContainer: ModelContainer, healthKit: any HealthKitDataSource = HealthKitManager.shared) {
         self.modelContainer = modelContainer
+        self.healthKit = healthKit
     }
 
     /// Call once at app launch. Backfills history if needed, fills any gaps,
@@ -49,7 +51,7 @@ final class HealthDataCoordinator {
         // Ask HealthKit how far back data goes
         let oldestDate: Date?
         do {
-            oldestDate = try await HealthKitManager.shared.oldestSampleDate()
+            oldestDate = try await healthKit.oldestSampleDate()
         } catch {
             Log.health.error("Failed to query oldest sample date: \(error, privacy: .public)")
             oldestDate = nil
@@ -63,7 +65,7 @@ final class HealthDataCoordinator {
 
         let context = ModelContext(modelContainer)
         let aggregator = SnapshotAggregator(
-            healthKit: HealthKitManager.shared,
+            healthKit: healthKit,
             modelContext: context
         )
 
@@ -137,7 +139,7 @@ final class HealthDataCoordinator {
         guard !dates.isEmpty else { return }
 
         let aggregator = SnapshotAggregator(
-            healthKit: HealthKitManager.shared,
+            healthKit: healthKit,
             modelContext: context
         )
 
@@ -165,7 +167,7 @@ final class HealthDataCoordinator {
 
         let context = ModelContext(modelContainer)
         let importer = ClinicalRecordImporter(
-            healthKit: HealthKitManager.shared,
+            healthKit: healthKit,
             modelContext: context
         )
         do {
@@ -183,7 +185,7 @@ final class HealthDataCoordinator {
         hasSetupObservers = true
 
         // Sleep analysis stays on observer query (category type)
-        await HealthKitManager.shared.startObserving { [weak self] in
+        await healthKit.startObserving { [weak self] in
             guard let coordinator = self else { return }
             Task { @MainActor in
                 coordinator.scheduleRefresh()
@@ -193,7 +195,7 @@ final class HealthDataCoordinator {
         // All quantity types use anchored queries for individual sample caching.
         // Samples are buffered and saved in batches to avoid flooding the main
         // actor with individual saves (which cause excessive @Query re-evaluation).
-        await HealthKitManager.shared.startAnchoredQueries { [weak self] newSamples in
+        await healthKit.startAnchoredQueries { [weak self] newSamples in
             guard let coordinator = self else { return }
             Task { @MainActor in
                 coordinator.bufferSamples(newSamples)
@@ -252,7 +254,7 @@ final class HealthDataCoordinator {
 
             let context = ModelContext(modelContainer)
             let aggregator = SnapshotAggregator(
-                healthKit: HealthKitManager.shared,
+                healthKit: healthKit,
                 modelContext: context
             )
             do {
@@ -288,7 +290,7 @@ final class HealthDataCoordinator {
 
             let context = ModelContext(modelContainer)
             let aggregator = SnapshotAggregator(
-                healthKit: HealthKitManager.shared,
+                healthKit: healthKit,
                 modelContext: context
             )
             do {

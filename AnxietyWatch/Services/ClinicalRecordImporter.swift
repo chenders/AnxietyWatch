@@ -5,14 +5,14 @@ import SwiftData
 /// Imports anxiety-relevant clinical lab results from HealthKit Health Records.
 /// Follows the same pattern as SnapshotAggregator: takes a HealthKitManager + ModelContext.
 struct ClinicalRecordImporter {
-    let healthKit: HealthKitManager
+    let healthKit: any HealthKitDataSource
     let modelContext: ModelContext
 
     /// Queries HealthKit for clinical lab results, parses FHIR data, and inserts
     /// new results into SwiftData. Returns the number of newly imported results.
     @discardableResult
     func importLabResults() async throws -> Int {
-        let records = try await healthKit.queryClinicalLabResults()
+        let records = try await healthKit.queryClinicalLabResults(since: nil)
 
         // Fetch only existing UUIDs for deduplication (avoids hydrating full objects)
         var descriptor = FetchDescriptor<ClinicalLabResult>()
