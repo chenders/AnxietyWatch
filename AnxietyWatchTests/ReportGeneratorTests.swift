@@ -6,6 +6,9 @@ import Testing
 /// Tests for ReportGenerator — verifies PDF output for various input combinations.
 /// Tests focus on verifying the generator produces valid, non-empty PDF data
 /// and handles edge cases (empty collections, mixed data) without crashing.
+/// @MainActor because ReportGenerator uses UIKit drawing APIs (UIGraphicsPDFRenderer,
+/// UIFont, NSAttributedString.draw) which must be called on the main thread.
+@MainActor
 struct ReportGeneratorTests {
 
     private let start = ModelFactory.daysAgo(30)
