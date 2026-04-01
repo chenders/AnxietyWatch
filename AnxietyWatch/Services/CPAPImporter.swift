@@ -54,15 +54,6 @@ enum CPAPImporter {
 
     // MARK: - Upsert Helpers
 
-    /// Find an existing CPAPSession for the given date (normalized to start of day).
-    private static func existingSession(for date: Date, in context: ModelContext) throws -> CPAPSession? {
-        let normalized = Calendar.current.startOfDay(for: date)
-        let descriptor = FetchDescriptor<CPAPSession>(
-            predicate: #Predicate { $0.date == normalized }
-        )
-        return try context.fetch(descriptor).first
-    }
-
     /// Update an existing session's fields with new values.
     private static func updateSession(
         _ session: CPAPSession,
@@ -110,9 +101,15 @@ enum CPAPImporter {
 
     /// Prefetch all existing CPAPSessions into a dictionary keyed by normalized date
     /// so import loops can do O(1) lookups instead of one fetch per row.
+    /// When duplicates exist for a date, keeps the deterministic winner (highest usage, then lowest AHI)
+    /// to match SnapshotAggregator's selection logic.
     private static func prefetchSessions(in context: ModelContext) throws -> [Date: CPAPSession] {
         let all = try context.fetch(FetchDescriptor<CPAPSession>())
-        return Dictionary(all.map { ($0.date, $0) }, uniquingKeysWith: { _, latest in latest })
+        return Dictionary(all.map { ($0.date, $0) }, uniquingKeysWith: { existing, new in
+            if new.totalUsageMinutes > existing.totalUsageMinutes { return new }
+            if new.totalUsageMinutes == existing.totalUsageMinutes && new.ahi < existing.ahi { return new }
+            return existing
+        })
     }
 
     private static func importSimple(_ lines: [String], into context: ModelContext) throws -> ImportResult {

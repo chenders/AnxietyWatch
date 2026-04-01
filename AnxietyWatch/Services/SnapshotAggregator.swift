@@ -166,9 +166,7 @@ struct SnapshotAggregator {
             if lhs.totalUsageMinutes != rhs.totalUsageMinutes {
                 return lhs.totalUsageMinutes < rhs.totalUsageMinutes
             }
-            let lhsAHI = lhs.ahi ?? Double.greatestFiniteMagnitude
-            let rhsAHI = rhs.ahi ?? Double.greatestFiniteMagnitude
-            return lhsAHI > rhsAHI
+            return lhs.ahi > rhs.ahi
         }) {
             snapshot.cpapAHI = cpapSession.ahi
             snapshot.cpapUsageMinutes = cpapSession.totalUsageMinutes
