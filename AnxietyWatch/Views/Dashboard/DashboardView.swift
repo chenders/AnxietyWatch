@@ -457,25 +457,47 @@ struct DashboardView: View {
     @ViewBuilder
     private var cpapSection: some View {
         if let lastSession = recentCPAP.first {
-            MetricCard(
-                title: "Last CPAP",
-                value: String(format: "AHI %.1f", lastSession.ahi),
-                subtitle: String(format: "%dh %dm — %@",
-                    lastSession.totalUsageMinutes / 60,
-                    lastSession.totalUsageMinutes % 60,
-                    lastSession.date.formatted(.dateTime.month().day())),
-                color: lastSession.ahi < 5 ? .green : lastSession.ahi < 15 ? .yellow : .orange
-            )
+            let deviationText: String? = {
+                guard let baseline = vm.cpapAHIBaseline else { return nil }
+                let diff = lastSession.ahi - baseline.mean
+                let direction = diff >= 0 ? "above" : "below"
+                return String(format: "%.1f %@ average", abs(diff), direction)
+            }()
+
+            NavigationLink {
+                CPAPDetailView(session: lastSession, snapshots: recentSnapshots, entries: recentEntries)
+            } label: {
+                MetricCard(
+                    title: "Last CPAP",
+                    value: String(format: "AHI %.1f", lastSession.ahi),
+                    subtitle: [
+                        String(format: "%dh %dm — %@",
+                            lastSession.totalUsageMinutes / 60,
+                            lastSession.totalUsageMinutes % 60,
+                            lastSession.date.formatted(.dateTime.month().day())),
+                        deviationText
+                    ].compactMap { $0 }.joined(separator: " · "),
+                    color: lastSession.ahi < 5 ? .green : lastSession.ahi < 15 ? .yellow : .orange
+                )
+            }
+            .buttonStyle(.plain)
         }
     }
 
     @ViewBuilder
     private var barometricSection: some View {
         if let pressure = barometer.currentPressureKPa {
+            let changeText: String? = {
+                guard let todaySnapshot = vm.todaySnapshot(from: recentSnapshots),
+                      let change = todaySnapshot.barometricPressureChangeKPa,
+                      change > 0.01 else { return nil }
+                return String(format: "%.1f kPa range today", change)
+            }()
+
             MetricCard(
                 title: "Barometric Pressure",
                 value: String(format: "%.1f kPa", pressure),
-                subtitle: "Current",
+                subtitle: changeText ?? "Current",
                 color: .gray
             )
         }
