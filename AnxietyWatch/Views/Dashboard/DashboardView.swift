@@ -103,6 +103,28 @@ struct DashboardView: View {
                 color: .teal
             )
         }
+        if let baseline = vm.cpapAHIBaseline,
+           let recentAHI = BaselineCalculator.recentAverage(from: recentSnapshots, days: 3, keyPath: \.cpapAHI),
+           recentAHI > baseline.upperBound, baseline.mean > 0 {
+            let pct = Int(((recentAHI - baseline.mean) / baseline.mean) * 100)
+            baselineAlertCard(
+                icon: "lungs.fill",
+                title: "CPAP AHI Elevated",
+                message: "Your 3-night AHI average is \(pct)% above your 30-day baseline",
+                color: .purple
+            )
+        }
+        if let baseline = vm.barometricBaseline,
+           let todaySnapshot = vm.todaySnapshot(from: recentSnapshots),
+           let todayPressure = todaySnapshot.barometricPressureAvgKPa,
+           todayPressure < baseline.lowerBound {
+            baselineAlertCard(
+                icon: "barometer",
+                title: "Low Barometric Pressure",
+                message: "Pressure is significantly below your 30-day average",
+                color: .gray
+            )
+        }
     }
 
     private func baselineAlertCard(icon: String, title: String, message: String, color: Color) -> some View {
@@ -436,25 +458,47 @@ struct DashboardView: View {
     @ViewBuilder
     private var cpapSection: some View {
         if let lastSession = recentCPAP.first {
-            MetricCard(
-                title: "Last CPAP",
-                value: String(format: "AHI %.1f", lastSession.ahi),
-                subtitle: String(format: "%dh %dm — %@",
-                    lastSession.totalUsageMinutes / 60,
-                    lastSession.totalUsageMinutes % 60,
-                    lastSession.date.formatted(.dateTime.month().day())),
-                color: lastSession.ahi < 5 ? .green : lastSession.ahi < 15 ? .yellow : .orange
-            )
+            let deviationText: String? = {
+                guard let baseline = vm.cpapAHIBaseline else { return nil }
+                let diff = lastSession.ahi - baseline.mean
+                let direction = diff >= 0 ? "above" : "below"
+                return String(format: "%.1f %@ average", abs(diff), direction)
+            }()
+
+            NavigationLink {
+                CPAPDetailView(session: lastSession, snapshots: recentSnapshots, entries: recentEntries)
+            } label: {
+                MetricCard(
+                    title: "Last CPAP",
+                    value: String(format: "AHI %.1f", lastSession.ahi),
+                    subtitle: [
+                        String(format: "%dh %dm — %@",
+                            lastSession.totalUsageMinutes / 60,
+                            lastSession.totalUsageMinutes % 60,
+                            lastSession.date.formatted(.dateTime.month().day())),
+                        deviationText
+                    ].compactMap { $0 }.joined(separator: " · "),
+                    color: lastSession.ahi < 5 ? .green : lastSession.ahi < 15 ? .yellow : .orange
+                )
+            }
+            .buttonStyle(.plain)
         }
     }
 
     @ViewBuilder
     private var barometricSection: some View {
         if let pressure = barometer.currentPressureKPa {
+            let changeText: String? = {
+                guard let todaySnapshot = vm.todaySnapshot(from: recentSnapshots),
+                      let change = todaySnapshot.barometricPressureChangeKPa,
+                      change > 0.01 else { return nil }
+                return String(format: "%.1f kPa range today", change)
+            }()
+
             MetricCard(
                 title: "Barometric Pressure",
                 value: String(format: "%.1f kPa", pressure),
-                subtitle: "Current",
+                subtitle: changeText ?? "Current",
                 color: .gray
             )
         }

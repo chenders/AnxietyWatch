@@ -183,7 +183,10 @@ enum DataExporter {
                                   exerciseMinutes: h.exerciseMinutes,
                                   environmentalSoundAvg: h.environmentalSoundAvg,
                                   bpSystolic: h.bpSystolic, bpDiastolic: h.bpDiastolic,
-                                  bloodGlucoseAvg: h.bloodGlucoseAvg)
+                                  bloodGlucoseAvg: h.bloodGlucoseAvg,
+                                  cpapAHI: h.cpapAHI, cpapUsageMinutes: h.cpapUsageMinutes,
+                                  barometricPressureAvgKPa: h.barometricPressureAvgKPa,
+                                  barometricPressureChangeKPa: h.barometricPressureChangeKPa)
             },
             barometricReadings: barometric.filter { inRange($0.timestamp) }.map { b in
                 BarometricReadingDTO(timestamp: isoFormatter.string(from: b.timestamp),
@@ -258,6 +261,8 @@ enum DataExporter {
         let activeCalories: Double?; let exerciseMinutes: Int?
         let environmentalSoundAvg: Double?; let bpSystolic: Double?
         let bpDiastolic: Double?; let bloodGlucoseAvg: Double?
+        let cpapAHI: Double?; let cpapUsageMinutes: Int?
+        let barometricPressureAvgKPa: Double?; let barometricPressureChangeKPa: Double?
     }
     struct BarometricReadingDTO: Codable {
         let timestamp: String; let pressureKPa: Double; let relativeAltitudeM: Double

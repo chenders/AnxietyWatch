@@ -5,6 +5,7 @@ import SwiftUI
 struct BarometricTrendChart: View {
     let readings: [BarometricReading]
     let entries: [AnxietyEntry]
+    let allSnapshots: [HealthSnapshot]
     let dateRange: ClosedRange<Date>
 
     /// Cap chart points to avoid rendering thousands of raw CMAltimeter samples
@@ -16,22 +17,38 @@ struct BarometricTrendChart: View {
         return Array(Swift.stride(from: 0, to: readings.count, by: stride).map { readings[$0] }.prefix(maxPoints))
     }
 
-    private var chartData: [ChartDatum] {
-        displayReadings.map { .reading($0) } + entries.map { .entry($0) }
+    private var baseline: BaselineCalculator.BaselineResult? {
+        BaselineCalculator.barometricPressureBaseline(from: allSnapshots)
     }
 
     var body: some View {
-        ChartCard(title: "Barometric Pressure", isEmpty: readings.isEmpty) {
-            Chart(chartData) { datum in
-                switch datum {
-                case .reading(let reading):
+        ChartCard(
+            title: "Barometric Pressure",
+            subtitle: baseline.map { String(format: "30-day avg: %.1f kPa", $0.mean) },
+            isEmpty: readings.isEmpty
+        ) {
+            Chart {
+                ForEach(displayReadings) { reading in
                     LineMark(
                         x: .value("Time", reading.timestamp, unit: .hour),
                         y: .value("kPa", reading.pressureKPa)
                     )
                     .foregroundStyle(.gray)
                     .interpolationMethod(.catmullRom)
-                case .entry(let entry):
+                }
+
+                if let baseline {
+                    RuleMark(y: .value("Baseline", baseline.mean))
+                        .foregroundStyle(.green.opacity(0.6))
+                        .lineStyle(StrokeStyle(dash: [5, 3]))
+                        .annotation(position: .trailing, alignment: .leading) {
+                            Text("avg")
+                                .font(.caption2)
+                                .foregroundStyle(.green)
+                        }
+                }
+
+                ForEach(entries) { entry in
                     RuleMark(x: .value("Time", entry.timestamp, unit: .hour))
                         .foregroundStyle(anxietyColor(entry.severity).opacity(0.2))
                         .lineStyle(StrokeStyle(lineWidth: 2))
@@ -49,20 +66,6 @@ struct BarometricTrendChart: View {
         case 4...6: return .yellow
         case 7...8: return .orange
         default: return .red
-        }
-    }
-}
-
-/// Tagged union for combining multiple data sources in a single Chart(data:) call,
-/// avoiding ForEach inside Chart bodies (which has availability issues across Xcode versions).
-private enum ChartDatum: Identifiable {
-    case reading(BarometricReading)
-    case entry(AnxietyEntry)
-
-    var id: String {
-        switch self {
-        case .reading(let r): "reading-\(r.id)"
-        case .entry(let e): "entry-\(e.id)"
         }
     }
 }
