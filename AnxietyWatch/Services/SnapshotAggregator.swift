@@ -63,12 +63,7 @@ struct SnapshotAggregator {
         async let envSound = healthKit.averageQuantity(
             .environmentalAudioExposure, unit: .decibelAWeightedSoundPressureLevel(),
             start: start, end: end)
-        async let bpSys = healthKit.averageQuantity(
-            .bloodPressureSystolic, unit: .millimeterOfMercury(),
-            start: start, end: end)
-        async let bpDia = healthKit.averageQuantity(
-            .bloodPressureDiastolic, unit: .millimeterOfMercury(),
-            start: start, end: end)
+        async let bp = healthKit.averageBloodPressure(start: start, end: end)
         async let glucose = healthKit.averageQuantity(
             .bloodGlucose,
             unit: .gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci)),
@@ -118,8 +113,10 @@ struct SnapshotAggregator {
         if let e = try await exercise { snapshot.exerciseMinutes = Int(e) }
 
         snapshot.environmentalSoundAvg = try await envSound
-        snapshot.bpSystolic = try await bpSys
-        snapshot.bpDiastolic = try await bpDia
+        if let bpReading = try await bp {
+            snapshot.bpSystolic = bpReading.systolic
+            snapshot.bpDiastolic = bpReading.diastolic
+        }
         snapshot.bloodGlucoseAvg = try await glucose
 
         if let v = try await vo2, v.date >= start && v.date < end {
