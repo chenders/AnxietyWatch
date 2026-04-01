@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 struct CPAPListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \CPAPSession.date, order: .reverse) private var sessions: [CPAPSession]
+    @Query(sort: \HealthSnapshot.date, order: .reverse) private var snapshots: [HealthSnapshot]
+    @Query(sort: \AnxietyEntry.timestamp, order: .reverse) private var entries: [AnxietyEntry]
     @State private var showingAddSession = false
     @State private var showingImporter = false
     @State private var alertMessage: String?
@@ -30,9 +32,15 @@ struct CPAPListView: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
+                summarySection
+
                 Section("Sessions (\(sessions.count))") {
                     ForEach(sessions) { session in
-                        CPAPSessionRow(session: session)
+                        NavigationLink {
+                            CPAPDetailView(session: session, snapshots: snapshots, entries: entries)
+                        } label: {
+                            CPAPSessionRow(session: session)
+                        }
                     }
                     .onDelete(perform: deleteSessions)
                 }
@@ -56,6 +64,33 @@ struct CPAPListView: View {
         }
     }
 
+    // MARK: - Summary
+
+    @ViewBuilder
+    private var summarySection: some View {
+        let now = Date.now
+        let last7 = sessions.filter {
+            $0.date >= Calendar.current.date(byAdding: .day, value: -7, to: now)!
+        }
+        let last30 = sessions.filter {
+            $0.date >= Calendar.current.date(byAdding: .day, value: -30, to: now)!
+        }
+
+        Section("Summary") {
+            if !last7.isEmpty {
+                let avg7 = last7.map(\.ahi).reduce(0, +) / Double(last7.count)
+                LabeledContent("7-day avg AHI", value: String(format: "%.1f", avg7))
+            }
+            if !last30.isEmpty {
+                let avg30 = last30.map(\.ahi).reduce(0, +) / Double(last30.count)
+                LabeledContent("30-day avg AHI", value: String(format: "%.1f", avg30))
+            }
+            LabeledContent("Total sessions", value: "\(sessions.count)")
+        }
+    }
+
+    // MARK: - Import
+
     private func handleImport(_ result: Result<[URL], any Error>) {
         switch result {
         case .success(let urls):
@@ -69,11 +104,29 @@ struct CPAPListView: View {
                 } else {
                     alertMessage = "Imported \(result.inserted) new, updated \(result.updated) existing (\(result.total) total)."
                 }
+                // Backfill snapshots for imported date range
+                if let dateRange = result.dateRange {
+                    Task {
+                        await backfillSnapshots(dateRange: dateRange)
+                    }
+                }
             } catch {
                 alertMessage = error.localizedDescription
             }
         case .failure(let error):
             alertMessage = error.localizedDescription
+        }
+    }
+
+    private func backfillSnapshots(dateRange: ClosedRange<Date>) async {
+        let aggregator = SnapshotAggregator(
+            healthKit: HealthKitManager.shared,
+            modelContext: modelContext
+        )
+        var date = dateRange.lowerBound
+        while date <= dateRange.upperBound {
+            try? await aggregator.aggregateDay(date)
+            date = Calendar.current.date(byAdding: .day, value: 1, to: date) ?? dateRange.upperBound.addingTimeInterval(1)
         }
     }
 
