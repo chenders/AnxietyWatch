@@ -309,16 +309,27 @@ final class HealthDataCoordinator {
     private var sampleBuffer: [(type: String, value: Double, timestamp: Date, source: String?)] = []
     private var flushTask: Task<Void, Never>?
 
-    /// Queue samples for insertion. Saves are batched with a 2-second debounce
+    private let maxBufferSize = 500
+
+    /// Queue samples for insertion. Saves are batched with a 2-second throttle
     /// so multiple anchored query callbacks don't each trigger a separate save
     /// (which would cause excessive @Query invalidation and body re-evaluations).
+    /// Flushes immediately if the buffer exceeds `maxBufferSize`.
     private func bufferSamples(_ samples: [(type: String, value: Double, timestamp: Date, source: String?)]) {
         sampleBuffer.append(contentsOf: samples)
-        flushTask?.cancel()
+
+        if sampleBuffer.count >= maxBufferSize {
+            flushSampleBuffer()
+            return
+        }
+
+        // Throttle: only schedule a flush if one isn't already pending.
+        guard flushTask == nil else { return }
         flushTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            self?.flushSampleBuffer()
+            guard let self, !Task.isCancelled else { return }
+            self.flushSampleBuffer()
+            self.flushTask = nil
         }
     }
 
@@ -339,7 +350,7 @@ final class HealthDataCoordinator {
         }
         do {
             try context.save()
-            Log.data.info("Flushed \(toInsert.count, privacy: .public) health samples in one batch")
+            Log.data.debug("Flushed \(toInsert.count, privacy: .public) health samples in one batch")
         } catch {
             Log.data.error("Failed to save \(toInsert.count, privacy: .public) health samples: \(error, privacy: .public)")
         }

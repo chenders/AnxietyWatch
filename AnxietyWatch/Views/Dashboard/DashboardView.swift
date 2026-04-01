@@ -46,14 +46,23 @@ struct DashboardView: View {
                 )
 
                 // Load samples and refresh in background — these are slow
-                Task.detached(priority: .userInitiated) { @MainActor in
+                Task { @MainActor in
                     vm.loadSamples(from: modelContext)
                 }
                 Task {
                     await vm.refreshSnapshot(context: modelContext)
-                    vm.computeBaselines(from: recentSnapshots)
+                    // Recompute baselines from fresh data after refresh
+                    let descriptor = FetchDescriptor<HealthSnapshot>(
+                        sortBy: [SortDescriptor(\.date, order: .reverse)]
+                    )
+                    if let updated = try? modelContext.fetch(descriptor) {
+                        vm.computeBaselines(from: updated)
+                    }
                 }
                 Task { await vm.autoSync(context: modelContext) }
+            }
+            .onChange(of: prescriptions.count) {
+                vm.computeSupplyAlerts(from: prescriptions)
             }
         }
     }
