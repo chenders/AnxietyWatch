@@ -30,8 +30,9 @@ final class HealthDataCoordinator {
         startBarometerPersistence()
         await backfillIfNeeded()
         await fillGaps()
-        await importClinicalRecordsIfNeeded()
+        // Start observers before clinical import — clinical import is slow (~16s)
         await startObserving()
+        await importClinicalRecordsIfNeeded()
     }
 
     // MARK: - Backfill
@@ -188,10 +189,12 @@ final class HealthDataCoordinator {
             }
         }
 
-        // All quantity types use anchored queries for individual sample caching
+        // All quantity types use anchored queries for individual sample caching.
+        // Samples are buffered and saved in batches to avoid flooding the main
+        // actor with individual saves (which cause excessive @Query re-evaluation).
         await HealthKitManager.shared.startAnchoredQueries { [weak self] newSamples in
             Task { @MainActor in
-                self?.insertSamples(newSamples)
+                self?.bufferSamples(newSamples)
                 self?.scheduleRefresh()
             }
         }
@@ -301,10 +304,43 @@ final class HealthDataCoordinator {
 
     // MARK: - Sample Cache
 
-    /// Insert new HealthKit samples into the HealthSample cache.
-    private func insertSamples(_ samples: [(type: String, value: Double, timestamp: Date, source: String?)]) {
+    /// Buffer for incoming samples — batched and saved periodically to avoid
+    /// flooding the main actor with individual SwiftData saves.
+    private var sampleBuffer: [(type: String, value: Double, timestamp: Date, source: String?)] = []
+    private var flushTask: Task<Void, Never>?
+
+    private let maxBufferSize = 500
+
+    /// Queue samples for insertion. Saves are batched with a 2-second throttle
+    /// so multiple anchored query callbacks don't each trigger a separate save
+    /// (which would cause excessive @Query invalidation and body re-evaluations).
+    /// Flushes immediately if the buffer exceeds `maxBufferSize`.
+    private func bufferSamples(_ samples: [(type: String, value: Double, timestamp: Date, source: String?)]) {
+        sampleBuffer.append(contentsOf: samples)
+
+        if sampleBuffer.count >= maxBufferSize {
+            flushSampleBuffer()
+            return
+        }
+
+        // Throttle: only schedule a flush if one isn't already pending.
+        guard flushTask == nil else { return }
+        flushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, !Task.isCancelled else { return }
+            self.flushSampleBuffer()
+            self.flushTask = nil
+        }
+    }
+
+    /// Write all buffered samples to SwiftData in one save.
+    private func flushSampleBuffer() {
+        guard !sampleBuffer.isEmpty else { return }
+        let toInsert = sampleBuffer
+        sampleBuffer.removeAll()
+
         let context = ModelContext(modelContainer)
-        for sample in samples {
+        for sample in toInsert {
             context.insert(HealthSample(
                 type: sample.type,
                 value: sample.value,
@@ -314,23 +350,21 @@ final class HealthDataCoordinator {
         }
         do {
             try context.save()
+            Log.data.debug("Flushed \(toInsert.count, privacy: .public) health samples in one batch")
         } catch {
-            Log.data.error("Failed to save \(samples.count, privacy: .public) health samples: \(error, privacy: .public)")
+            Log.data.error("Failed to save \(toInsert.count, privacy: .public) health samples: \(error, privacy: .public)")
         }
     }
 
-    /// Delete HealthSample rows older than 7 days.
+    /// Delete HealthSample rows older than 7 days using batch delete.
     func pruneOldSamples() {
         let context = ModelContext(modelContainer)
         let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: .now)
             ?? Date(timeIntervalSinceNow: -7 * 86400)
         do {
-            let old = try context.fetch(FetchDescriptor<HealthSample>(
-                predicate: #Predicate<HealthSample> { $0.timestamp < cutoff }
-            ))
-            for sample in old {
-                context.delete(sample)
-            }
+            try context.delete(model: HealthSample.self, where: #Predicate {
+                $0.timestamp < cutoff
+            })
             try context.save()
         } catch {
             Log.data.error("Failed to prune old samples: \(error, privacy: .public)")

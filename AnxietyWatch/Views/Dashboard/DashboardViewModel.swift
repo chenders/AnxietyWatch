@@ -21,11 +21,16 @@ final class DashboardViewModel {
     // MARK: - Data Loading
 
     /// Load HealthSamples manually (not via @Query) to avoid re-rendering
-    /// on every anchored query insert.
-    func loadSamples(from context: ModelContext) {
-        let descriptor = FetchDescriptor<HealthSample>(
+    /// on every anchored query insert. Uses a 7-day window so infrequent
+    /// types (VO2Max, walking steadiness) aren't dropped while keeping
+    /// the result set bounded.
+    func loadSamples(from context: ModelContext, now: Date = .now) {
+        let cutoff = now.addingTimeInterval(-7 * 24 * 3600)
+        var descriptor = FetchDescriptor<HealthSample>(
+            predicate: #Predicate { $0.timestamp >= cutoff },
             sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
         )
+        descriptor.fetchLimit = 5000  // safety cap
         let samples = (try? context.fetch(descriptor)) ?? []
         samplesByType = Dictionary(grouping: samples, by: \.type)
     }

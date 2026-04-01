@@ -32,149 +32,114 @@ struct SnapshotAggregator {
             modelContext.insert(snapshot)
         }
 
-        // HRV — best single autonomic biomarker
-        snapshot.hrvAvg = try await healthKit.averageQuantity(
-            .heartRateVariabilitySDNN,
-            unit: .secondUnit(with: .milli),
-            start: start, end: end
-        )
-        snapshot.hrvMin = try await healthKit.minimumQuantity(
-            .heartRateVariabilitySDNN,
-            unit: .secondUnit(with: .milli),
-            start: start, end: end
-        )
-
-        // Resting heart rate
-        snapshot.restingHR = try await healthKit.averageQuantity(
-            .restingHeartRate,
-            unit: .count().unitDivided(by: .minute()),
-            start: start, end: end
-        )
-
-        // Sleep stages — use noon-to-noon to capture full overnight period
-        let sleep = try await healthKit.querySleepAnalysis(start: overnightStart, end: overnightEnd)
-        snapshot.sleepDurationMin = sleep.totalMinutes > 0 ? sleep.totalMinutes : nil
-        snapshot.sleepDeepMin = sleep.deepMinutes > 0 ? sleep.deepMinutes : nil
-        snapshot.sleepREMMin = sleep.remMinutes > 0 ? sleep.remMinutes : nil
-        snapshot.sleepCoreMin = sleep.coreMinutes > 0 ? sleep.coreMinutes : nil
-        snapshot.sleepAwakeMin = sleep.awakeMinutes > 0 ? sleep.awakeMinutes : nil
-
-        // Overnight metrics — also use noon-to-noon window
-        snapshot.skinTempDeviation = try await healthKit.averageQuantity(
-            .appleSleepingWristTemperature,
-            unit: .degreeCelsius(),
-            start: overnightStart, end: overnightEnd
-        )
-        snapshot.respiratoryRate = try await healthKit.averageQuantity(
-            .respiratoryRate,
-            unit: .count().unitDivided(by: .minute()),
-            start: overnightStart, end: overnightEnd
-        )
-        snapshot.spo2Avg = try await healthKit.averageQuantity(
-            .oxygenSaturation,
-            unit: .percent(),
-            start: overnightStart, end: overnightEnd
-        )
-
-        // Activity
-        if let steps = try await healthKit.cumulativeQuantity(
-            .stepCount, unit: .count(), start: start, end: end
-        ) {
-            snapshot.steps = Int(steps)
-        }
-        snapshot.activeCalories = try await healthKit.cumulativeQuantity(
-            .activeEnergyBurned,
-            unit: .kilocalorie(),
-            start: start, end: end
-        )
-        if let exercise = try await healthKit.cumulativeQuantity(
-            .appleExerciseTime, unit: .minute(), start: start, end: end
-        ) {
-            snapshot.exerciseMinutes = Int(exercise)
-        }
-
-        // Environment
-        snapshot.environmentalSoundAvg = try await healthKit.averageQuantity(
-            .environmentalAudioExposure,
-            unit: .decibelAWeightedSoundPressureLevel(),
-            start: start, end: end
-        )
-
-        // Blood pressure (available if Omron cuff syncs via HealthKit)
-        snapshot.bpSystolic = try await healthKit.averageQuantity(
-            .bloodPressureSystolic,
-            unit: .millimeterOfMercury(),
-            start: start, end: end
-        )
-        snapshot.bpDiastolic = try await healthKit.averageQuantity(
-            .bloodPressureDiastolic,
-            unit: .millimeterOfMercury(),
-            start: start, end: end
-        )
-
-        // Blood glucose (available if CGM syncs via HealthKit)
-        snapshot.bloodGlucoseAvg = try await healthKit.averageQuantity(
+        // Run all HealthKit queries concurrently — they're independent reads
+        // of different data types for the same time window.
+        async let hrvAvg = healthKit.averageQuantity(
+            .heartRateVariabilitySDNN, unit: .secondUnit(with: .milli),
+            start: start, end: end)
+        async let hrvMin = healthKit.minimumQuantity(
+            .heartRateVariabilitySDNN, unit: .secondUnit(with: .milli),
+            start: start, end: end)
+        async let restingHR = healthKit.averageQuantity(
+            .restingHeartRate, unit: .count().unitDivided(by: .minute()),
+            start: start, end: end)
+        async let sleep = healthKit.querySleepAnalysis(
+            start: overnightStart, end: overnightEnd)
+        async let skinTemp = healthKit.averageQuantity(
+            .appleSleepingWristTemperature, unit: .degreeCelsius(),
+            start: overnightStart, end: overnightEnd)
+        async let respiratoryRate = healthKit.averageQuantity(
+            .respiratoryRate, unit: .count().unitDivided(by: .minute()),
+            start: overnightStart, end: overnightEnd)
+        async let spo2 = healthKit.averageQuantity(
+            .oxygenSaturation, unit: .percent(),
+            start: overnightStart, end: overnightEnd)
+        async let steps = healthKit.cumulativeQuantity(
+            .stepCount, unit: .count(), start: start, end: end)
+        async let calories = healthKit.cumulativeQuantity(
+            .activeEnergyBurned, unit: .kilocalorie(), start: start, end: end)
+        async let exercise = healthKit.cumulativeQuantity(
+            .appleExerciseTime, unit: .minute(), start: start, end: end)
+        async let envSound = healthKit.averageQuantity(
+            .environmentalAudioExposure, unit: .decibelAWeightedSoundPressureLevel(),
+            start: start, end: end)
+        async let bpSys = healthKit.averageQuantity(
+            .bloodPressureSystolic, unit: .millimeterOfMercury(),
+            start: start, end: end)
+        async let bpDia = healthKit.averageQuantity(
+            .bloodPressureDiastolic, unit: .millimeterOfMercury(),
+            start: start, end: end)
+        async let glucose = healthKit.averageQuantity(
             .bloodGlucose,
             unit: .gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci)),
-            start: start, end: end
-        )
+            start: start, end: end)
+        async let vo2 = healthKit.mostRecentQuantity(
+            .vo2Max, unit: HKUnit(from: "mL/kg*min"))
+        async let walkingHR = healthKit.averageQuantity(
+            .walkingHeartRateAverage, unit: .count().unitDivided(by: .minute()),
+            start: start, end: end)
+        async let steadiness = healthKit.mostRecentQuantity(
+            .appleWalkingSteadiness, unit: .percent())
+        async let afib = healthKit.mostRecentQuantity(
+            .atrialFibrillationBurden, unit: .percent())
+        async let headphone = healthKit.averageQuantity(
+            .headphoneAudioExposure, unit: .decibelAWeightedSoundPressureLevel(),
+            start: start, end: end)
+        async let walkSpeed = healthKit.averageQuantity(
+            .walkingSpeed, unit: HKUnit.meter().unitDivided(by: .second()),
+            start: start, end: end)
+        async let walkStepLen = healthKit.averageQuantity(
+            .walkingStepLength, unit: .meter(), start: start, end: end)
+        async let walkDoubleSupport = healthKit.averageQuantity(
+            .walkingDoubleSupportPercentage, unit: .percent(),
+            start: start, end: end)
+        async let walkAsymmetry = healthKit.averageQuantity(
+            .walkingAsymmetryPercentage, unit: .percent(),
+            start: start, end: end)
 
-        // VO2 Max — use most recent reading for the day since it's infrequently updated
-        if let vo2 = try await healthKit.mostRecentQuantity(.vo2Max, unit: HKUnit(from: "mL/kg*min")) {
-            if vo2.date >= start && vo2.date < end {
-                snapshot.vo2Max = vo2.value
-            }
+        // Await all results and assign to snapshot
+        snapshot.hrvAvg = try await hrvAvg
+        snapshot.hrvMin = try await hrvMin
+        snapshot.restingHR = try await restingHR
+
+        let sleepData = try await sleep
+        snapshot.sleepDurationMin = sleepData.totalMinutes > 0 ? sleepData.totalMinutes : nil
+        snapshot.sleepDeepMin = sleepData.deepMinutes > 0 ? sleepData.deepMinutes : nil
+        snapshot.sleepREMMin = sleepData.remMinutes > 0 ? sleepData.remMinutes : nil
+        snapshot.sleepCoreMin = sleepData.coreMinutes > 0 ? sleepData.coreMinutes : nil
+        snapshot.sleepAwakeMin = sleepData.awakeMinutes > 0 ? sleepData.awakeMinutes : nil
+
+        snapshot.skinTempDeviation = try await skinTemp
+        snapshot.respiratoryRate = try await respiratoryRate
+        snapshot.spo2Avg = try await spo2
+
+        if let s = try await steps { snapshot.steps = Int(s) }
+        snapshot.activeCalories = try await calories
+        if let e = try await exercise { snapshot.exerciseMinutes = Int(e) }
+
+        snapshot.environmentalSoundAvg = try await envSound
+        snapshot.bpSystolic = try await bpSys
+        snapshot.bpDiastolic = try await bpDia
+        snapshot.bloodGlucoseAvg = try await glucose
+
+        if let v = try await vo2, v.date >= start && v.date < end {
+            snapshot.vo2Max = v.value
         }
 
-        // Walking heart rate average
-        snapshot.walkingHeartRateAvg = try await healthKit.averageQuantity(
-            .walkingHeartRateAverage,
-            unit: .count().unitDivided(by: .minute()),
-            start: start, end: end
-        )
+        snapshot.walkingHeartRateAvg = try await walkingHR
 
-        // Walking steadiness
-        if let steadiness = try await healthKit.mostRecentQuantity(.appleWalkingSteadiness, unit: .percent()) {
-            if steadiness.date >= start && steadiness.date < end {
-                snapshot.walkingSteadiness = steadiness.value
-            }
+        if let s = try await steadiness, s.date >= start && s.date < end {
+            snapshot.walkingSteadiness = s.value
+        }
+        if let a = try await afib, a.date >= start && a.date < end {
+            snapshot.atrialFibrillationBurden = a.value
         }
 
-        // Atrial fibrillation burden
-        if let afib = try await healthKit.mostRecentQuantity(.atrialFibrillationBurden, unit: .percent()) {
-            if afib.date >= start && afib.date < end {
-                snapshot.atrialFibrillationBurden = afib.value
-            }
-        }
-
-        // Headphone audio exposure
-        snapshot.headphoneAudioExposure = try await healthKit.averageQuantity(
-            .headphoneAudioExposure,
-            unit: .decibelAWeightedSoundPressureLevel(),
-            start: start, end: end
-        )
-
-        // Gait metrics
-        snapshot.walkingSpeed = try await healthKit.averageQuantity(
-            .walkingSpeed,
-            unit: HKUnit.meter().unitDivided(by: .second()),
-            start: start, end: end
-        )
-        snapshot.walkingStepLength = try await healthKit.averageQuantity(
-            .walkingStepLength,
-            unit: .meter(),
-            start: start, end: end
-        )
-        snapshot.walkingDoubleSupportPct = try await healthKit.averageQuantity(
-            .walkingDoubleSupportPercentage,
-            unit: .percent(),
-            start: start, end: end
-        )
-        snapshot.walkingAsymmetryPct = try await healthKit.averageQuantity(
-            .walkingAsymmetryPercentage,
-            unit: .percent(),
-            start: start, end: end
-        )
+        snapshot.headphoneAudioExposure = try await headphone
+        snapshot.walkingSpeed = try await walkSpeed
+        snapshot.walkingStepLength = try await walkStepLen
+        snapshot.walkingDoubleSupportPct = try await walkDoubleSupport
+        snapshot.walkingAsymmetryPct = try await walkAsymmetry
 
         // Time in daylight (cumulative daily total, like steps)
         if let daylight = try await healthKit.cumulativeQuantity(

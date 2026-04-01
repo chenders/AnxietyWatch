@@ -37,15 +37,32 @@ struct DashboardView: View {
             }
             .navigationTitle("Dashboard")
             .task {
-                vm.loadSamples(from: modelContext)
+                // Compute immediately from cached @Query data — no async, no blocking
                 vm.computeSupplyAlerts(from: prescriptions)
-                await vm.refreshSnapshot(context: modelContext)
                 vm.computeBaselines(from: recentSnapshots)
                 vm.sendStatsToWatch(
                     lastAnxiety: recentEntries.first?.severity,
                     todaySnapshot: vm.todaySnapshot(from: recentSnapshots)
                 )
-                await vm.autoSync(context: modelContext)
+
+                // Load samples and refresh in background — these are slow
+                Task { @MainActor in
+                    vm.loadSamples(from: modelContext)
+                }
+                Task {
+                    await vm.refreshSnapshot(context: modelContext)
+                    // Recompute baselines from fresh data after refresh
+                    let descriptor = FetchDescriptor<HealthSnapshot>(
+                        sortBy: [SortDescriptor(\.date, order: .reverse)]
+                    )
+                    if let updated = try? modelContext.fetch(descriptor) {
+                        vm.computeBaselines(from: updated)
+                    }
+                }
+                Task { await vm.autoSync(context: modelContext) }
+            }
+            .onChange(of: prescriptions.count) {
+                vm.computeSupplyAlerts(from: prescriptions)
             }
         }
     }
