@@ -67,6 +67,34 @@ enum BaselineCalculator {
         return baseline(from: values)
     }
 
+    /// Compute CPAP AHI baseline.
+    static func cpapAHIBaseline(
+        from snapshots: [HealthSnapshot],
+        windowDays: Int = Constants.baselineWindowDays
+    ) -> BaselineResult? {
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: .now)!
+        let cutoff = Calendar.current.startOfDay(for: daysAgo)
+        let values = snapshots
+            .filter { $0.date >= cutoff }
+            .compactMap(\.cpapAHI)
+
+        return baseline(from: values)
+    }
+
+    /// Compute barometric pressure baseline.
+    static func barometricPressureBaseline(
+        from snapshots: [HealthSnapshot],
+        windowDays: Int = Constants.baselineWindowDays
+    ) -> BaselineResult? {
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: .now)!
+        let cutoff = Calendar.current.startOfDay(for: daysAgo)
+        let values = snapshots
+            .filter { $0.date >= cutoff }
+            .compactMap(\.barometricPressureAvgKPa)
+
+        return baseline(from: values)
+    }
+
     /// Average of the most recent N days for a given metric.
     static func recentAverage(
         from snapshots: [HealthSnapshot],
