@@ -59,7 +59,9 @@ struct TrendsView: View {
         let ws = windowState
         let f = Self.windowDateFormatter
         let label = "\(f.string(from: ws.start)) – \(f.string(from: ws.chartEnd))"
-        let dateRange = ws.start...ws.chartEnd
+        // Pad trailing edge so data doesn't crowd the Y-axis labels on the right
+        let paddedChartEnd = Calendar.current.date(byAdding: .hour, value: 12, to: ws.chartEnd) ?? ws.chartEnd
+        let dateRange = ws.start...paddedChartEnd
 
         let snapshots = allSnapshots.filter { inWindow($0.date, start: ws.start, end: ws.end) }
         let entries = allEntries.filter { inWindow($0.timestamp, start: ws.start, end: ws.end) }
