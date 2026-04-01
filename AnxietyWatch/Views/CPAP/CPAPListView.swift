@@ -61,8 +61,14 @@ struct CPAPListView: View {
         case .success(let urls):
             guard let url = urls.first else { return }
             do {
-                let count = try CPAPImporter.importCSV(from: url, into: modelContext)
-                alertMessage = "Imported \(count) session\(count == 1 ? "" : "s")."
+                let result = try CPAPImporter.importCSV(from: url, into: modelContext)
+                if result.updated == 0 {
+                    alertMessage = "Imported \(result.inserted) session\(result.inserted == 1 ? "" : "s")."
+                } else if result.inserted == 0 {
+                    alertMessage = "Updated \(result.updated) session\(result.updated == 1 ? "" : "s")."
+                } else {
+                    alertMessage = "Imported \(result.inserted) new, updated \(result.updated) existing (\(result.total) total)."
+                }
             } catch {
                 alertMessage = error.localizedDescription
             }

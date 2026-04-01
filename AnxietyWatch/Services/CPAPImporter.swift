@@ -7,6 +7,13 @@ import SwiftData
 /// - OSCAR Summary: 42-column export from OSCAR (Open Source CPAP Analysis Reporter)
 enum CPAPImporter {
 
+    struct ImportResult {
+        let inserted: Int
+        let updated: Int
+        let dateRange: ClosedRange<Date>?
+        var total: Int { inserted + updated }
+    }
+
     enum ImportError: Error, LocalizedError {
         case invalidFormat
         case noData
@@ -21,8 +28,8 @@ enum CPAPImporter {
         }
     }
 
-    /// Import CPAP sessions from a CSV file. Returns the number of sessions imported.
-    static func importCSV(from url: URL, into context: ModelContext) throws -> Int {
+    /// Import CPAP sessions from a CSV file. Returns an `ImportResult` with inserted/updated counts and date range.
+    static func importCSV(from url: URL, into context: ModelContext) throws -> ImportResult {
         let isSecurityScoped = url.startAccessingSecurityScopedResource()
         defer { if isSecurityScoped { url.stopAccessingSecurityScopedResource() } }
 
@@ -45,6 +52,43 @@ enum CPAPImporter {
         }
     }
 
+    // MARK: - Upsert Helpers
+
+    /// Find an existing CPAPSession for the given date (normalized to start of day).
+    private static func existingSession(for date: Date, in context: ModelContext) -> CPAPSession? {
+        let normalized = Calendar.current.startOfDay(for: date)
+        let descriptor = FetchDescriptor<CPAPSession>(
+            predicate: #Predicate { $0.date == normalized }
+        )
+        return try? context.fetch(descriptor).first
+    }
+
+    /// Update an existing session's fields with new values.
+    private static func updateSession(
+        _ session: CPAPSession,
+        ahi: Double,
+        totalUsageMinutes: Int,
+        leakRate95th: Double?,
+        pressureMin: Double,
+        pressureMax: Double,
+        pressureMean: Double,
+        obstructiveEvents: Int,
+        centralEvents: Int,
+        hypopneaEvents: Int,
+        importSource: String
+    ) {
+        session.ahi = ahi
+        session.totalUsageMinutes = totalUsageMinutes
+        session.leakRate95th = leakRate95th
+        session.pressureMin = pressureMin
+        session.pressureMax = pressureMax
+        session.pressureMean = pressureMean
+        session.obstructiveEvents = obstructiveEvents
+        session.centralEvents = centralEvents
+        session.hypopneaEvents = hypopneaEvents
+        session.importSource = importSource
+    }
+
     // MARK: - Format Detection
 
     /// Normalize header for resilient format detection: strip BOM, whitespace, lowercase.
@@ -64,12 +108,15 @@ enum CPAPImporter {
 
     // MARK: - Simple Format Parser
 
-    private static func importSimple(_ lines: [String], into context: ModelContext) throws -> Int {
+    private static func importSimple(_ lines: [String], into context: ModelContext) throws -> ImportResult {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
 
-        var imported = 0
+        var inserted = 0
+        var updated = 0
+        var minDate: Date?
+        var maxDate: Date?
 
         for line in lines {
             let fields = line.components(separatedBy: ",")
@@ -88,26 +135,45 @@ enum CPAPImporter {
                   let hypopnea = Int(fields[9])
             else { continue }
 
-            let session = CPAPSession(
-                date: date,
-                ahi: ahi,
-                totalUsageMinutes: usage,
-                leakRate95th: leak,
-                pressureMin: pMin,
-                pressureMax: pMax,
-                pressureMean: pMean,
-                obstructiveEvents: obstructive,
-                centralEvents: central,
-                hypopneaEvents: hypopnea,
-                importSource: "csv"
-            )
-            context.insert(session)
-            imported += 1
+            let normalized = Calendar.current.startOfDay(for: date)
+            if minDate == nil || normalized < minDate! { minDate = normalized }
+            if maxDate == nil || normalized > maxDate! { maxDate = normalized }
+
+            if let existing = existingSession(for: date, in: context) {
+                updateSession(existing, ahi: ahi, totalUsageMinutes: usage,
+                              leakRate95th: leak, pressureMin: pMin, pressureMax: pMax,
+                              pressureMean: pMean, obstructiveEvents: obstructive,
+                              centralEvents: central, hypopneaEvents: hypopnea,
+                              importSource: "csv")
+                updated += 1
+            } else {
+                let session = CPAPSession(
+                    date: date,
+                    ahi: ahi,
+                    totalUsageMinutes: usage,
+                    leakRate95th: leak,
+                    pressureMin: pMin,
+                    pressureMax: pMax,
+                    pressureMean: pMean,
+                    obstructiveEvents: obstructive,
+                    centralEvents: central,
+                    hypopneaEvents: hypopnea,
+                    importSource: "csv"
+                )
+                context.insert(session)
+                inserted += 1
+            }
         }
 
-        guard imported > 0 else { throw ImportError.noData }
+        guard inserted + updated > 0 else { throw ImportError.noData }
         try context.save()
-        return imported
+
+        let dateRange: ClosedRange<Date>? = if let min = minDate, let max = maxDate {
+            min...max
+        } else {
+            nil
+        }
+        return ImportResult(inserted: inserted, updated: updated, dateRange: dateRange)
     }
 
     // MARK: - OSCAR Summary Format Parser
@@ -116,12 +182,15 @@ enum CPAPImporter {
     /// 0: Date, 4: Total Time (HH:MM:SS), 5: AHI
     /// 6: CA Count, 8: OA Count, 9: H Count
     /// 22: Median Pressure, 36: 99.5% Pressure
-    private static func importOSCAR(_ lines: [String], into context: ModelContext) throws -> Int {
+    private static func importOSCAR(_ lines: [String], into context: ModelContext) throws -> ImportResult {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
 
-        var imported = 0
+        var inserted = 0
+        var updated = 0
+        var minDate: Date?
+        var maxDate: Date?
 
         for line in lines {
             let fields = line.components(separatedBy: ",")
@@ -140,26 +209,47 @@ enum CPAPImporter {
             let usageMinutes = parseHHMMSS(fields[4])
             guard usageMinutes > 0 else { continue }
 
-            let session = CPAPSession(
-                date: date,
-                ahi: ahi,
-                totalUsageMinutes: usageMinutes,
-                leakRate95th: nil,
-                pressureMin: medianPressure,
-                pressureMax: pressure995,
-                pressureMean: medianPressure,
-                obstructiveEvents: obstructiveEvents,
-                centralEvents: centralEvents,
-                hypopneaEvents: hypopneaEvents,
-                importSource: "oscar"
-            )
-            context.insert(session)
-            imported += 1
+            let normalized = Calendar.current.startOfDay(for: date)
+            if minDate == nil || normalized < minDate! { minDate = normalized }
+            if maxDate == nil || normalized > maxDate! { maxDate = normalized }
+
+            if let existing = existingSession(for: date, in: context) {
+                updateSession(existing, ahi: ahi, totalUsageMinutes: usageMinutes,
+                              leakRate95th: nil, pressureMin: medianPressure,
+                              pressureMax: pressure995, pressureMean: medianPressure,
+                              obstructiveEvents: obstructiveEvents,
+                              centralEvents: centralEvents,
+                              hypopneaEvents: hypopneaEvents,
+                              importSource: "oscar")
+                updated += 1
+            } else {
+                let session = CPAPSession(
+                    date: date,
+                    ahi: ahi,
+                    totalUsageMinutes: usageMinutes,
+                    leakRate95th: nil,
+                    pressureMin: medianPressure,
+                    pressureMax: pressure995,
+                    pressureMean: medianPressure,
+                    obstructiveEvents: obstructiveEvents,
+                    centralEvents: centralEvents,
+                    hypopneaEvents: hypopneaEvents,
+                    importSource: "oscar"
+                )
+                context.insert(session)
+                inserted += 1
+            }
         }
 
-        guard imported > 0 else { throw ImportError.noData }
+        guard inserted + updated > 0 else { throw ImportError.noData }
         try context.save()
-        return imported
+
+        let dateRange: ClosedRange<Date>? = if let min = minDate, let max = maxDate {
+            min...max
+        } else {
+            nil
+        }
+        return ImportResult(inserted: inserted, updated: updated, dateRange: dateRange)
     }
 
     /// Parse "HH:MM:SS" to total minutes (truncating seconds).
