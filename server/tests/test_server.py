@@ -212,6 +212,8 @@ def test_sync_all_entity_types(client):
                 "steps": 8500, "activeCalories": 350.0, "exerciseMinutes": 45,
                 "environmentalSoundAvg": 55.0, "bpSystolic": 120.0, "bpDiastolic": 80.0,
                 "bloodGlucoseAvg": 95.0,
+                "cpapAHI": 2.3, "cpapUsageMinutes": 420,
+                "barometricPressureAvgKPa": 101.3, "barometricPressureChangeKPa": 0.5,
             },
         ],
         "barometricReadings": [
@@ -228,6 +230,50 @@ def test_sync_all_entity_types(client):
     assert counts["cpap_sessions"] == 1
     assert counts["health_snapshots"] == 1
     assert counts["barometric_readings"] == 1
+
+
+def test_sync_health_snapshot_cpap_barometric_fields(client, app):
+    """CPAP and barometric fields round-trip through sync and read back."""
+    payload = {
+        "healthSnapshots": [
+            {
+                "date": "2025-03-20", "hrvAvg": 45.0,
+                "cpapAHI": 3.1, "cpapUsageMinutes": 380,
+                "barometricPressureAvgKPa": 100.8, "barometricPressureChangeKPa": 1.2,
+            },
+        ],
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+    assert resp.get_json()["counts"]["health_snapshots"] == 1
+
+    # Read back and verify
+    resp = client.get("/api/data/healthSnapshots", headers=auth_header())
+    rows = resp.get_json()["healthSnapshots"]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["cpap_ahi"] == 3.1
+    assert row["cpap_usage_minutes"] == 380
+    assert row["barometric_pressure_avg_kpa"] == 100.8
+    assert row["barometric_pressure_change_kpa"] == 1.2
+
+
+def test_sync_health_snapshot_cpap_barometric_null(client, app):
+    """CPAP and barometric fields default to null when omitted."""
+    payload = {
+        "healthSnapshots": [
+            {"date": "2025-03-21", "hrvAvg": 50.0},
+        ],
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    resp = client.get("/api/data/healthSnapshots", headers=auth_header())
+    row = resp.get_json()["healthSnapshots"][0]
+    assert row["cpap_ahi"] is None
+    assert row["cpap_usage_minutes"] is None
+    assert row["barometric_pressure_avg_kpa"] is None
+    assert row["barometric_pressure_change_kpa"] is None
 
 
 def test_sync_invalid_json(client):
