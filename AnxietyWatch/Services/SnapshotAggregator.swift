@@ -116,6 +116,9 @@ struct SnapshotAggregator {
         if let bpReading = try await bp {
             snapshot.bpSystolic = bpReading.systolic
             snapshot.bpDiastolic = bpReading.diastolic
+        } else {
+            snapshot.bpSystolic = nil
+            snapshot.bpDiastolic = nil
         }
         snapshot.bloodGlucoseAvg = try await glucose
 
