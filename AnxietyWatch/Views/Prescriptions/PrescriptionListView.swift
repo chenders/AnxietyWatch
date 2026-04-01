@@ -231,3 +231,11 @@ struct SupplyBadge: View {
         }
     }
 }
+
+#if DEBUG
+#Preview {
+    let container = try! PreviewHelpers.makeSeededContainer()
+    PrescriptionListView()
+        .modelContainer(container)
+}
+#endif

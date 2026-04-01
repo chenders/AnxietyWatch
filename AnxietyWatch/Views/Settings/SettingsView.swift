@@ -181,3 +181,11 @@ struct SettingsView: View {
         isRebuilding = false
     }
 }
+
+#if DEBUG
+#Preview {
+    let container = try! PreviewHelpers.makeSeededContainer()
+    SettingsView()
+        .modelContainer(container)
+}
+#endif

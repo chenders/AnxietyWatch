@@ -91,3 +91,13 @@ struct LabResultsView: View {
         return String(format: "%.1f", value)
     }
 }
+
+#if DEBUG
+#Preview {
+    let container = try! PreviewHelpers.makeSeededContainer()
+    NavigationStack {
+        LabResultsView()
+    }
+    .modelContainer(container)
+}
+#endif
