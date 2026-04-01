@@ -20,7 +20,7 @@ The result is not a wall of numbers. It is your own data, interpreted through yo
 
 > **Your data never leaves your devices.** There is no cloud service, no account to create, no telemetry, no analytics. Health data stays in HealthKit on your iPhone. App data stays in local SwiftData storage. The only time data goes anywhere is when *you* explicitly choose to export a report, sync to *your own* self-hosted server, or share a clinical PDF with *your* doctor. You are in complete control.
 
-> **This project is under active development.** The data collection layer is thorough — 25+ HealthKit data types, medication tracking with efficacy measurement, OSCAR CPAP import with EDF parsing, pharmacy benefit (CapRx) integration, clinical reports, a sync server, and a growing test suite. The intelligence layer — pattern detection, compound triggers, proactive insights — is where the project is headed next.
+> **This project is under active development.** The data collection layer is thorough — 25+ HealthKit data types, medication tracking with efficacy measurement, OSCAR CSV import with server-side EDF leak parsing, pharmacy benefit (CapRx) integration, clinical reports, a sync server, and a growing test suite. The intelligence layer — pattern detection, compound triggers, proactive insights — is where the project is headed next.
 
 <div align="center">
   <img src="docs/screenshots/dashboard.png" width="200" alt="Dashboard showing HRV baseline alert, anxiety rating, health metrics with sparklines" />
@@ -58,7 +58,7 @@ For some people, tracking health data can increase anxiety rather than reduce it
 | **Medication tracking** | Dose logging with 30-min before/after efficacy follow-up (a personal [N-of-1 trial](https://en.wikipedia.org/wiki/N-of-1_trial)) |
 | **watchOS Quick Log** | Digital Crown severity picker — works during panic, under five seconds |
 | **HealthKit integration** | 25+ data types (HRV, sleep stages, heart rate, SpO2, activity, blood pressure, walking metrics, daylight exposure, physical effort, AFib burden, and more) with personal rolling baselines |
-| **CPAP import** | AirSense 11 SD card — AHI, leak rates, usage hours via OSCAR CSV auto-detection + EDF leak rate parsing; connects sleep apnea treatment to anxiety outcomes |
+| **CPAP import** | AirSense 11 SD card — AHI, leak rates, usage hours via on-device OSCAR CSV auto-detection; self-hosted sync server parses EDF files for leak rate percentiles; connects sleep apnea treatment to anxiety outcomes |
 | **Prescription management** | Supply tracking, refill alerts, OCR label scanning, pharmacy search with call logging, CapRx pharmacy benefit claim import |
 | **Clinical reports** | PDF summaries structured for psychiatric appointments — anxiety, meds, sleep, HRV, CPAP, labs |
 | **Data export** | JSON/CSV across 10 entity types, plus self-hosted Flask + PostgreSQL sync server |
@@ -151,7 +151,7 @@ If you're browsing this codebase to learn from it, here are the parts worth stud
 
 - **Actor-isolated HealthKit at scale** — `HealthKitManager` handles 25+ data types with anchored object queries, background delivery, and structured concurrency. Most open-source HealthKit examples demonstrate 2-3 types. This is a reference implementation for the real thing.
 - **Dose-triggered notification follow-up** — `DoseAnxietyPromptView` + `DoseFollowUpManager`: schedules a `UNNotificationRequest` 30 minutes post-dose, captures the follow-up rating, pairs it with the pre-dose entry via a shared `MedicationDose` relationship, and cleans up stale follow-ups after 2 hours.
-- **HealthSnapshot materialized view** — `SnapshotAggregator` queries HealthKit once per day and aggregates 19+ metrics into a single SwiftData record. Charts and exports read from this local model, not from HealthKit directly. Rebuildable from source if needed.
+- **HealthSnapshot materialized view** — `SnapshotAggregator` queries HealthKit once per day and aggregates all tracked metrics into a single SwiftData record. Charts and exports read from this local model, not from HealthKit directly. Rebuildable from source if needed.
 - **CPAP SD card parsing** — `CPAPImporter` auto-detects [OSCAR](https://www.sleepfiles.com/OSCAR/) Summary CSV exports on the iOS side, and the sync server includes an EDF parser (`edf_parser.py`) that extracts 95th-percentile leak rates from AirSense 11 waveform files. One of the few Swift/Python CPAP parsing implementations.
 - **Vision OCR for prescription labels** — `PrescriptionLabelScanner` extracts Rx number, medication name, dosage, quantity, and refills from photographed pill bottles using regex patterns against `VNRecognizeTextRequest` output.
 - **Personal baseline statistics** — `BaselineCalculator` computes rolling mean/stddev per metric with configurable windows, outlier trimming, and deviation detection. Minimum 14 samples, sample variance (N-1). Design principle: flag when *you* deviate from *your own* normal.
