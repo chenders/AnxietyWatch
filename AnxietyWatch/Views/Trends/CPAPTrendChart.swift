@@ -45,12 +45,12 @@ struct CPAPTrendChart: View {
 
                 ForEach(entries) { entry in
                     RuleMark(x: .value("Date", entry.timestamp, unit: .day))
-                        .foregroundStyle(anxietyColor(entry.severity).opacity(0.25))
+                        .foregroundStyle(Color.severity(entry.severity).opacity(0.25))
                         .lineStyle(StrokeStyle(lineWidth: 2))
                         .annotation(position: .top, spacing: 0) {
                             Text("\(entry.severity)")
                                 .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(anxietyColor(entry.severity))
+                                .foregroundStyle(Color.severity(entry.severity))
                         }
                 }
             }
@@ -82,12 +82,4 @@ struct CPAPTrendChart: View {
         }
     }
 
-    private func anxietyColor(_ severity: Int) -> Color {
-        switch severity {
-        case 1...3: return .green
-        case 4...6: return .yellow
-        case 7...8: return .orange
-        default: return .red
-        }
-    }
 }
