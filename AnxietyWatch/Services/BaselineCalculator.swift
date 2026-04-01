@@ -14,9 +14,10 @@ enum BaselineCalculator {
     /// Compute HRV baseline from the last `windowDays` of snapshots.
     static func hrvBaseline(
         from snapshots: [HealthSnapshot],
-        windowDays: Int = Constants.baselineWindowDays
+        windowDays: Int = Constants.baselineWindowDays,
+        anchorDate: Date = .now
     ) -> BaselineResult? {
-        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: .now)!
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate)!
         let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
@@ -28,9 +29,10 @@ enum BaselineCalculator {
     /// Compute resting HR baseline.
     static func restingHRBaseline(
         from snapshots: [HealthSnapshot],
-        windowDays: Int = Constants.baselineWindowDays
+        windowDays: Int = Constants.baselineWindowDays,
+        anchorDate: Date = .now
     ) -> BaselineResult? {
-        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: .now)!
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate)!
         let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
@@ -42,9 +44,10 @@ enum BaselineCalculator {
     /// Compute sleep duration baseline (in minutes).
     static func sleepBaseline(
         from snapshots: [HealthSnapshot],
-        windowDays: Int = Constants.baselineWindowDays
+        windowDays: Int = Constants.baselineWindowDays,
+        anchorDate: Date = .now
     ) -> BaselineResult? {
-        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: .now)!
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate)!
         let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
@@ -56,9 +59,10 @@ enum BaselineCalculator {
     /// Compute respiratory rate baseline.
     static func respiratoryRateBaseline(
         from snapshots: [HealthSnapshot],
-        windowDays: Int = Constants.baselineWindowDays
+        windowDays: Int = Constants.baselineWindowDays,
+        anchorDate: Date = .now
     ) -> BaselineResult? {
-        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: .now)!
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate)!
         let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
@@ -67,13 +71,44 @@ enum BaselineCalculator {
         return baseline(from: values)
     }
 
+    /// Compute CPAP AHI baseline.
+    static func cpapAHIBaseline(
+        from snapshots: [HealthSnapshot],
+        windowDays: Int = Constants.baselineWindowDays,
+        anchorDate: Date = .now
+    ) -> BaselineResult? {
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate)!
+        let cutoff = Calendar.current.startOfDay(for: daysAgo)
+        let values = snapshots
+            .filter { $0.date >= cutoff }
+            .compactMap(\.cpapAHI)
+
+        return baseline(from: values)
+    }
+
+    /// Compute barometric pressure baseline.
+    static func barometricPressureBaseline(
+        from snapshots: [HealthSnapshot],
+        windowDays: Int = Constants.baselineWindowDays,
+        anchorDate: Date = .now
+    ) -> BaselineResult? {
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate)!
+        let cutoff = Calendar.current.startOfDay(for: daysAgo)
+        let values = snapshots
+            .filter { $0.date >= cutoff }
+            .compactMap(\.barometricPressureAvgKPa)
+
+        return baseline(from: values)
+    }
+
     /// Average of the most recent N days for a given metric.
     static func recentAverage(
         from snapshots: [HealthSnapshot],
         days: Int = 3,
-        keyPath: KeyPath<HealthSnapshot, Double?>
+        keyPath: KeyPath<HealthSnapshot, Double?>,
+        anchorDate: Date = .now
     ) -> Double? {
-        let daysAgo = Calendar.current.date(byAdding: .day, value: -days, to: .now)!
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -days, to: anchorDate)!
         let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
@@ -84,9 +119,9 @@ enum BaselineCalculator {
     }
 
     /// Check if the 3-day rolling HRV average is below baseline.
-    static func isHRVBelowBaseline(snapshots: [HealthSnapshot]) -> Bool {
-        guard let baseline = hrvBaseline(from: snapshots),
-              let recent = recentAverage(from: snapshots, days: 3, keyPath: \.hrvAvg)
+    static func isHRVBelowBaseline(snapshots: [HealthSnapshot], anchorDate: Date = .now) -> Bool {
+        guard let baseline = hrvBaseline(from: snapshots, anchorDate: anchorDate),
+              let recent = recentAverage(from: snapshots, days: 3, keyPath: \.hrvAvg, anchorDate: anchorDate)
         else { return false }
 
         return recent < baseline.lowerBound

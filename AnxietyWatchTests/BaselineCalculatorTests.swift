@@ -10,9 +10,17 @@ struct BaselineCalculatorTests {
 
     // MARK: - Helpers
 
-    /// Fixed reference date so all snapshots in a test are anchored to the same point,
-    /// avoiding flakiness if a test runs across midnight.
-    private let referenceDate = Date.now
+    /// Fixed reference date at noon UTC for deterministic tests — never use Date.now.
+    private let referenceDate: Date = {
+        var components = DateComponents()
+        components.year = 2026
+        components.month = 3
+        components.day = 15
+        components.hour = 12
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar.date(from: components)!
+    }()
 
     private func makeSnapshot(daysAgo: Int, hrvAvg: Double?) -> HealthSnapshot {
         let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: referenceDate)!
@@ -32,7 +40,7 @@ struct BaselineCalculatorTests {
         let snapshots = makeSnapshotsWithHRV(
             (0..<13).map { ($0, 45.0) }
         )
-        let result = BaselineCalculator.hrvBaseline(from: snapshots)
+        let result = BaselineCalculator.hrvBaseline(from: snapshots, anchorDate: referenceDate)
         #expect(result == nil)
     }
 
@@ -41,7 +49,7 @@ struct BaselineCalculatorTests {
         let snapshots = makeSnapshotsWithHRV(
             (0..<14).map { ($0, 45.0) }
         )
-        let result = BaselineCalculator.hrvBaseline(from: snapshots)
+        let result = BaselineCalculator.hrvBaseline(from: snapshots, anchorDate: referenceDate)
         #expect(result != nil)
     }
 
@@ -51,7 +59,7 @@ struct BaselineCalculatorTests {
         let snapshots = makeSnapshotsWithHRV(
             (0..<14).map { ($0, $0 % 2 == 0 ? 40.0 : 60.0) }
         )
-        let result = BaselineCalculator.hrvBaseline(from: snapshots)!
+        let result = BaselineCalculator.hrvBaseline(from: snapshots, anchorDate: referenceDate)!
         #expect(abs(result.mean - 50.0) < 0.01)
     }
 
@@ -63,7 +71,7 @@ struct BaselineCalculatorTests {
         let snapshots = makeSnapshotsWithHRV(
             (0..<14).map { ($0, $0 % 2 == 0 ? 40.0 : 60.0) }
         )
-        let result = BaselineCalculator.hrvBaseline(from: snapshots)!
+        let result = BaselineCalculator.hrvBaseline(from: snapshots, anchorDate: referenceDate)!
         let expectedStdDev = (1400.0 / 13.0).squareRoot() // ≈10.38
         #expect(abs(result.standardDeviation - expectedStdDev) < 0.01)
     }
@@ -73,7 +81,7 @@ struct BaselineCalculatorTests {
         let snapshots = makeSnapshotsWithHRV(
             (0..<14).map { ($0, $0 % 2 == 0 ? 40.0 : 60.0) }
         )
-        let result = BaselineCalculator.hrvBaseline(from: snapshots)!
+        let result = BaselineCalculator.hrvBaseline(from: snapshots, anchorDate: referenceDate)!
         let expected = result.mean - Constants.deviationThreshold * result.standardDeviation
         #expect(abs(result.lowerBound - expected) < 0.01)
     }
@@ -88,7 +96,7 @@ struct BaselineCalculatorTests {
             snapshots.append(makeSnapshot(daysAgo: day, hrvAvg: 45))
         }
 
-        let result = BaselineCalculator.hrvBaseline(from: snapshots, windowDays: 30)
+        let result = BaselineCalculator.hrvBaseline(from: snapshots, windowDays: 30, anchorDate: referenceDate)
         #expect(result != nil)
         // All 31 values should be included (days 0–30)
         #expect(abs(result!.mean - 45.0) < 0.01)
@@ -100,7 +108,7 @@ struct BaselineCalculatorTests {
         var snapshots = [makeSnapshot(daysAgo: 31, hrvAvg: 100)] // outside
         snapshots += (0..<14).map { makeSnapshot(daysAgo: $0, hrvAvg: 40) }
 
-        let result = BaselineCalculator.hrvBaseline(from: snapshots, windowDays: 30)
+        let result = BaselineCalculator.hrvBaseline(from: snapshots, windowDays: 30, anchorDate: referenceDate)
         #expect(result != nil)
         // Mean should be 40 (the outlier at 100 should be excluded)
         #expect(abs(result!.mean - 40.0) < 0.01)
@@ -119,7 +127,7 @@ struct BaselineCalculatorTests {
             snapshots.append(makeSnapshot(daysAgo: day, hrvAvg: 30))
         }
 
-        let isBelow = BaselineCalculator.isHRVBelowBaseline(snapshots: snapshots)
+        let isBelow = BaselineCalculator.isHRVBelowBaseline(snapshots: snapshots, anchorDate: referenceDate)
         #expect(isBelow == true)
     }
 
@@ -128,7 +136,7 @@ struct BaselineCalculatorTests {
         let snapshots = makeSnapshotsWithHRV(
             (0...29).map { ($0, 50.0) }
         )
-        let isBelow = BaselineCalculator.isHRVBelowBaseline(snapshots: snapshots)
+        let isBelow = BaselineCalculator.isHRVBelowBaseline(snapshots: snapshots, anchorDate: referenceDate)
         #expect(isBelow == false)
     }
 
@@ -142,7 +150,7 @@ struct BaselineCalculatorTests {
             makeSnapshot(daysAgo: 2, hrvAvg: 60),
             makeSnapshot(daysAgo: 10, hrvAvg: 100), // outside 3-day window
         ]
-        let avg = BaselineCalculator.recentAverage(from: snapshots, days: 3, keyPath: \.hrvAvg)
+        let avg = BaselineCalculator.recentAverage(from: snapshots, days: 3, keyPath: \.hrvAvg, anchorDate: referenceDate)
         #expect(avg != nil)
         #expect(abs(avg! - 50.0) < 0.01)
     }
@@ -152,7 +160,7 @@ struct BaselineCalculatorTests {
         let snapshots = [
             makeSnapshot(daysAgo: 10, hrvAvg: 50),
         ]
-        let avg = BaselineCalculator.recentAverage(from: snapshots, days: 3, keyPath: \.hrvAvg)
+        let avg = BaselineCalculator.recentAverage(from: snapshots, days: 3, keyPath: \.hrvAvg, anchorDate: referenceDate)
         #expect(avg == nil)
     }
 
@@ -168,13 +176,13 @@ struct BaselineCalculatorTests {
     @Test("Sleep baseline requires 14+ data points")
     func sleepBaselineRequiresMinimum() {
         let snapshots = (0..<13).map { makeSnapshotWithSleep(daysAgo: $0, sleepMin: 420) }
-        #expect(BaselineCalculator.sleepBaseline(from: snapshots) == nil)
+        #expect(BaselineCalculator.sleepBaseline(from: snapshots, anchorDate: referenceDate) == nil)
     }
 
     @Test("Sleep baseline computed with enough data")
     func sleepBaselineComputed() {
         let snapshots = (0..<14).map { makeSnapshotWithSleep(daysAgo: $0, sleepMin: 420) }
-        let result = BaselineCalculator.sleepBaseline(from: snapshots)
+        let result = BaselineCalculator.sleepBaseline(from: snapshots, anchorDate: referenceDate)
         #expect(result != nil)
         #expect(abs(result!.mean - 420.0) < 0.01)
     }
@@ -183,7 +191,7 @@ struct BaselineCalculatorTests {
     func sleepBaselineWindowFilter() {
         var snapshots = [makeSnapshotWithSleep(daysAgo: 31, sleepMin: 600)] // outside
         snapshots += (0..<14).map { makeSnapshotWithSleep(daysAgo: $0, sleepMin: 400) }
-        let result = BaselineCalculator.sleepBaseline(from: snapshots, windowDays: 30)
+        let result = BaselineCalculator.sleepBaseline(from: snapshots, windowDays: 30, anchorDate: referenceDate)
         #expect(result != nil)
         #expect(abs(result!.mean - 400.0) < 0.01)
     }
@@ -192,7 +200,7 @@ struct BaselineCalculatorTests {
     func sleepBaselineIgnoresNil() {
         var snapshots = (0..<14).map { makeSnapshotWithSleep(daysAgo: $0, sleepMin: 420) }
         snapshots.append(makeSnapshotWithSleep(daysAgo: 14, sleepMin: nil))
-        let result = BaselineCalculator.sleepBaseline(from: snapshots)
+        let result = BaselineCalculator.sleepBaseline(from: snapshots, anchorDate: referenceDate)
         #expect(result != nil)
         #expect(abs(result!.mean - 420.0) < 0.01)
     }
@@ -205,7 +213,7 @@ struct BaselineCalculatorTests {
         var snapshots = (0..<14).map { makeSnapshot(daysAgo: $0, hrvAvg: 50.0) }
         snapshots.append(makeSnapshot(daysAgo: 14, hrvAvg: 200.0))
 
-        let result = BaselineCalculator.hrvBaseline(from: snapshots)
+        let result = BaselineCalculator.hrvBaseline(from: snapshots, anchorDate: referenceDate)
         #expect(result != nil)
         // Mean should be close to 50, not pulled toward 200
         #expect(result!.mean < 55.0)
@@ -217,7 +225,7 @@ struct BaselineCalculatorTests {
         let snapshots = makeSnapshotsWithHRV(
             (0..<14).map { ($0, 40.0 + Double($0 % 3) * 10.0) }
         )
-        let result = BaselineCalculator.hrvBaseline(from: snapshots)
+        let result = BaselineCalculator.hrvBaseline(from: snapshots, anchorDate: referenceDate)
         #expect(result != nil)
         // All values are within normal range — none should be trimmed
         // Mean of [40,50,60,40,50,60,40,50,60,40,50,60,40,50] ≈ 49.3
@@ -236,13 +244,13 @@ struct BaselineCalculatorTests {
     @Test("Respiratory rate baseline requires 14+ data points")
     func respiratoryRateBaselineRequiresMinimum() {
         let snapshots = (0..<13).map { makeSnapshotWithRR(daysAgo: $0, rr: 15.0) }
-        #expect(BaselineCalculator.respiratoryRateBaseline(from: snapshots) == nil)
+        #expect(BaselineCalculator.respiratoryRateBaseline(from: snapshots, anchorDate: referenceDate) == nil)
     }
 
     @Test("Respiratory rate baseline computed with enough data")
     func respiratoryRateBaselineComputed() {
         let snapshots = (0..<14).map { makeSnapshotWithRR(daysAgo: $0, rr: 15.0) }
-        let result = BaselineCalculator.respiratoryRateBaseline(from: snapshots)
+        let result = BaselineCalculator.respiratoryRateBaseline(from: snapshots, anchorDate: referenceDate)
         #expect(result != nil)
         #expect(abs(result!.mean - 15.0) < 0.01)
     }
@@ -251,7 +259,7 @@ struct BaselineCalculatorTests {
     func respiratoryRateBaselineWindowFilter() {
         var snapshots = [makeSnapshotWithRR(daysAgo: 31, rr: 25.0)] // outside
         snapshots += (0..<14).map { makeSnapshotWithRR(daysAgo: $0, rr: 14.0) }
-        let result = BaselineCalculator.respiratoryRateBaseline(from: snapshots, windowDays: 30)
+        let result = BaselineCalculator.respiratoryRateBaseline(from: snapshots, windowDays: 30, anchorDate: referenceDate)
         #expect(result != nil)
         #expect(abs(result!.mean - 14.0) < 0.01)
     }
@@ -260,7 +268,7 @@ struct BaselineCalculatorTests {
     func respiratoryRateBaselineVariance() {
         // 14 values alternating 12 and 18 → mean = 15
         let snapshots = (0..<14).map { makeSnapshotWithRR(daysAgo: $0, rr: $0 % 2 == 0 ? 12.0 : 18.0) }
-        let result = BaselineCalculator.respiratoryRateBaseline(from: snapshots)!
+        let result = BaselineCalculator.respiratoryRateBaseline(from: snapshots, anchorDate: referenceDate)!
         // Sum of squared deviations = 14 * 9 = 126, sample variance = 126/13
         let expectedStdDev = (126.0 / 13.0).squareRoot()
         #expect(abs(result.standardDeviation - expectedStdDev) < 0.01)

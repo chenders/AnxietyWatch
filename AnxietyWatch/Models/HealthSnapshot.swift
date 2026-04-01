@@ -66,6 +66,14 @@ final class HealthSnapshot {
     var timeInDaylightMin: Int?
     var physicalEffortAvg: Double?
 
+    // CPAP (matched from CPAPSession by date)
+    var cpapAHI: Double?
+    var cpapUsageMinutes: Int?
+
+    // Barometric (aggregated from BarometricReading by date)
+    var barometricPressureAvgKPa: Double?
+    var barometricPressureChangeKPa: Double?
+
     init(date: Date) {
         self.id = UUID()
         // Normalize to start of day so the unique constraint works on calendar days

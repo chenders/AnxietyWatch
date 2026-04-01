@@ -17,6 +17,8 @@ final class DashboardViewModel {
     private(set) var rhrBaseline: BaselineCalculator.BaselineResult?
     private(set) var sleepBaseline: BaselineCalculator.BaselineResult?
     private(set) var respiratoryBaseline: BaselineCalculator.BaselineResult?
+    private(set) var cpapAHIBaseline: BaselineCalculator.BaselineResult?
+    private(set) var barometricBaseline: BaselineCalculator.BaselineResult?
 
     // MARK: - Data Loading
 
@@ -41,6 +43,8 @@ final class DashboardViewModel {
         rhrBaseline = BaselineCalculator.restingHRBaseline(from: snapshots)
         sleepBaseline = BaselineCalculator.sleepBaseline(from: snapshots)
         respiratoryBaseline = BaselineCalculator.respiratoryRateBaseline(from: snapshots)
+        cpapAHIBaseline = BaselineCalculator.cpapAHIBaseline(from: snapshots)
+        barometricBaseline = BaselineCalculator.barometricPressureBaseline(from: snapshots)
     }
 
     /// Compute supply alert count.

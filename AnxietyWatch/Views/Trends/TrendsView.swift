@@ -127,8 +127,8 @@ struct TrendsView: View {
                         HeartRateTrendChart(snapshots: snapshots, entries: entries, dateRange: dateRange)
                         SleepTrendChart(snapshots: snapshots, dateRange: dateRange)
                         ActivityTrendChart(snapshots: snapshots, dateRange: dateRange)
-                        CPAPTrendChart(sessions: cpapSessions, dateRange: dateRange)
-                        BarometricTrendChart(readings: barometricReadings, entries: entries, dateRange: dateRange)
+                        CPAPTrendChart(sessions: cpapSessions, allSnapshots: allSnapshots, entries: entries, dateRange: dateRange)
+                        BarometricTrendChart(readings: barometricReadings, entries: entries, allSnapshots: allSnapshots, dateRange: dateRange)
                     }
                 }
                 .padding(.vertical)
