@@ -155,6 +155,34 @@ struct SnapshotAggregator {
             start: start, end: end
         )
 
+        // Stitch CPAP data from CPAPSession (matched by date)
+        let cpapDescriptor = FetchDescriptor<CPAPSession>(
+            predicate: #Predicate { $0.date == start }
+        )
+        if let cpapSession = try modelContext.fetch(cpapDescriptor).first {
+            snapshot.cpapAHI = cpapSession.ahi
+            snapshot.cpapUsageMinutes = cpapSession.totalUsageMinutes
+        } else {
+            snapshot.cpapAHI = nil
+            snapshot.cpapUsageMinutes = nil
+        }
+
+        // Stitch barometric data (average and change for the day)
+        let barometricDescriptor = FetchDescriptor<BarometricReading>(
+            predicate: #Predicate { $0.timestamp >= start && $0.timestamp < end }
+        )
+        let barometricReadings = try modelContext.fetch(barometricDescriptor)
+        if !barometricReadings.isEmpty {
+            let pressures = barometricReadings.map(\.pressureKPa)
+            snapshot.barometricPressureAvgKPa = pressures.reduce(0, +) / Double(pressures.count)
+            if let minP = pressures.min(), let maxP = pressures.max() {
+                snapshot.barometricPressureChangeKPa = maxP - minP
+            }
+        } else {
+            snapshot.barometricPressureAvgKPa = nil
+            snapshot.barometricPressureChangeKPa = nil
+        }
+
         try modelContext.save()
     }
 }
