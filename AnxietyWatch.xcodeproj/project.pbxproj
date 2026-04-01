@@ -70,6 +70,8 @@
 		8395637A2F6D2DF3002DA90A /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		8395638C2F6D2EE7002DA90A /* AnxietyWatchWidgetsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AnxietyWatchWidgetsExtension.entitlements; sourceTree = "<group>"; };
 		83BB00022F6E100000B45286 /* AnxietyWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnxietyWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1BCE8104E10A4AEC9EDECBDA /* Project.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Project.xcconfig; sourceTree = "<group>"; };
+		04BF48242112459BB0004FB0 /* watchOS.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = watchOS.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -155,6 +157,7 @@
 		833535F02F6D0B3D00B45286 = {
 			isa = PBXGroup;
 			children = (
+				35A1235BEA864C5680BE2482 /* Config */,
 				8395638C2F6D2EE7002DA90A /* AnxietyWatchWidgetsExtension.entitlements */,
 				833535FB2F6D0B3D00B45286 /* AnxietyWatch */,
 				83BB00032F6E100000B45286 /* AnxietyWatchTests */,
@@ -183,6 +186,15 @@
 				8395637A2F6D2DF3002DA90A /* SwiftUI.framework */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		35A1235BEA864C5680BE2482 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				1BCE8104E10A4AEC9EDECBDA /* Project.xcconfig */,
+				04BF48242112459BB0004FB0 /* watchOS.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -411,6 +423,7 @@
 /* Begin XCBuildConfiguration section */
 		833536042F6D0B3F00B45286 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1BCE8104E10A4AEC9EDECBDA /* Project.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -461,7 +474,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -474,6 +486,7 @@
 		};
 		833536052F6D0B3F00B45286 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1BCE8104E10A4AEC9EDECBDA /* Project.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -518,7 +531,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -610,6 +622,7 @@
 		};
 		833536192F6D0C0100B45286 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 04BF48242112459BB0004FB0 /* watchOS.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -640,12 +653,12 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 11.0;
 			};
 			name = Debug;
 		};
 		8335361A2F6D0C0100B45286 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 04BF48242112459BB0004FB0 /* watchOS.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -676,12 +689,12 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 11.0;
 			};
 			name = Release;
 		};
 		839563892F6D2DF4002DA90A /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 04BF48242112459BB0004FB0 /* watchOS.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
@@ -710,12 +723,12 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 11.0;
 			};
 			name = Debug;
 		};
 		8395638A2F6D2DF4002DA90A /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 04BF48242112459BB0004FB0 /* watchOS.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
@@ -744,7 +757,6 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 11.0;
 			};
 			name = Release;
 		};
