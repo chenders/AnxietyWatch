@@ -184,8 +184,9 @@ final class HealthDataCoordinator {
 
         // Sleep analysis stays on observer query (category type)
         await HealthKitManager.shared.startObserving { [weak self] in
+            guard let coordinator = self else { return }
             Task { @MainActor in
-                self?.scheduleRefresh()
+                coordinator.scheduleRefresh()
             }
         }
 
@@ -193,9 +194,10 @@ final class HealthDataCoordinator {
         // Samples are buffered and saved in batches to avoid flooding the main
         // actor with individual saves (which cause excessive @Query re-evaluation).
         await HealthKitManager.shared.startAnchoredQueries { [weak self] newSamples in
+            guard let coordinator = self else { return }
             Task { @MainActor in
-                self?.bufferSamples(newSamples)
-                self?.scheduleRefresh()
+                coordinator.bufferSamples(newSamples)
+                coordinator.scheduleRefresh()
             }
         }
     }

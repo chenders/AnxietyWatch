@@ -100,3 +100,11 @@ struct SeverityBadge: View {
         }
     }
 }
+
+#if DEBUG
+#Preview {
+    let container = try! PreviewHelpers.makeSeededContainer()
+    JournalListView()
+        .modelContainer(container)
+}
+#endif

@@ -137,3 +137,13 @@ struct ExportView: View {
         FileManager.default.temporaryDirectory.appendingPathComponent(filename)
     }
 }
+
+#if DEBUG
+#Preview {
+    let container = try! PreviewHelpers.makeSeededContainer()
+    NavigationStack {
+        ExportView()
+    }
+    .modelContainer(container)
+}
+#endif

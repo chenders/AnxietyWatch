@@ -75,3 +75,11 @@ private struct PharmacyRow: View {
         }
     }
 }
+
+#if DEBUG
+#Preview {
+    let container = try! PreviewHelpers.makeSeededContainer()
+    PharmacyListView()
+        .modelContainer(container)
+}
+#endif

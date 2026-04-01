@@ -49,6 +49,7 @@ actor HealthKitManager {
         }
         types.insert(HKCategoryType(.sleepAnalysis))
         types.insert(HKWorkoutType.workoutType())
+        types.insert(HKCorrelationType(.bloodPressure))
         return types
     }
 
@@ -194,6 +195,50 @@ actor HealthKitManager {
 
         guard let sample else { return nil }
         return (sample.endDate, sample.quantity.doubleValue(for: unit))
+    }
+
+    // MARK: - Blood Pressure (Correlation)
+
+    /// Query blood pressure as HKCorrelation to get properly paired
+    /// systolic/diastolic readings. Returns average of paired readings
+    /// in the given date range, or nil if no readings exist.
+    func averageBloodPressure(
+        start: Date,
+        end: Date
+    ) async throws -> (systolic: Double, diastolic: Double)? {
+        guard isAvailable else { return nil }
+        let bpType = HKCorrelationType(.bloodPressure)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
+
+        let correlations: [HKCorrelation] = try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: bpType,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: nil
+            ) { _, results, error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume(returning: (results as? [HKCorrelation]) ?? []) }
+            }
+            healthStore.execute(query)
+        }
+
+        guard !correlations.isEmpty else { return nil }
+
+        let mmHg = HKUnit.millimeterOfMercury()
+        var sysTotal = 0.0, diaTotal = 0.0, count = 0
+
+        for correlation in correlations {
+            if let sys = correlation.objects(for: HKQuantityType(.bloodPressureSystolic)).first as? HKQuantitySample,
+               let dia = correlation.objects(for: HKQuantityType(.bloodPressureDiastolic)).first as? HKQuantitySample {
+                sysTotal += sys.quantity.doubleValue(for: mmHg)
+                diaTotal += dia.quantity.doubleValue(for: mmHg)
+                count += 1
+            }
+        }
+
+        guard count > 0 else { return nil }
+        return (sysTotal / Double(count), diaTotal / Double(count))
     }
 
     // MARK: - History Discovery

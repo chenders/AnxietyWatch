@@ -122,3 +122,13 @@ struct CPAPSessionRow: View {
         }
     }
 }
+
+#if DEBUG
+#Preview {
+    let container = try! PreviewHelpers.makeSeededContainer()
+    NavigationStack {
+        CPAPListView()
+    }
+    .modelContainer(container)
+}
+#endif

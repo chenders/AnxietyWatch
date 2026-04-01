@@ -71,7 +71,13 @@ struct PrescriptionDetailView: View {
                 EditableSupplyFields(prescription: prescription)
             } else {
                 LabeledContent("Quantity", value: "\(prescription.quantity)")
-                LabeledContent("Refills Remaining", value: "\(prescription.refillsRemaining)")
+                LabeledContent("Refills Remaining") {
+                    if prescription.importSource == "caprx" && prescription.refillsRemaining == 0 {
+                        Text("Unknown").foregroundStyle(.secondary)
+                    } else {
+                        Text("\(prescription.refillsRemaining)")
+                    }
+                }
                 LabeledContent("Daily Doses") {
                     if let count = prescription.dailyDoseCount {
                         Text(String(format: "%.1f", count))
