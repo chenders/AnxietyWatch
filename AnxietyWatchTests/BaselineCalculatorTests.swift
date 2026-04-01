@@ -127,7 +127,7 @@ struct BaselineCalculatorTests {
             snapshots.append(makeSnapshot(daysAgo: day, hrvAvg: 30))
         }
 
-        let isBelow = BaselineCalculator.isHRVBelowBaseline(snapshots: snapshots)
+        let isBelow = BaselineCalculator.isHRVBelowBaseline(snapshots: snapshots, anchorDate: referenceDate)
         #expect(isBelow == true)
     }
 
@@ -136,7 +136,7 @@ struct BaselineCalculatorTests {
         let snapshots = makeSnapshotsWithHRV(
             (0...29).map { ($0, 50.0) }
         )
-        let isBelow = BaselineCalculator.isHRVBelowBaseline(snapshots: snapshots)
+        let isBelow = BaselineCalculator.isHRVBelowBaseline(snapshots: snapshots, anchorDate: referenceDate)
         #expect(isBelow == false)
     }
 

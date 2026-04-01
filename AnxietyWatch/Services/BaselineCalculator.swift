@@ -119,9 +119,9 @@ enum BaselineCalculator {
     }
 
     /// Check if the 3-day rolling HRV average is below baseline.
-    static func isHRVBelowBaseline(snapshots: [HealthSnapshot]) -> Bool {
-        guard let baseline = hrvBaseline(from: snapshots),
-              let recent = recentAverage(from: snapshots, days: 3, keyPath: \.hrvAvg)
+    static func isHRVBelowBaseline(snapshots: [HealthSnapshot], anchorDate: Date = .now) -> Bool {
+        guard let baseline = hrvBaseline(from: snapshots, anchorDate: anchorDate),
+              let recent = recentAverage(from: snapshots, days: 3, keyPath: \.hrvAvg, anchorDate: anchorDate)
         else { return false }
 
         return recent < baseline.lowerBound
