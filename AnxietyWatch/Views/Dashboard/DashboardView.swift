@@ -115,7 +115,8 @@ struct DashboardView: View {
             )
         }
         if let baseline = vm.barometricBaseline,
-           let todayPressure = recentSnapshots.first?.barometricPressureAvgKPa,
+           let todaySnapshot = vm.todaySnapshot(from: recentSnapshots),
+           let todayPressure = todaySnapshot.barometricPressureAvgKPa,
            todayPressure < baseline.lowerBound {
             baselineAlertCard(
                 icon: "barometer",

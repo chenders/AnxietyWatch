@@ -1,3 +1,4 @@
+import os
 import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
@@ -106,7 +107,7 @@ struct CPAPListView: View {
                 }
                 // Backfill snapshots for imported date range
                 if let dateRange = result.dateRange {
-                    Task {
+                    Task { @MainActor in
                         await backfillSnapshots(dateRange: dateRange)
                     }
                 }
@@ -118,6 +119,7 @@ struct CPAPListView: View {
         }
     }
 
+    @MainActor
     private func backfillSnapshots(dateRange: ClosedRange<Date>) async {
         let aggregator = SnapshotAggregator(
             healthKit: HealthKitManager.shared,
@@ -125,7 +127,11 @@ struct CPAPListView: View {
         )
         var date = dateRange.lowerBound
         while date <= dateRange.upperBound {
-            try? await aggregator.aggregateDay(date)
+            do {
+                try await aggregator.aggregateDay(date)
+            } catch {
+                Log.data.error("Backfill snapshot failed for \(date.formatted(.dateTime.month().day()), privacy: .public): \(error, privacy: .public)")
+            }
             date = Calendar.current.date(byAdding: .day, value: 1, to: date) ?? dateRange.upperBound.addingTimeInterval(1)
         }
     }
