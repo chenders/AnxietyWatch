@@ -32,6 +32,9 @@ jobs:
           echo "sim_name=$SIM_NAME" >> "$GITHUB_OUTPUT"
           echo "Using simulator: $SIM_NAME"
 
+      - name: Check deployment targets not in pbxproj
+        run: bash scripts/check-deployment-targets.sh
+
       - name: Generate BuildVersion.swift
         run: SRCROOT="${GITHUB_WORKSPACE}" bash scripts/generate-version.sh
 
