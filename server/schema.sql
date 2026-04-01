@@ -67,7 +67,11 @@ CREATE TABLE IF NOT EXISTS health_snapshots (
     environmental_sound_avg DOUBLE PRECISION,
     bp_systolic             DOUBLE PRECISION,
     bp_diastolic            DOUBLE PRECISION,
-    blood_glucose_avg       DOUBLE PRECISION
+    blood_glucose_avg       DOUBLE PRECISION,
+    cpap_ahi                DOUBLE PRECISION,
+    cpap_usage_minutes      INTEGER,
+    barometric_pressure_avg_kpa    DOUBLE PRECISION,
+    barometric_pressure_change_kpa DOUBLE PRECISION
 );
 
 CREATE TABLE IF NOT EXISTS barometric_readings (

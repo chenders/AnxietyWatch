@@ -83,6 +83,15 @@ def create_app(test_config=None):
             ]
             for stmt in _caprx_migrations:
                 cur.execute(stmt)
+            # Migrate: add CPAP/barometric columns to health_snapshots
+            _snapshot_migrations = [
+                "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS cpap_ahi DOUBLE PRECISION",
+                "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS cpap_usage_minutes INTEGER",
+                "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS barometric_pressure_avg_kpa DOUBLE PRECISION",
+                "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS barometric_pressure_change_kpa DOUBLE PRECISION",
+            ]
+            for stmt in _snapshot_migrations:
+                cur.execute(stmt)
         db.commit()
 
     @app.cli.command("init-db")
@@ -262,8 +271,11 @@ def create_app(test_config=None):
                        sleep_duration_min, sleep_deep_min, sleep_rem_min, sleep_core_min, sleep_awake_min,
                        skin_temp_deviation, respiratory_rate, spo2_avg,
                        steps, active_calories, exercise_minutes,
-                       environmental_sound_avg, bp_systolic, bp_diastolic, blood_glucose_avg)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       environmental_sound_avg, bp_systolic, bp_diastolic, blood_glucose_avg,
+                       cpap_ahi, cpap_usage_minutes,
+                       barometric_pressure_avg_kpa, barometric_pressure_change_kpa)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (date) DO UPDATE SET
                        hrv_avg = EXCLUDED.hrv_avg,
                        hrv_min = EXCLUDED.hrv_min,
@@ -282,7 +294,11 @@ def create_app(test_config=None):
                        environmental_sound_avg = EXCLUDED.environmental_sound_avg,
                        bp_systolic = EXCLUDED.bp_systolic,
                        bp_diastolic = EXCLUDED.bp_diastolic,
-                       blood_glucose_avg = EXCLUDED.blood_glucose_avg""",
+                       blood_glucose_avg = EXCLUDED.blood_glucose_avg,
+                       cpap_ahi = EXCLUDED.cpap_ahi,
+                       cpap_usage_minutes = EXCLUDED.cpap_usage_minutes,
+                       barometric_pressure_avg_kpa = EXCLUDED.barometric_pressure_avg_kpa,
+                       barometric_pressure_change_kpa = EXCLUDED.barometric_pressure_change_kpa""",
                 (
                     s["date"], s.get("hrvAvg"), s.get("hrvMin"), s.get("restingHR"),
                     s.get("sleepDurationMin"), s.get("sleepDeepMin"), s.get("sleepREMMin"),
@@ -291,6 +307,8 @@ def create_app(test_config=None):
                     s.get("steps"), s.get("activeCalories"), s.get("exerciseMinutes"),
                     s.get("environmentalSoundAvg"), s.get("bpSystolic"), s.get("bpDiastolic"),
                     s.get("bloodGlucoseAvg"),
+                    s.get("cpapAHI"), s.get("cpapUsageMinutes"),
+                    s.get("barometricPressureAvgKPa"), s.get("barometricPressureChangeKPa"),
                 ),
             )
         return len(snapshots)
