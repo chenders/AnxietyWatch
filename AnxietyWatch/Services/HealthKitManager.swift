@@ -2,7 +2,7 @@ import HealthKit
 import os
 
 /// Single point of contact for all HealthKit reads. Never query HealthKit directly from views.
-actor HealthKitManager {
+actor HealthKitManager: HealthKitDataSource {
     static let shared = HealthKitManager()
 
     private let healthStore = HKHealthStore()
@@ -400,14 +400,6 @@ actor HealthKitManager {
     }
 
     // MARK: - Sleep Analysis
-
-    struct SleepData: Sendable {
-        var totalMinutes: Int = 0
-        var deepMinutes: Int = 0
-        var remMinutes: Int = 0
-        var coreMinutes: Int = 0
-        var awakeMinutes: Int = 0
-    }
 
     /// Query sleep stages for a date range. Returns aggregated minutes per stage.
     func querySleepAnalysis(start: Date, end: Date) async throws -> SleepData {
