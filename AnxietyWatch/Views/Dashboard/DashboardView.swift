@@ -103,6 +103,27 @@ struct DashboardView: View {
                 color: .teal
             )
         }
+        if let baseline = vm.cpapAHIBaseline,
+           let recentAHI = BaselineCalculator.recentAverage(from: recentSnapshots, days: 3, keyPath: \.cpapAHI),
+           recentAHI > baseline.upperBound, baseline.mean > 0 {
+            let pct = Int(((recentAHI - baseline.mean) / baseline.mean) * 100)
+            baselineAlertCard(
+                icon: "lungs.fill",
+                title: "CPAP AHI Elevated",
+                message: "Your 3-night AHI average is \(pct)% above your 30-day baseline",
+                color: .purple
+            )
+        }
+        if let baseline = vm.barometricBaseline,
+           let todayPressure = recentSnapshots.first?.barometricPressureAvgKPa,
+           todayPressure < baseline.lowerBound {
+            baselineAlertCard(
+                icon: "barometer",
+                title: "Low Barometric Pressure",
+                message: "Pressure is significantly below your 30-day average",
+                color: .gray
+            )
+        }
     }
 
     private func baselineAlertCard(icon: String, title: String, message: String, color: Color) -> some View {
