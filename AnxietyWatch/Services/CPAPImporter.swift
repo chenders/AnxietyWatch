@@ -55,12 +55,12 @@ enum CPAPImporter {
     // MARK: - Upsert Helpers
 
     /// Find an existing CPAPSession for the given date (normalized to start of day).
-    private static func existingSession(for date: Date, in context: ModelContext) -> CPAPSession? {
+    private static func existingSession(for date: Date, in context: ModelContext) throws -> CPAPSession? {
         let normalized = Calendar.current.startOfDay(for: date)
         let descriptor = FetchDescriptor<CPAPSession>(
             predicate: #Predicate { $0.date == normalized }
         )
-        return try? context.fetch(descriptor).first
+        return try context.fetch(descriptor).first
     }
 
     /// Update an existing session's fields with new values.
@@ -108,11 +108,19 @@ enum CPAPImporter {
 
     // MARK: - Simple Format Parser
 
+    /// Prefetch all existing CPAPSessions into a dictionary keyed by normalized date
+    /// so import loops can do O(1) lookups instead of one fetch per row.
+    private static func prefetchSessions(in context: ModelContext) throws -> [Date: CPAPSession] {
+        let all = try context.fetch(FetchDescriptor<CPAPSession>())
+        return Dictionary(all.map { ($0.date, $0) }, uniquingKeysWith: { _, latest in latest })
+    }
+
     private static func importSimple(_ lines: [String], into context: ModelContext) throws -> ImportResult {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
 
+        var existingByDate = try prefetchSessions(in: context)
         var inserted = 0
         var updated = 0
         var minDate: Date?
@@ -139,7 +147,7 @@ enum CPAPImporter {
             if minDate == nil || normalized < minDate! { minDate = normalized }
             if maxDate == nil || normalized > maxDate! { maxDate = normalized }
 
-            if let existing = existingSession(for: date, in: context) {
+            if let existing = existingByDate[normalized] {
                 updateSession(existing, ahi: ahi, totalUsageMinutes: usage,
                               leakRate95th: leak, pressureMin: pMin, pressureMax: pMax,
                               pressureMean: pMean, obstructiveEvents: obstructive,
@@ -161,6 +169,7 @@ enum CPAPImporter {
                     importSource: "csv"
                 )
                 context.insert(session)
+                existingByDate[normalized] = session
                 inserted += 1
             }
         }
@@ -187,6 +196,7 @@ enum CPAPImporter {
         dateFormatter.dateFormat = "yyyy-MM-dd"
         dateFormatter.locale = Locale(identifier: "en_US_POSIX")
 
+        var existingByDate = try prefetchSessions(in: context)
         var inserted = 0
         var updated = 0
         var minDate: Date?
@@ -213,7 +223,7 @@ enum CPAPImporter {
             if minDate == nil || normalized < minDate! { minDate = normalized }
             if maxDate == nil || normalized > maxDate! { maxDate = normalized }
 
-            if let existing = existingSession(for: date, in: context) {
+            if let existing = existingByDate[normalized] {
                 updateSession(existing, ahi: ahi, totalUsageMinutes: usageMinutes,
                               leakRate95th: nil, pressureMin: medianPressure,
                               pressureMax: pressure995, pressureMean: medianPressure,
@@ -237,6 +247,7 @@ enum CPAPImporter {
                     importSource: "oscar"
                 )
                 context.insert(session)
+                existingByDate[normalized] = session
                 inserted += 1
             }
         }

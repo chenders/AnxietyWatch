@@ -155,11 +155,21 @@ struct SnapshotAggregator {
             start: start, end: end
         )
 
-        // Stitch CPAP data from CPAPSession (matched by date)
+        // Stitch CPAP data from CPAPSession (matched by date).
+        // When duplicates exist (re-imports), pick the session with highest usage
+        // for deterministic results — it represents the most complete therapy night.
         let cpapDescriptor = FetchDescriptor<CPAPSession>(
             predicate: #Predicate { $0.date == start }
         )
-        if let cpapSession = try modelContext.fetch(cpapDescriptor).first {
+        let cpapSessions = try modelContext.fetch(cpapDescriptor)
+        if let cpapSession = cpapSessions.max(by: { lhs, rhs in
+            if lhs.totalUsageMinutes != rhs.totalUsageMinutes {
+                return lhs.totalUsageMinutes < rhs.totalUsageMinutes
+            }
+            let lhsAHI = lhs.ahi ?? Double.greatestFiniteMagnitude
+            let rhsAHI = rhs.ahi ?? Double.greatestFiniteMagnitude
+            return lhsAHI > rhsAHI
+        }) {
             snapshot.cpapAHI = cpapSession.ahi
             snapshot.cpapUsageMinutes = cpapSession.totalUsageMinutes
         } else {

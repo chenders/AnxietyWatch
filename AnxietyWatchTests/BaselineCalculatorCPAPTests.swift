@@ -5,7 +5,17 @@ import Testing
 
 struct BaselineCalculatorCPAPTests {
 
-    private let referenceDate = Date.now
+    /// Fixed reference date at noon UTC for deterministic tests — never use Date.now.
+    private let referenceDate: Date = {
+        var components = DateComponents()
+        components.year = 2026
+        components.month = 3
+        components.day = 15
+        components.hour = 12
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar.date(from: components)!
+    }()
 
     private func makeSnapshotWithAHI(daysAgo: Int, ahi: Double?) -> HealthSnapshot {
         let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: referenceDate)!
@@ -26,13 +36,13 @@ struct BaselineCalculatorCPAPTests {
     @Test("AHI baseline requires 14+ data points")
     func ahiBaselineRequiresMinimum() {
         let snapshots = (0..<13).map { makeSnapshotWithAHI(daysAgo: $0, ahi: 2.5) }
-        #expect(BaselineCalculator.cpapAHIBaseline(from: snapshots) == nil)
+        #expect(BaselineCalculator.cpapAHIBaseline(from: snapshots, anchorDate: referenceDate) == nil)
     }
 
     @Test("AHI baseline computed with enough data")
     func ahiBaselineComputed() {
         let snapshots = (0..<14).map { makeSnapshotWithAHI(daysAgo: $0, ahi: 2.5) }
-        let result = BaselineCalculator.cpapAHIBaseline(from: snapshots)
+        let result = BaselineCalculator.cpapAHIBaseline(from: snapshots, anchorDate: referenceDate)
         #expect(result != nil)
         #expect(abs(result!.mean - 2.5) < 0.01)
     }
@@ -41,7 +51,7 @@ struct BaselineCalculatorCPAPTests {
     func ahiBaselineWindowFilter() {
         var snapshots = [makeSnapshotWithAHI(daysAgo: 31, ahi: 20.0)]
         snapshots += (0..<14).map { makeSnapshotWithAHI(daysAgo: $0, ahi: 3.0) }
-        let result = BaselineCalculator.cpapAHIBaseline(from: snapshots, windowDays: 30)
+        let result = BaselineCalculator.cpapAHIBaseline(from: snapshots, windowDays: 30, anchorDate: referenceDate)
         #expect(result != nil)
         #expect(abs(result!.mean - 3.0) < 0.01)
     }
@@ -50,7 +60,7 @@ struct BaselineCalculatorCPAPTests {
     func ahiBaselineIgnoresNil() {
         var snapshots = (0..<14).map { makeSnapshotWithAHI(daysAgo: $0, ahi: 2.5) }
         snapshots.append(makeSnapshotWithAHI(daysAgo: 14, ahi: nil))
-        let result = BaselineCalculator.cpapAHIBaseline(from: snapshots)
+        let result = BaselineCalculator.cpapAHIBaseline(from: snapshots, anchorDate: referenceDate)
         #expect(result != nil)
         #expect(abs(result!.mean - 2.5) < 0.01)
     }
@@ -59,7 +69,7 @@ struct BaselineCalculatorCPAPTests {
     func ahiOutlierTrimming() {
         var snapshots = (0..<14).map { makeSnapshotWithAHI(daysAgo: $0, ahi: 2.5) }
         snapshots.append(makeSnapshotWithAHI(daysAgo: 14, ahi: 40.0))
-        let result = BaselineCalculator.cpapAHIBaseline(from: snapshots)
+        let result = BaselineCalculator.cpapAHIBaseline(from: snapshots, anchorDate: referenceDate)
         #expect(result != nil)
         #expect(result!.mean < 5.0)
     }
@@ -69,13 +79,13 @@ struct BaselineCalculatorCPAPTests {
     @Test("Barometric baseline requires 14+ data points")
     func barometricBaselineRequiresMinimum() {
         let snapshots = (0..<13).map { makeSnapshotWithPressure(daysAgo: $0, pressure: 101.3) }
-        #expect(BaselineCalculator.barometricPressureBaseline(from: snapshots) == nil)
+        #expect(BaselineCalculator.barometricPressureBaseline(from: snapshots, anchorDate: referenceDate) == nil)
     }
 
     @Test("Barometric baseline computed with enough data")
     func barometricBaselineComputed() {
         let snapshots = (0..<14).map { makeSnapshotWithPressure(daysAgo: $0, pressure: 101.3) }
-        let result = BaselineCalculator.barometricPressureBaseline(from: snapshots)
+        let result = BaselineCalculator.barometricPressureBaseline(from: snapshots, anchorDate: referenceDate)
         #expect(result != nil)
         #expect(abs(result!.mean - 101.3) < 0.01)
     }
@@ -84,7 +94,7 @@ struct BaselineCalculatorCPAPTests {
     func barometricBaselineWindowFilter() {
         var snapshots = [makeSnapshotWithPressure(daysAgo: 31, pressure: 95.0)]
         snapshots += (0..<14).map { makeSnapshotWithPressure(daysAgo: $0, pressure: 101.3) }
-        let result = BaselineCalculator.barometricPressureBaseline(from: snapshots, windowDays: 30)
+        let result = BaselineCalculator.barometricPressureBaseline(from: snapshots, windowDays: 30, anchorDate: referenceDate)
         #expect(result != nil)
         #expect(abs(result!.mean - 101.3) < 0.01)
     }
