@@ -6,7 +6,7 @@ set -euo pipefail
 
 PBXPROJ="AnxietyWatch.xcodeproj/project.pbxproj"
 
-if grep -q 'IPHONEOS_DEPLOYMENT_TARGET\|WATCHOS_DEPLOYMENT_TARGET' "$PBXPROJ"; then
+if grep -Eq 'IPHONEOS_DEPLOYMENT_TARGET|WATCHOS_DEPLOYMENT_TARGET' "$PBXPROJ"; then
   echo "ERROR: Deployment targets found in $PBXPROJ"
   echo "These must only be set in Config/*.xcconfig."
   echo "Xcode may have silently re-added them. Remove the lines from the pbxproj."
