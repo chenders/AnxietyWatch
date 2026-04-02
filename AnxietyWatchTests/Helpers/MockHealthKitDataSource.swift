@@ -54,11 +54,11 @@ actor MockHealthKitDataSource: HealthKitDataSource {
         oldestDate
     }
 
-    func startObserving(onUpdate: @Sendable @escaping () -> Void) {}
+    func startObserving(onUpdate: @Sendable @escaping () -> Void) async {}
 
     func startAnchoredQueries(
         onNewSamples: @Sendable @escaping ([(type: String, value: Double, timestamp: Date, source: String?)]) -> Void
-    ) {}
+    ) async {}
 
     // Convenience setters
     func setAverage(_ id: HKQuantityTypeIdentifier, value: Double) {

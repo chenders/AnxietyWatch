@@ -26,8 +26,8 @@ protocol HealthKitDataSource: Sendable {
     func querySleepAnalysis(start: Date, end: Date) async throws -> SleepData
     func queryClinicalLabResults(since startDate: Date?) async throws -> [HKClinicalRecord]
     func oldestSampleDate() async throws -> Date?
-    func startObserving(onUpdate: @Sendable @escaping () -> Void)
+    func startObserving(onUpdate: @Sendable @escaping () -> Void) async
     func startAnchoredQueries(
         onNewSamples: @Sendable @escaping ([(type: String, value: Double, timestamp: Date, source: String?)]) -> Void
-    )
+    ) async
 }
