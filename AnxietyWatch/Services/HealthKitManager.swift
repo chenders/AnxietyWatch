@@ -100,13 +100,13 @@ actor HealthKitManager: HealthKitDataSource {
     // MARK: - Statistics Queries
 
     /// HealthKit error codes that should be treated as "no data" rather than thrown.
-    /// Code 5: Authorization not determined (user denied or type not in authorization request)
-    /// Code 11: No data available for the specified predicate
+    /// Code 5 (authorizationNotDetermined): type not in authorization request or user hasn't responded
+    /// Code 11 (noData): no samples match the predicate
     private static let noDataErrorCodes: Set<Int> = [5, 11]
 
     private static func isNoDataError(_ error: Error) -> Bool {
         let nsError = error as NSError
-        return nsError.domain == "com.apple.healthkit" && noDataErrorCodes.contains(nsError.code)
+        return nsError.domain == HKErrorDomain && noDataErrorCodes.contains(nsError.code)
     }
 
     /// Average of a discrete quantity type over a date range.

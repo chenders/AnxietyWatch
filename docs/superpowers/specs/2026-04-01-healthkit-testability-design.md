@@ -147,7 +147,7 @@ actor MockHealthKitDataSource: HealthKitDataSource {
 - importedCount matches number of new records
 - Zero new records → importedCount returns 0
 
-### Integration Tests (new AnxietyWatchIntegrationTests target — Theodore only)
+### Integration Tests (new AnxietyWatchIntegrationTests target — a physical device only)
 
 A separate Xcode test target that:
 - Links against HealthKit and the app's model layer
@@ -156,7 +156,7 @@ A separate Xcode test target that:
 - Tagged with `@Suite(.tags(.integration))` for filtering
 
 **SnapshotAggregatorIntegrationTests:**
-- Aggregate yesterday's data → snapshot has non-nil HRV (Chris wears Apple Watch)
+- Aggregate yesterday's data → snapshot has non-nil HRV (device has an Apple Watch paired)
 - Aggregate yesterday's data → sleep duration is reasonable (> 0 min, < 1440 min)
 - Aggregate yesterday's data → restingHR is in physiological range (30-120 bpm)
 

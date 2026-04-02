@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Extract a HealthKitDataSource protocol from HealthKitManager so services can be unit tested with mocks, and add an on-device integration test target that verifies the full HealthKit pipeline on Theodore.
+**Goal:** Extract a HealthKitDataSource protocol from HealthKitManager so services can be unit tested with mocks, and add an on-device integration test target that verifies the full HealthKit pipeline on a physical device.
 
 **Architecture:** Protocol-based DI. A `HealthKitDataSource` protocol captures all HealthKit query methods consumers call. `HealthKitManager` conforms to it. Consumers change their stored type from `HealthKitManager` to `any HealthKitDataSource`. Unit tests inject `MockHealthKitDataSource`; integration tests inject the real `HealthKitManager.shared`.
 
@@ -858,19 +858,19 @@ struct SnapshotAggregatorIntegrationTests {
 
 Run:
 ```bash
-xcodebuild build-for-testing -scheme AnxietyWatch -destination 'platform=iOS,name=theodore' 2>&1 | tail -5
+xcodebuild build-for-testing -scheme AnxietyWatch -destination 'platform=iOS,name=<your-device>' 2>&1 | tail -5
 ```
 Expected: `BUILD SUCCEEDED` (or similar — the integration tests need to compile against the device SDK)
 
-- [ ] **Step 6: Run integration tests on Theodore**
+- [ ] **Step 6: Run integration tests on a physical device**
 
 Run:
 ```bash
-xcodebuild test -scheme AnxietyWatch -destination 'platform=iOS,name=theodore' -only-testing:AnxietyWatchIntegrationTests 2>&1 | grep '** TEST'
+xcodebuild test -scheme AnxietyWatch -destination 'platform=iOS,name=<your-device>' -only-testing:AnxietyWatchIntegrationTests 2>&1 | grep '** TEST'
 ```
 Expected: `** TEST SUCCEEDED **`
 
-Note: HealthKit authorization must be granted on the device. If tests fail with authorization errors, open the app on Theodore first and grant HealthKit permissions.
+Note: HealthKit authorization must be granted on the device. If tests fail with authorization errors, open the app on a physical device first and grant HealthKit permissions.
 
 - [ ] **Step 7: Commit**
 
@@ -895,7 +895,7 @@ Expected: `** TEST SUCCEEDED **`
 
 Run:
 ```bash
-xcodebuild test -scheme AnxietyWatch -destination 'platform=iOS,name=theodore' -only-testing:AnxietyWatchIntegrationTests 2>&1 | grep '** TEST'
+xcodebuild test -scheme AnxietyWatch -destination 'platform=iOS,name=<your-device>' -only-testing:AnxietyWatchIntegrationTests 2>&1 | grep '** TEST'
 ```
 Expected: `** TEST SUCCEEDED **`
 

@@ -6,7 +6,7 @@ import Testing
 
 /// Integration tests that verify the full HealthKit -> SnapshotAggregator -> HealthSnapshot pipeline
 /// on a physical device with real data.
-/// Note: These tests require HealthKit authorization. Run the app on Theodore and grant
+/// Note: These tests require HealthKit authorization. Launch the app on the device and grant
 /// Health permissions before running these tests.
 struct SnapshotAggregatorIntegrationTests {
 
@@ -20,11 +20,6 @@ struct SnapshotAggregatorIntegrationTests {
         return try ModelContainer(for: schema, configurations: [
             ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         ])
-    }
-
-    /// Ensure HealthKit authorization before tests run.
-    private static func ensureAuthorization() async throws {
-        try await HealthKitManager.shared.requestAuthorization()
     }
 
     @Test("Aggregating yesterday produces a snapshot with HRV data")
