@@ -3,7 +3,7 @@ import HealthKit
 import SwiftData
 
 /// Imports anxiety-relevant clinical lab results from HealthKit Health Records.
-/// Follows the same pattern as SnapshotAggregator: takes a HealthKitManager + ModelContext.
+/// Follows the same pattern as SnapshotAggregator: takes a HealthKitDataSource + ModelContext.
 struct ClinicalRecordImporter {
     let healthKit: any HealthKitDataSource
     let modelContext: ModelContext
