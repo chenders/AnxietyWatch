@@ -47,7 +47,7 @@ protocol HealthKitDataSource: Sendable {
 
 `SleepData` moves from `HealthKitManager.SleepData` to a top-level struct so the protocol doesn't reference the concrete type.
 
-`HealthKitManager` conforms to `HealthKitDataSource` — all methods already exist with matching signatures.
+`HealthKitManager` conforms to `HealthKitDataSource`. Query methods match as-is; observer methods (`startObserving`, `startAnchoredQueries`) are declared `async` in the protocol to satisfy actor isolation requirements.
 
 ## Consumer Changes
 
