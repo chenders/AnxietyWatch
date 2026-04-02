@@ -5,7 +5,7 @@ import SwiftData
 /// Pulls a day's worth of HealthKit data into a local HealthSnapshot for efficient trending.
 /// Run daily on app foreground or via background task.
 struct SnapshotAggregator {
-    let healthKit: HealthKitManager
+    let healthKit: any HealthKitDataSource
     let modelContext: ModelContext
 
     func aggregateDay(_ date: Date) async throws {

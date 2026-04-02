@@ -2,7 +2,7 @@ import HealthKit
 import os
 
 /// Single point of contact for all HealthKit reads. Never query HealthKit directly from views.
-actor HealthKitManager {
+actor HealthKitManager: HealthKitDataSource {
     static let shared = HealthKitManager()
 
     private let healthStore = HKHealthStore()
@@ -85,7 +85,9 @@ actor HealthKitManager {
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
             ) { _, results, error in
-                if let error {
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: [])
+                } else if let error {
                     continuation.resume(throwing: error)
                 } else {
                     continuation.resume(returning: (results as? [HKClinicalRecord]) ?? [])
@@ -96,6 +98,16 @@ actor HealthKitManager {
     }
 
     // MARK: - Statistics Queries
+
+    /// HealthKit error codes that should be treated as "no data" rather than thrown.
+    /// Code 5 (authorizationNotDetermined): type not in authorization request or user hasn't responded
+    /// Code 11 (noData): no samples match the predicate
+    private static let noDataErrorCodes: Set<Int> = [5, 11]
+
+    private static func isNoDataError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == HKErrorDomain && noDataErrorCodes.contains(nsError.code)
+    }
 
     /// Average of a discrete quantity type over a date range.
     func averageQuantity(
@@ -114,8 +126,13 @@ actor HealthKitManager {
                 quantitySamplePredicate: predicate,
                 options: .discreteAverage
             ) { _, stats, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: stats) }
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: nil)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: stats)
+                }
             }
             healthStore.execute(query)
         }
@@ -139,8 +156,13 @@ actor HealthKitManager {
                 quantitySamplePredicate: predicate,
                 options: .discreteMin
             ) { _, stats, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: stats) }
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: nil)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: stats)
+                }
             }
             healthStore.execute(query)
         }
@@ -164,8 +186,13 @@ actor HealthKitManager {
                 quantitySamplePredicate: predicate,
                 options: .cumulativeSum
             ) { _, stats, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: stats) }
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: nil)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: stats)
+                }
             }
             healthStore.execute(query)
         }
@@ -187,8 +214,13 @@ actor HealthKitManager {
                 limit: 1,
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)]
             ) { _, results, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: results?.first as? HKQuantitySample) }
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: nil)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: results?.first as? HKQuantitySample)
+                }
             }
             healthStore.execute(query)
         }
@@ -217,8 +249,13 @@ actor HealthKitManager {
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: nil
             ) { _, results, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: (results as? [HKCorrelation]) ?? []) }
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: [])
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: (results as? [HKCorrelation]) ?? [])
+                }
             }
             healthStore.execute(query)
         }
@@ -256,8 +293,13 @@ actor HealthKitManager {
                 limit: 1,
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
             ) { _, results, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: results?.first as? HKQuantitySample) }
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: nil)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: results?.first as? HKQuantitySample)
+                }
             }
             healthStore.execute(query)
         }
@@ -401,14 +443,6 @@ actor HealthKitManager {
 
     // MARK: - Sleep Analysis
 
-    struct SleepData: Sendable {
-        var totalMinutes: Int = 0
-        var deepMinutes: Int = 0
-        var remMinutes: Int = 0
-        var coreMinutes: Int = 0
-        var awakeMinutes: Int = 0
-    }
-
     /// Query sleep stages for a date range. Returns aggregated minutes per stage.
     func querySleepAnalysis(start: Date, end: Date) async throws -> SleepData {
         guard isAvailable else { return SleepData() }
@@ -422,7 +456,9 @@ actor HealthKitManager {
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
             ) { _, results, error in
-                if let error {
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: [])
+                } else if let error {
                     continuation.resume(throwing: error)
                 } else {
                     continuation.resume(returning: (results as? [HKCategorySample]) ?? [])
@@ -481,7 +517,9 @@ actor HealthKitManager {
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
             ) { _, results, error in
-                if let error {
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: [])
+                } else if let error {
                     continuation.resume(throwing: error)
                 } else {
                     continuation.resume(returning: (results as? [HKWorkout]) ?? [])
