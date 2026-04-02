@@ -73,10 +73,10 @@ protocol HealthKitDataSource: Sendable {
     func oldestSampleDate() async throws -> Date?
 
     // Observer setup
-    func startObserving(onUpdate: @Sendable @escaping () -> Void)
+    func startObserving(onUpdate: @Sendable @escaping () -> Void) async
     func startAnchoredQueries(
         onNewSamples: @Sendable @escaping ([(type: String, value: Double, timestamp: Date, source: String?)]) -> Void
-    )
+    ) async
 }
 ```
 
@@ -709,7 +709,7 @@ import Testing
 /// Integration tests that run on a physical device with real HealthKit data.
 /// These verify that HealthKitManager queries return actual data from the device.
 /// Prerequisites: device must have Apple Watch paired with health data synced.
-@Suite(.tags(.integration))
+/// Runs on physical device only — excluded from CI.
 struct HealthKitManagerIntegrationTests {
 
     private let hk = HealthKitManager.shared
@@ -775,7 +775,7 @@ import Testing
 
 /// Integration tests that verify the full HealthKit → SnapshotAggregator → HealthSnapshot pipeline
 /// on a physical device with real data.
-@Suite(.tags(.integration))
+/// Runs on physical device only — excluded from CI.
 struct SnapshotAggregatorIntegrationTests {
 
     @Test("Aggregating yesterday produces a snapshot with HRV data")

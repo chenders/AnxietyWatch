@@ -153,7 +153,7 @@ A separate Xcode test target that:
 - Links against HealthKit and the app's model layer
 - Uses real `HealthKitManager.shared`
 - Only runs when destination is a physical device
-- Tagged with `@Suite(.tags(.integration))` for filtering
+- Tagged with `in a dedicated `AnxietyWatchIntegrationTests` target` for filtering
 
 **SnapshotAggregatorIntegrationTests:**
 - Aggregate yesterday's data → snapshot has non-nil HRV (device has an Apple Watch paired)
@@ -184,11 +184,9 @@ New target: `AnxietyWatchIntegrationTests`
 - `AnxietyWatch/Services/HealthKitDataSource.swift` — protocol + SleepData struct
 - `AnxietyWatchTests/Helpers/MockHealthKitDataSource.swift` — configurable mock
 - `AnxietyWatchTests/SnapshotAggregatorMockTests.swift` — unit tests with mock
-- `AnxietyWatchTests/HealthDataCoordinatorMockTests.swift` — unit tests with mock
 - `AnxietyWatchTests/ClinicalRecordImporterMockTests.swift` — unit tests with mock
 - `AnxietyWatchIntegrationTests/` — new target directory
 - `AnxietyWatchIntegrationTests/SnapshotAggregatorIntegrationTests.swift`
-- `AnxietyWatchIntegrationTests/HealthKitPipelineTests.swift`
 - `AnxietyWatchIntegrationTests/HealthKitManagerIntegrationTests.swift`
 
 ### Modified files
