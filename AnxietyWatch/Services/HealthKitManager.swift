@@ -85,7 +85,9 @@ actor HealthKitManager: HealthKitDataSource {
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
             ) { _, results, error in
-                if let error {
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: [])
+                } else if let error {
                     continuation.resume(throwing: error)
                 } else {
                     continuation.resume(returning: (results as? [HKClinicalRecord]) ?? [])
@@ -96,6 +98,16 @@ actor HealthKitManager: HealthKitDataSource {
     }
 
     // MARK: - Statistics Queries
+
+    /// HealthKit error codes that should be treated as "no data" rather than thrown.
+    /// Code 5: Authorization not determined (user denied or type not in authorization request)
+    /// Code 11: No data available for the specified predicate
+    private static let noDataErrorCodes: Set<Int> = [5, 11]
+
+    private static func isNoDataError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == "com.apple.healthkit" && noDataErrorCodes.contains(nsError.code)
+    }
 
     /// Average of a discrete quantity type over a date range.
     func averageQuantity(
@@ -114,8 +126,13 @@ actor HealthKitManager: HealthKitDataSource {
                 quantitySamplePredicate: predicate,
                 options: .discreteAverage
             ) { _, stats, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: stats) }
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: nil)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: stats)
+                }
             }
             healthStore.execute(query)
         }
@@ -139,8 +156,13 @@ actor HealthKitManager: HealthKitDataSource {
                 quantitySamplePredicate: predicate,
                 options: .discreteMin
             ) { _, stats, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: stats) }
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: nil)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: stats)
+                }
             }
             healthStore.execute(query)
         }
@@ -164,8 +186,13 @@ actor HealthKitManager: HealthKitDataSource {
                 quantitySamplePredicate: predicate,
                 options: .cumulativeSum
             ) { _, stats, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: stats) }
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: nil)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: stats)
+                }
             }
             healthStore.execute(query)
         }
@@ -187,8 +214,13 @@ actor HealthKitManager: HealthKitDataSource {
                 limit: 1,
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)]
             ) { _, results, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: results?.first as? HKQuantitySample) }
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: nil)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: results?.first as? HKQuantitySample)
+                }
             }
             healthStore.execute(query)
         }
@@ -217,8 +249,13 @@ actor HealthKitManager: HealthKitDataSource {
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: nil
             ) { _, results, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: (results as? [HKCorrelation]) ?? []) }
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: [])
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: (results as? [HKCorrelation]) ?? [])
+                }
             }
             healthStore.execute(query)
         }
@@ -256,8 +293,13 @@ actor HealthKitManager: HealthKitDataSource {
                 limit: 1,
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
             ) { _, results, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: results?.first as? HKQuantitySample) }
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: nil)
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: results?.first as? HKQuantitySample)
+                }
             }
             healthStore.execute(query)
         }
@@ -414,7 +456,9 @@ actor HealthKitManager: HealthKitDataSource {
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
             ) { _, results, error in
-                if let error {
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: [])
+                } else if let error {
                     continuation.resume(throwing: error)
                 } else {
                     continuation.resume(returning: (results as? [HKCategorySample]) ?? [])
@@ -473,7 +517,9 @@ actor HealthKitManager: HealthKitDataSource {
                 limit: HKObjectQueryNoLimit,
                 sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
             ) { _, results, error in
-                if let error {
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: [])
+                } else if let error {
                     continuation.resume(throwing: error)
                 } else {
                     continuation.resume(returning: (results as? [HKWorkout]) ?? [])

@@ -5,7 +5,6 @@ import Testing
 
 /// Integration tests that run on a physical device with real HealthKit data.
 /// Prerequisites: device must have Apple Watch paired with health data synced.
-@Suite(.tags(.integration))
 struct HealthKitManagerIntegrationTests {
 
     private let hk = HealthKitManager.shared
@@ -54,6 +53,3 @@ struct HealthKitManagerIntegrationTests {
     }
 }
 
-extension Tag {
-    @Tag static var integration: Self
-}

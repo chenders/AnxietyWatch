@@ -6,12 +6,31 @@ import Testing
 
 /// Integration tests that verify the full HealthKit -> SnapshotAggregator -> HealthSnapshot pipeline
 /// on a physical device with real data.
-@Suite(.tags(.integration))
+/// Note: These tests require HealthKit authorization. Run the app on Theodore and grant
+/// Health permissions before running these tests.
 struct SnapshotAggregatorIntegrationTests {
+
+    private static func makeContainer() throws -> ModelContainer {
+        let schema = Schema([
+            AnxietyEntry.self, MedicationDefinition.self, MedicationDose.self,
+            CPAPSession.self, BarometricReading.self, HealthSnapshot.self,
+            ClinicalLabResult.self, Pharmacy.self, Prescription.self,
+            PharmacyCallLog.self, HealthSample.self,
+        ])
+        return try ModelContainer(for: schema, configurations: [
+            ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        ])
+    }
+
+    /// Ensure HealthKit authorization before tests run.
+    private static func ensureAuthorization() async throws {
+        try await HealthKitManager.shared.requestAuthorization()
+    }
 
     @Test("Aggregating yesterday produces a snapshot with HRV data")
     func yesterdaySnapshotHasHRV() async throws {
-        let container = try TestHelpers.makeFullContainer()
+
+        let container = try Self.makeContainer()
         let context = ModelContext(container)
         let aggregator = SnapshotAggregator(
             healthKit: HealthKitManager.shared,
@@ -28,7 +47,8 @@ struct SnapshotAggregatorIntegrationTests {
 
     @Test("Aggregating yesterday produces reasonable sleep duration")
     func yesterdaySnapshotHasSleep() async throws {
-        let container = try TestHelpers.makeFullContainer()
+
+        let container = try Self.makeContainer()
         let context = ModelContext(container)
         let aggregator = SnapshotAggregator(
             healthKit: HealthKitManager.shared,
@@ -46,7 +66,8 @@ struct SnapshotAggregatorIntegrationTests {
 
     @Test("Aggregating 7 days produces HRV values")
     func weekHasHRVData() async throws {
-        let container = try TestHelpers.makeFullContainer()
+
+        let container = try Self.makeContainer()
         let context = ModelContext(container)
         let aggregator = SnapshotAggregator(
             healthKit: HealthKitManager.shared,
@@ -67,7 +88,8 @@ struct SnapshotAggregatorIntegrationTests {
 
     @Test("Aggregating same day twice does not create duplicates")
     func noDuplicates() async throws {
-        let container = try TestHelpers.makeFullContainer()
+
+        let container = try Self.makeContainer()
         let context = ModelContext(container)
         let aggregator = SnapshotAggregator(
             healthKit: HealthKitManager.shared,
