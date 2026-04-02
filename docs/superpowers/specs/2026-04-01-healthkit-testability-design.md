@@ -38,10 +38,10 @@ protocol HealthKitDataSource: Sendable {
     func oldestSampleDate() async throws -> Date?
 
     // Observer setup (HealthDataCoordinator only)
-    func startObserving(onUpdate: @Sendable @escaping () -> Void)
+    func startObserving(onUpdate: @Sendable @escaping () -> Void) async
     func startAnchoredQueries(
         onNewSamples: @Sendable @escaping ([(type: String, value: Double, timestamp: Date, source: String?)]) -> Void
-    )
+    ) async
 }
 ```
 
@@ -160,9 +160,9 @@ A separate Xcode test target that:
 - Aggregate yesterday's data → sleep duration is reasonable (> 0 min, < 1440 min)
 - Aggregate yesterday's data → restingHR is in physiological range (30-120 bpm)
 
-**HealthKitPipelineTests:**
-- Aggregate 7 days → compute baselines → baseline result is non-nil
-- Aggregate 7 days → verify snapshots are deduplicated (running twice doesn't create duplicates)
+**SnapshotAggregatorIntegrationTests (continued):**
+- Aggregate 7 days → verify HRV values present
+- Aggregate same day twice → verify no duplicate snapshots
 
 **HealthKitManagerIntegrationTests:**
 - querySleepAnalysis for last 7 days → returns non-empty SleepData
