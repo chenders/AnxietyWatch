@@ -39,7 +39,6 @@ jobs:
         run: SRCROOT="${GITHUB_WORKSPACE}" bash scripts/generate-version.sh
 
       - name: Run SwiftLint
-        continue-on-error: true
         run: |
           brew install swiftlint
           swiftlint lint --reporter github-actions-logging
