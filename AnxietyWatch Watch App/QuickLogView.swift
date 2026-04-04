@@ -40,6 +40,7 @@ struct QuickLogView: View {
                                     .foregroundStyle(selectedSeverity == level ? .white : severityColor(level))
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("\(level), \(severityLabel(level))")
                         }
                     }
                 }
