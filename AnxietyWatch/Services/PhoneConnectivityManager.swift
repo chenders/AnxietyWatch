@@ -27,6 +27,25 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
         if let v = hrvAvg { context["hrvAvg"] = v }
         if let v = restingHR { context["restingHR"] = v }
 
+        // Preserve pending check-in state
+        if let pending = RandomCheckInManager.loadPending() {
+            context["pendingRandomCheckIn"] = pending.scheduledTime <= Date.now
+        }
+
+        try? WCSession.default.updateApplicationContext(context)
+    }
+
+    // MARK: - Check-In Context
+
+    /// Update Watch applicationContext with pending check-in state.
+    func updateCheckInContext(pending: Bool) {
+        guard WCSession.default.activationState == .activated,
+              WCSession.default.isPaired,
+              WCSession.default.isWatchAppInstalled
+        else { return }
+
+        var context = WCSession.default.receivedApplicationContext
+        context["pendingRandomCheckIn"] = pending
         try? WCSession.default.updateApplicationContext(context)
     }
 
@@ -62,13 +81,19 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
         else { return }
 
         let notes = message["notes"] as? String ?? ""
+        let source = message["source"] as? String
         let timestamp = Date(timeIntervalSince1970: ts)
 
         Task { @MainActor in
             let context = ModelContext(container)
-            let entry = AnxietyEntry(timestamp: timestamp, severity: severity, notes: notes)
+            let entry = AnxietyEntry(timestamp: timestamp, severity: severity, notes: notes, source: source)
             context.insert(entry)
             try? context.save()
+
+            // If this was a check-in from the Watch, complete it on the iPhone side
+            if source == "random_checkin" {
+                RandomCheckInManager.completeCheckIn()
+            }
         }
     }
 }

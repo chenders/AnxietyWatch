@@ -13,7 +13,11 @@ struct QuickLogView: View {
                     ForEach(1...10, id: \.self) { level in
                         Button {
                             selectedSeverity = level
-                            connectivity.sendAnxietyEntry(severity: level)
+                            let source: String? = connectivity.pendingRandomCheckIn ? "random_checkin" : nil
+                            connectivity.sendAnxietyEntry(severity: level, source: source)
+                            if connectivity.pendingRandomCheckIn {
+                                connectivity.pendingRandomCheckIn = false
+                            }
                             WKInterfaceDevice.current().play(.success)
                             showingConfirmation = true
                         } label: {
