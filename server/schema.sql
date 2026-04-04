@@ -140,5 +140,17 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS correlations (
+    id              SERIAL PRIMARY KEY,
+    signal_name     TEXT NOT NULL,
+    correlation     DOUBLE PRECISION NOT NULL,
+    p_value         DOUBLE PRECISION NOT NULL,
+    sample_count    INTEGER NOT NULL,
+    mean_severity_when_abnormal DOUBLE PRECISION,
+    mean_severity_when_normal   DOUBLE PRECISION,
+    computed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(signal_name)
+);
+
 -- Indexes for common query patterns (only on non-PK / non-UNIQUE columns)
 CREATE INDEX IF NOT EXISTS idx_sync_log_received_at ON sync_log (received_at DESC);

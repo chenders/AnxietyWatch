@@ -152,6 +152,31 @@ struct TrendsView: View {
                         ActivityTrendChart(snapshots: snapshots, dateRange: dateRange)
                         CPAPTrendChart(sessions: cpapSessions, allSnapshots: allSnapshots, entries: entries, dateRange: dateRange)
                         BarometricTrendChart(readings: barometricReadings, entries: entries, allSnapshots: allSnapshots, dateRange: dateRange)
+
+                        // Insights link
+                        NavigationLink {
+                            CorrelationInsightsView()
+                        } label: {
+                            HStack {
+                                Image(systemName: "chart.dots.scatter")
+                                    .font(.title3)
+                                    .foregroundStyle(.blue)
+                                VStack(alignment: .leading) {
+                                    Text("Correlation Insights")
+                                        .font(.headline)
+                                    Text("See how your physiology relates to anxiety")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding()
+                            .background(.ultraThinMaterial, in: .rect(cornerRadius: 12))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal)
                     }
                 }
                 .padding(.vertical)
