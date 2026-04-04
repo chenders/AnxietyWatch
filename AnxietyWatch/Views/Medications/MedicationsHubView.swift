@@ -29,6 +29,11 @@ struct MedicationsHubView: View {
                 recentDosesSection
                 notCurrentlyTakingSection
             }
+            .navigationDestination(for: UUID.self) { id in
+                if let rx = prescriptions.first(where: { $0.id == id }) {
+                    PrescriptionDetailView(prescription: rx)
+                }
+            }
             .navigationTitle("Medications")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -91,11 +96,6 @@ struct MedicationsHubView: View {
                     NavigationLink(value: rx.id) {
                         SupplyAlertRow(prescription: rx)
                     }
-                }
-            }
-            .navigationDestination(for: UUID.self) { id in
-                if let rx = prescriptions.first(where: { $0.id == id }) {
-                    PrescriptionDetailView(prescription: rx)
                 }
             }
         }
