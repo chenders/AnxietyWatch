@@ -10,6 +10,10 @@ struct SettingsView: View {
     @State private var rebuildTotal = 0
     @State private var showRebuildConfirmation = false
     @Query private var allMeds: [MedicationDefinition]
+    @State private var checkInsEnabled = RandomCheckInManager.isEnabled
+    @State private var checkInFrequency = RandomCheckInManager.frequencyPerDay
+    @State private var activeHoursStart = RandomCheckInManager.quietHoursEnd
+    @State private var activeHoursEnd = RandomCheckInManager.quietHoursStart
 
     var body: some View {
         NavigationStack {
@@ -134,6 +138,65 @@ struct SettingsView: View {
                         Button("Rebuild All") {
                             Task { await rebuildAllSnapshots() }
                         }
+                    }
+                }
+
+                Section("Random Check-Ins") {
+                    Toggle("Enable Check-Ins", isOn: $checkInsEnabled)
+                        .onChange(of: checkInsEnabled) { _, newValue in
+                            RandomCheckInManager.isEnabled = newValue
+                            if newValue {
+                                RandomCheckInManager.ensureAuthorization()
+                                RandomCheckInManager.scheduleNextCheckIn()
+                            } else {
+                                RandomCheckInManager.cancelAll()
+                            }
+                        }
+
+                    if checkInsEnabled {
+                        Stepper("Times per day: \(checkInFrequency)", value: $checkInFrequency, in: 1...4)
+                            .onChange(of: checkInFrequency) { _, newValue in
+                                RandomCheckInManager.frequencyPerDay = newValue
+                                RandomCheckInManager.cancelAll()
+                                RandomCheckInManager.isEnabled = true
+                                RandomCheckInManager.scheduleNextCheckIn()
+                            }
+
+                        HStack {
+                            Text("Active hours")
+                            Spacer()
+                            Picker("Start", selection: $activeHoursStart) {
+                                ForEach(5..<13, id: \.self) { hour in
+                                    Text("\(hour % 12 == 0 ? 12 : hour % 12) \(hour < 12 ? "AM" : "PM")")
+                                        .tag(hour)
+                                }
+                            }
+                            .labelsHidden()
+                            Text("–")
+                            Picker("End", selection: $activeHoursEnd) {
+                                ForEach(18..<24, id: \.self) { hour in
+                                    Text("\(hour % 12 == 0 ? 12 : hour % 12) \(hour < 12 ? "AM" : "PM")")
+                                        .tag(hour)
+                                }
+                            }
+                            .labelsHidden()
+                        }
+                        .onChange(of: activeHoursStart) { _, newValue in
+                            RandomCheckInManager.quietHoursEnd = newValue
+                            RandomCheckInManager.cancelAll()
+                            RandomCheckInManager.isEnabled = true
+                            RandomCheckInManager.scheduleNextCheckIn()
+                        }
+                        .onChange(of: activeHoursEnd) { _, newValue in
+                            RandomCheckInManager.quietHoursStart = newValue
+                            RandomCheckInManager.cancelAll()
+                            RandomCheckInManager.isEnabled = true
+                            RandomCheckInManager.scheduleNextCheckIn()
+                        }
+
+                        Text("You'll get \(checkInFrequency) random check-in\(checkInFrequency == 1 ? "" : "s") between \(activeHoursStart % 12 == 0 ? 12 : activeHoursStart % 12) \(activeHoursStart < 12 ? "AM" : "PM") and \(activeHoursEnd % 12 == 0 ? 12 : activeHoursEnd % 12) \(activeHoursEnd < 12 ? "AM" : "PM").")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
 

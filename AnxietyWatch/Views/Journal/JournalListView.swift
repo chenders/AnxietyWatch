@@ -60,8 +60,15 @@ struct JournalEntryRow: View {
         HStack(spacing: 12) {
             SeverityBadge(severity: entry.severity)
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.timestamp, format: .dateTime.month().day().hour().minute())
-                    .font(.subheadline.bold())
+                HStack(spacing: 4) {
+                    Text(entry.timestamp, format: .dateTime.month().day().hour().minute())
+                        .font(.subheadline.bold())
+                    if entry.source == "random_checkin" {
+                        Image(systemName: "bell.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 if !entry.notes.isEmpty {
                     Text(entry.notes)
                         .font(.caption)
