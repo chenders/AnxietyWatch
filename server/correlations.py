@@ -46,6 +46,10 @@ def compute_correlations(cur):
         signal_values = np.array([r[0] for r in rows], dtype=float)
         severity_values = np.array([r[1] for r in rows], dtype=float)
 
+        # Skip if either array is constant — pearsonr returns NaN
+        if np.std(signal_values) == 0 or np.std(severity_values) == 0:
+            continue
+
         r, p = stats.pearsonr(signal_values, severity_values)
 
         mean = np.mean(signal_values)
@@ -134,15 +138,22 @@ def get_paired_day_count(cur):
 
 
 def correlations_are_stale(cur):
-    """Check if correlations need recomputing."""
+    """Check if correlations need recomputing (new entries or snapshots since last computation)."""
     cur.execute("SELECT MAX(computed_at) FROM correlations")
     last_computed = cur.fetchone()[0]
     if last_computed is None:
         return True
 
+    # Stale if new anxiety entries since last computation
     cur.execute("SELECT MAX(timestamp) FROM anxiety_entries")
     last_entry = cur.fetchone()[0]
-    if last_entry is None:
-        return False
+    if last_entry and last_entry > last_computed:
+        return True
 
-    return last_entry > last_computed
+    # Also stale if new health snapshots (new physiological data to correlate)
+    cur.execute("SELECT MAX(date) FROM health_snapshots")
+    last_snapshot = cur.fetchone()[0]
+    if last_snapshot and last_snapshot > last_computed.date():
+        return True
+
+    return False

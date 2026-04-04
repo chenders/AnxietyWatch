@@ -208,11 +208,17 @@ final class SyncService {
     // MARK: - Correlations
 
     private func upsertCorrelations(_ correlations: [[String: Any]], modelContext: ModelContext) {
+        let iso = ISO8601DateFormatter()
+        var seenSignals = Set<String>()
+
         for c in correlations {
             guard let signalName = c["signal_name"] as? String,
                   let corr = c["correlation"] as? Double,
                   let pValue = c["p_value"] as? Double,
                   let sampleCount = c["sample_count"] as? Int else { continue }
+
+            seenSignals.insert(signalName)
+            let serverDate = (c["computed_at"] as? String).flatMap { iso.date(from: $0) } ?? .now
 
             let descriptor = FetchDescriptor<PhysiologicalCorrelation>(
                 predicate: #Predicate { $0.signalName == signalName }
@@ -225,7 +231,7 @@ final class SyncService {
                 existing.sampleCount = sampleCount
                 existing.meanSeverityWhenAbnormal = c["mean_severity_when_abnormal"] as? Double
                 existing.meanSeverityWhenNormal = c["mean_severity_when_normal"] as? Double
-                existing.computedAt = .now
+                existing.computedAt = serverDate
             } else {
                 let record = PhysiologicalCorrelation(
                     signalName: signalName,
@@ -233,11 +239,19 @@ final class SyncService {
                     pValue: pValue,
                     sampleCount: sampleCount,
                     meanSeverityWhenAbnormal: c["mean_severity_when_abnormal"] as? Double,
-                    meanSeverityWhenNormal: c["mean_severity_when_normal"] as? Double
+                    meanSeverityWhenNormal: c["mean_severity_when_normal"] as? Double,
+                    computedAt: serverDate
                 )
                 modelContext.insert(record)
             }
         }
+
+        // Remove correlations no longer returned by server
+        let allLocal = (try? modelContext.fetch(FetchDescriptor<PhysiologicalCorrelation>())) ?? []
+        for local in allLocal where !seenSignals.contains(local.signalName) {
+            modelContext.delete(local)
+        }
+
         try? modelContext.save()
     }
 
