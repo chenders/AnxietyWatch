@@ -10,6 +10,11 @@ import psycopg2
 import psycopg2.extras
 from flask import Flask, g, jsonify, request
 
+from correlations import (
+    compute_correlations, store_correlations, get_correlations,
+    get_paired_day_count, correlations_are_stale, MINIMUM_PAIRED_DAYS,
+)
+
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
@@ -92,6 +97,20 @@ def create_app(test_config=None):
             ]
             for stmt in _snapshot_migrations:
                 cur.execute(stmt)
+            # Migrate: add correlations table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS correlations (
+                    id SERIAL PRIMARY KEY,
+                    signal_name TEXT NOT NULL,
+                    correlation DOUBLE PRECISION NOT NULL,
+                    p_value DOUBLE PRECISION NOT NULL,
+                    sample_count INTEGER NOT NULL,
+                    mean_severity_when_abnormal DOUBLE PRECISION,
+                    mean_severity_when_normal DOUBLE PRECISION,
+                    computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE(signal_name)
+                )
+            """)
         db.commit()
 
     @app.cli.command("init-db")
@@ -192,7 +211,48 @@ def create_app(test_config=None):
             app.logger.exception("Sync failed")
             return jsonify({"error": "Internal server error"}), 500
 
-        return jsonify({"status": "ok", "counts": counts})
+        # Include latest correlations in sync response
+        correlation_data = {}
+        try:
+            cur2 = db.cursor()
+            paired_days = get_paired_day_count(cur2)
+            if paired_days >= MINIMUM_PAIRED_DAYS and correlations_are_stale(cur2):
+                corr_results = compute_correlations(cur2)
+                store_correlations(cur2, corr_results)
+                db.commit()
+            correlation_data = {
+                "correlations": get_correlations(cur2),
+                "paired_days": paired_days,
+                "minimum_required": MINIMUM_PAIRED_DAYS,
+            }
+        except Exception:
+            app.logger.exception("Correlation computation failed (non-fatal)")
+
+        return jsonify({"status": "ok", "counts": counts, **correlation_data})
+
+    # ---------------------------------------------------------------------------
+    # GET /api/correlations
+    # ---------------------------------------------------------------------------
+
+    @app.route("/api/correlations", methods=["GET"])
+    @require_api_key
+    def api_correlations():
+        db = get_db()
+        cur = db.cursor()
+
+        paired_days = get_paired_day_count(cur)
+
+        if paired_days >= MINIMUM_PAIRED_DAYS and correlations_are_stale(cur):
+            results = compute_correlations(cur)
+            store_correlations(cur, results)
+            db.commit()
+
+        correlations = get_correlations(cur)
+        return jsonify({
+            "correlations": correlations,
+            "paired_days": paired_days,
+            "minimum_required": MINIMUM_PAIRED_DAYS,
+        })
 
     # ---------------------------------------------------------------------------
     # Upsert helpers

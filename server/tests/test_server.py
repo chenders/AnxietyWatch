@@ -56,7 +56,7 @@ def _clean_tables(app):
         cur.execute(
             "TRUNCATE anxiety_entries, medication_definitions, medication_doses, "
             "cpap_sessions, health_snapshots, barometric_readings, sync_log, api_keys, settings, "
-            "pharmacies, prescriptions, pharmacy_call_logs "
+            "pharmacies, prescriptions, pharmacy_call_logs, correlations "
             "RESTART IDENTITY CASCADE"
         )
         # Insert a test API key
