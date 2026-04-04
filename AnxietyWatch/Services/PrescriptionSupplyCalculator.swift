@@ -115,8 +115,8 @@ enum PrescriptionSupplyCalculator {
     // MARK: - Alert Filtering
 
     /// Filters prescriptions to those with supply alerts (low, warning, or expired).
-    /// Only considers the most recent fill per medication (older fills are always expired
-    /// and not actionable). Excludes stale prescriptions and inactive medications.
+    /// Only considers the most recent fill per medication (older fills are superseded
+    /// by the newer fill and not actionable). Excludes stale prescriptions and inactive medications.
     /// Consolidates the filter logic used by Dashboard, MedicationsHub, and tests.
     static func alertPrescriptions(from prescriptions: [Prescription], now: Date = .now) -> [Prescription] {
         // Keep only the most recent fill per medication name
