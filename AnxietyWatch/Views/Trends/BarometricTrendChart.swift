@@ -28,13 +28,17 @@ struct BarometricTrendChart: View {
             isEmpty: readings.isEmpty
         ) {
             Chart {
-                ForEach(displayReadings) { reading in
-                    LineMark(
-                        x: .value("Time", reading.timestamp, unit: .hour),
-                        y: .value("kPa", reading.pressureKPa)
-                    )
-                    .foregroundStyle(.gray)
-                    .interpolationMethod(.catmullRom)
+                // Explicit Plot wrapping avoids MapContentBuilder ambiguity
+                // on Xcode 16.4+ where ForEach resolves to MapKit's overload.
+                Plot {
+                    ForEach(displayReadings) { reading in
+                        LineMark(
+                            x: .value("Time", reading.timestamp, unit: .hour),
+                            y: .value("kPa", reading.pressureKPa)
+                        )
+                        .foregroundStyle(.gray)
+                        .interpolationMethod(.catmullRom)
+                    }
                 }
 
                 if let baseline {
@@ -48,10 +52,12 @@ struct BarometricTrendChart: View {
                         }
                 }
 
-                ForEach(entries) { entry in
-                    RuleMark(x: .value("Time", entry.timestamp, unit: .hour))
-                        .foregroundStyle(anxietyColor(entry.severity).opacity(0.2))
-                        .lineStyle(StrokeStyle(lineWidth: 2))
+                Plot {
+                    ForEach(entries) { entry in
+                        RuleMark(x: .value("Time", entry.timestamp, unit: .hour))
+                            .foregroundStyle(anxietyColor(entry.severity).opacity(0.2))
+                            .lineStyle(StrokeStyle(lineWidth: 2))
+                    }
                 }
             }
             .chartXScale(domain: dateRange)
