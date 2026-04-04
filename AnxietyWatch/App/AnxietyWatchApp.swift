@@ -105,7 +105,7 @@ struct AnxietyWatchApp: App {
                 }
                 .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
                     // Periodic check so follow-ups appear even when app stays foregrounded.
-                    // Runs every 60 seconds — lightweight (just reads UserDefaults).
+                    // Only runs the full check (UserDefaults read + SwiftData fetch) when active.
                     if scenePhase == .active {
                         checkPendingFollowUp()
                     }
