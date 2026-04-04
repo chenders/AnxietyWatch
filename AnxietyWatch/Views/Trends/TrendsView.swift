@@ -10,6 +10,13 @@ struct TrendsView: View {
     @State private var timeRange: TimeRange = .week
     /// 0 = current period (ending now), -1 = previous period, etc.
     @State private var pageOffset = 0
+    @State private var sourceFilter: SourceFilter = .all
+
+    enum SourceFilter: String, CaseIterable {
+        case all = "All"
+        case selfReported = "Self-Reported"
+        case checkIns = "Check-Ins"
+    }
 
     enum TimeRange: String, CaseIterable {
         case week = "7 Days"
@@ -51,6 +58,14 @@ struct TrendsView: View {
 
     // MARK: - Filtered Data
 
+    private func filterBySource(_ entries: [AnxietyEntry]) -> [AnxietyEntry] {
+        switch sourceFilter {
+        case .all: return entries
+        case .selfReported: return entries.filter { $0.source == nil || $0.source == "user" || $0.source == "dose_followup" }
+        case .checkIns: return entries.filter { $0.source == "random_checkin" }
+        }
+    }
+
     private func inWindow(_ date: Date, start: Date, end: Date) -> Bool {
         date >= start && (isShowingCurrentPeriod ? date <= end : date < end)
     }
@@ -64,7 +79,7 @@ struct TrendsView: View {
         let dateRange = ws.start...paddedChartEnd
 
         let snapshots = allSnapshots.filter { inWindow($0.date, start: ws.start, end: ws.end) }
-        let entries = allEntries.filter { inWindow($0.timestamp, start: ws.start, end: ws.end) }
+        let entries = filterBySource(allEntries.filter { inWindow($0.timestamp, start: ws.start, end: ws.end) })
         let cpapSessions = allCPAPSessions.filter { inWindow($0.date, start: ws.start, end: ws.end) }
         let barometricReadings = allBarometric.filter { inWindow($0.timestamp, start: ws.start, end: ws.end) }
 
@@ -79,6 +94,14 @@ struct TrendsView: View {
                     .pickerStyle(.segmented)
                     .padding(.horizontal)
                     .onChange(of: timeRange) { _, _ in pageOffset = 0 }
+
+                    Picker("Source", selection: $sourceFilter) {
+                        ForEach(SourceFilter.allCases, id: \.self) { filter in
+                            Text(filter.rawValue).tag(filter)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
 
                     // Navigation header
                     HStack {

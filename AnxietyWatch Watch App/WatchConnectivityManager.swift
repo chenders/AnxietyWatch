@@ -11,6 +11,7 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
     var hrvAvg: Double?
     var restingHR: Double?
     var lastSyncStatus: String?
+    var pendingRandomCheckIn = false
 
     func activate() {
         guard WCSession.isSupported() else { return }
@@ -18,13 +19,16 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
         WCSession.default.activate()
     }
 
-    func sendAnxietyEntry(severity: Int, notes: String = "") {
-        let message: [String: Any] = [
+    func sendAnxietyEntry(severity: Int, notes: String = "", source: String? = nil) {
+        var message: [String: Any] = [
             "type": "anxietyEntry",
             "severity": severity,
             "timestamp": Date().timeIntervalSince1970,
             "notes": notes,
         ]
+        if let source {
+            message["source"] = source
+        }
 
         if WCSession.default.isReachable {
             WCSession.default.sendMessage(message, replyHandler: nil) { [weak self] _ in
@@ -46,6 +50,7 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
         lastAnxiety = ctx["lastAnxiety"] as? Int
         hrvAvg = ctx["hrvAvg"] as? Double
         restingHR = ctx["restingHR"] as? Double
+        pendingRandomCheckIn = ctx["pendingRandomCheckIn"] as? Bool ?? false
         pushToWidget()
     }
 
@@ -77,6 +82,7 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
             self.lastAnxiety = applicationContext["lastAnxiety"] as? Int
             self.hrvAvg = applicationContext["hrvAvg"] as? Double
             self.restingHR = applicationContext["restingHR"] as? Double
+            self.pendingRandomCheckIn = applicationContext["pendingRandomCheckIn"] as? Bool ?? false
             self.pushToWidget()
         }
     }

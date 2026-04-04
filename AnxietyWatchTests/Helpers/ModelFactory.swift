@@ -39,7 +39,8 @@ enum ModelFactory {
         notes: String = "",
         tags: [String] = [],
         triggerDose: MedicationDose? = nil,
-        isFollowUp: Bool = false
+        isFollowUp: Bool = false,
+        source: String? = nil
     ) -> AnxietyEntry {
         AnxietyEntry(
             timestamp: timestamp,
@@ -47,7 +48,8 @@ enum ModelFactory {
             notes: notes,
             tags: tags,
             triggerDose: triggerDose,
-            isFollowUp: isFollowUp
+            isFollowUp: isFollowUp,
+            source: source
         )
     }
 

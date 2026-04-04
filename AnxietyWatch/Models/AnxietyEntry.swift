@@ -17,6 +17,9 @@ final class AnxietyEntry {
     /// True if this is a 30-minute follow-up entry (vs the initial at-dosing entry).
     /// Optional for migration — nil treated as false for historical entries.
     var isFollowUp: Bool?
+    /// Origin of this entry: nil/"user" (manual), "dose_followup", or "random_checkin".
+    /// Optional for migration — nil treated as "user" for historical entries.
+    var source: String?
 
     init(
         timestamp: Date = .now,
@@ -24,7 +27,8 @@ final class AnxietyEntry {
         notes: String = "",
         tags: [String] = [],
         triggerDose: MedicationDose? = nil,
-        isFollowUp: Bool = false
+        isFollowUp: Bool = false,
+        source: String? = nil
     ) {
         self.id = UUID()
         self.timestamp = timestamp
@@ -33,5 +37,6 @@ final class AnxietyEntry {
         self.tags = tags
         self.isFollowUp = isFollowUp
         self.triggerDose = triggerDose
+        self.source = source
     }
 }
