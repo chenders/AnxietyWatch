@@ -115,10 +115,14 @@ enum PrescriptionSupplyCalculator {
     // MARK: - Alert Filtering
 
     /// Filters prescriptions to those with supply alerts (low, warning, or expired).
-    /// Excludes stale prescriptions and those for inactive medications.
+    /// Only considers the most recent fill per medication (older fills are always expired
+    /// and not actionable). Excludes stale prescriptions and inactive medications.
     /// Consolidates the filter logic used by Dashboard, MedicationsHub, and tests.
     static func alertPrescriptions(from prescriptions: [Prescription], now: Date = .now) -> [Prescription] {
-        prescriptions.filter { rx in
+        // Keep only the most recent fill per medication name
+        let latestPerMed = latestPrescriptionPerMedication(from: prescriptions)
+
+        return latestPerMed.filter { rx in
             let fillDate = rx.lastFillDate ?? rx.dateFilled
             let stalenessLimit = alertStalenessLimitDays(for: rx)
             let cutoff = Calendar.current.date(byAdding: .day, value: -stalenessLimit, to: now)
@@ -127,6 +131,23 @@ enum PrescriptionSupplyCalculator {
             let status = supplyStatus(for: rx, now: now)
             return status == .low || status == .warning || status == .expired
         }
+    }
+
+    /// Returns the most recent prescription per medication name, by fill date.
+    static func latestPrescriptionPerMedication(from prescriptions: [Prescription]) -> [Prescription] {
+        var latest: [String: Prescription] = [:]
+        for rx in prescriptions {
+            let fillDate = rx.lastFillDate ?? rx.dateFilled
+            if let existing = latest[rx.medicationName] {
+                let existingDate = existing.lastFillDate ?? existing.dateFilled
+                if fillDate > existingDate {
+                    latest[rx.medicationName] = rx
+                }
+            } else {
+                latest[rx.medicationName] = rx
+            }
+        }
+        return Array(latest.values)
     }
 
     // MARK: - Private
