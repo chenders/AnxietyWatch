@@ -7,47 +7,51 @@ struct QuickLogView: View {
     private let connectivity = WatchConnectivityManager.shared
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 6) {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 5), spacing: 6) {
-                    ForEach(1...10, id: \.self) { level in
-                        Button {
-                            selectedSeverity = level
-                            let source: String? = connectivity.pendingRandomCheckIn ? "random_checkin" : nil
-                            connectivity.sendAnxietyEntry(severity: level, source: source)
-                            if connectivity.pendingRandomCheckIn {
-                                connectivity.pendingRandomCheckIn = false
+        GeometryReader { geo in
+            let rows = 2
+            let cols = 5
+            let hSpacing: CGFloat = 4
+            let vSpacing: CGFloat = 6
+            let buttonWidth = (geo.size.width - hSpacing * CGFloat(cols - 1)) / CGFloat(cols)
+            let buttonHeight = min(buttonWidth, (geo.size.height - vSpacing) / CGFloat(rows))
+
+            VStack(spacing: vSpacing) {
+                ForEach(0..<rows, id: \.self) { row in
+                    HStack(spacing: hSpacing) {
+                        ForEach(0..<cols, id: \.self) { col in
+                            let level = row * cols + col + 1
+                            Button {
+                                selectedSeverity = level
+                                let source: String? = connectivity.pendingRandomCheckIn ? "random_checkin" : nil
+                                connectivity.sendAnxietyEntry(severity: level, source: source)
+                                if connectivity.pendingRandomCheckIn {
+                                    connectivity.pendingRandomCheckIn = false
+                                }
+                                WKInterfaceDevice.current().play(.success)
+                                showingConfirmation = true
+                            } label: {
+                                Text("\(level)")
+                                    .font(.title3.bold())
+                                    .frame(width: buttonWidth, height: buttonHeight)
+                                    .background(
+                                        Circle()
+                                            .fill(severityColor(level).opacity(selectedSeverity == level ? 1.0 : 0.3))
+                                    )
+                                    .foregroundStyle(selectedSeverity == level ? .white : severityColor(level))
                             }
-                            WKInterfaceDevice.current().play(.success)
-                            showingConfirmation = true
-                        } label: {
-                            Text("\(level)")
-                                .font(.title3.bold())
-                                .frame(maxWidth: .infinity, minHeight: 36)
-                                .background(
-                                    Circle()
-                                        .fill(severityColor(level).opacity(selectedSeverity == level ? 1.0 : 0.3))
-                                )
-                                .foregroundStyle(selectedSeverity == level ? .white : severityColor(level))
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 2)
-
-                if let s = selectedSeverity {
-                    Text(severityLabel(s))
-                        .font(.caption2)
-                        .foregroundStyle(severityColor(s))
-                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .overlay {
             if showingConfirmation {
                 confirmationOverlay
             }
         }
-        .navigationTitle("Quick Log")
+        .navigationTitle("Log")
     }
 
     // MARK: - Confirmation
