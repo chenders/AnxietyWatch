@@ -1,12 +1,17 @@
 import BackgroundTasks
+import Combine
 import os
 import SwiftUI
 import SwiftData
+import UserNotifications
 
 @main
 struct AnxietyWatchApp: App {
     /// Versioned key for one-time medication reactivation fixup.
     private static let reactivateMedsKey = "didFixReactivateMeds_v1"
+
+    /// Notification delegate — must be stored as a property to stay alive.
+    private let notificationDelegate = NotificationDelegate()
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -41,6 +46,10 @@ struct AnxietyWatchApp: App {
         let coord = HealthDataCoordinator(modelContainer: sharedModelContainer)
         _coordinator = State(initialValue: coord)
         coord.registerBackgroundTask()
+
+        // Set notification delegate so notifications show in foreground
+        // and taps trigger the pending check-in/follow-up flow.
+        UNUserNotificationCenter.current().delegate = notificationDelegate
     }
 
     var body: some Scene {
@@ -87,6 +96,17 @@ struct AnxietyWatchApp: App {
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
+                        checkPendingFollowUp()
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .didTapLocalNotification)) { _ in
+                    // User tapped a notification — check for pending follow-ups
+                    checkPendingFollowUp()
+                }
+                .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
+                    // Periodic check so follow-ups appear even when app stays foregrounded.
+                    // Only runs the full check (UserDefaults read + SwiftData fetch) when active.
+                    if scenePhase == .active {
                         checkPendingFollowUp()
                     }
                 }
