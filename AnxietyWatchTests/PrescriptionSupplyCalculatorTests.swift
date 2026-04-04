@@ -257,6 +257,53 @@ struct PrescriptionSupplyCalculatorTests {
         #expect(alerts.isEmpty)
     }
 
+    @Test("Alert only considers most recent fill per medication")
+    func alertDeduplicatesByMedication() throws {
+        // Old fill: expired (run out 30 days ago)
+        let oldFill = calendar.date(byAdding: .day, value: -60, to: referenceDate)!
+        let oldRunOut = calendar.date(byAdding: .day, value: -30, to: referenceDate)!
+        let oldRx = Prescription(
+            rxNumber: "OLD-001",
+            medicationName: "Test Drug",
+            doseMg: 10.0,
+            quantity: 30,
+            dateFilled: oldFill,
+            estimatedRunOutDate: oldRunOut,
+            dailyDoseCount: 1.0
+        )
+
+        // New fill: good supply (run out in 20 days)
+        let newRunOut = calendar.date(byAdding: .day, value: 20, to: referenceDate)!
+        let newRx = Prescription(
+            rxNumber: "NEW-001",
+            medicationName: "Test Drug",
+            doseMg: 10.0,
+            quantity: 30,
+            dateFilled: referenceDate,
+            estimatedRunOutDate: newRunOut,
+            dailyDoseCount: 1.0
+        )
+
+        // Both fills together — should only alert on the newest (which is good supply)
+        let alerts = PrescriptionSupplyCalculator.alertPrescriptions(from: [oldRx, newRx], now: referenceDate)
+        #expect(alerts.isEmpty, "Old expired fill should not trigger alert when newer fill has good supply")
+    }
+
+    @Test("latestPrescriptionPerMedication keeps newest fill")
+    func latestPerMedication() {
+        let old = Prescription(rxNumber: "OLD", medicationName: "DrugA", doseMg: 10, quantity: 30,
+                               dateFilled: calendar.date(byAdding: .day, value: -30, to: referenceDate)!)
+        let new1 = Prescription(rxNumber: "NEW", medicationName: "DrugA", doseMg: 10, quantity: 30,
+                                dateFilled: referenceDate)
+        let other = Prescription(rxNumber: "OTHER", medicationName: "DrugB", doseMg: 5, quantity: 60,
+                                 dateFilled: referenceDate)
+
+        let result = PrescriptionSupplyCalculator.latestPrescriptionPerMedication(from: [old, new1, other])
+        #expect(result.count == 2)
+        let drugA = result.first { $0.medicationName == "DrugA" }
+        #expect(drugA?.rxNumber == "NEW")
+    }
+
     @Test("Alert excludes prescription for inactive medication")
     func alertExcludesInactiveMedication() throws {
         let runOut = calendar.date(byAdding: .day, value: 3, to: referenceDate)!
