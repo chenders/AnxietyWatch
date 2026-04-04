@@ -275,6 +275,30 @@ enum ModelFactory {
         )
     }
 
+    // MARK: - Correlations
+
+    static func correlation(
+        signalName: String = "hrv_avg",
+        correlation: Double = -0.5,
+        pValue: Double = 0.01,
+        sampleCount: Int = 30,
+        meanSeverityWhenAbnormal: Double? = 6.0,
+        meanSeverityWhenNormal: Double? = 3.5,
+        computedAt: Date = referenceDate
+    ) -> PhysiologicalCorrelation {
+        PhysiologicalCorrelation(
+            signalName: signalName,
+            correlation: correlation,
+            pValue: pValue,
+            sampleCount: sampleCount,
+            meanSeverityWhenAbnormal: meanSeverityWhenAbnormal,
+            meanSeverityWhenNormal: meanSeverityWhenNormal,
+            computedAt: computedAt
+        )
+    }
+
+    // MARK: - Call Logs
+
     static func pharmacyCallLog(
         timestamp: Date = referenceDate,
         direction: String = "outgoing",

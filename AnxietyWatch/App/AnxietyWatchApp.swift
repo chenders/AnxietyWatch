@@ -26,6 +26,7 @@ struct AnxietyWatchApp: App {
             Prescription.self,
             PharmacyCallLog.self,
             HealthSample.self,
+            PhysiologicalCorrelation.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
