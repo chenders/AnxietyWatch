@@ -44,7 +44,7 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
               WCSession.default.isWatchAppInstalled
         else { return }
 
-        var context = (try? WCSession.default.receivedApplicationContext) ?? [:]
+        var context = WCSession.default.receivedApplicationContext
         context["pendingRandomCheckIn"] = pending
         try? WCSession.default.updateApplicationContext(context)
     }

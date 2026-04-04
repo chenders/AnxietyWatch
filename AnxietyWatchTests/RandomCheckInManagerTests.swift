@@ -176,4 +176,19 @@ struct RandomCheckInManagerTests {
             #expect(hour >= 8 && hour < 22, "Target hour \(hour) should be in waking window")
         }
     }
+
+    @Test("nextRandomTime at last minute of slot does not crash")
+    func lastMinuteOfSlot() {
+        let calendar = Calendar.current
+        // Frequency 2, quiet 22-8: slot 1 is 480-900 (8:00-15:00)
+        // Set now to 14:59 (minute 899) — effectiveStart would be 900 == slotEnd
+        let now = calendar.date(from: DateComponents(year: 2026, month: 6, day: 15, hour: 14, minute: 59))!
+        let target = RandomCheckInManager.nextRandomTime(
+            from: now, frequency: 2, quietStart: 22, quietEnd: 8
+        )
+        // Should skip to slot 2 (15:00-22:00) or tomorrow, not crash
+        #expect(target > now, "Should not crash and should be in the future")
+        let hour = calendar.component(.hour, from: target)
+        #expect(hour >= 15 || hour < 8, "Should be in slot 2 or tomorrow's slot 1")
+    }
 }

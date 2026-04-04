@@ -161,6 +161,7 @@ enum RandomCheckInManager {
 
             if currentMinute < slotEnd {
                 let effectiveStart = max(slotStart, currentMinute + 1)
+                guard effectiveStart < slotEnd else { continue } // slot exhausted, try next
                 let randomMinute = Int.random(in: effectiveStart..<slotEnd)
                 return calendar.date(byAdding: .minute, value: randomMinute, to: todayStart)!
             }
