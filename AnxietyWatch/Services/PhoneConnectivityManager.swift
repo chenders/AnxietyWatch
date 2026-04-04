@@ -30,6 +30,20 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
         try? WCSession.default.updateApplicationContext(context)
     }
 
+    // MARK: - Check-In Context
+
+    /// Update Watch applicationContext with pending check-in state.
+    func updateCheckInContext(pending: Bool) {
+        guard WCSession.default.activationState == .activated,
+              WCSession.default.isPaired,
+              WCSession.default.isWatchAppInstalled
+        else { return }
+
+        var context = (try? WCSession.default.receivedApplicationContext) ?? [:]
+        context["pendingRandomCheckIn"] = pending
+        try? WCSession.default.updateApplicationContext(context)
+    }
+
     // MARK: - WCSessionDelegate (iOS requires all three activation methods)
 
     nonisolated func session(
