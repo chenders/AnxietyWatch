@@ -40,6 +40,7 @@ struct AnxietyWatchApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var followUpDose: MedicationDose?
     @State private var followUpMedication: MedicationDefinition?
+    @State private var showingRandomCheckIn = false
 
     // BGTask registration must happen before app finishes launching.
     init() {
@@ -93,10 +94,17 @@ struct AnxietyWatchApp: App {
                     guard let coord = coordinator else { return }
                     Task { await coord.setupIfNeeded() }
                     coord.scheduleBackgroundRefresh()
+
+                    // Schedule random check-in if enabled and none pending
+                    if RandomCheckInManager.isEnabled && RandomCheckInManager.loadPending() == nil {
+                        RandomCheckInManager.ensureAuthorization()
+                        RandomCheckInManager.scheduleNextCheckIn()
+                    }
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
                         checkPendingFollowUp()
+                        checkPendingRandomCheckIn()
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .didTapLocalNotification)) { _ in
@@ -114,6 +122,9 @@ struct AnxietyWatchApp: App {
                     if let dose = followUpDose {
                         DoseAnxietyPromptView(medication: med, existingDose: dose)
                     }
+                }
+                .sheet(isPresented: $showingRandomCheckIn) {
+                    RandomCheckInPromptView()
                 }
         }
         .modelContainer(sharedModelContainer)
@@ -151,6 +162,16 @@ struct AnxietyWatchApp: App {
 
         followUpDose = dose
         followUpMedication = medication
+    }
+
+    private func checkPendingRandomCheckIn() {
+        RandomCheckInManager.cleanupStale()
+
+        // Don't show if a dose follow-up is already being shown
+        guard followUpMedication == nil else { return }
+        guard RandomCheckInManager.pendingCheckInIfDue() else { return }
+
+        showingRandomCheckIn = true
     }
 
     private func backfillOverlay(_ coordinator: HealthDataCoordinator) -> some View {
