@@ -141,3 +141,36 @@ def test_gather_analysis_data_empty_range(app):
     assert data["health_snapshots"] == []
     assert data["cpap_sessions"] == []
     assert data["medication_doses"] == []
+
+
+def test_build_prompt(app):
+    """build_prompt returns system and user messages with all data."""
+    _insert_test_data(app)
+    with app.app_context():
+        from analysis import gather_analysis_data, build_prompt
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        data = gather_analysis_data(cur, date(2026, 1, 10), date(2026, 1, 12))
+        system, user_msg = build_prompt(data, date(2026, 1, 10), date(2026, 1, 12))
+
+    assert "clinical data analyst" in system.lower()
+    assert "anxiety_entries" in user_msg
+    assert "health_snapshots" in user_msg
+    assert "2026-01-10" in user_msg
+    assert "json" in system.lower() or "JSON" in system
+
+
+def test_build_prompt_includes_output_schema(app):
+    """build_prompt system message describes the expected insight structure."""
+    with app.app_context():
+        from analysis import build_prompt
+        system, _ = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 1), date(2026, 1, 7),
+        )
+
+    assert "confidence" in system
+    assert "severity" in system
+    assert "category" in system
+    assert "supporting_data" in system
