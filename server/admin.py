@@ -532,6 +532,67 @@ def clear_prescriptions():
 # Data Browser
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# AI Analysis
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/analysis")
+@require_admin
+def analysis():
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    from analysis import list_analyses
+    analyses = list_analyses(cur)
+
+    # Get date range of available data for defaults
+    cur.execute("SELECT MIN(timestamp::date) AS min_date, MAX(timestamp::date) AS max_date FROM anxiety_entries")
+    date_range = cur.fetchone()
+
+    return render_template(
+        "analysis.html",
+        analyses=analyses,
+        min_date=date_range["min_date"],
+        max_date=date_range["max_date"],
+    )
+
+
+@admin_bp.route("/analysis/run", methods=["POST"])
+@require_admin
+def analysis_run():
+    import os
+    from datetime import date
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        flash("ANTHROPIC_API_KEY not configured.", "error")
+        return redirect(url_for("admin.analysis"))
+
+    date_from_str = request.form.get("date_from", "")
+    date_to_str = request.form.get("date_to", "")
+
+    try:
+        date_from = date.fromisoformat(date_from_str)
+        date_to = date.fromisoformat(date_to_str)
+    except (ValueError, TypeError):
+        flash("Invalid date range.", "error")
+        return redirect(url_for("admin.analysis"))
+
+    if date_from > date_to:
+        flash("Start date must be before end date.", "error")
+        return redirect(url_for("admin.analysis"))
+
+    db = get_db()
+    try:
+        from analysis import run_analysis
+        analysis_id = run_analysis(db, date_from, date_to)
+        return redirect(url_for("admin.analysis_detail", analysis_id=analysis_id))
+    except Exception as e:
+        current_app.logger.exception("Analysis failed")
+        flash(f"Analysis failed: {str(e)[:500]}", "error")
+        return redirect(url_for("admin.analysis"))
+
+
 BROWSABLE_TABLES = {
     "anxiety_entries": {"order": "timestamp DESC", "label": "Anxiety Entries"},
     "medication_definitions": {"order": "name", "label": "Medication Definitions"},

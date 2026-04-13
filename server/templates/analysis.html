@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}AI Analysis — Anxiety Watch Admin{% endblock %}
+{% block content %}
+<h1>AI Analysis</h1>
+
+<div class="card">
+    <h2>New Analysis</h2>
+    <form method="post" action="{{ url_for('admin.analysis_run') }}">
+        <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+            <div>
+                <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">From</label><br>
+                <input type="date" name="date_from" value="{{ min_date or '' }}"
+                       style="padding:0.4rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.85rem;">
+            </div>
+            <div>
+                <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">To</label><br>
+                <input type="date" name="date_to" value="{{ max_date or '' }}"
+                       style="padding:0.4rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.85rem;">
+            </div>
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; padding-top:1rem;">
+                <span class="quick-range" data-days="7" style="background:#e8f0fe; color:#0071e3; padding:0.3rem 0.6rem; border-radius:12px; font-size:0.75rem; cursor:pointer;">Last 7 days</span>
+                <span class="quick-range" data-days="14" style="background:#e8f0fe; color:#0071e3; padding:0.3rem 0.6rem; border-radius:12px; font-size:0.75rem; cursor:pointer;">Last 14 days</span>
+                <span class="quick-range" data-days="30" style="background:#e8f0fe; color:#0071e3; padding:0.3rem 0.6rem; border-radius:12px; font-size:0.75rem; cursor:pointer;">Last 30 days</span>
+                <span class="quick-range" data-days="0" data-mode="month" style="background:#e8f0fe; color:#0071e3; padding:0.3rem 0.6rem; border-radius:12px; font-size:0.75rem; cursor:pointer;">This month</span>
+                <span class="quick-range" data-days="0" data-mode="all" style="background:#e8f0fe; color:#0071e3; padding:0.3rem 0.6rem; border-radius:12px; font-size:0.75rem; cursor:pointer;">All data</span>
+            </div>
+            <div style="padding-top:1rem;">
+                <button type="submit" class="btn btn-primary">Run Analysis</button>
+            </div>
+        </div>
+        <p style="font-size:0.75rem; color:#6e6e73; margin-top:0.5rem;">Model: claude-opus-4-6 &middot; Sends all raw data in range to Claude API</p>
+    </form>
+</div>
+
+{% if analyses %}
+<h2 style="margin-top:1.5rem;">Past Analyses</h2>
+{% for a in analyses %}
+<a href="{{ url_for('admin.analysis_detail', analysis_id=a.id) }}" style="text-decoration:none; color:inherit; display:block;">
+<div class="card" style="cursor:pointer; border-left:3px solid {{ '#34c759' if a.trend_direction == 'improving' else '#ff9500' if a.trend_direction == 'worsening' else '#007aff' if a.trend_direction == 'stable' else '#af52de' }};">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
+        <div>
+            <span style="font-weight:600; font-size:0.95rem;">{{ a.date_from }} &ndash; {{ a.date_to }}</span>
+            {% if a.trend_direction %}
+            <span style="background:{{ '#e8f5e9' if a.trend_direction == 'improving' else '#fff3e0' if a.trend_direction == 'worsening' else '#e3f2fd' if a.trend_direction == 'stable' else '#f3e5f5' }}; color:{{ '#2e7d32' if a.trend_direction == 'improving' else '#e65100' if a.trend_direction == 'worsening' else '#1565c0' if a.trend_direction == 'stable' else '#7b1fa2' }}; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.7rem; margin-left:0.5rem;">{{ a.trend_direction }}</span>
+            {% endif %}
+        </div>
+        <span style="font-size:0.75rem; color:#6e6e73;">{{ a.created_at[:16] if a.created_at else '' }}</span>
+    </div>
+
+    {% if a.status == 'failed' %}
+    <p style="color:#ff3b30; font-size:0.85rem;">Failed: {{ a.error_message[:200] if a.error_message else 'Unknown error' }}</p>
+    {% elif a.summary %}
+    <p style="font-size:0.85rem; color:#444; margin-bottom:0.75rem; line-height:1.5; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;">{{ a.summary }}</p>
+    {% endif %}
+
+    {% if a.insights %}
+    <div style="display:flex; flex-direction:column; gap:0.35rem; font-size:0.8rem;">
+        {% for insight in a.insights[:3] %}
+        <div style="display:flex; align-items:center; gap:0.5rem;">
+            <span style="background:{{ '#ff3b30' if insight.severity == 'high' else '#ff9500' if insight.severity == 'medium' else '#007aff' }}; color:#fff; padding:0.1rem 0.4rem; border-radius:4px; font-size:0.65rem; min-width:40px; text-align:center;">{{ insight.severity|upper }}</span>
+            <span>{{ insight.title }} (confidence: {{ insight.confidence }})</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if a.tokens_in %}
+    <p style="font-size:0.7rem; color:#6e6e73; margin-top:0.5rem;">
+        {{ a.insights|length if a.insights else 0 }} insights &middot;
+        {{ "{:,}".format(a.tokens_in) }} tokens in &middot;
+        {{ "{:,}".format(a.tokens_out) }} tokens out &middot;
+        {{ a.model }}
+    </p>
+    {% endif %}
+</div>
+</a>
+{% endfor %}
+{% else %}
+<div class="card" style="margin-top:1.5rem; text-align:center; color:#6e6e73;">
+    <p>No analyses yet. Select a date range and click "Run Analysis" to get started.</p>
+</div>
+{% endif %}
+
+<script>
+document.querySelectorAll('.quick-range').forEach(function(el) {
+    el.addEventListener('click', function() {
+        var fromInput = document.querySelector('input[name="date_from"]');
+        var toInput = document.querySelector('input[name="date_to"]');
+        var today = new Date();
+        var mode = this.dataset.mode;
+        var days = parseInt(this.dataset.days);
+
+        if (mode === 'all') {
+            fromInput.value = '{{ min_date or "" }}';
+            toInput.value = '{{ max_date or "" }}';
+        } else if (mode === 'month') {
+            var firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            fromInput.value = firstOfMonth.toISOString().split('T')[0];
+            toInput.value = today.toISOString().split('T')[0];
+        } else {
+            var from = new Date(today);
+            from.setDate(from.getDate() - days);
+            fromInput.value = from.toISOString().split('T')[0];
+            toInput.value = today.toISOString().split('T')[0];
+        }
+    });
+});
+</script>
+{% endblock %}
