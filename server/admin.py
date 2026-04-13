@@ -593,6 +593,32 @@ def analysis_run():
         return redirect(url_for("admin.analysis"))
 
 
+@admin_bp.route("/analysis/<int:analysis_id>")
+@require_admin
+def analysis_detail(analysis_id):
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    from analysis import get_analysis
+    a = get_analysis(cur, analysis_id)
+    if a is None:
+        flash("Analysis not found.", "error")
+        return redirect(url_for("admin.analysis"))
+
+    # Group insights by severity
+    high = [i for i in (a.get("insights") or []) if i.get("severity") == "high"]
+    medium = [i for i in (a.get("insights") or []) if i.get("severity") == "medium"]
+    low = [i for i in (a.get("insights") or []) if i.get("severity") == "low"]
+
+    return render_template(
+        "analysis_detail.html",
+        a=a,
+        high_insights=high,
+        medium_insights=medium,
+        low_insights=low,
+    )
+
+
 BROWSABLE_TABLES = {
     "anxiety_entries": {"order": "timestamp DESC", "label": "Anxiety Entries"},
     "medication_definitions": {"order": "name", "label": "Medication Definitions"},
