@@ -174,3 +174,75 @@ def test_build_prompt_includes_output_schema(app):
     assert "severity" in system
     assert "category" in system
     assert "supporting_data" in system
+
+
+def test_parse_response_valid():
+    """parse_response extracts structured data from Claude response."""
+    from analysis import parse_response
+
+    raw_response = {
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps({
+                    "summary": "Test summary paragraph.",
+                    "trend_direction": "improving",
+                    "insights": [
+                        {
+                            "category": "correlation",
+                            "severity": "high",
+                            "title": "HRV predicts anxiety",
+                            "detail": "When HRV drops below 40...",
+                            "confidence": 0.85,
+                            "confidence_explanation": "Strong effect size...",
+                            "supporting_data": {"r": -0.72},
+                        }
+                    ],
+                }),
+            }
+        ],
+        "usage": {"input_tokens": 48000, "output_tokens": 3400},
+    }
+    result = parse_response(raw_response)
+
+    assert result["summary"] == "Test summary paragraph."
+    assert result["trend_direction"] == "improving"
+    assert len(result["insights"]) == 1
+    assert result["insights"][0]["title"] == "HRV predicts anxiety"
+    assert result["insights"][0]["confidence"] == 0.85
+    assert result["tokens_in"] == 48000
+    assert result["tokens_out"] == 3400
+
+
+def test_parse_response_invalid_json():
+    """parse_response raises ValueError for non-JSON response."""
+    from analysis import parse_response
+
+    raw_response = {
+        "content": [{"type": "text", "text": "This is not JSON"}],
+        "usage": {"input_tokens": 100, "output_tokens": 50},
+    }
+    with pytest.raises(ValueError, match="Failed to parse"):
+        parse_response(raw_response)
+
+
+def test_parse_response_missing_fields():
+    """parse_response handles response missing optional fields."""
+    from analysis import parse_response
+
+    raw_response = {
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps({
+                    "summary": "Short summary.",
+                    "trend_direction": "stable",
+                    "insights": [],
+                }),
+            }
+        ],
+        "usage": {"input_tokens": 1000, "output_tokens": 200},
+    }
+    result = parse_response(raw_response)
+    assert result["summary"] == "Short summary."
+    assert result["insights"] == []

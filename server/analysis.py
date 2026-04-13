@@ -161,6 +161,47 @@ Cast a wide net. The user wants:
     return system, user_message
 
 
+def parse_response(raw_response: dict) -> dict:
+    """Parse the Claude API response into structured analysis data.
+
+    Args:
+        raw_response: The raw response dict from the Anthropic API
+            (the message object with content and usage).
+
+    Returns:
+        Dict with keys: summary, trend_direction, insights, tokens_in, tokens_out.
+
+    Raises:
+        ValueError: If the response text is not valid JSON.
+    """
+    text = ""
+    for block in raw_response.get("content", []):
+        if block.get("type") == "text":
+            text += block["text"]
+
+    # Strip markdown code fences if present
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+    if text.endswith("```"):
+        text = text[:-3].rstrip()
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Failed to parse Claude response as JSON: {e}")
+
+    usage = raw_response.get("usage", {})
+
+    return {
+        "summary": parsed.get("summary", ""),
+        "trend_direction": parsed.get("trend_direction", "mixed"),
+        "insights": parsed.get("insights", []),
+        "tokens_in": usage.get("input_tokens", 0),
+        "tokens_out": usage.get("output_tokens", 0),
+    }
+
+
 def _serialize(row):
     """Convert a RealDictRow to a plain dict with JSON-safe values."""
     result = {}
