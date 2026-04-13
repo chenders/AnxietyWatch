@@ -102,11 +102,11 @@ def test_correlations_empty(client):
     data = resp.get_json()
     assert data["correlations"] == []
     assert data["paired_days"] == 0
-    assert data["minimum_required"] == 14
+    assert data["minimum_required"] == 12
 
 
 def test_correlations_insufficient_data(client, app):
-    """Returns empty when fewer than 14 paired days."""
+    """Returns empty when fewer than 12 paired days."""
     _insert_paired_data(app, days=10)
     resp = client.get("/api/correlations", headers=auth_header())
     data = resp.get_json()

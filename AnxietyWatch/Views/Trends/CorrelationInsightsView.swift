@@ -55,10 +55,10 @@ struct CorrelationInsightsView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            ProgressView(value: Double(min(pairedDayCount, 14)), total: 14)
+            ProgressView(value: Double(min(pairedDayCount, 12)), total: 12)
                 .tint(.blue)
 
-            Text("\(pairedDayCount) / 14 paired days")
+            Text("\(pairedDayCount) / 12 paired days")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }

@@ -20,7 +20,7 @@ SIGNALS = [
      ["h.barometric_pressure_change_kpa"]),
 ]
 
-MINIMUM_PAIRED_DAYS = 14
+MINIMUM_PAIRED_DAYS = 12
 
 
 def compute_correlations(cur):
