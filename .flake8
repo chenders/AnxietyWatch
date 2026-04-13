@@ -1,0 +1,5 @@
+[flake8]
+max-line-length = 120
+exclude = __pycache__
+per-file-ignores =
+    server/analysis.py:E501
