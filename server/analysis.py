@@ -1,8 +1,10 @@
 """AI Analysis engine — gathers data, builds prompts, calls Claude, parses results."""
 
 import json
+import os
 from datetime import date, datetime
 
+import anthropic
 import psycopg2.extras
 
 MODEL = "claude-opus-4-6"
@@ -213,3 +215,87 @@ def _serialize(row):
         else:
             result[k] = v
     return result
+
+
+def run_analysis(db, date_from: date, date_to: date) -> int:
+    """Run a full analysis: gather data, call Claude, store results.
+
+    Returns the analysis row ID.
+    """
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    # Gather data
+    data = gather_analysis_data(cur, date_from, date_to)
+
+    # Build prompt
+    system_prompt, user_message = build_prompt(data, date_from, date_to)
+
+    # Insert pending row
+    request_payload = {
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": user_message}],
+    }
+    cur.execute(
+        "INSERT INTO analyses (date_from, date_to, status, model, request_payload, created_at) "
+        "VALUES (%s, %s, 'pending', %s, %s, NOW()) RETURNING id",
+        (date_from, date_to, MODEL, json.dumps(request_payload)),
+    )
+    analysis_id = cur.fetchone()["id"]
+    db.commit()
+
+    # Call Anthropic API
+    try:
+        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        message = client.messages.create(
+            model=MODEL,
+            max_tokens=16384,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+
+        raw_response = message.model_dump()
+        parsed = parse_response(raw_response)
+
+        cur.execute(
+            "UPDATE analyses SET status = 'completed', response_payload = %s, "
+            "summary = %s, trend_direction = %s, insights = %s, "
+            "tokens_in = %s, tokens_out = %s, completed_at = NOW() "
+            "WHERE id = %s",
+            (
+                json.dumps(raw_response),
+                parsed["summary"],
+                parsed["trend_direction"],
+                json.dumps(parsed["insights"]),
+                parsed["tokens_in"],
+                parsed["tokens_out"],
+                analysis_id,
+            ),
+        )
+    except Exception as e:
+        cur.execute(
+            "UPDATE analyses SET status = 'failed', error_message = %s, completed_at = NOW() "
+            "WHERE id = %s",
+            (str(e), analysis_id),
+        )
+
+    db.commit()
+    return analysis_id
+
+
+def get_analysis(cur, analysis_id: int) -> dict | None:
+    """Fetch a single analysis by ID."""
+    cur.execute("SELECT * FROM analyses WHERE id = %s", (analysis_id,))
+    row = cur.fetchone()
+    if row is None:
+        return None
+    return _serialize(row)
+
+
+def list_analyses(cur) -> list[dict]:
+    """List all analyses, newest first."""
+    cur.execute(
+        "SELECT id, date_from, date_to, status, model, summary, trend_direction, "
+        "insights, tokens_in, tokens_out, created_at, completed_at, error_message "
+        "FROM analyses ORDER BY created_at DESC"
+    )
+    return [_serialize(r) for r in cur.fetchall()]

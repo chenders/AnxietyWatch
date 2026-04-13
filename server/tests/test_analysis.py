@@ -246,3 +246,106 @@ def test_parse_response_missing_fields():
     result = parse_response(raw_response)
     assert result["summary"] == "Short summary."
     assert result["insights"] == []
+
+
+# ---------------------------------------------------------------------------
+# Tests for run_analysis, get_analysis, list_analyses
+# ---------------------------------------------------------------------------
+
+from unittest.mock import patch, MagicMock  # noqa: E402
+
+
+def _mock_anthropic_response():
+    """Build a mock Anthropic API response."""
+    mock_message = MagicMock()
+    mock_message.content = [
+        MagicMock(type="text", text=json.dumps({
+            "summary": "Anxiety has been stable over this period.",
+            "trend_direction": "stable",
+            "insights": [
+                {
+                    "category": "correlation",
+                    "severity": "medium",
+                    "title": "HRV inversely correlates with severity",
+                    "detail": "Lower HRV days show higher anxiety.",
+                    "confidence": 0.7,
+                    "confidence_explanation": "Moderate sample size.",
+                    "supporting_data": {"r": -0.65},
+                }
+            ],
+        }))
+    ]
+    mock_message.usage = MagicMock(input_tokens=5000, output_tokens=500)
+    mock_message.model_dump.return_value = {
+        "content": [{"type": "text", "text": mock_message.content[0].text}],
+        "usage": {"input_tokens": 5000, "output_tokens": 500},
+    }
+    return mock_message
+
+
+def test_run_analysis_stores_result(app):
+    """run_analysis calls Claude and stores the result."""
+    _insert_test_data(app)
+    with app.app_context():
+        from analysis import run_analysis, get_analysis
+        db = app.get_db()
+
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_anthropic_response()
+
+        with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+            analysis_id = run_analysis(db, date(2026, 1, 10), date(2026, 1, 12))
+
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        result = get_analysis(cur, analysis_id)
+
+    assert result is not None
+    assert result["status"] == "completed"
+    assert result["summary"] == "Anxiety has been stable over this period."
+    assert result["trend_direction"] == "stable"
+    assert len(result["insights"]) == 1
+    assert result["tokens_in"] == 5000
+    assert result["tokens_out"] == 500
+    assert result["request_payload"] is not None
+    assert result["response_payload"] is not None
+
+
+def test_run_analysis_handles_api_error(app):
+    """run_analysis stores failed status on API error."""
+    _insert_test_data(app)
+    with app.app_context():
+        from analysis import run_analysis, get_analysis
+        db = app.get_db()
+
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = Exception("API timeout")
+
+        with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+            analysis_id = run_analysis(db, date(2026, 1, 10), date(2026, 1, 12))
+
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        result = get_analysis(cur, analysis_id)
+
+    assert result["status"] == "failed"
+    assert "API timeout" in result["error_message"]
+
+
+def test_list_analyses(app):
+    """list_analyses returns all analyses newest first."""
+    _insert_test_data(app)
+    with app.app_context():
+        from analysis import run_analysis, list_analyses
+        db = app.get_db()
+
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_anthropic_response()
+
+        with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+            run_analysis(db, date(2026, 1, 10), date(2026, 1, 11))
+            run_analysis(db, date(2026, 1, 11), date(2026, 1, 12))
+
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        analyses = list_analyses(cur)
+
+    assert len(analyses) == 2
+    assert analyses[0]["id"] > analyses[1]["id"]
