@@ -2,6 +2,8 @@ import SwiftData
 import SwiftUI
 
 struct CorrelationInsightsView: View {
+    private static let minimumPairedDays = 12
+
     @Query(sort: \PhysiologicalCorrelation.computedAt)
     private var correlations: [PhysiologicalCorrelation]
 
@@ -55,10 +57,11 @@ struct CorrelationInsightsView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            ProgressView(value: Double(min(pairedDayCount, 12)), total: 12)
+            ProgressView(value: Double(min(pairedDayCount, Self.minimumPairedDays)),
+                         total: Double(Self.minimumPairedDays))
                 .tint(.blue)
 
-            Text("\(pairedDayCount) / 12 paired days")
+            Text("\(pairedDayCount) / \(Self.minimumPairedDays) paired days")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
