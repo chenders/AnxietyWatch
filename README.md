@@ -20,7 +20,7 @@ The result is not a wall of numbers. It is your own data, interpreted through yo
 
 > **Your data never leaves your devices.** There is no cloud service, no account to create, no telemetry, no analytics. Health data stays in HealthKit on your iPhone. App data stays in local SwiftData storage. The only time data goes anywhere is when *you* explicitly choose to export a report, sync to *your own* self-hosted server, or share a clinical PDF with *your* doctor. You are in complete control.
 
-> **This project is under active development.** The data collection layer is thorough — 25+ HealthKit data types, medication tracking with efficacy measurement, OSCAR CSV import with server-side EDF leak parsing, pharmacy benefit (CapRx) integration, clinical reports, a sync server, and a growing test suite. The intelligence layer — pattern detection, compound triggers, proactive insights — is where the project is headed next.
+> **This project is under active development.** The data collection layer is thorough — 25+ HealthKit data types, medication tracking with efficacy measurement, OSCAR CSV import with server-side EDF leak parsing, pharmacy benefit (CapRx) integration, clinical reports, a sync server, and a growing test suite. The first piece of the intelligence layer is live: a physiological correlation engine that identifies which health metrics most influence your anxiety. Compound triggers, proactive insights, and morning briefings are where the project is headed next.
 
 <div align="center">
   <img src="docs/screenshots/dashboard.png" width="200" alt="Dashboard showing HRV baseline alert, anxiety rating, health metrics with sparklines" />
@@ -29,7 +29,7 @@ The result is not a wall of numbers. It is your own data, interpreted through yo
   &nbsp;&nbsp;
   <img src="docs/screenshots/report.png" width="165" alt="Clinical PDF report with anxiety summary, medication adherence, sleep quality, HRV, and CPAP data" />
   &nbsp;&nbsp;
-  <img src="docs/screenshots/watch.png" width="105" alt="watchOS Quick Log — Digital Crown severity picker designed for use during panic" />
+  <img src="docs/screenshots/watch.png" width="105" alt="watchOS Quick Log — color-coded tappable severity circles designed for use during panic" />
 </div>
 
 ---
@@ -54,11 +54,13 @@ For some people, tracking health data can increase anxiety rather than reduce it
 
 | Feature | What It Does |
 |---------|-------------|
-| **Anxiety journal** | Severity (1-10), notes, tags — timestamped entries that anchor all physiological data |
+| **Anxiety journal** | Severity (1-10) via color-coded tappable circles, notes, tags — with an express mode that saves in a single tap. Timestamped entries anchor all physiological data |
 | **Medication tracking** | Dose logging with 30-min before/after efficacy follow-up (a personal [N-of-1 trial](https://en.wikipedia.org/wiki/N-of-1_trial)) |
-| **watchOS Quick Log** | Digital Crown severity picker — works during panic, under five seconds |
+| **watchOS Quick Log** | Color-coded severity circles in a tappable grid — works during panic, under five seconds |
+| **Random check-ins** | Configurable push notifications at random times during waking hours prompt you to log your mood — captures data points you'd otherwise miss |
+| **Physiological insights** | Correlation engine that identifies which health metrics (HRV, sleep, steps, CPAP, barometric pressure) most influence your anxiety, with scatter plots and per-metric breakdowns |
 | **HealthKit integration** | 25+ data types (HRV, sleep stages, heart rate, SpO2, activity, blood pressure, walking metrics, daylight exposure, physical effort, AFib burden, and more) with personal rolling baselines |
-| **CPAP import** | AirSense 11 SD card — AHI, leak rates, usage hours via on-device OSCAR CSV auto-detection; self-hosted sync server parses EDF files for leak rate percentiles; connects sleep apnea treatment to anxiety outcomes |
+| **CPAP import** | AirSense 11 SD card — AHI, leak rates, usage hours via on-device OSCAR CSV auto-detection; self-hosted sync server parses EDF files for leak rate percentiles; CPAP metrics feed into daily health snapshots and the correlation engine |
 | **Prescription management** | Supply tracking, refill alerts, OCR label scanning, pharmacy search with call logging, CapRx pharmacy benefit claim import |
 | **Clinical reports** | PDF summaries structured for psychiatric appointments — anxiety, meds, sleep, HRV, CPAP, labs |
 | **Data export** | JSON/CSV across 10 entity types, plus self-hosted Flask + PostgreSQL sync server |
@@ -85,7 +87,7 @@ CPAP data integrated with sleep quality metrics and next-day anxiety ratings. Th
 
 ### Designed for your worst moments
 
-The watchOS Quick Log uses the Digital Crown because fine motor control is unreliable during panic. "Last taken" timestamps prevent the terrifying uncertainty of double-dosing during acute anxiety. The future "This Too Shall Pass" view will show your own history of panic episodes resolving — evidence from your own life that it always ends.
+The watchOS Quick Log uses large, color-coded tappable circles because fine motor control is unreliable during panic — no scrolling, no precision, just tap the number that matches how you feel. "Last taken" timestamps prevent the terrifying uncertainty of double-dosing during acute anxiety. The future "This Too Shall Pass" view will show your own history of panic episodes resolving — evidence from your own life that it always ends.
 
 ### Export-first, not walled-garden
 
@@ -95,7 +97,7 @@ Every piece of data is exportable — JSON, CSV, or clinical PDF — from day on
 
 ## The Road Ahead
 
-The data collection layer is solid and getting stronger — 25+ HealthKit data types, OSCAR CPAP parsing, CapRx pharmacy benefit import, and a growing test suite. Next: an intelligence layer that turns your data into stories — sleep-to-anxiety correlation, medication efficacy trends, compound trigger identification, and proactive morning briefings that demystify bad days before they spiral.
+The data collection layer is solid, and the first piece of the intelligence layer is live — a physiological correlation engine that identifies which health metrics most influence your anxiety, with per-metric breakdowns and scatter plots. Random check-ins capture mood at unprompted moments, filling gaps that voluntary journaling misses. Next: compound trigger identification (when bad sleep *plus* high barometric pressure shift predicts a bad day), medication efficacy trend detection, and proactive morning briefings that demystify bad days before they spiral.
 
 <div align="center">
   <img src="docs/screenshots/future-dashboard.png" width="200" alt="Future dashboard with Today's Summary card, Log button, breathing pacer, and grouped metric sections" />
@@ -149,7 +151,7 @@ See [REQUIREMENTS.md](REQUIREMENTS.md) for the full data model and specification
 
 If you're browsing this codebase to learn from it, here are the parts worth studying:
 
-- **Actor-isolated HealthKit at scale** — `HealthKitManager` handles 25+ data types with anchored object queries, background delivery, and structured concurrency. Most open-source HealthKit examples demonstrate 2-3 types. This is a reference implementation for the real thing.
+- **Protocol-abstracted HealthKit at scale** — `HealthKitDataSource` protocol with `HealthKitManager` (actor) conformance handles 25+ data types with anchored object queries, background delivery, and structured concurrency. The protocol extraction makes every HealthKit-dependent service testable with a mock. Most open-source HealthKit examples demonstrate 2-3 types. This is a reference implementation for the real thing.
 - **Dose-triggered notification follow-up** — `DoseAnxietyPromptView` + `DoseFollowUpManager`: schedules a `UNNotificationRequest` 30 minutes post-dose, captures the follow-up rating, pairs it with the pre-dose entry via a shared `MedicationDose` relationship, and cleans up stale follow-ups after 2 hours.
 - **HealthSnapshot materialized view** — `SnapshotAggregator` queries HealthKit once per day and aggregates all tracked metrics into a single SwiftData record. Charts and exports read from this local model, not from HealthKit directly. Rebuildable from source if needed.
 - **CPAP SD card parsing** — `CPAPImporter` auto-detects [OSCAR](https://www.sleepfiles.com/OSCAR/) Summary CSV exports on the iOS side, and the sync server includes an EDF parser (`edf_parser.py`) that extracts 95th-percentile leak rates from AirSense 11 waveform files. One of the few Swift/Python CPAP parsing implementations.
@@ -158,7 +160,8 @@ If you're browsing this codebase to learn from it, here are the parts worth stud
 - **Extracted view model pattern** — `DashboardViewModel` shows how to pull business logic out of SwiftUI views into testable `@Observable` classes, with a thorough test suite covering sample loading, baseline computation, supply alerts, and trend calculation.
 - **SwiftData with 11 related models** — relationships, cascade deletes, and query-driven views across a non-trivial schema. Good reference for SwiftData beyond the single-model tutorials.
 - **Full-stack sync** — `SyncService` (Swift actor) pushes to a Flask/PostgreSQL backend with API key auth, upsert logic across 10 entity types, and CapRx/Walgreens prescription import pipelines.
-- **Test suite** — Swift Testing (`@Test`, `#expect`) with in-memory SwiftData containers, fixed reference dates, and a model factory. Good reference for testing SwiftData services without mocking.
+- **Physiological correlation engine** — `PhysiologicalCorrelation` pairs daily health snapshots with anxiety entries to compute per-metric correlations, p-values, and "anxiety on abnormal vs. normal days" comparisons. A good example of turning health data into actionable insight without ML.
+- **Test suite** — Swift Testing (`@Test`, `#expect`) with in-memory SwiftData containers, fixed reference dates, a model factory, and a `MockHealthKitDataSource` for deterministic HealthKit testing. Good reference for testing SwiftData services and HealthKit-dependent logic without mocking frameworks.
 
 ---
 
