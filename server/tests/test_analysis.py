@@ -349,3 +349,94 @@ def test_list_analyses(app):
 
     assert len(analyses) == 2
     assert analyses[0]["id"] > analyses[1]["id"]
+
+
+# ---------------------------------------------------------------------------
+# Admin route integration tests
+# ---------------------------------------------------------------------------
+
+ADMIN_PASSWORD = "test-admin-password"
+
+
+@pytest.fixture()
+def admin_client(app):
+    """Client with admin session."""
+    app.config["SECRET_KEY"] = "test-secret"
+    os.environ["ADMIN_PASSWORD"] = ADMIN_PASSWORD
+    client = app.test_client()
+    # Log in
+    client.post("/admin/login", data={"password": ADMIN_PASSWORD})
+    return client
+
+
+def test_analysis_page_loads(admin_client):
+    """GET /admin/analysis returns 200."""
+    resp = admin_client.get("/admin/analysis")
+    assert resp.status_code == 200
+    assert b"New Analysis" in resp.data
+
+
+def test_analysis_page_requires_auth(client):
+    """GET /admin/analysis redirects without auth."""
+    resp = client.get("/admin/analysis")
+    assert resp.status_code == 302
+
+
+def test_analysis_run_requires_api_key(admin_client, app):
+    """POST /admin/analysis/run fails without ANTHROPIC_API_KEY."""
+    os.environ.pop("ANTHROPIC_API_KEY", None)
+    resp = admin_client.post(
+        "/admin/analysis/run",
+        data={"date_from": "2026-01-10", "date_to": "2026-01-12"},
+    )
+    assert resp.status_code == 302  # redirect back with flash
+
+
+def test_analysis_run_end_to_end(admin_client, app):
+    """POST /admin/analysis/run creates analysis and redirects to detail."""
+    _insert_test_data(app)
+    os.environ["ANTHROPIC_API_KEY"] = "test-key"
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response()
+
+    with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+        resp = admin_client.post(
+            "/admin/analysis/run",
+            data={"date_from": "2026-01-10", "date_to": "2026-01-12"},
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 302
+    assert "/admin/analysis/" in resp.headers["Location"]
+
+    # Clean up
+    os.environ.pop("ANTHROPIC_API_KEY", None)
+
+
+def test_analysis_detail_page(admin_client, app):
+    """GET /admin/analysis/<id> shows the analysis detail."""
+    _insert_test_data(app)
+    os.environ["ANTHROPIC_API_KEY"] = "test-key"
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response()
+
+    with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+        resp = admin_client.post(
+            "/admin/analysis/run",
+            data={"date_from": "2026-01-10", "date_to": "2026-01-12"},
+            follow_redirects=True,
+        )
+
+    assert resp.status_code == 200
+    assert b"Anxiety has been stable" in resp.data
+    assert b"HRV inversely correlates" in resp.data
+
+    os.environ.pop("ANTHROPIC_API_KEY", None)
+
+
+def test_analysis_detail_not_found(admin_client):
+    """GET /admin/analysis/999 redirects with flash."""
+    resp = admin_client.get("/admin/analysis/999")
+    assert resp.status_code == 302
