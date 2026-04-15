@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Analysis: {{ a.date_from }} – {{ a.date_to }} — Anxiety Watch Admin{% endblock %}
+{% block content %}
+<div style="margin-bottom:1rem;">
+    <a href="{{ url_for('admin.analysis') }}" style="color:#0071e3; font-size:0.85rem; text-decoration:none;">&larr; Back to Analysis</a>
+</div>
+
+<!-- Header card -->
+<div class="card" style="border-left:3px solid {{ '#34c759' if a.trend_direction == 'improving' else '#ff9500' if a.trend_direction == 'worsening' else '#007aff' if a.trend_direction == 'stable' else '#af52de' }};">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+        <div>
+            <span style="font-size:1.2rem; font-weight:700;">{{ a.date_from }} &ndash; {{ a.date_to }}</span>
+            {% if a.trend_direction %}
+            <span style="background:{{ '#e8f5e9' if a.trend_direction == 'improving' else '#fff3e0' if a.trend_direction == 'worsening' else '#e3f2fd' if a.trend_direction == 'stable' else '#f3e5f5' }}; color:{{ '#2e7d32' if a.trend_direction == 'improving' else '#e65100' if a.trend_direction == 'worsening' else '#1565c0' if a.trend_direction == 'stable' else '#7b1fa2' }}; padding:0.2rem 0.6rem; border-radius:10px; font-size:0.75rem; margin-left:0.75rem;">{{ a.trend_direction }}</span>
+            {% endif %}
+        </div>
+        <span style="font-size:0.8rem; color:#6e6e73;">Analyzed {{ a.created_at[:16] if a.created_at else '' }}</span>
+    </div>
+
+    {% if a.status == 'failed' %}
+    <div style="background:#fff0f0; color:#ff3b30; padding:0.75rem; border-radius:6px;">
+        <strong>Analysis failed:</strong> {{ a.error_message or 'Unknown error' }}
+    </div>
+    {% elif a.summary %}
+    {% for para in a.summary.split('\n\n') %}
+    <p style="font-size:0.9rem; color:#333; line-height:1.6; margin-bottom:0.5rem;">{{ para }}</p>
+    {% endfor %}
+    {% endif %}
+
+    {% if a.tokens_in %}
+    <div style="font-size:0.75rem; color:#6e6e73; margin-top:0.75rem; display:flex; gap:1.5rem;">
+        <span>{{ (a.insights or [])|length }} insights</span>
+        <span>{{ "{:,}".format(a.tokens_in) }} tokens in</span>
+        <span>{{ "{:,}".format(a.tokens_out) }} tokens out</span>
+        <span>{{ a.model }}</span>
+    </div>
+    {% endif %}
+</div>
+
+{% macro render_insight(insight) %}
+<div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
+        <span style="font-weight:600; font-size:0.95rem;">{{ insight.title }}</span>
+        <span style="background:#e8f0fe; color:#0071e3; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.75rem; white-space:nowrap;">confidence: {{ insight.confidence }}</span>
+    </div>
+    <span style="font-size:0.7rem; color:#6e6e73; text-transform:uppercase; letter-spacing:0.05em;">{{ insight.category }}</span>
+    <p style="font-size:0.85rem; color:#444; line-height:1.6; margin-top:0.5rem;">{{ insight.detail }}</p>
+    {% if insight.supporting_data %}
+    <div style="background:#f5f5f7; border-radius:6px; padding:0.75rem; margin-top:0.75rem; font-size:0.8rem; font-family:monospace; color:#555;">
+        {% if insight.supporting_data is mapping %}
+        {% for k, v in insight.supporting_data.items() %}
+        {{ k }}: {{ v }}<br>
+        {% endfor %}
+        {% else %}
+        {{ insight.supporting_data }}
+        {% endif %}
+    </div>
+    {% endif %}
+    {% if insight.confidence_explanation %}
+    <p style="font-size:0.8rem; color:#6e6e73; margin-top:0.5rem; line-height:1.5;">
+        <strong>Confidence explanation:</strong> {{ insight.confidence_explanation }}
+    </p>
+    {% endif %}
+</div>
+{% endmacro %}
+
+<!-- HIGH severity insights -->
+{% if high_insights %}
+<h2 style="margin-top:1.5rem; margin-bottom:0.75rem; display:flex; align-items:center; gap:0.5rem;">
+    <span style="background:#ff3b30; color:#fff; padding:0.15rem 0.5rem; border-radius:4px; font-size:0.7rem;">HIGH</span>
+    High Severity Insights
+</h2>
+{% for insight in high_insights %}
+{{ render_insight(insight) }}
+{% endfor %}
+{% endif %}
+
+<!-- MEDIUM severity insights -->
+{% if medium_insights %}
+<h2 style="margin-top:1.5rem; margin-bottom:0.75rem; display:flex; align-items:center; gap:0.5rem;">
+    <span style="background:#ff9500; color:#fff; padding:0.15rem 0.5rem; border-radius:4px; font-size:0.7rem;">MED</span>
+    Medium Severity Insights
+</h2>
+{% for insight in medium_insights %}
+<details style="margin-bottom:0.75rem;">
+    <summary class="card" style="cursor:pointer; list-style:none; margin-bottom:0;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-weight:500; font-size:0.9rem;">{{ insight.title }}</span>
+            <div style="display:flex; align-items:center; gap:0.75rem;">
+                <span style="color:#0071e3; font-size:0.75rem;">{{ insight.confidence }}</span>
+                <span style="color:#6e6e73; font-size:0.8rem;">&#9654;</span>
+            </div>
+        </div>
+    </summary>
+    {{ render_insight(insight) }}
+</details>
+{% endfor %}
+{% endif %}
+
+<!-- LOW severity insights -->
+{% if low_insights %}
+<h2 style="margin-top:1.5rem; margin-bottom:0.75rem; display:flex; align-items:center; gap:0.5rem;">
+    <span style="background:#007aff; color:#fff; padding:0.15rem 0.5rem; border-radius:4px; font-size:0.7rem;">LOW</span>
+    Low Severity Insights
+</h2>
+{% for insight in low_insights %}
+<details style="margin-bottom:0.75rem;">
+    <summary class="card" style="cursor:pointer; list-style:none; margin-bottom:0;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-weight:500; font-size:0.9rem;">{{ insight.title }}</span>
+            <div style="display:flex; align-items:center; gap:0.75rem;">
+                <span style="color:#0071e3; font-size:0.75rem;">{{ insight.confidence }}</span>
+                <span style="color:#6e6e73; font-size:0.8rem;">&#9654;</span>
+            </div>
+        </div>
+    </summary>
+    {{ render_insight(insight) }}
+</details>
+{% endfor %}
+{% endif %}
+
+{% if not high_insights and not medium_insights and not low_insights and a.status == 'completed' %}
+<div class="card" style="text-align:center; color:#6e6e73; margin-top:1rem;">
+    <p>No insights were generated for this analysis.</p>
+</div>
+{% endif %}
+
+<!-- Raw data toggle -->
+{% if a.request_payload or a.response_payload %}
+<div style="margin-top:2rem; border-top:1px solid #e5e5e7; padding-top:1rem;">
+    <details>
+        <summary style="cursor:pointer; font-size:0.85rem; color:#0071e3; font-weight:500;">Show raw request &amp; response</summary>
+        <div style="margin-top:0.75rem;">
+            {% if a.request_payload %}
+            <div style="margin-bottom:0.75rem;">
+                <span style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Request payload{% if a.tokens_in %} ({{ "{:,}".format(a.tokens_in) }} tokens){% endif %}</span>
+                <pre style="background:#1d1d1f; color:#a8d8a8; border-radius:6px; padding:1rem; margin-top:0.25rem; font-size:0.75rem; max-height:300px; overflow:auto; white-space:pre-wrap; word-break:break-word;">{{ a.request_payload | tojson(indent=2) if a.request_payload is mapping else a.request_payload }}</pre>
+            </div>
+            {% endif %}
+            {% if a.response_payload %}
+            <div>
+                <span style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Response{% if a.tokens_out %} ({{ "{:,}".format(a.tokens_out) }} tokens){% endif %}</span>
+                <pre style="background:#1d1d1f; color:#a8d8a8; border-radius:6px; padding:1rem; margin-top:0.25rem; font-size:0.75rem; max-height:300px; overflow:auto; white-space:pre-wrap; word-break:break-word;">{{ a.response_payload | tojson(indent=2) if a.response_payload is mapping else a.response_payload }}</pre>
+            </div>
+            {% endif %}
+        </div>
+    </details>
+</div>
+{% endif %}
+{% endblock %}

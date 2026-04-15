@@ -532,6 +532,128 @@ def clear_prescriptions():
 # Data Browser
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# AI Analysis
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/analysis")
+@require_admin
+def analysis():
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    from analysis import list_analyses
+    analyses = list_analyses(cur)
+
+    # Get date range across all analysis-relevant tables using index-friendly
+    # MIN/MAX per table, then convert timestamps to UTC dates in Python.
+    cur.execute(
+        """
+        SELECT
+            (SELECT MIN(timestamp) FROM anxiety_entries) AS anxiety_min,
+            (SELECT MAX(timestamp) FROM anxiety_entries) AS anxiety_max,
+            (SELECT MIN(timestamp) FROM medication_doses) AS med_min,
+            (SELECT MAX(timestamp) FROM medication_doses) AS med_max,
+            (SELECT MIN(date) FROM cpap_sessions) AS cpap_min,
+            (SELECT MAX(date) FROM cpap_sessions) AS cpap_max,
+            (SELECT MIN(date) FROM health_snapshots) AS health_min,
+            (SELECT MAX(date) FROM health_snapshots) AS health_max,
+            (SELECT MIN(timestamp) FROM barometric_readings) AS baro_min,
+            (SELECT MAX(timestamp) FROM barometric_readings) AS baro_max
+        """
+    )
+    date_range = cur.fetchone()
+
+    from datetime import date as date_type, datetime as dt_type, timedelta, timezone
+
+    def _to_date(val):
+        if val is None:
+            return None
+        if isinstance(val, dt_type):
+            return val.astimezone(timezone.utc).date() if val.tzinfo else val.date()
+        return val
+
+    all_dates = [_to_date(date_range[k]) for k in date_range if date_range[k] is not None]
+    if all_dates:
+        min_date = min(all_dates)
+        max_date = max(all_dates)
+    else:
+        max_date = date_type.today()
+        min_date = max_date - timedelta(days=30)
+
+    from analysis import MODEL
+    return render_template(
+        "analysis.html",
+        analyses=analyses,
+        min_date=min_date,
+        max_date=max_date,
+        model_name=MODEL,
+    )
+
+
+@admin_bp.route("/analysis/run", methods=["POST"])
+@require_admin
+def analysis_run():
+    import os
+    from datetime import date
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        flash("ANTHROPIC_API_KEY not configured.", "error")
+        return redirect(url_for("admin.analysis"))
+
+    date_from_str = request.form.get("date_from", "")
+    date_to_str = request.form.get("date_to", "")
+
+    try:
+        date_from = date.fromisoformat(date_from_str)
+        date_to = date.fromisoformat(date_to_str)
+    except (ValueError, TypeError):
+        flash("Invalid date range.", "error")
+        return redirect(url_for("admin.analysis"))
+
+    if date_from > date_to:
+        flash("Start date must be before end date.", "error")
+        return redirect(url_for("admin.analysis"))
+
+    db = get_db()
+    try:
+        from analysis import run_analysis
+        analysis_id = run_analysis(db, date_from, date_to)
+        return redirect(url_for("admin.analysis_detail", analysis_id=analysis_id))
+    except Exception:
+        current_app.logger.exception("Analysis failed")
+        flash("Analysis failed. Check server logs for details.", "error")
+        return redirect(url_for("admin.analysis"))
+
+
+@admin_bp.route("/analysis/<int:analysis_id>")
+@require_admin
+def analysis_detail(analysis_id):
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    from analysis import get_analysis
+    a = get_analysis(cur, analysis_id)
+    if a is None:
+        flash("Analysis not found.", "error")
+        return redirect(url_for("admin.analysis"))
+
+    # Group insights by severity, filtering out any malformed non-dict entries
+    insights = [i for i in (a.get("insights") or []) if isinstance(i, dict)]
+    high = [i for i in insights if i.get("severity") == "high"]
+    medium = [i for i in insights if i.get("severity") == "medium"]
+    low = [i for i in insights if i.get("severity") == "low"]
+
+    return render_template(
+        "analysis_detail.html",
+        a=a,
+        high_insights=high,
+        medium_insights=medium,
+        low_insights=low,
+    )
+
+
 BROWSABLE_TABLES = {
     "anxiety_entries": {"order": "timestamp DESC", "label": "Anxiety Entries"},
     "medication_definitions": {"order": "name", "label": "Medication Definitions"},

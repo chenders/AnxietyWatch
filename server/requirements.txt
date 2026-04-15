@@ -12,3 +12,4 @@ playwright>=1.40
 pyedflib>=0.1.34
 numpy>=1.26
 scipy>=1.12
+anthropic>=0.39
