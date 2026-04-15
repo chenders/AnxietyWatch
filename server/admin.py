@@ -621,9 +621,9 @@ def analysis_run():
         from analysis import run_analysis
         analysis_id = run_analysis(db, date_from, date_to)
         return redirect(url_for("admin.analysis_detail", analysis_id=analysis_id))
-    except Exception as e:
+    except Exception:
         current_app.logger.exception("Analysis failed")
-        flash(f"Analysis failed: {str(e)[:500]}", "error")
+        flash("Analysis failed. Check server logs for details.", "error")
         return redirect(url_for("admin.analysis"))
 
 

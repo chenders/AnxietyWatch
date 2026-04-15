@@ -430,14 +430,11 @@ def test_analysis_run_end_to_end(admin_client, app, monkeypatch):
     assert resp.status_code == 302
     assert "/admin/analysis/" in resp.headers["Location"]
 
-    # Clean up
-    os.environ.pop("ANTHROPIC_API_KEY", None)
 
-
-def test_analysis_detail_page(admin_client, app):
+def test_analysis_detail_page(admin_client, app, monkeypatch):
     """GET /admin/analysis/<id> shows the analysis detail."""
     _insert_test_data(app)
-    os.environ["ANTHROPIC_API_KEY"] = "test-key"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
     mock_client = MagicMock()
     mock_client.messages.create.return_value = _mock_anthropic_response()
@@ -452,8 +449,6 @@ def test_analysis_detail_page(admin_client, app):
     assert resp.status_code == 200
     assert b"Anxiety has been stable" in resp.data
     assert b"HRV inversely correlates" in resp.data
-
-    os.environ.pop("ANTHROPIC_API_KEY", None)
 
 
 def test_analysis_detail_not_found(admin_client):
