@@ -415,8 +415,9 @@ def test_analysis_run_requires_api_key(admin_client, app, monkeypatch):
 def _wait_for_analysis_threads(timeout: float = 10.0) -> None:
     """Join any active background analysis threads (names start with 'analysis-').
 
-    Loops until no 'analysis-' threads are alive or the deadline elapses, so a
-    thread that spawns after the first enumerate() is still waited on.
+    Loops until no 'analysis-' threads are alive or the overall deadline elapses.
+    Recomputes the remaining budget for each join() so the total wall-clock wait
+    is bounded by `timeout` regardless of how many threads are alive.
     """
     import threading
     import time
@@ -428,11 +429,12 @@ def _wait_for_analysis_threads(timeout: float = 10.0) -> None:
         ]
         if not analysis_threads:
             return
-        remaining = deadline - time.time()
-        if remaining <= 0:
-            return
         for t in analysis_threads:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return
             t.join(timeout=remaining)
+        time.sleep(0.01)
 
 
 def test_analysis_run_end_to_end(admin_client, app, monkeypatch):

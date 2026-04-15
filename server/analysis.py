@@ -256,7 +256,11 @@ def run_analysis(db, date_from: date, date_to: date) -> int:
     HTTP worker on the Anthropic API call.
     """
     analysis_id, system_prompt, user_message = _create_pending_analysis(db, date_from, date_to)
-    _complete_analysis(db, analysis_id, system_prompt, user_message)
+    try:
+        _complete_analysis(db, analysis_id, system_prompt, user_message)
+    except Exception as e:
+        logging.exception("Analysis %d failed: %s", analysis_id, e)
+        _mark_analysis_failed(db, None, analysis_id, e)
     return analysis_id
 
 
@@ -308,6 +312,10 @@ def _mark_analysis_failed(existing_conn, database_url: str, analysis_id: int, ex
                 if existing_conn is None:
                     continue
                 target = existing_conn
+                try:
+                    target.rollback()
+                except Exception:
+                    pass
             cur = target.cursor()
             cur.execute(
                 "UPDATE analyses SET status = 'failed', error_message = %s, completed_at = NOW() "
@@ -329,44 +337,43 @@ def _mark_analysis_failed(existing_conn, database_url: str, analysis_id: int, ex
 
 
 def _complete_analysis(db, analysis_id: int, system_prompt: str, user_message: str) -> None:
-    try:
-        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("UPDATE analyses SET status = 'running' WHERE id = %s", (analysis_id,))
-        db.commit()
-        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-        message = client.messages.create(
-            model=MODEL,
-            max_tokens=16384,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
-        )
+    """Mark the analysis as running, call Claude, and write the result.
 
-        raw_response = message.model_dump()
-        parsed = parse_response(raw_response)
+    Raises on any failure — callers are responsible for recording the failed state
+    (see _mark_analysis_failed). Keeping this function exception-free of its own
+    recovery logic means there's no risk of a partially-initialized cursor being
+    used on a broken connection.
+    """
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("UPDATE analyses SET status = 'running' WHERE id = %s", (analysis_id,))
+    db.commit()
 
-        cur.execute(
-            "UPDATE analyses SET status = 'completed', response_payload = %s, "
-            "summary = %s, trend_direction = %s, insights = %s, "
-            "tokens_in = %s, tokens_out = %s, completed_at = NOW() "
-            "WHERE id = %s",
-            (
-                json.dumps(raw_response),
-                parsed["summary"],
-                parsed["trend_direction"],
-                json.dumps(parsed["insights"]),
-                parsed["tokens_in"],
-                parsed["tokens_out"],
-                analysis_id,
-            ),
-        )
-    except Exception as e:
-        logging.exception("Analysis %d failed: %s", analysis_id, e)
-        cur.execute(
-            "UPDATE analyses SET status = 'failed', error_message = %s, completed_at = NOW() "
-            "WHERE id = %s",
-            (str(e), analysis_id),
-        )
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    message = client.messages.create(
+        model=MODEL,
+        max_tokens=16384,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_message}],
+    )
 
+    raw_response = message.model_dump()
+    parsed = parse_response(raw_response)
+
+    cur.execute(
+        "UPDATE analyses SET status = 'completed', response_payload = %s, "
+        "summary = %s, trend_direction = %s, insights = %s, "
+        "tokens_in = %s, tokens_out = %s, completed_at = NOW() "
+        "WHERE id = %s",
+        (
+            json.dumps(raw_response),
+            parsed["summary"],
+            parsed["trend_direction"],
+            json.dumps(parsed["insights"]),
+            parsed["tokens_in"],
+            parsed["tokens_out"],
+            analysis_id,
+        ),
+    )
     db.commit()
 
 
