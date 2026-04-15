@@ -152,6 +152,7 @@ def test_correlations_in_sync_response(client, app):
     data = resp.get_json()
     assert "correlations" in data
     assert data["paired_days"] == 20
+    assert data["minimum_required"] == 12
     assert len(data["correlations"]) > 0
 
 
