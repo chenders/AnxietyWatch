@@ -499,7 +499,7 @@ def test_sweep_stale_analyses_marks_old_running_as_failed(app):
         fresh_id = cur.fetchone()[0]
         db.commit()
 
-        updated = sweep_stale_analyses(db)
+        updated = sweep_stale_analyses(db, force=True)
         assert updated == 1
 
         cur.execute("SELECT status FROM analyses WHERE id = %s", (stale_id,))

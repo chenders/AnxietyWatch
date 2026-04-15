@@ -385,16 +385,33 @@ def _complete_analysis(db, analysis_id: int, system_prompt: str, user_message: s
 
 
 STALE_ANALYSIS_MINUTES = 15
+SWEEP_THROTTLE_SECONDS = 60
+
+_sweep_lock = threading.Lock()
+_last_sweep_monotonic: float = 0.0
 
 
-def sweep_stale_analyses(db) -> int:
+def sweep_stale_analyses(db, force: bool = False) -> int:
     """Flip any analyses stuck in pending/running for longer than STALE_ANALYSIS_MINUTES
     to 'failed'. Handles the case where a worker process was killed mid-analysis
     (daemon thread terminated, OOM, deploy, etc.) and the row would otherwise stay
     pending forever and the UI would spin indefinitely.
 
-    Returns the number of rows updated.
+    Throttled to at most once per SWEEP_THROTTLE_SECONDS per process so the auto-
+    refreshing detail page doesn't issue a table-wide UPDATE every 5s. Pass
+    force=True to bypass the throttle (used by tests).
+
+    Returns the number of rows updated, or 0 if the sweep was throttled.
     """
+    global _last_sweep_monotonic
+    import time as _time
+    if not force:
+        with _sweep_lock:
+            now = _time.monotonic()
+            if now - _last_sweep_monotonic < SWEEP_THROTTLE_SECONDS:
+                return 0
+            _last_sweep_monotonic = now
+
     cur = db.cursor()
     cur.execute(
         "UPDATE analyses SET status = 'failed', "
