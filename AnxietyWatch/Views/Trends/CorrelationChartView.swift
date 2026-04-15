@@ -19,16 +19,12 @@ struct CorrelationChartView: View {
             if pairedData.isEmpty {
                 ContentUnavailableView("No Paired Data", systemImage: "chart.dots.scatter")
             } else {
-                Chart {
-                    Plot {
-                        ForEach(pairedData, id: \.date) { point in
-                            PointMark(
-                                x: .value(correlation.displayName, point.signalValue),
-                                y: .value("Severity", point.severity)
-                            )
-                            .foregroundStyle(.blue.opacity(0.6))
-                        }
-                    }
+                Chart(pairedData, id: \.date) { point in
+                    PointMark(
+                        x: .value(correlation.displayName, point.signalValue),
+                        y: .value("Severity", point.severity)
+                    )
+                    .foregroundStyle(.blue.opacity(0.6))
                 }
                 .chartYScale(domain: 1...10)
                 .chartYAxisLabel("Anxiety Severity")
