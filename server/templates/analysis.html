@@ -28,7 +28,7 @@
                 <button type="submit" class="btn btn-primary">Run Analysis</button>
             </div>
         </div>
-        <p style="font-size:0.75rem; color:#6e6e73; margin-top:0.5rem;">Model: claude-opus-4-6 &middot; Sends all raw data in range to Claude API</p>
+        <p style="font-size:0.75rem; color:#6e6e73; margin-top:0.5rem;">Model: {{ model_name }} &middot; Sends all raw data in range to Claude API</p>
     </form>
 </div>
 
@@ -106,7 +106,7 @@ document.querySelectorAll('.quick-range').forEach(function(el) {
             toInput.value = localDateStr(today);
         } else {
             var from = new Date(today);
-            from.setDate(from.getDate() - days);
+            from.setDate(from.getDate() - (days - 1));
             fromInput.value = localDateStr(from);
             toInput.value = localDateStr(today);
         }

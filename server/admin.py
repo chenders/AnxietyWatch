@@ -582,11 +582,13 @@ def analysis():
         max_date = date_type.today()
         min_date = max_date - timedelta(days=30)
 
+    from analysis import MODEL
     return render_template(
         "analysis.html",
         analyses=analyses,
         min_date=min_date,
         max_date=max_date,
+        model_name=MODEL,
     )
 
 
