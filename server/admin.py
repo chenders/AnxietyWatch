@@ -546,8 +546,11 @@ def analysis():
     from analysis import list_analyses
     analyses = list_analyses(cur)
 
-    # Get date range of available data for defaults
-    cur.execute("SELECT MIN(timestamp::date) AS min_date, MAX(timestamp::date) AS max_date FROM anxiety_entries")
+    # Get date range of available data for defaults (use UTC to avoid timezone drift)
+    cur.execute(
+        "SELECT MIN((timestamp AT TIME ZONE 'UTC')::date) AS min_date, "
+        "MAX((timestamp AT TIME ZONE 'UTC')::date) AS max_date FROM anxiety_entries"
+    )
     date_range = cur.fetchone()
 
     return render_template(

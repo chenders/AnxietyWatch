@@ -2,7 +2,7 @@
 
 import json
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import anthropic
 import psycopg2.extras
@@ -16,8 +16,8 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
     Returns a dict with keys for each data source, values are lists of dicts.
     """
     data = {}
-    ts_start = datetime.combine(date_from, datetime.min.time())
-    ts_end = datetime.combine(date_to + timedelta(days=1), datetime.min.time())
+    ts_start = datetime.combine(date_from, datetime.min.time(), tzinfo=timezone.utc)
+    ts_end = datetime.combine(date_to + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
 
     # Anxiety entries (half-open timestamp range for index usage)
     cur.execute(
