@@ -546,18 +546,37 @@ def analysis():
     from analysis import list_analyses
     analyses = list_analyses(cur)
 
-    # Get date range of available data for defaults (use UTC to avoid timezone drift)
+    # Get date range across all analysis-relevant tables (use UTC for timestamptz columns)
     cur.execute(
-        "SELECT MIN((timestamp AT TIME ZONE 'UTC')::date) AS min_date, "
-        "MAX((timestamp AT TIME ZONE 'UTC')::date) AS max_date FROM anxiety_entries"
+        """
+        SELECT MIN(date_value) AS min_date, MAX(date_value) AS max_date
+        FROM (
+            SELECT (timestamp AT TIME ZONE 'UTC')::date AS date_value FROM anxiety_entries
+            UNION ALL
+            SELECT (timestamp AT TIME ZONE 'UTC')::date FROM medication_doses
+            UNION ALL
+            SELECT date::date FROM cpap_sessions
+            UNION ALL
+            SELECT date::date FROM health_snapshots
+            UNION ALL
+            SELECT (timestamp AT TIME ZONE 'UTC')::date FROM barometric_readings
+        ) AS available_dates
+        """
     )
     date_range = cur.fetchone()
+
+    from datetime import date as date_type, timedelta
+    min_date = date_range["min_date"]
+    max_date = date_range["max_date"]
+    if min_date is None or max_date is None:
+        max_date = date_type.today()
+        min_date = max_date - timedelta(days=30)
 
     return render_template(
         "analysis.html",
         analyses=analyses,
-        min_date=date_range["min_date"],
-        max_date=date_range["max_date"],
+        min_date=min_date,
+        max_date=max_date,
     )
 
 

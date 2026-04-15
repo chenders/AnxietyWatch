@@ -360,10 +360,10 @@ ADMIN_PASSWORD = "test-admin-password"
 
 
 @pytest.fixture()
-def admin_client(app):
+def admin_client(app, monkeypatch):
     """Client with admin session."""
     app.config["SECRET_KEY"] = "test-secret"
-    os.environ["ADMIN_PASSWORD"] = ADMIN_PASSWORD
+    monkeypatch.setenv("ADMIN_PASSWORD", ADMIN_PASSWORD)
     client = app.test_client()
     # Log in
     client.post("/admin/login", data={"password": ADMIN_PASSWORD})
@@ -383,9 +383,9 @@ def test_analysis_page_requires_auth(client):
     assert resp.status_code == 302
 
 
-def test_analysis_run_requires_api_key(admin_client, app):
+def test_analysis_run_requires_api_key(admin_client, app, monkeypatch):
     """POST /admin/analysis/run fails without ANTHROPIC_API_KEY."""
-    os.environ.pop("ANTHROPIC_API_KEY", None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     resp = admin_client.post(
         "/admin/analysis/run",
         data={"date_from": "2026-01-10", "date_to": "2026-01-12"},
@@ -393,10 +393,10 @@ def test_analysis_run_requires_api_key(admin_client, app):
     assert resp.status_code == 302  # redirect back with flash
 
 
-def test_analysis_run_end_to_end(admin_client, app):
+def test_analysis_run_end_to_end(admin_client, app, monkeypatch):
     """POST /admin/analysis/run creates analysis and redirects to detail."""
     _insert_test_data(app)
-    os.environ["ANTHROPIC_API_KEY"] = "test-key"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
     mock_client = MagicMock()
     mock_client.messages.create.return_value = _mock_anthropic_response()
