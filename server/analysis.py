@@ -233,11 +233,11 @@ def start_analysis(db, date_from: date, date_to: date, database_url: str | None 
     Returns the analysis row ID immediately. The background worker opens its own DB
     connection so it can outlive the originating HTTP request.
     """
-    analysis_id, system_prompt, user_message = _create_pending_analysis(db, date_from, date_to)
-
     dsn = database_url or os.environ.get("DATABASE_URL")
     if not dsn:
         raise RuntimeError("DATABASE_URL not configured")
+
+    analysis_id, system_prompt, user_message = _create_pending_analysis(db, date_from, date_to)
 
     thread = threading.Thread(
         target=_execute_analysis,
@@ -245,7 +245,12 @@ def start_analysis(db, date_from: date, date_to: date, database_url: str | None 
         name=f"analysis-{analysis_id}",
         daemon=True,
     )
-    thread.start()
+    try:
+        thread.start()
+    except Exception as e:
+        logging.exception("Failed to start background thread for analysis %d", analysis_id)
+        _mark_analysis_failed(db, dsn, analysis_id, e)
+        raise
     return analysis_id
 
 

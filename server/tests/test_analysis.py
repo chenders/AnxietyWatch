@@ -421,7 +421,7 @@ def _wait_for_analysis_threads(timeout: float = 10.0) -> None:
     """
     import threading
     import time
-    deadline = time.time() + timeout
+    deadline = time.monotonic() + timeout
     while True:
         analysis_threads = [
             t for t in threading.enumerate()
@@ -430,7 +430,7 @@ def _wait_for_analysis_threads(timeout: float = 10.0) -> None:
         if not analysis_threads:
             return
         for t in analysis_threads:
-            remaining = deadline - time.time()
+            remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return
             t.join(timeout=remaining)
