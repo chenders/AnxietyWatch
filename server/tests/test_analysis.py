@@ -412,6 +412,31 @@ def test_analysis_run_requires_api_key(admin_client, app, monkeypatch):
     assert resp.status_code == 302  # redirect back with flash
 
 
+def _wait_for_analysis_threads(timeout: float = 10.0) -> None:
+    """Join any active background analysis threads (names start with 'analysis-').
+
+    Loops until no 'analysis-' threads are alive or the overall deadline elapses.
+    Recomputes the remaining budget for each join() so the total wall-clock wait
+    is bounded by `timeout` regardless of how many threads are alive.
+    """
+    import threading
+    import time
+    deadline = time.monotonic() + timeout
+    while True:
+        analysis_threads = [
+            t for t in threading.enumerate()
+            if t.name.startswith("analysis-") and t.is_alive()
+        ]
+        if not analysis_threads:
+            return
+        for t in analysis_threads:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            t.join(timeout=remaining)
+        time.sleep(0.01)
+
+
 def test_analysis_run_end_to_end(admin_client, app, monkeypatch):
     """POST /admin/analysis/run creates analysis and redirects to detail."""
     _insert_test_data(app)
@@ -426,6 +451,7 @@ def test_analysis_run_end_to_end(admin_client, app, monkeypatch):
             data={"date_from": "2026-01-10", "date_to": "2026-01-12"},
             follow_redirects=False,
         )
+        _wait_for_analysis_threads()
 
     assert resp.status_code == 302
     assert "/admin/analysis/" in resp.headers["Location"]
@@ -440,15 +466,71 @@ def test_analysis_detail_page(admin_client, app, monkeypatch):
     mock_client.messages.create.return_value = _mock_anthropic_response()
 
     with patch("analysis.anthropic.Anthropic", return_value=mock_client):
-        resp = admin_client.post(
+        post_resp = admin_client.post(
             "/admin/analysis/run",
             data={"date_from": "2026-01-10", "date_to": "2026-01-12"},
-            follow_redirects=True,
+            follow_redirects=False,
         )
+        _wait_for_analysis_threads()
+        resp = admin_client.get(post_resp.headers["Location"])
 
     assert resp.status_code == 200
     assert b"Anxiety has been stable" in resp.data
     assert b"HRV inversely correlates" in resp.data
+
+
+def test_sweep_stale_analyses_marks_old_running_as_failed(app):
+    """sweep_stale_analyses flips stale pending/running rows to failed."""
+    with app.app_context():
+        from analysis import sweep_stale_analyses
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO analyses (date_from, date_to, status, model, created_at) "
+            "VALUES (%s, %s, 'running', 'test', NOW() - INTERVAL '1 hour') RETURNING id",
+            (date(2026, 1, 10), date(2026, 1, 12)),
+        )
+        stale_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO analyses (date_from, date_to, status, model, created_at) "
+            "VALUES (%s, %s, 'running', 'test', NOW()) RETURNING id",
+            (date(2026, 1, 10), date(2026, 1, 12)),
+        )
+        fresh_id = cur.fetchone()[0]
+        db.commit()
+
+        updated = sweep_stale_analyses(db, force=True)
+        assert updated == 1
+
+        cur.execute("SELECT status FROM analyses WHERE id = %s", (stale_id,))
+        assert cur.fetchone()[0] == "failed"
+        cur.execute("SELECT status FROM analyses WHERE id = %s", (fresh_id,))
+        assert cur.fetchone()[0] == "running"
+
+
+def test_start_analysis_runs_in_background(app, monkeypatch):
+    """start_analysis inserts a pending row immediately and completes in a worker thread."""
+    _insert_test_data(app)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response()
+
+    with app.app_context():
+        from analysis import start_analysis, get_analysis
+        db = app.get_db()
+
+        with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+            analysis_id = start_analysis(
+                db, date(2026, 1, 10), date(2026, 1, 12), database_url=DATABASE_URL
+            )
+            _wait_for_analysis_threads()
+
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        result = get_analysis(cur, analysis_id)
+
+    assert result["status"] == "completed"
+    assert result["summary"] == "Anxiety has been stable over this period."
 
 
 def test_analysis_detail_not_found(admin_client):
