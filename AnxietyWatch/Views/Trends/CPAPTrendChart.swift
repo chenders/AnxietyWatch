@@ -44,12 +44,14 @@ struct CPAPTrendChart: View {
 
     @ChartContentBuilder
     private var ahiBars: some ChartContent {
-        ForEach(sessions) { session in
-            BarMark(
-                x: .value("Date", session.date, unit: .day),
-                y: .value("AHI", session.ahi)
-            )
-            .foregroundStyle(ahiColor(session.ahi).gradient)
+        Plot {
+            ForEach(sessions) { session in
+                BarMark(
+                    x: .value("Date", session.date, unit: .day),
+                    y: .value("AHI", session.ahi)
+                )
+                .foregroundStyle(ahiColor(session.ahi).gradient)
+            }
         }
     }
 
@@ -73,15 +75,17 @@ struct CPAPTrendChart: View {
 
     @ChartContentBuilder
     private var anxietyOverlay: some ChartContent {
-        ForEach(entries) { entry in
-            RuleMark(x: .value("Date", entry.timestamp, unit: .day))
-                .foregroundStyle(Color.severity(entry.severity).opacity(0.25))
-                .lineStyle(StrokeStyle(lineWidth: 2))
-                .annotation(position: .top, spacing: 0) {
-                    Text("\(entry.severity)")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(Color.severity(entry.severity))
-                }
+        Plot {
+            ForEach(entries) { entry in
+                RuleMark(x: .value("Date", entry.timestamp, unit: .day))
+                    .foregroundStyle(Color.severity(entry.severity).opacity(0.25))
+                    .lineStyle(StrokeStyle(lineWidth: 2))
+                    .annotation(position: .top, spacing: 0) {
+                        Text("\(entry.severity)")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(Color.severity(entry.severity))
+                    }
+            }
         }
     }
 

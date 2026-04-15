@@ -111,6 +111,26 @@ def create_app(test_config=None):
                     UNIQUE(signal_name)
                 )
             """)
+            # Migrate: add analyses table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS analyses (
+                    id SERIAL PRIMARY KEY,
+                    date_from DATE NOT NULL,
+                    date_to DATE NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    model TEXT NOT NULL,
+                    request_payload JSONB,
+                    response_payload JSONB,
+                    summary TEXT,
+                    trend_direction TEXT,
+                    insights JSONB,
+                    tokens_in INTEGER,
+                    tokens_out INTEGER,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    completed_at TIMESTAMPTZ,
+                    error_message TEXT
+                )
+            """)
         db.commit()
 
     @app.cli.command("init-db")
