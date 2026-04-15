@@ -197,10 +197,15 @@ def parse_response(raw_response: dict) -> dict:
 
     usage = raw_response.get("usage", {})
 
+    insights = parsed.get("insights", [])
+    if not isinstance(insights, list):
+        insights = []
+    insights = [i for i in insights if isinstance(i, dict)]
+
     return {
         "summary": parsed.get("summary", ""),
         "trend_direction": parsed.get("trend_direction", "mixed"),
-        "insights": parsed.get("insights", []),
+        "insights": insights,
         "tokens_in": usage.get("input_tokens", 0),
         "tokens_out": usage.get("output_tokens", 0),
     }

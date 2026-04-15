@@ -546,29 +546,39 @@ def analysis():
     from analysis import list_analyses
     analyses = list_analyses(cur)
 
-    # Get date range across all analysis-relevant tables (use UTC for timestamptz columns)
+    # Get date range across all analysis-relevant tables using index-friendly
+    # MIN/MAX per table, then convert timestamps to UTC dates in Python.
     cur.execute(
         """
-        SELECT MIN(date_value) AS min_date, MAX(date_value) AS max_date
-        FROM (
-            SELECT (timestamp AT TIME ZONE 'UTC')::date AS date_value FROM anxiety_entries
-            UNION ALL
-            SELECT (timestamp AT TIME ZONE 'UTC')::date FROM medication_doses
-            UNION ALL
-            SELECT date::date FROM cpap_sessions
-            UNION ALL
-            SELECT date::date FROM health_snapshots
-            UNION ALL
-            SELECT (timestamp AT TIME ZONE 'UTC')::date FROM barometric_readings
-        ) AS available_dates
+        SELECT
+            (SELECT MIN(timestamp) FROM anxiety_entries) AS anxiety_min,
+            (SELECT MAX(timestamp) FROM anxiety_entries) AS anxiety_max,
+            (SELECT MIN(timestamp) FROM medication_doses) AS med_min,
+            (SELECT MAX(timestamp) FROM medication_doses) AS med_max,
+            (SELECT MIN(date) FROM cpap_sessions) AS cpap_min,
+            (SELECT MAX(date) FROM cpap_sessions) AS cpap_max,
+            (SELECT MIN(date) FROM health_snapshots) AS health_min,
+            (SELECT MAX(date) FROM health_snapshots) AS health_max,
+            (SELECT MIN(timestamp) FROM barometric_readings) AS baro_min,
+            (SELECT MAX(timestamp) FROM barometric_readings) AS baro_max
         """
     )
     date_range = cur.fetchone()
 
-    from datetime import date as date_type, timedelta
-    min_date = date_range["min_date"]
-    max_date = date_range["max_date"]
-    if min_date is None or max_date is None:
+    from datetime import date as date_type, datetime as dt_type, timedelta, timezone
+
+    def _to_date(val):
+        if val is None:
+            return None
+        if isinstance(val, dt_type):
+            return val.astimezone(timezone.utc).date() if val.tzinfo else val.date()
+        return val
+
+    all_dates = [_to_date(date_range[k]) for k in date_range if date_range[k] is not None]
+    if all_dates:
+        min_date = min(all_dates)
+        max_date = max(all_dates)
+    else:
         max_date = date_type.today()
         min_date = max_date - timedelta(days=30)
 
