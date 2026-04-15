@@ -1,6 +1,7 @@
 """AI Analysis engine — gathers data, builds prompts, calls Claude, parses results."""
 
 import json
+import logging
 import os
 from datetime import date, datetime, timedelta, timezone
 
@@ -279,6 +280,7 @@ def run_analysis(db, date_from: date, date_to: date) -> int:
             ),
         )
     except Exception as e:
+        logging.exception("Analysis %d failed: %s", analysis_id, e)
         cur.execute(
             "UPDATE analyses SET status = 'failed', error_message = %s, completed_at = NOW() "
             "WHERE id = %s",

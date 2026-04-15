@@ -249,6 +249,25 @@ def test_parse_response_missing_fields():
     assert result["insights"] == []
 
 
+def test_parse_response_code_fenced():
+    """parse_response strips markdown code fences wrapping JSON."""
+    from analysis import parse_response
+
+    inner = json.dumps({
+        "summary": "Fenced summary.",
+        "trend_direction": "stable",
+        "insights": [],
+    })
+    raw_response = {
+        "content": [{"type": "text", "text": f"```json\n{inner}\n```"}],
+        "usage": {"input_tokens": 100, "output_tokens": 50},
+    }
+    result = parse_response(raw_response)
+    assert result["summary"] == "Fenced summary."
+    assert result["trend_direction"] == "stable"
+    assert result["insights"] == []
+
+
 # ---------------------------------------------------------------------------
 # Tests for run_analysis, get_analysis, list_analyses
 # ---------------------------------------------------------------------------
