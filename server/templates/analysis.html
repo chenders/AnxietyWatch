@@ -90,18 +90,25 @@ document.querySelectorAll('.quick-range').forEach(function(el) {
         var mode = this.dataset.mode;
         var days = parseInt(this.dataset.days);
 
+        function localDateStr(d) {
+            var y = d.getFullYear();
+            var m = String(d.getMonth() + 1).padStart(2, '0');
+            var day = String(d.getDate()).padStart(2, '0');
+            return y + '-' + m + '-' + day;
+        }
+
         if (mode === 'all') {
             fromInput.value = '{{ min_date or "" }}';
             toInput.value = '{{ max_date or "" }}';
         } else if (mode === 'month') {
             var firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-            fromInput.value = firstOfMonth.toISOString().split('T')[0];
-            toInput.value = today.toISOString().split('T')[0];
+            fromInput.value = localDateStr(firstOfMonth);
+            toInput.value = localDateStr(today);
         } else {
             var from = new Date(today);
             from.setDate(from.getDate() - days);
-            fromInput.value = from.toISOString().split('T')[0];
-            toInput.value = today.toISOString().split('T')[0];
+            fromInput.value = localDateStr(from);
+            toInput.value = localDateStr(today);
         }
     });
 });

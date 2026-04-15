@@ -52,7 +52,7 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
     )
     data["cpap_sessions"] = [_serialize(r) for r in cur.fetchall()]
 
-    # Barometric readings (can be high volume — sample to 1 per hour if > 500)
+    # Barometric readings (can be high volume — downsample with a uniform stride if > 500)
     cur.execute(
         "SELECT timestamp, pressure_kpa, relative_altitude_m "
         "FROM barometric_readings "
@@ -62,7 +62,7 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
     )
     baro_rows = [_serialize(r) for r in cur.fetchall()]
     if len(baro_rows) > 500:
-        step = len(baro_rows) // 500
+        step = -(-len(baro_rows) // 500)
         baro_rows = baro_rows[::step]
     data["barometric_readings"] = baro_rows
 

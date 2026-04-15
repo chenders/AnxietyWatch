@@ -7,6 +7,7 @@ import sys
 from datetime import date
 
 import psycopg2
+import psycopg2.extras
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
