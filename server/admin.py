@@ -605,10 +605,11 @@ def analysis_detail(analysis_id):
         flash("Analysis not found.", "error")
         return redirect(url_for("admin.analysis"))
 
-    # Group insights by severity
-    high = [i for i in (a.get("insights") or []) if i.get("severity") == "high"]
-    medium = [i for i in (a.get("insights") or []) if i.get("severity") == "medium"]
-    low = [i for i in (a.get("insights") or []) if i.get("severity") == "low"]
+    # Group insights by severity, filtering out any malformed non-dict entries
+    insights = [i for i in (a.get("insights") or []) if isinstance(i, dict)]
+    high = [i for i in insights if i.get("severity") == "high"]
+    medium = [i for i in insights if i.get("severity") == "medium"]
+    low = [i for i in insights if i.get("severity") == "low"]
 
     return render_template(
         "analysis_detail.html",

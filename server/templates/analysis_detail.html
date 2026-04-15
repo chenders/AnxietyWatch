@@ -47,9 +47,13 @@
     <p style="font-size:0.85rem; color:#444; line-height:1.6; margin-top:0.5rem;">{{ insight.detail }}</p>
     {% if insight.supporting_data %}
     <div style="background:#f5f5f7; border-radius:6px; padding:0.75rem; margin-top:0.75rem; font-size:0.8rem; font-family:monospace; color:#555;">
+        {% if insight.supporting_data is mapping %}
         {% for k, v in insight.supporting_data.items() %}
         {{ k }}: {{ v }}<br>
         {% endfor %}
+        {% else %}
+        {{ insight.supporting_data }}
+        {% endif %}
     </div>
     {% endif %}
     {% if insight.confidence_explanation %}

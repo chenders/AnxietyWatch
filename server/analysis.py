@@ -2,7 +2,7 @@
 
 import json
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import anthropic
 import psycopg2.extras
@@ -16,13 +16,15 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
     Returns a dict with keys for each data source, values are lists of dicts.
     """
     data = {}
+    ts_start = datetime.combine(date_from, datetime.min.time())
+    ts_end = datetime.combine(date_to + timedelta(days=1), datetime.min.time())
 
-    # Anxiety entries (join on date range via timestamp::date)
+    # Anxiety entries (half-open timestamp range for index usage)
     cur.execute(
         "SELECT timestamp, severity, notes, tags FROM anxiety_entries "
-        "WHERE timestamp::date >= %s AND timestamp::date <= %s "
+        "WHERE timestamp >= %s AND timestamp < %s "
         "ORDER BY timestamp",
-        (date_from, date_to),
+        (ts_start, ts_end),
     )
     data["anxiety_entries"] = [_serialize(r) for r in cur.fetchall()]
 
@@ -39,9 +41,9 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
         "m.category, m.default_dose_mg "
         "FROM medication_doses d "
         "LEFT JOIN medication_definitions m ON m.name = d.medication_name "
-        "WHERE d.timestamp::date >= %s AND d.timestamp::date <= %s "
+        "WHERE d.timestamp >= %s AND d.timestamp < %s "
         "ORDER BY d.timestamp",
-        (date_from, date_to),
+        (ts_start, ts_end),
     )
     data["medication_doses"] = [_serialize(r) for r in cur.fetchall()]
 
@@ -56,9 +58,9 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
     cur.execute(
         "SELECT timestamp, pressure_kpa, relative_altitude_m "
         "FROM barometric_readings "
-        "WHERE timestamp::date >= %s AND timestamp::date <= %s "
+        "WHERE timestamp >= %s AND timestamp < %s "
         "ORDER BY timestamp",
-        (date_from, date_to),
+        (ts_start, ts_end),
     )
     baro_rows = [_serialize(r) for r in cur.fetchall()]
     if len(baro_rows) > 500:
@@ -155,7 +157,7 @@ Cast a wide net. The user wants:
 
     for source_name, rows in data.items():
         user_parts.append(f"## {source_name}")
-        user_parts.append(json.dumps(rows, default=str, indent=None))
+        user_parts.append(json.dumps(rows, default=str, separators=(",", ":")))
         user_parts.append("")
 
     user_message = "\n".join(user_parts)
