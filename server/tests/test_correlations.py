@@ -102,16 +102,34 @@ def test_correlations_empty(client):
     data = resp.get_json()
     assert data["correlations"] == []
     assert data["paired_days"] == 0
-    assert data["minimum_required"] == 14
+    assert data["minimum_required"] == 12
 
 
 def test_correlations_insufficient_data(client, app):
-    """Returns empty when fewer than 14 paired days."""
+    """Returns empty when fewer than 12 paired days."""
     _insert_paired_data(app, days=10)
     resp = client.get("/api/correlations", headers=auth_header())
     data = resp.get_json()
     assert data["correlations"] == []
     assert data["paired_days"] == 10
+
+
+def test_correlations_boundary_below(client, app):
+    """Returns empty at exactly 11 paired days (one below threshold)."""
+    _insert_paired_data(app, days=11)
+    resp = client.get("/api/correlations", headers=auth_header())
+    data = resp.get_json()
+    assert data["correlations"] == []
+    assert data["paired_days"] == 11
+
+
+def test_correlations_boundary_exact(client, app):
+    """Returns correlations at exactly 12 paired days (threshold)."""
+    _insert_paired_data(app, days=12)
+    resp = client.get("/api/correlations", headers=auth_header())
+    data = resp.get_json()
+    assert data["paired_days"] == 12
+    assert len(data["correlations"]) > 0
 
 
 def test_correlations_computed(client, app):
@@ -152,6 +170,7 @@ def test_correlations_in_sync_response(client, app):
     data = resp.get_json()
     assert "correlations" in data
     assert data["paired_days"] == 20
+    assert data["minimum_required"] == 12
     assert len(data["correlations"]) > 0
 
 
