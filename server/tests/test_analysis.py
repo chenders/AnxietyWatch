@@ -413,13 +413,26 @@ def test_analysis_run_requires_api_key(admin_client, app, monkeypatch):
 
 
 def _wait_for_analysis_threads(timeout: float = 10.0) -> None:
-    """Join any active background analysis threads (names start with 'analysis-')."""
+    """Join any active background analysis threads (names start with 'analysis-').
+
+    Loops until no 'analysis-' threads are alive or the deadline elapses, so a
+    thread that spawns after the first enumerate() is still waited on.
+    """
     import threading
     import time
     deadline = time.time() + timeout
-    for t in list(threading.enumerate()):
-        if t.name.startswith("analysis-") and t.is_alive():
-            t.join(timeout=max(0.1, deadline - time.time()))
+    while True:
+        analysis_threads = [
+            t for t in threading.enumerate()
+            if t.name.startswith("analysis-") and t.is_alive()
+        ]
+        if not analysis_threads:
+            return
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            return
+        for t in analysis_threads:
+            t.join(timeout=remaining)
 
 
 def test_analysis_run_end_to_end(admin_client, app, monkeypatch):

@@ -284,19 +284,55 @@ def _execute_analysis(analysis_id: int, system_prompt: str, user_message: str, d
     try:
         conn = psycopg2.connect(database_url)
         _complete_analysis(conn, analysis_id, system_prompt, user_message)
-    except Exception:
+    except Exception as e:
         logging.exception("Background analysis %d crashed before completion", analysis_id)
+        _mark_analysis_failed(conn, database_url, analysis_id, e)
     finally:
         if conn is not None:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                logging.exception("Failed to close DB connection for analysis %d", analysis_id)
+
+
+def _mark_analysis_failed(existing_conn, database_url: str, analysis_id: int, exc: Exception) -> None:
+    """Best-effort update of the analyses row to 'failed'. Tries the existing connection
+    first; if that's broken or missing, opens a new one."""
+    for use_new in (False, True):
+        conn = None
+        try:
+            if use_new:
+                conn = psycopg2.connect(database_url)
+                target = conn
+            else:
+                if existing_conn is None:
+                    continue
+                target = existing_conn
+            cur = target.cursor()
+            cur.execute(
+                "UPDATE analyses SET status = 'failed', error_message = %s, completed_at = NOW() "
+                "WHERE id = %s",
+                (str(exc), analysis_id),
+            )
+            target.commit()
+            return
+        except Exception:
+            logging.exception(
+                "Failed to mark analysis %d as failed (use_new=%s)", analysis_id, use_new
+            )
+        finally:
+            if use_new and conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
 
 def _complete_analysis(db, analysis_id: int, system_prompt: str, user_message: str) -> None:
-    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("UPDATE analyses SET status = 'running' WHERE id = %s", (analysis_id,))
-    db.commit()
-
     try:
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("UPDATE analyses SET status = 'running' WHERE id = %s", (analysis_id,))
+        db.commit()
         client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         message = client.messages.create(
             model=MODEL,
