@@ -3,9 +3,11 @@
 import json
 import logging
 import os
+import threading
 from datetime import date, datetime, timedelta, timezone
 
 import anthropic
+import psycopg2
 import psycopg2.extras
 
 MODEL = "claude-opus-4-6"
@@ -225,20 +227,44 @@ def _serialize(row):
     return result
 
 
-def run_analysis(db, date_from: date, date_to: date) -> int:
-    """Run a full analysis: gather data, call Claude, store results.
+def start_analysis(db, date_from: date, date_to: date, database_url: str | None = None) -> int:
+    """Create a pending analysis row and kick off the Claude call in a background thread.
 
-    Returns the analysis row ID.
+    Returns the analysis row ID immediately. The background worker opens its own DB
+    connection so it can outlive the originating HTTP request.
     """
+    analysis_id, system_prompt, user_message = _create_pending_analysis(db, date_from, date_to)
+
+    dsn = database_url or os.environ.get("DATABASE_URL")
+    if not dsn:
+        raise RuntimeError("DATABASE_URL not configured")
+
+    thread = threading.Thread(
+        target=_execute_analysis,
+        args=(analysis_id, system_prompt, user_message, dsn),
+        name=f"analysis-{analysis_id}",
+        daemon=True,
+    )
+    thread.start()
+    return analysis_id
+
+
+def run_analysis(db, date_from: date, date_to: date) -> int:
+    """Run a full analysis synchronously (used by tests).
+
+    Production callers should use start_analysis() instead to avoid blocking the
+    HTTP worker on the Anthropic API call.
+    """
+    analysis_id, system_prompt, user_message = _create_pending_analysis(db, date_from, date_to)
+    _complete_analysis(db, analysis_id, system_prompt, user_message)
+    return analysis_id
+
+
+def _create_pending_analysis(db, date_from: date, date_to: date):
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    # Gather data
     data = gather_analysis_data(cur, date_from, date_to)
-
-    # Build prompt
     system_prompt, user_message = build_prompt(data, date_from, date_to)
 
-    # Insert pending row
     request_payload = {
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_message}],
@@ -250,8 +276,26 @@ def run_analysis(db, date_from: date, date_to: date) -> int:
     )
     analysis_id = cur.fetchone()["id"]
     db.commit()
+    return analysis_id, system_prompt, user_message
 
-    # Call Anthropic API
+
+def _execute_analysis(analysis_id: int, system_prompt: str, user_message: str, database_url: str) -> None:
+    conn = None
+    try:
+        conn = psycopg2.connect(database_url)
+        _complete_analysis(conn, analysis_id, system_prompt, user_message)
+    except Exception:
+        logging.exception("Background analysis %d crashed before completion", analysis_id)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def _complete_analysis(db, analysis_id: int, system_prompt: str, user_message: str) -> None:
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("UPDATE analyses SET status = 'running' WHERE id = %s", (analysis_id,))
+    db.commit()
+
     try:
         client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         message = client.messages.create(
@@ -288,7 +332,6 @@ def run_analysis(db, date_from: date, date_to: date) -> int:
         )
 
     db.commit()
-    return analysis_id
 
 
 def get_analysis(cur, analysis_id: int) -> dict | None:

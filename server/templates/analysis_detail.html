@@ -1,9 +1,29 @@
 {% extends "base.html" %}
 {% block title %}Analysis: {{ a.date_from }} – {{ a.date_to }} — Anxiety Watch Admin{% endblock %}
+{% block head %}{{ super() }}
+{% if a.status in ('pending', 'running') %}
+<meta http-equiv="refresh" content="5">
+{% endif %}
+{% endblock %}
 {% block content %}
 <div style="margin-bottom:1rem;">
     <a href="{{ url_for('admin.analysis') }}" style="color:#0071e3; font-size:0.85rem; text-decoration:none;">&larr; Back to Analysis</a>
 </div>
+
+{% if a.status in ('pending', 'running') %}
+<div class="card" style="border-left:3px solid #007aff; background:#f5f9ff;">
+    <div style="display:flex; align-items:center; gap:0.75rem;">
+        <span style="display:inline-block; width:14px; height:14px; border:2px solid #007aff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+        <div>
+            <strong>Analysis in progress…</strong>
+            <div style="font-size:0.8rem; color:#6e6e73; margin-top:0.25rem;">
+                Status: {{ a.status }}. This page will refresh automatically every 5 seconds.
+            </div>
+        </div>
+    </div>
+</div>
+<style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+{% endif %}
 
 <!-- Header card -->
 <div class="card" style="border-left:3px solid {{ '#34c759' if a.trend_direction == 'improving' else '#ff9500' if a.trend_direction == 'worsening' else '#007aff' if a.trend_direction == 'stable' else '#af52de' }};">

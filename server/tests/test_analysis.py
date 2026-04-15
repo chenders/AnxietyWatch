@@ -412,6 +412,16 @@ def test_analysis_run_requires_api_key(admin_client, app, monkeypatch):
     assert resp.status_code == 302  # redirect back with flash
 
 
+def _wait_for_analysis_threads(timeout: float = 10.0) -> None:
+    """Join any active background analysis threads (names start with 'analysis-')."""
+    import threading
+    import time
+    deadline = time.time() + timeout
+    for t in list(threading.enumerate()):
+        if t.name.startswith("analysis-") and t.is_alive():
+            t.join(timeout=max(0.1, deadline - time.time()))
+
+
 def test_analysis_run_end_to_end(admin_client, app, monkeypatch):
     """POST /admin/analysis/run creates analysis and redirects to detail."""
     _insert_test_data(app)
@@ -426,6 +436,7 @@ def test_analysis_run_end_to_end(admin_client, app, monkeypatch):
             data={"date_from": "2026-01-10", "date_to": "2026-01-12"},
             follow_redirects=False,
         )
+        _wait_for_analysis_threads()
 
     assert resp.status_code == 302
     assert "/admin/analysis/" in resp.headers["Location"]
@@ -440,15 +451,42 @@ def test_analysis_detail_page(admin_client, app, monkeypatch):
     mock_client.messages.create.return_value = _mock_anthropic_response()
 
     with patch("analysis.anthropic.Anthropic", return_value=mock_client):
-        resp = admin_client.post(
+        post_resp = admin_client.post(
             "/admin/analysis/run",
             data={"date_from": "2026-01-10", "date_to": "2026-01-12"},
-            follow_redirects=True,
+            follow_redirects=False,
         )
+        _wait_for_analysis_threads()
+        resp = admin_client.get(post_resp.headers["Location"])
 
     assert resp.status_code == 200
     assert b"Anxiety has been stable" in resp.data
     assert b"HRV inversely correlates" in resp.data
+
+
+def test_start_analysis_runs_in_background(app, monkeypatch):
+    """start_analysis inserts a pending row immediately and completes in a worker thread."""
+    _insert_test_data(app)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response()
+
+    with app.app_context():
+        from analysis import start_analysis, get_analysis
+        db = app.get_db()
+
+        with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+            analysis_id = start_analysis(
+                db, date(2026, 1, 10), date(2026, 1, 12), database_url=DATABASE_URL
+            )
+            _wait_for_analysis_threads()
+
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        result = get_analysis(cur, analysis_id)
+
+    assert result["status"] == "completed"
+    assert result["summary"] == "Anxiety has been stable over this period."
 
 
 def test_analysis_detail_not_found(admin_client):

@@ -618,12 +618,13 @@ def analysis_run():
 
     db = get_db()
     try:
-        from analysis import run_analysis
-        analysis_id = run_analysis(db, date_from, date_to)
+        from analysis import start_analysis
+        database_url = current_app.config.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
+        analysis_id = start_analysis(db, date_from, date_to, database_url=database_url)
         return redirect(url_for("admin.analysis_detail", analysis_id=analysis_id))
     except Exception:
-        current_app.logger.exception("Analysis failed")
-        flash("Analysis failed. Check server logs for details.", "error")
+        current_app.logger.exception("Failed to start analysis")
+        flash("Failed to start analysis. Check server logs for details.", "error")
         return redirect(url_for("admin.analysis"))
 
 
