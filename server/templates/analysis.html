@@ -49,6 +49,8 @@
 
     {% if a.status == 'failed' %}
     <p style="color:#ff3b30; font-size:0.85rem;">Failed: {{ a.error_message[:200] if a.error_message else 'Unknown error' }}</p>
+    {% elif a.status in ('pending', 'running') %}
+    <p style="color:#007aff; font-size:0.85rem;">Running… (status: {{ a.status }})</p>
     {% elif a.summary %}
     <p style="font-size:0.85rem; color:#444; margin-bottom:0.75rem; line-height:1.5; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;">{{ a.summary }}</p>
     {% endif %}

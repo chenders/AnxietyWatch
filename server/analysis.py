@@ -3,9 +3,11 @@
 import json
 import logging
 import os
+import threading
 from datetime import date, datetime, timedelta, timezone
 
 import anthropic
+import psycopg2
 import psycopg2.extras
 
 MODEL = "claude-opus-4-6"
@@ -225,20 +227,53 @@ def _serialize(row):
     return result
 
 
-def run_analysis(db, date_from: date, date_to: date) -> int:
-    """Run a full analysis: gather data, call Claude, store results.
+def start_analysis(db, date_from: date, date_to: date, database_url: str | None = None) -> int:
+    """Create a pending analysis row and kick off the Claude call in a background thread.
 
-    Returns the analysis row ID.
+    Returns the analysis row ID immediately. The background worker opens its own DB
+    connection so it can outlive the originating HTTP request.
     """
+    dsn = database_url or os.environ.get("DATABASE_URL")
+    if not dsn:
+        raise RuntimeError("DATABASE_URL not configured")
+
+    analysis_id, system_prompt, user_message = _create_pending_analysis(db, date_from, date_to)
+
+    thread = threading.Thread(
+        target=_execute_analysis,
+        args=(analysis_id, system_prompt, user_message, dsn),
+        name=f"analysis-{analysis_id}",
+        daemon=True,
+    )
+    try:
+        thread.start()
+    except Exception as e:
+        logging.exception("Failed to start background thread for analysis %d", analysis_id)
+        _mark_analysis_failed(db, dsn, analysis_id, e)
+        raise
+    return analysis_id
+
+
+def run_analysis(db, date_from: date, date_to: date) -> int:
+    """Run a full analysis synchronously (used by tests).
+
+    Production callers should use start_analysis() instead to avoid blocking the
+    HTTP worker on the Anthropic API call.
+    """
+    analysis_id, system_prompt, user_message = _create_pending_analysis(db, date_from, date_to)
+    try:
+        _complete_analysis(db, analysis_id, system_prompt, user_message)
+    except Exception as e:
+        logging.exception("Analysis %d failed: %s", analysis_id, e)
+        _mark_analysis_failed(db, None, analysis_id, e)
+    return analysis_id
+
+
+def _create_pending_analysis(db, date_from: date, date_to: date):
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    # Gather data
     data = gather_analysis_data(cur, date_from, date_to)
-
-    # Build prompt
     system_prompt, user_message = build_prompt(data, date_from, date_to)
 
-    # Insert pending row
     request_payload = {
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_message}],
@@ -250,45 +285,145 @@ def run_analysis(db, date_from: date, date_to: date) -> int:
     )
     analysis_id = cur.fetchone()["id"]
     db.commit()
+    return analysis_id, system_prompt, user_message
 
-    # Call Anthropic API
+
+def _execute_analysis(analysis_id: int, system_prompt: str, user_message: str, database_url: str) -> None:
+    conn = None
     try:
-        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-        message = client.messages.create(
-            model=MODEL,
-            max_tokens=16384,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_message}],
-        )
-
-        raw_response = message.model_dump()
-        parsed = parse_response(raw_response)
-
-        cur.execute(
-            "UPDATE analyses SET status = 'completed', response_payload = %s, "
-            "summary = %s, trend_direction = %s, insights = %s, "
-            "tokens_in = %s, tokens_out = %s, completed_at = NOW() "
-            "WHERE id = %s",
-            (
-                json.dumps(raw_response),
-                parsed["summary"],
-                parsed["trend_direction"],
-                json.dumps(parsed["insights"]),
-                parsed["tokens_in"],
-                parsed["tokens_out"],
-                analysis_id,
-            ),
-        )
+        conn = psycopg2.connect(database_url)
+        _complete_analysis(conn, analysis_id, system_prompt, user_message)
     except Exception as e:
-        logging.exception("Analysis %d failed: %s", analysis_id, e)
-        cur.execute(
-            "UPDATE analyses SET status = 'failed', error_message = %s, completed_at = NOW() "
-            "WHERE id = %s",
-            (str(e), analysis_id),
-        )
+        logging.exception("Background analysis %d crashed before completion", analysis_id)
+        _mark_analysis_failed(conn, database_url, analysis_id, e)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                logging.exception("Failed to close DB connection for analysis %d", analysis_id)
 
+
+def _mark_analysis_failed(existing_conn, database_url, analysis_id: int, exc: Exception) -> None:
+    """Best-effort update of the analyses row to 'failed'. Tries the existing connection
+    first; if that's broken or missing (and a DSN is provided), opens a new one."""
+    for use_new in (False, True):
+        conn = None
+        try:
+            if use_new:
+                if not database_url:
+                    continue
+                conn = psycopg2.connect(database_url)
+                target = conn
+            else:
+                if existing_conn is None:
+                    continue
+                target = existing_conn
+                try:
+                    target.rollback()
+                except Exception:
+                    pass
+            cur = target.cursor()
+            cur.execute(
+                "UPDATE analyses SET status = 'failed', error_message = %s, completed_at = NOW() "
+                "WHERE id = %s",
+                (str(exc), analysis_id),
+            )
+            target.commit()
+            return
+        except Exception:
+            logging.exception(
+                "Failed to mark analysis %d as failed (use_new=%s)", analysis_id, use_new
+            )
+        finally:
+            if use_new and conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+
+def _complete_analysis(db, analysis_id: int, system_prompt: str, user_message: str) -> None:
+    """Mark the analysis as running, call Claude, and write the result.
+
+    Raises on any failure — callers are responsible for recording the failed state
+    (see _mark_analysis_failed). Keeping this function exception-free of its own
+    recovery logic means there's no risk of a partially-initialized cursor being
+    used on a broken connection.
+    """
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("UPDATE analyses SET status = 'running' WHERE id = %s", (analysis_id,))
     db.commit()
-    return analysis_id
+
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    message = client.messages.create(
+        model=MODEL,
+        max_tokens=16384,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_message}],
+    )
+
+    raw_response = message.model_dump()
+    parsed = parse_response(raw_response)
+
+    cur.execute(
+        "UPDATE analyses SET status = 'completed', response_payload = %s, "
+        "summary = %s, trend_direction = %s, insights = %s, "
+        "tokens_in = %s, tokens_out = %s, completed_at = NOW() "
+        "WHERE id = %s",
+        (
+            json.dumps(raw_response),
+            parsed["summary"],
+            parsed["trend_direction"],
+            json.dumps(parsed["insights"]),
+            parsed["tokens_in"],
+            parsed["tokens_out"],
+            analysis_id,
+        ),
+    )
+    db.commit()
+
+
+STALE_ANALYSIS_MINUTES = 15
+SWEEP_THROTTLE_SECONDS = 60
+
+_sweep_lock = threading.Lock()
+_last_sweep_monotonic: float = 0.0
+
+
+def sweep_stale_analyses(db, force: bool = False) -> int:
+    """Flip any analyses stuck in pending/running for longer than STALE_ANALYSIS_MINUTES
+    to 'failed'. Handles the case where a worker process was killed mid-analysis
+    (daemon thread terminated, OOM, deploy, etc.) and the row would otherwise stay
+    pending forever and the UI would spin indefinitely.
+
+    Throttled to at most once per SWEEP_THROTTLE_SECONDS per process so the auto-
+    refreshing detail page doesn't issue a table-wide UPDATE every 5s. Pass
+    force=True to bypass the throttle (used by tests).
+
+    Returns the number of rows updated, or 0 if the sweep was throttled.
+    """
+    global _last_sweep_monotonic
+    import time as _time
+    if not force:
+        with _sweep_lock:
+            now = _time.monotonic()
+            if now - _last_sweep_monotonic < SWEEP_THROTTLE_SECONDS:
+                return 0
+            _last_sweep_monotonic = now
+
+    cur = db.cursor()
+    cur.execute(
+        "UPDATE analyses SET status = 'failed', "
+        "error_message = 'Analysis timed out — worker process likely terminated.', "
+        "completed_at = NOW() "
+        "WHERE status IN ('pending', 'running') "
+        "AND created_at < NOW() - (%s * INTERVAL '1 minute')",
+        (STALE_ANALYSIS_MINUTES,),
+    )
+    updated = cur.rowcount
+    db.commit()
+    return updated
 
 
 def get_analysis(cur, analysis_id: int) -> dict | None:
