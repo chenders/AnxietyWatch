@@ -299,13 +299,15 @@ def _execute_analysis(analysis_id: int, system_prompt: str, user_message: str, d
                 logging.exception("Failed to close DB connection for analysis %d", analysis_id)
 
 
-def _mark_analysis_failed(existing_conn, database_url: str, analysis_id: int, exc: Exception) -> None:
+def _mark_analysis_failed(existing_conn, database_url, analysis_id: int, exc: Exception) -> None:
     """Best-effort update of the analyses row to 'failed'. Tries the existing connection
-    first; if that's broken or missing, opens a new one."""
+    first; if that's broken or missing (and a DSN is provided), opens a new one."""
     for use_new in (False, True):
         conn = None
         try:
             if use_new:
+                if not database_url:
+                    continue
                 conn = psycopg2.connect(database_url)
                 target = conn
             else:
@@ -375,6 +377,31 @@ def _complete_analysis(db, analysis_id: int, system_prompt: str, user_message: s
         ),
     )
     db.commit()
+
+
+STALE_ANALYSIS_MINUTES = 15
+
+
+def sweep_stale_analyses(db) -> int:
+    """Flip any analyses stuck in pending/running for longer than STALE_ANALYSIS_MINUTES
+    to 'failed'. Handles the case where a worker process was killed mid-analysis
+    (daemon thread terminated, OOM, deploy, etc.) and the row would otherwise stay
+    pending forever and the UI would spin indefinitely.
+
+    Returns the number of rows updated.
+    """
+    cur = db.cursor()
+    cur.execute(
+        "UPDATE analyses SET status = 'failed', "
+        "error_message = 'Analysis timed out — worker process likely terminated.', "
+        "completed_at = NOW() "
+        "WHERE status IN ('pending', 'running') "
+        "AND created_at < NOW() - (%s * INTERVAL '1 minute')",
+        (STALE_ANALYSIS_MINUTES,),
+    )
+    updated = cur.rowcount
+    db.commit()
+    return updated
 
 
 def get_analysis(cur, analysis_id: int) -> dict | None:

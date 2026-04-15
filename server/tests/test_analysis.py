@@ -479,6 +479,35 @@ def test_analysis_detail_page(admin_client, app, monkeypatch):
     assert b"HRV inversely correlates" in resp.data
 
 
+def test_sweep_stale_analyses_marks_old_running_as_failed(app):
+    """sweep_stale_analyses flips stale pending/running rows to failed."""
+    with app.app_context():
+        from analysis import sweep_stale_analyses
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO analyses (date_from, date_to, status, model, created_at) "
+            "VALUES (%s, %s, 'running', 'test', NOW() - INTERVAL '1 hour') RETURNING id",
+            (date(2026, 1, 10), date(2026, 1, 12)),
+        )
+        stale_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO analyses (date_from, date_to, status, model, created_at) "
+            "VALUES (%s, %s, 'running', 'test', NOW()) RETURNING id",
+            (date(2026, 1, 10), date(2026, 1, 12)),
+        )
+        fresh_id = cur.fetchone()[0]
+        db.commit()
+
+        updated = sweep_stale_analyses(db)
+        assert updated == 1
+
+        cur.execute("SELECT status FROM analyses WHERE id = %s", (stale_id,))
+        assert cur.fetchone()[0] == "failed"
+        cur.execute("SELECT status FROM analyses WHERE id = %s", (fresh_id,))
+        assert cur.fetchone()[0] == "running"
+
+
 def test_start_analysis_runs_in_background(app, monkeypatch):
     """start_analysis inserts a pending row immediately and completes in a worker thread."""
     _insert_test_data(app)

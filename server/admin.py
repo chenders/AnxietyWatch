@@ -543,7 +543,8 @@ def analysis():
     db = get_db()
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    from analysis import list_analyses
+    from analysis import list_analyses, sweep_stale_analyses
+    sweep_stale_analyses(db)
     analyses = list_analyses(cur)
 
     # Get date range across all analysis-relevant tables using index-friendly
@@ -634,7 +635,8 @@ def analysis_detail(analysis_id):
     db = get_db()
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    from analysis import get_analysis
+    from analysis import get_analysis, sweep_stale_analyses
+    sweep_stale_analyses(db)
     a = get_analysis(cur, analysis_id)
     if a is None:
         flash("Analysis not found.", "error")
