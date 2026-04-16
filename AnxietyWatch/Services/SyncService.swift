@@ -11,30 +11,30 @@ final class SyncService {
     var isSyncing = false
     var lastSyncResult: String?
 
-    // MARK: - Configuration (stored in UserDefaults)
+    // MARK: - Configuration (stored properties, persisted to UserDefaults via didSet)
+    //
+    // These are stored `var`s rather than computed properties so `@Observable` can
+    // track them — SwiftUI won't re-render on changes to computed UserDefaults-backed
+    // properties because the macro only instruments stored storage.
 
-    var serverURL: String {
-        get { UserDefaults.standard.string(forKey: "syncServerURL") ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: "syncServerURL") }
+    var serverURL: String = UserDefaults.standard.string(forKey: "syncServerURL") ?? "" {
+        didSet { UserDefaults.standard.set(serverURL, forKey: "syncServerURL") }
     }
 
-    var apiKey: String {
-        get { UserDefaults.standard.string(forKey: "syncApiKey") ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: "syncApiKey") }
+    var apiKey: String = UserDefaults.standard.string(forKey: "syncApiKey") ?? "" {
+        didSet { UserDefaults.standard.set(apiKey, forKey: "syncApiKey") }
     }
 
-    var autoSyncEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: "syncAutoEnabled") }
-        set { UserDefaults.standard.set(newValue, forKey: "syncAutoEnabled") }
+    var autoSyncEnabled: Bool = UserDefaults.standard.bool(forKey: "syncAutoEnabled") {
+        didSet { UserDefaults.standard.set(autoSyncEnabled, forKey: "syncAutoEnabled") }
     }
 
-    var lastSyncDate: Date? {
-        get {
-            let ts = UserDefaults.standard.double(forKey: "lastSyncDate")
-            return ts > 0 ? Date(timeIntervalSince1970: ts) : nil
-        }
-        set {
-            if let date = newValue {
+    var lastSyncDate: Date? = {
+        let ts = UserDefaults.standard.double(forKey: "lastSyncDate")
+        return ts > 0 ? Date(timeIntervalSince1970: ts) : nil
+    }() {
+        didSet {
+            if let date = lastSyncDate {
                 UserDefaults.standard.set(date.timeIntervalSince1970, forKey: "lastSyncDate")
             } else {
                 UserDefaults.standard.removeObject(forKey: "lastSyncDate")
@@ -73,7 +73,12 @@ final class SyncService {
             lastSyncResult = "Not configured"
             return
         }
-        guard !isSyncing else { return }
+        guard !isSyncing else {
+            // Surface the busy state so users see *why* nothing happened —
+            // silent early-returns previously masked wedged isSyncing mutexes.
+            lastSyncResult = "Sync already in progress"
+            return
+        }
 
         isSyncing = true
         lastSyncResult = "Syncing..."
@@ -131,7 +136,18 @@ final class SyncService {
     }
 
     /// Full sync — resets the last sync date and sends everything.
+    ///
+    /// Runs every guard `sync()` would hit *before* clearing `lastSyncDate` so
+    /// that any aborted full sync leaves the incremental-sync cursor intact.
     func fullSync(modelContext: ModelContext) async {
+        guard !isSyncing else {
+            lastSyncResult = "Sync already in progress"
+            return
+        }
+        guard isConfigured else {
+            lastSyncResult = "Not configured"
+            return
+        }
         lastSyncDate = nil
         await sync(modelContext: modelContext)
     }

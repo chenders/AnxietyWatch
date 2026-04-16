@@ -34,6 +34,8 @@ This is a **multi-language monorepo** with two distinct components:
 - **Framework:** Flask (no ORM — raw SQL with psycopg2)
 - **Database:** PostgreSQL 16
 - **Deployment:** Docker Compose, GitHub Actions CI/CD to GHCR
+- **Required env vars** (set in `.env` or environment): `POSTGRES_PASSWORD`, `ADMIN_PASSWORD` (admin UI login), `SECRET_KEY`
+- **Optional env vars**: `ANTHROPIC_API_KEY` (Claude AI analysis admin page), `GRAPHQL_API_KEY` (ResMed myAir sync). See `server/.env.example` for full descriptions.
 
 ## Swift Coding Conventions
 
