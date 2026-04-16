@@ -65,6 +65,7 @@ jobs:
           POSTGRES_DB=anxietywatch
           DATABASE_URL=postgresql://anxietywatch:${{ secrets.ANXIETYWATCH_DB_PASSWORD }}@anxietywatch-db:5432/anxietywatch
           GRAPHQL_API_KEY=${{ secrets.GRAPHQL_API_KEY }}
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
           EOF
           chmod 600 /opt/anxietywatch/.env
 
