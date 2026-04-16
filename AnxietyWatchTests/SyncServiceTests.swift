@@ -159,6 +159,104 @@ struct SyncServiceTests {
         #expect(service.lastSyncResult == "Not configured")
     }
 
+    @Test("Sync surfaces 'Sync already in progress' when busy")
+    func syncAlreadyInProgress() async throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+
+        UserDefaults.standard.set("http://example.com", forKey: "syncServerURL")
+        UserDefaults.standard.set("test-key", forKey: "syncApiKey")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let service = SyncService()
+        service.isSyncing = true
+
+        await service.sync(modelContext: context)
+
+        #expect(service.lastSyncResult == "Sync already in progress")
+        // The busy flag should remain set — we did not start a sync, so we must
+        // not clear someone else's in-flight mutex.
+        #expect(service.isSyncing == true)
+    }
+
+    @Test("fullSync preserves lastSyncDate when not configured")
+    func fullSyncPreservesCursorWhenUnconfigured() async throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+
+        let cursor = Date(timeIntervalSince1970: 1_711_300_000)
+        UserDefaults.standard.set(cursor.timeIntervalSince1970, forKey: "lastSyncDate")
+        UserDefaults.standard.removeObject(forKey: "syncServerURL")
+        UserDefaults.standard.removeObject(forKey: "syncApiKey")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let service = SyncService()
+
+        await service.fullSync(modelContext: context)
+
+        // If fullSync nilled lastSyncDate *before* the isConfigured guard, the
+        // cursor would be destroyed even though no sync occurred.
+        #expect(service.lastSyncDate?.timeIntervalSince1970 == 1_711_300_000)
+        #expect(service.lastSyncResult == "Not configured")
+    }
+
+    @Test("fullSync preserves lastSyncDate when busy")
+    func fullSyncPreservesCursorWhenBusy() async throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+
+        let cursor = Date(timeIntervalSince1970: 1_711_300_000)
+        UserDefaults.standard.set(cursor.timeIntervalSince1970, forKey: "lastSyncDate")
+        UserDefaults.standard.set("http://example.com", forKey: "syncServerURL")
+        UserDefaults.standard.set("test-key", forKey: "syncApiKey")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let service = SyncService()
+        service.isSyncing = true
+
+        await service.fullSync(modelContext: context)
+
+        // If fullSync nilled lastSyncDate *before* the busy guard, the next sync
+        // would send everything — destroying the incremental cursor.
+        #expect(service.lastSyncDate?.timeIntervalSince1970 == 1_711_300_000)
+        #expect(service.lastSyncResult == "Sync already in progress")
+    }
+
+    // MARK: - Stored property persistence
+
+    @Test("serverURL persists through UserDefaults across instances")
+    func serverURLRoundTrip() {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+
+        SyncService().serverURL = "http://example.com"
+
+        #expect(SyncService().serverURL == "http://example.com")
+    }
+
+    @Test("apiKey persists through UserDefaults across instances")
+    func apiKeyRoundTrip() {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+
+        SyncService().apiKey = "secret-key"
+
+        #expect(SyncService().apiKey == "secret-key")
+    }
+
+    @Test("autoSyncEnabled persists through UserDefaults across instances")
+    func autoSyncEnabledRoundTrip() {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+
+        SyncService().autoSyncEnabled = true
+
+        #expect(SyncService().autoSyncEnabled == true)
+    }
+
     // MARK: - findOrCreateMedication
 
     @Test("Creates new MedicationDefinition when none exists")
