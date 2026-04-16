@@ -1,1 +1,1 @@
-0 */12 * * * root cd /app && python caprx_sync.py >> /proc/1/fd/1 2>&1
+0 */12 * * * root cd /app && python3 caprx_sync.py >> /proc/1/fd/1 2>&1
