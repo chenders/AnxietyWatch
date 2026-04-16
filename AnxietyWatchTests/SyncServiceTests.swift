@@ -180,6 +180,28 @@ struct SyncServiceTests {
         #expect(service.isSyncing == true)
     }
 
+    @Test("fullSync preserves lastSyncDate when not configured")
+    func fullSyncPreservesCursorWhenUnconfigured() async throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+
+        let cursor = Date(timeIntervalSince1970: 1_711_300_000)
+        UserDefaults.standard.set(cursor.timeIntervalSince1970, forKey: "lastSyncDate")
+        UserDefaults.standard.removeObject(forKey: "syncServerURL")
+        UserDefaults.standard.removeObject(forKey: "syncApiKey")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let service = SyncService()
+
+        await service.fullSync(modelContext: context)
+
+        // If fullSync nilled lastSyncDate *before* the isConfigured guard, the
+        // cursor would be destroyed even though no sync occurred.
+        #expect(service.lastSyncDate?.timeIntervalSince1970 == 1_711_300_000)
+        #expect(service.lastSyncResult == "Not configured")
+    }
+
     @Test("fullSync preserves lastSyncDate when busy")
     func fullSyncPreservesCursorWhenBusy() async throws {
         let restore = saveSyncDefaults()

@@ -137,11 +137,15 @@ final class SyncService {
 
     /// Full sync — resets the last sync date and sends everything.
     ///
-    /// Checks `isSyncing` *before* clearing `lastSyncDate` so a blocked full sync
-    /// doesn't destroy the incremental-sync cursor without actually syncing.
+    /// Runs every guard `sync()` would hit *before* clearing `lastSyncDate` so
+    /// that any aborted full sync leaves the incremental-sync cursor intact.
     func fullSync(modelContext: ModelContext) async {
         guard !isSyncing else {
             lastSyncResult = "Sync already in progress"
+            return
+        }
+        guard isConfigured else {
+            lastSyncResult = "Not configured"
             return
         }
         lastSyncDate = nil
