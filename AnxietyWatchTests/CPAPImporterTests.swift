@@ -6,6 +6,9 @@ import Testing
 
 struct CPAPImporterTests {
 
+    // swiftlint:disable:next line_length
+    private static let oscarHeader = "Date,Session Count,Start,End,Total Time,AHI,CA Count,A Count,OA Count,H Count,UA Count,VS Count,VS2 Count,RE Count,FL Count,SA Count,NR Count,EP Count,LF Count,UF1 Count,UF2 Count,PP Count,Median Pressure,Median Pressure Set,Median IPAP,Median IPAP Set,Median EPAP,Median EPAP Set,Median Flow Limit.,95% Pressure,95% Pressure Set,95% IPAP,95% IPAP Set,95% EPAP,95% EPAP Set,95% Flow Limit.,99.5% Pressure,99.5% Pressure Set,99.5% IPAP,99.5% IPAP Set,99.5% EPAP,99.5% EPAP Set,99.5% Flow Limit."
+
     private func writeTempCSV(_ content: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -151,7 +154,7 @@ struct CPAPImporterTests {
     @Test("Imports OSCAR Summary CSV format")
     func importOSCARFormat() throws {
         let csv = """
-        Date,Session Count,Start,End,Total Time,AHI,CA Count,A Count,OA Count,H Count,UA Count,VS Count,VS2 Count,RE Count,FL Count,SA Count,NR Count,EP Count,LF Count,UF1 Count,UF2 Count,PP Count,Median Pressure,Median Pressure Set,Median IPAP,Median IPAP Set,Median EPAP,Median EPAP Set,Median Flow Limit.,95% Pressure,95% Pressure Set,95% IPAP,95% IPAP Set,95% EPAP,95% EPAP Set,95% Flow Limit.,99.5% Pressure,99.5% Pressure Set,99.5% IPAP,99.5% IPAP Set,99.5% EPAP,99.5% EPAP Set,99.5% Flow Limit.
+        \(Self.oscarHeader)
         2007-12-31,4,2008-01-01T01:16:28,2008-01-01T10:28:09,09:04:59,4.073,15,0,22,0,0,0,0,0,0,0,0,0,0,0,0,0,11.52,0,0,0,11.52,0,0,13.86,0,0,0,13.86,0,0.08,16.66,0,0,0,16.66,0,0.2
         """
         let url = try writeTempCSV(csv)
@@ -198,7 +201,7 @@ struct CPAPImporterTests {
     @Test("Parses OSCAR Total Time HH:MM:SS correctly")
     func parsesOSCARTotalTime() throws {
         let csv = """
-        Date,Session Count,Start,End,Total Time,AHI,CA Count,A Count,OA Count,H Count,UA Count,VS Count,VS2 Count,RE Count,FL Count,SA Count,NR Count,EP Count,LF Count,UF1 Count,UF2 Count,PP Count,Median Pressure,Median Pressure Set,Median IPAP,Median IPAP Set,Median EPAP,Median EPAP Set,Median Flow Limit.,95% Pressure,95% Pressure Set,95% IPAP,95% IPAP Set,95% EPAP,95% EPAP Set,95% Flow Limit.,99.5% Pressure,99.5% Pressure Set,99.5% IPAP,99.5% IPAP Set,99.5% EPAP,99.5% EPAP Set,99.5% Flow Limit.
+        \(Self.oscarHeader)
         2008-01-15,1,2008-01-15T22:00:00,2008-01-16T05:30:00,07:30:00,1.5,2,0,5,3,0,0,0,0,0,0,0,0,0,0,0,0,10.0,0,0,0,10.0,0,0,12.0,0,0,0,12.0,0,0,14.0,0,0,0,14.0,0,0
         """
         let url = try writeTempCSV(csv)
