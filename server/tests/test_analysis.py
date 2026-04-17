@@ -177,6 +177,42 @@ def test_build_prompt_includes_output_schema(app):
     assert "supporting_data" in system
 
 
+def test_build_prompt_default_includes_medication_goal(app):
+    """build_prompt without caveat includes medication effectiveness goal."""
+    with app.app_context():
+        from analysis import build_prompt
+        system, _user_msg = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 1), date(2026, 1, 7),
+        )
+
+    assert "medication effectiveness" in system.lower()
+    assert "Data Quality Notes" not in system
+
+
+def test_build_prompt_dose_caveat_removes_medication_goal(app):
+    """build_prompt with dose_tracking_incomplete removes medication effectiveness goal and adds caveat."""
+    with app.app_context():
+        from analysis import build_prompt
+        system, user_msg = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [],
+             "medication_doses": [{"timestamp": "2026-01-10T08:00:00", "medication_name": "TestMed", "dose_mg": 1.0}],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 1), date(2026, 1, 7),
+            dose_tracking_incomplete=True,
+        )
+
+    # Medication effectiveness goal removed
+    assert "medication effectiveness" not in system.lower()
+    # Caveat injected
+    assert "Data Quality Notes" in system
+    assert "dose log is incomplete" in system
+    # Medication data still sent in user message
+    assert "medication_doses" in user_msg
+    assert "TestMed" in user_msg
+
+
 def test_parse_response_valid():
     """parse_response extracts structured data from Claude response."""
     from analysis import parse_response
@@ -537,3 +573,104 @@ def test_analysis_detail_not_found(admin_client):
     """GET /admin/analysis/999 redirects with flash."""
     resp = admin_client.get("/admin/analysis/999")
     assert resp.status_code == 302
+
+
+def test_run_analysis_stores_dose_tracking_flag(app):
+    """run_analysis stores dose_tracking_incomplete in the DB row."""
+    _insert_test_data(app)
+    with app.app_context():
+        from analysis import run_analysis, get_analysis
+        db = app.get_db()
+
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_anthropic_response()
+
+        with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+            analysis_id = run_analysis(
+                db, date(2026, 1, 10), date(2026, 1, 12),
+                dose_tracking_incomplete=True,
+            )
+
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        result = get_analysis(cur, analysis_id)
+
+    assert result["dose_tracking_incomplete"] is True
+
+
+def test_run_analysis_default_dose_tracking_false(app):
+    """run_analysis defaults dose_tracking_incomplete to False."""
+    _insert_test_data(app)
+    with app.app_context():
+        from analysis import run_analysis, get_analysis
+        db = app.get_db()
+
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_anthropic_response()
+
+        with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+            analysis_id = run_analysis(db, date(2026, 1, 10), date(2026, 1, 12))
+
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        result = get_analysis(cur, analysis_id)
+
+    assert result["dose_tracking_incomplete"] is False
+
+
+def test_analysis_run_with_checkbox(admin_client, app, monkeypatch):
+    """POST /admin/analysis/run with checkbox sends dose_tracking_incomplete."""
+    _insert_test_data(app)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response()
+
+    with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+        resp = admin_client.post(
+            "/admin/analysis/run",
+            data={
+                "date_from": "2026-01-10",
+                "date_to": "2026-01-12",
+                "dose_tracking_incomplete": "on",
+            },
+            follow_redirects=False,
+        )
+        _wait_for_analysis_threads()
+
+    assert resp.status_code == 302
+
+    with app.app_context():
+        from analysis import list_analyses
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        analyses = list_analyses(cur)
+
+    assert len(analyses) == 1
+    assert analyses[0]["dose_tracking_incomplete"] is True
+
+
+def test_analysis_run_without_checkbox(admin_client, app, monkeypatch):
+    """POST /admin/analysis/run without checkbox defaults to False."""
+    _insert_test_data(app)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response()
+
+    with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+        resp = admin_client.post(
+            "/admin/analysis/run",
+            data={"date_from": "2026-01-10", "date_to": "2026-01-12"},
+            follow_redirects=False,
+        )
+        _wait_for_analysis_threads()
+
+    assert resp.status_code == 302
+
+    with app.app_context():
+        from analysis import list_analyses
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        analyses = list_analyses(cur)
+
+    assert len(analyses) == 1
+    assert analyses[0]["dose_tracking_incomplete"] is False

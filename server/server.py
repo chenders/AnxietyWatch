@@ -131,6 +131,11 @@ def create_app(test_config=None):
                     error_message TEXT
                 )
             """)
+            # Migrate: add dose_tracking_incomplete to analyses
+            cur.execute(
+                "ALTER TABLE analyses ADD COLUMN IF NOT EXISTS "
+                "dose_tracking_incomplete BOOLEAN NOT NULL DEFAULT FALSE"
+            )
         db.commit()
 
     @app.cli.command("init-db")

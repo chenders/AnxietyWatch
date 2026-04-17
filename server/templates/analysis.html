@@ -24,6 +24,16 @@
                 <button type="button" class="quick-range" data-days="0" data-mode="month" style="background:#e8f0fe; color:#0071e3; padding:0.3rem 0.6rem; border:none; border-radius:12px; font-size:0.75rem; cursor:pointer;">This month</button>
                 <button type="button" class="quick-range" data-days="0" data-mode="all" style="background:#e8f0fe; color:#0071e3; padding:0.3rem 0.6rem; border:none; border-radius:12px; font-size:0.75rem; cursor:pointer;">All data</button>
             </div>
+            <div style="display:flex; align-items:center; gap:0.4rem; padding-top:1rem;">
+                <input type="checkbox" name="dose_tracking_incomplete" id="dose_tracking_incomplete"
+                       style="width:16px; height:16px; cursor:pointer;">
+                <label for="dose_tracking_incomplete" style="font-size:0.8rem; color:#444; cursor:pointer;">
+                    Medication doses not fully tracked
+                </label>
+                <span style="font-size:0.7rem; color:#86868b; margin-left:0.25rem;">
+                    (skips dose-timing analysis)
+                </span>
+            </div>
             <div style="padding-top:1rem;">
                 <button type="submit" class="btn btn-primary">Run Analysis</button>
             </div>
@@ -42,6 +52,9 @@
             <span style="font-weight:600; font-size:0.95rem;">{{ a.date_from }} &ndash; {{ a.date_to }}</span>
             {% if a.trend_direction %}
             <span style="background:{{ '#e8f5e9' if a.trend_direction == 'improving' else '#fff3e0' if a.trend_direction == 'worsening' else '#e3f2fd' if a.trend_direction == 'stable' else '#f3e5f5' }}; color:{{ '#2e7d32' if a.trend_direction == 'improving' else '#e65100' if a.trend_direction == 'worsening' else '#1565c0' if a.trend_direction == 'stable' else '#7b1fa2' }}; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.7rem; margin-left:0.5rem;">{{ a.trend_direction }}</span>
+            {% endif %}
+            {% if a.dose_tracking_incomplete %}
+            <span style="background:#f5f5f7; color:#86868b; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.65rem; margin-left:0.4rem;">doses incomplete</span>
             {% endif %}
         </div>
         <span style="font-size:0.75rem; color:#6e6e73;">{{ a.created_at[:16] if a.created_at else '' }}</span>

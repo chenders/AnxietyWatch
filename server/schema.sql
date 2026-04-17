@@ -167,7 +167,8 @@ CREATE TABLE IF NOT EXISTS analyses (
     tokens_out      INTEGER,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at    TIMESTAMPTZ,
-    error_message   TEXT
+    error_message   TEXT,
+    dose_tracking_incomplete BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- Indexes for common query patterns (only on non-PK / non-UNIQUE columns)
