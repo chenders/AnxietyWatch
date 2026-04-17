@@ -177,6 +177,42 @@ def test_build_prompt_includes_output_schema(app):
     assert "supporting_data" in system
 
 
+def test_build_prompt_default_includes_medication_goal(app):
+    """build_prompt without caveat includes medication effectiveness goal."""
+    with app.app_context():
+        from analysis import build_prompt
+        system, user_msg = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 1), date(2026, 1, 7),
+        )
+
+    assert "medication effectiveness" in system.lower()
+    assert "Data Quality Notes" not in system
+
+
+def test_build_prompt_dose_caveat_removes_medication_goal(app):
+    """build_prompt with dose_tracking_incomplete removes goal #4 and adds caveat."""
+    with app.app_context():
+        from analysis import build_prompt
+        system, user_msg = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [],
+             "medication_doses": [{"timestamp": "2026-01-10T08:00:00", "medication_name": "TestMed", "dose_mg": 1.0}],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 1), date(2026, 1, 7),
+            dose_tracking_incomplete=True,
+        )
+
+    # Goal #4 removed
+    assert "medication effectiveness" not in system.lower()
+    # Caveat injected
+    assert "Data Quality Notes" in system
+    assert "dose log is incomplete" in system
+    # Medication data still sent in user message
+    assert "medication_doses" in user_msg
+    assert "TestMed" in user_msg
+
+
 def test_parse_response_valid():
     """parse_response extracts structured data from Claude response."""
     from analysis import parse_response

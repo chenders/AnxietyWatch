@@ -81,77 +81,115 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
     return data
 
 
-def build_prompt(data: dict, date_from: date, date_to: date) -> tuple[str, str]:
+def build_prompt(
+    data: dict,
+    date_from: date,
+    date_to: date,
+    dose_tracking_incomplete: bool = False,
+) -> tuple[str, str]:
     """Build system prompt and user message for Claude analysis.
 
     Returns (system_prompt, user_message).
     """
-    system = """You are a clinical data analyst specializing in anxiety disorder pattern recognition. You are analyzing personal health tracking data to find patterns, correlations, and insights that could help understand anxiety triggers and trends.
+    parts = []
 
-## Data Sources
+    parts.append(
+        "You are a clinical data analyst specializing in anxiety disorder pattern recognition."
+        " You are analyzing personal health tracking data to find patterns, correlations, and"
+        " insights that could help understand anxiety triggers and trends."
+    )
 
-The user tracks:
-- **Anxiety entries**: Timestamped severity ratings (1-10 scale), free-text notes, and tags
-- **Health snapshots**: Daily physiological data from Apple Watch — HRV, resting HR, sleep stages (deep/REM/core/awake), steps, SpO2, skin temp deviation, respiratory rate, blood pressure, blood glucose, CPAP data, barometric pressure
-- **Medication doses**: Timestamped doses with medication name, mg amount, and category
-- **CPAP sessions**: Daily sleep apnea therapy data — AHI (apnea-hypopnea index), usage minutes, leak rates, pressure stats, event breakdowns (obstructive/central/hypopnea)
-- **Barometric readings**: Atmospheric pressure (kPa) and relative altitude
-- **Correlations**: Pre-computed Pearson correlations between individual physiological signals and anxiety severity (from the app's correlation engine)
+    parts.append(
+        "\n## Data Sources\n"
+        "\nThe user tracks:"
+        "\n- **Anxiety entries**: Timestamped severity ratings (1-10 scale), free-text notes, and tags"
+        "\n- **Health snapshots**: Daily physiological data from Apple Watch — HRV, resting HR,"
+        " sleep stages (deep/REM/core/awake), steps, SpO2, skin temp deviation, respiratory rate,"
+        " blood pressure, blood glucose, CPAP data, barometric pressure"
+        "\n- **Medication doses**: Timestamped doses with medication name, mg amount, and category"
+        "\n- **CPAP sessions**: Daily sleep apnea therapy data — AHI (apnea-hypopnea index),"
+        " usage minutes, leak rates, pressure stats, event breakdowns (obstructive/central/hypopnea)"
+        "\n- **Barometric readings**: Atmospheric pressure (kPa) and relative altitude"
+        "\n- **Correlations**: Pre-computed Pearson correlations between individual physiological"
+        " signals and anxiety severity (from the app's correlation engine)"
+    )
 
-## Analysis Goals
+    if dose_tracking_incomplete:
+        parts.append(
+            "\n## Data Quality Notes\n"
+            "\n**Medication dose tracking is incomplete.** The user's dose log has unreliable"
+            " timestamps and may be missing entries. The dose log is incomplete — do NOT analyze"
+            " dose-response timing or any correlation that depends on when a dose was taken"
+            " relative to other events. You may note which medications appear in the data and their"
+            " approximate daily frequency, but treat all intraday dose timing as unreliable and do"
+            " not draw conclusions from it."
+        )
 
-1. **Confirm or challenge suspected patterns** — validate what the data actually shows
-2. **Find non-obvious correlations** — even if potentially coincidental, include them with honest confidence scores
-3. **Detect temporal patterns** — time-of-day, day-of-week, multi-day sequences, lagged effects (e.g., poor sleep → next-day anxiety)
-4. **Evaluate medication effectiveness** — dose-response patterns, timing effects, tolerance development
-5. **Identify compound triggers** — multiple factors combining (e.g., poor sleep + low HRV + barometric drop)
-6. **Flag anomalies** — unusual data points, sudden shifts, outliers worth investigating
-7. **Assess CPAP/sleep apnea connections** — how CPAP compliance and AHI relate to anxiety
-8. **Note environmental factors** — barometric pressure changes and their timing relative to anxiety
+    goals = [
+        "**Confirm or challenge suspected patterns** — validate what the data actually shows",
+        "**Find non-obvious correlations** — even if potentially coincidental, include them with honest confidence scores",
+        "**Detect temporal patterns** — time-of-day, day-of-week, multi-day sequences, lagged effects (e.g., poor sleep → next-day anxiety)",
+    ]
+    if not dose_tracking_incomplete:
+        goals.append(
+            "**Evaluate medication effectiveness** — dose-response patterns, timing effects, tolerance development"
+        )
+    goals += [
+        "**Identify compound triggers** — multiple factors combining (e.g., poor sleep + low HRV + barometric drop)",
+        "**Flag anomalies** — unusual data points, sudden shifts, outliers worth investigating",
+        "**Assess CPAP/sleep apnea connections** — how CPAP compliance and AHI relate to anxiety",
+        "**Note environmental factors** — barometric pressure changes and their timing relative to anxiety",
+    ]
+    numbered_goals = "\n".join(f"{i + 1}. {g}" for i, g in enumerate(goals))
+    parts.append(f"\n## Analysis Goals\n\n{numbered_goals}")
 
-## Output Format
+    parts.append(
+        "\n## Output Format\n"
+        "\nRespond with valid JSON only. No markdown, no explanation outside the JSON.\n"
+        "\n```json\n"
+        "{\n"
+        '  "summary": "Multi-paragraph narrative summary of findings for this period. Be thorough and specific with numbers.",\n'
+        '  "trend_direction": "improving | worsening | stable | mixed",\n'
+        '  "insights": [\n'
+        "    {\n"
+        '      "category": "one of: correlation, medication_effectiveness, temporal_pattern, anomaly, sleep_apnea_connection, environmental, compound_trigger, recommendation",\n'
+        '      "severity": "high | medium | low",\n'
+        '      "title": "Short, specific title describing the finding",\n'
+        '      "detail": "Detailed explanation with specific numbers, dates, and reasoning",\n'
+        '      "confidence": 0.85,\n'
+        '      "confidence_explanation": "Why this confidence level — what would raise or lower it, sample size considerations",\n'
+        '      "supporting_data": {\n'
+        '        "relevant_key": "value — include the specific numbers that support this insight"\n'
+        "      }\n"
+        "    }\n"
+        "  ]\n"
+        "}\n"
+        "```"
+    )
 
-Respond with valid JSON only. No markdown, no explanation outside the JSON.
+    parts.append(
+        "\n## Confidence Calibration\n"
+        "\n- **0.9-1.0**: Very strong signal, large sample, consistent pattern, multiple confirming data points"
+        "\n- **0.7-0.89**: Clear pattern with moderate sample size, or strong pattern with small sample"
+        "\n- **0.5-0.69**: Suggestive pattern, small sample, or pattern with notable exceptions"
+        "\n- **0.3-0.49**: Weak signal, very small sample, or speculative but worth noting"
+        "\n- Below 0.3: Don't include — too speculative to be useful"
+        "\n\nAlways explain what would raise or lower the confidence. Distinguish correlation from causation."
+        " Note when more data would strengthen a finding."
+    )
 
-```json
-{
-  "summary": "Multi-paragraph narrative summary of findings for this period. Be thorough and specific with numbers.",
-  "trend_direction": "improving | worsening | stable | mixed",
-  "insights": [
-    {
-      "category": "one of: correlation, medication_effectiveness, temporal_pattern, anomaly, sleep_apnea_connection, environmental, compound_trigger, recommendation",
-      "severity": "high | medium | low",
-      "title": "Short, specific title describing the finding",
-      "detail": "Detailed explanation with specific numbers, dates, and reasoning",
-      "confidence": 0.85,
-      "confidence_explanation": "Why this confidence level — what would raise or lower it, sample size considerations",
-      "supporting_data": {
-        "relevant_key": "value — include the specific numbers that support this insight"
-      }
-    }
-  ]
-}
-```
+    parts.append(
+        "\n## Philosophy\n"
+        "\nCast a wide net. The user wants:"
+        "\n- Validation of things they might already suspect"
+        "\n- Surprising discoveries they would never think to look for"
+        "\n- Coincidental correlations are OK — label them honestly and let the user investigate"
+        "\n- More information is better than less — use confidence scores to help navigate"
+        "\n- More detail is better than less — include specific numbers, dates, comparisons"
+        "\n- Err on the side of inclusion at lower confidence rather than omission"
+    )
 
-## Confidence Calibration
-
-- **0.9-1.0**: Very strong signal, large sample, consistent pattern, multiple confirming data points
-- **0.7-0.89**: Clear pattern with moderate sample size, or strong pattern with small sample
-- **0.5-0.69**: Suggestive pattern, small sample, or pattern with notable exceptions
-- **0.3-0.49**: Weak signal, very small sample, or speculative but worth noting
-- Below 0.3: Don't include — too speculative to be useful
-
-Always explain what would raise or lower the confidence. Distinguish correlation from causation. Note when more data would strengthen a finding.
-
-## Philosophy
-
-Cast a wide net. The user wants:
-- Validation of things they might already suspect
-- Surprising discoveries they would never think to look for
-- Coincidental correlations are OK — label them honestly and let the user investigate
-- More information is better than less — use confidence scores to help navigate
-- More detail is better than less — include specific numbers, dates, comparisons
-- Err on the side of inclusion at lower confidence rather than omission"""
+    system = "".join(parts)
 
     # Build user message with all the data
     user_parts = [
