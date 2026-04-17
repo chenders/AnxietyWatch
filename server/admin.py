@@ -617,11 +617,17 @@ def analysis_run():
         flash("Start date must be before end date.", "error")
         return redirect(url_for("admin.analysis"))
 
+    dose_tracking_incomplete = "dose_tracking_incomplete" in request.form
+
     db = get_db()
     try:
         from analysis import start_analysis
         database_url = current_app.config.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
-        analysis_id = start_analysis(db, date_from, date_to, database_url=database_url)
+        analysis_id = start_analysis(
+            db, date_from, date_to,
+            database_url=database_url,
+            dose_tracking_incomplete=dose_tracking_incomplete,
+        )
         return redirect(url_for("admin.analysis_detail", analysis_id=analysis_id))
     except Exception:
         current_app.logger.exception("Failed to start analysis")
