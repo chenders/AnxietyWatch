@@ -617,7 +617,7 @@ def analysis_run():
         flash("Start date must be before end date.", "error")
         return redirect(url_for("admin.analysis"))
 
-    dose_tracking_incomplete = bool(request.form.get("dose_tracking_incomplete"))
+    dose_tracking_incomplete = "dose_tracking_incomplete" in request.form
 
     db = get_db()
     try:

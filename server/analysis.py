@@ -143,6 +143,15 @@ def build_prompt(
     numbered_goals = "\n".join(f"{i + 1}. {g}" for i, g in enumerate(goals))
     parts.append(f"\n## Analysis Goals\n\n{numbered_goals}")
 
+    categories = [
+        "correlation", "temporal_pattern", "anomaly",
+        "sleep_apnea_connection", "environmental",
+        "compound_trigger", "recommendation",
+    ]
+    if not dose_tracking_incomplete:
+        categories.insert(1, "medication_effectiveness")
+    category_str = ", ".join(categories)
+
     parts.append(
         "\n## Output Format\n"
         "\nRespond with valid JSON only. No markdown, no explanation outside the JSON.\n"
@@ -152,7 +161,7 @@ def build_prompt(
         '  "trend_direction": "improving | worsening | stable | mixed",\n'
         '  "insights": [\n'
         "    {\n"
-        '      "category": "one of: correlation, medication_effectiveness, temporal_pattern, anomaly, sleep_apnea_connection, environmental, compound_trigger, recommendation",\n'
+        f'      "category": "one of: {category_str}",\n'
         '      "severity": "high | medium | low",\n'
         '      "title": "Short, specific title describing the finding",\n'
         '      "detail": "Detailed explanation with specific numbers, dates, and reasoning",\n'

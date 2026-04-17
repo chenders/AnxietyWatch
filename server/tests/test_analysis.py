@@ -181,7 +181,7 @@ def test_build_prompt_default_includes_medication_goal(app):
     """build_prompt without caveat includes medication effectiveness goal."""
     with app.app_context():
         from analysis import build_prompt
-        system, user_msg = build_prompt(
+        system, _user_msg = build_prompt(
             {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
              "cpap_sessions": [], "barometric_readings": [], "correlations": []},
             date(2026, 1, 1), date(2026, 1, 7),
