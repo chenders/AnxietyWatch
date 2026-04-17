@@ -60,13 +60,13 @@
     {% endif %}
 </div>
 
-{% macro confidence_label(score) %}{% if score >= 0.9 %}very strong{% elif score >= 0.7 %}strong{% elif score >= 0.5 %}moderate{% else %}suggestive{% endif %}{% endmacro %}
+{% macro confidence_label(score) %}{% set s = score|float(0) %}{% if s >= 0.9 %}very strong{% elif s >= 0.7 %}strong{% elif s >= 0.5 %}moderate{% else %}suggestive{% endif %}{% endmacro %}
 
 {% macro render_insight(insight) %}
 <div class="card">
     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
         <span style="font-weight:600; font-size:0.95rem;">{{ insight.title }}</span>
-        <span style="background:#e8f0fe; color:#0071e3; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.75rem; white-space:nowrap;" title="confidence: {{ insight.confidence }}">{{ confidence_label(insight.confidence) }}</span>
+        <span style="background:#e8f0fe; color:#0071e3; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.75rem; white-space:nowrap;" title="confidence: {{ insight.confidence|float(0) }}">{{ confidence_label(insight.confidence) }}</span>
     </div>
     <span style="font-size:0.7rem; color:#6e6e73; text-transform:uppercase; letter-spacing:0.05em;">{{ insight.category }}</span>
     <p style="font-size:0.85rem; color:#444; line-height:1.6; margin-top:0.5rem;">{{ insight.detail }}</p>

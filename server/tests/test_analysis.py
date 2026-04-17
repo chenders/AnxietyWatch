@@ -674,3 +674,37 @@ def test_analysis_run_without_checkbox(admin_client, app, monkeypatch):
 
     assert len(analyses) == 1
     assert analyses[0]["dose_tracking_incomplete"] is False
+
+
+def test_build_prompt_plain_english_by_default():
+    """build_prompt includes Writing Style section when detailed_output is False."""
+    from analysis import build_prompt
+    data = {
+        "anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [], "correlations": [],
+    }
+    system, _ = build_prompt(data, date(2026, 1, 1), date(2026, 1, 7))
+    assert "## Writing Style" in system
+    assert "plain language" in system.lower()
+
+
+def test_build_prompt_detailed_output_omits_writing_style():
+    """build_prompt omits Writing Style section when detailed_output is True."""
+    from analysis import build_prompt
+    data = {
+        "anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [], "correlations": [],
+    }
+    system, _ = build_prompt(data, date(2026, 1, 1), date(2026, 1, 7), detailed_output=True)
+    assert "## Writing Style" not in system
+
+
+def test_build_prompt_detailed_output_includes_inline_stats():
+    """build_prompt summary field asks for inline numbers when detailed_output is True."""
+    from analysis import build_prompt
+    data = {
+        "anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [], "correlations": [],
+    }
+    system, _ = build_prompt(data, date(2026, 1, 1), date(2026, 1, 7), detailed_output=True)
+    assert "thorough and specific with numbers" in system.lower()
