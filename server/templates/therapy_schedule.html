@@ -17,8 +17,8 @@
             <div id="day-of-week-group">
                 <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Day</label><br>
                 <select name="day_of_week" style="padding:0.4rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.85rem;">
-                    {% for i, name in enumerate(day_names) %}
-                    <option value="{{ i }}">{{ name }}</option>
+                    {% for name in day_names %}
+                    <option value="{{ loop.index0 }}">{{ name }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -79,7 +79,7 @@
                     {% if s.frequency == 'weekly' and s.day_of_week is not none %}
                         {{ day_names[s.day_of_week] }}
                     {% elif s.frequency == 'monthly' and s.day_of_month is not none %}
-                        {{ s.day_of_month }}{{ 'st' if s.day_of_month == 1 else 'nd' if s.day_of_month == 2 else 'rd' if s.day_of_month == 3 else 'th' }}
+                        {% set d = s.day_of_month %}{{ d }}{{ 'th' if d % 100 in [11,12,13] else 'st' if d % 10 == 1 else 'nd' if d % 10 == 2 else 'rd' if d % 10 == 3 else 'th' }}
                     {% endif %}
                 </td>
                 <td>{{ s.time_of_day }}</td>

@@ -220,7 +220,19 @@ def build_prompt(
     if therapy_sessions:
         lines = []
         for s in therapy_sessions:
-            day = DAY_NAMES[s["day_of_week"]] + "s" if s.get("day_of_week") is not None else f"day {s['day_of_month']}"
+            freq = s.get("frequency", "weekly")
+            if freq == "weekly":
+                dow = s.get("day_of_week")
+                if dow is None or dow not in range(7):
+                    continue
+                day = DAY_NAMES[dow] + "s"
+            elif freq == "monthly":
+                dom = s.get("day_of_month")
+                if dom is None:
+                    continue
+                day = f"day {dom}"
+            else:
+                continue
             time_str = str(s["time_of_day"])[:5]
             # Format time as 12-hour
             h, m = int(time_str.split(":")[0]), time_str.split(":")[1]
@@ -245,8 +257,10 @@ def build_prompt(
 
     goals = [
         "**Confirm or challenge suspected patterns** — validate what the data actually shows",
-        "**Find non-obvious correlations** — even if potentially coincidental, include them with honest confidence scores",
-        "**Detect temporal patterns** — time-of-day, day-of-week, multi-day sequences, lagged effects (e.g., poor sleep → next-day anxiety)",
+        "**Find non-obvious correlations** — even if potentially coincidental,"
+        " include them with honest confidence scores",
+        "**Detect temporal patterns** — time-of-day, day-of-week, multi-day sequences,"
+        " lagged effects (e.g., poor sleep → next-day anxiety)",
     ]
     if not dose_tracking_incomplete:
         goals.append(
@@ -302,7 +316,8 @@ def build_prompt(
         )
         + '",\n'
         '      "confidence": 0.85,\n'
-        '      "confidence_explanation": "Why this confidence level — what would raise or lower it, sample size considerations",\n'
+        '      "confidence_explanation": "Why this confidence level —'
+        ' what would raise or lower it, sample size considerations",\n'
         '      "supporting_data": {\n'
         '        "relevant_key": "value — include the specific numbers that support this insight"\n'
         "      }\n"

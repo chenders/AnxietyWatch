@@ -680,8 +680,14 @@ def therapy_schedule():
         day_of_month = request.form.get("day_of_month")
         time_of_day = request.form.get("time_of_day", "")
         session_type = request.form.get("session_type", "in-person")
-        commute_minutes = int(request.form.get("commute_minutes", 0) or 0)
+        commute_minutes_raw = request.form.get("commute_minutes", "")
         notes = request.form.get("notes", "").strip() or None
+
+        try:
+            commute_minutes = max(0, int(commute_minutes_raw.strip() or 0))
+        except ValueError:
+            flash("Commute minutes must be a whole number.", "error")
+            return redirect(url_for("admin.therapy_schedule"))
 
         if not time_of_day:
             flash("Time is required.", "error")
@@ -728,7 +734,7 @@ def app_settings():
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     if request.method == "POST":
-        timezone = request.form.get("timezone", "US/Pacific").strip()
+        timezone = request.form.get("timezone", "US/Pacific").strip() or "US/Pacific"
         cur.execute(
             "INSERT INTO settings (key, value, updated_at) VALUES ('timezone', %s, NOW()) "
             "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",

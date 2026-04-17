@@ -29,7 +29,7 @@ gather_analysis_data(date_from, date_to)
   build_prompt(data, effective_from, effective_to, outlier_warnings, ...)
 ```
 
-No new database columns. No schema changes. No iOS changes. No new UI elements.
+The data quality functions themselves require no schema changes. However, this work also introduces a `therapy_sessions` table, admin routes/templates for therapy schedule management and timezone settings, and reads from the existing `settings` table. No iOS changes.
 
 ## Component 1: Outlier Detection — `flag_outliers(data)`
 

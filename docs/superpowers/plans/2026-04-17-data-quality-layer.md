@@ -4,7 +4,7 @@
 
 **Goal:** Add a server-side data quality layer that flags physiologically implausible health values, trims the analysis date range to match actual data, and always communicates the CPAP usage and timezone assumptions to Claude.
 
-**Architecture:** Three pure functions (`flag_outliers`, `compute_effective_dates`, and an expanded `build_prompt`) in `server/analysis.py`. The functions sit between `gather_analysis_data()` and `build_prompt()` in the analysis pipeline. No schema changes, no iOS changes.
+**Architecture:** Three pure functions (`flag_outliers`, `compute_effective_dates`, and an expanded `build_prompt`) in `server/analysis.py`. The functions sit between `gather_analysis_data()` and `build_prompt()` in the analysis pipeline. This work also introduces a `therapy_sessions` table, admin routes/templates for therapy schedule management and timezone settings, and reads from the existing `settings` table. No iOS changes.
 
 **Tech Stack:** Python 3.12, Flask, PostgreSQL, pytest
 

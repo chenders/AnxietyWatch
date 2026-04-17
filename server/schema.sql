@@ -180,10 +180,15 @@ CREATE TABLE IF NOT EXISTS therapy_sessions (
     time_of_day     TIME NOT NULL,
     session_type    TEXT NOT NULL DEFAULT 'in-person'
                         CHECK (session_type IN ('in-person', 'virtual')),
-    commute_minutes INTEGER NOT NULL DEFAULT 0,
+    commute_minutes INTEGER NOT NULL DEFAULT 0 CHECK (commute_minutes >= 0),
     notes           TEXT,
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (
+        (frequency = 'weekly' AND day_of_week IS NOT NULL AND day_of_month IS NULL)
+        OR
+        (frequency = 'monthly' AND day_of_month IS NOT NULL AND day_of_week IS NULL)
+    )
 );
 
 -- Indexes for common query patterns (only on non-PK / non-UNIQUE columns)
