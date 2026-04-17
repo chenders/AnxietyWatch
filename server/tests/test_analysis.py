@@ -674,3 +674,103 @@ def test_analysis_run_without_checkbox(admin_client, app, monkeypatch):
 
     assert len(analyses) == 1
     assert analyses[0]["dose_tracking_incomplete"] is False
+
+
+def test_build_prompt_plain_english_by_default():
+    """build_prompt includes Writing Style section when detailed_output is False."""
+    from analysis import build_prompt
+    data = {
+        "anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [], "correlations": [],
+    }
+    system, _ = build_prompt(data, date(2026, 1, 1), date(2026, 1, 7))
+    assert "## Writing Style" in system
+    assert "plain language" in system.lower()
+
+
+def test_build_prompt_detailed_output_omits_writing_style():
+    """build_prompt omits Writing Style section when detailed_output is True."""
+    from analysis import build_prompt
+    data = {
+        "anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [], "correlations": [],
+    }
+    system, _ = build_prompt(data, date(2026, 1, 1), date(2026, 1, 7), detailed_output=True)
+    assert "## Writing Style" not in system
+
+
+def test_build_prompt_detailed_output_includes_inline_stats():
+    """build_prompt summary field asks for inline numbers when detailed_output is True."""
+    from analysis import build_prompt
+    data = {
+        "anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [], "correlations": [],
+    }
+    system, _ = build_prompt(data, date(2026, 1, 1), date(2026, 1, 7), detailed_output=True)
+    assert "thorough and specific with numbers" in system.lower()
+
+
+def test_analysis_run_detailed_output_e2e(admin_client, app, monkeypatch):
+    """POST /admin/analysis/run with detailed_output checkbox stores detailed prompt."""
+    _insert_test_data(app)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response()
+
+    with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+        resp = admin_client.post(
+            "/admin/analysis/run",
+            data={
+                "date_from": "2026-01-10",
+                "date_to": "2026-01-12",
+                "detailed_output": "on",
+            },
+            follow_redirects=False,
+        )
+        _wait_for_analysis_threads()
+
+    assert resp.status_code == 302
+
+    with app.app_context():
+        from analysis import get_analysis, list_analyses
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        analyses = list_analyses(cur)
+        assert len(analyses) == 1
+        result = get_analysis(cur, analyses[0]["id"])
+
+    system_prompt = result["request_payload"]["system"]
+    assert "## Writing Style" not in system_prompt
+    assert "thorough and specific" in system_prompt.lower()
+
+
+def test_analysis_run_default_plain_english_e2e(admin_client, app, monkeypatch):
+    """POST /admin/analysis/run without detailed_output stores plain English prompt."""
+    _insert_test_data(app)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response()
+
+    with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+        resp = admin_client.post(
+            "/admin/analysis/run",
+            data={"date_from": "2026-01-10", "date_to": "2026-01-12"},
+            follow_redirects=False,
+        )
+        _wait_for_analysis_threads()
+
+    assert resp.status_code == 302
+
+    with app.app_context():
+        from analysis import get_analysis, list_analyses
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        analyses = list_analyses(cur)
+        assert len(analyses) == 1
+        result = get_analysis(cur, analyses[0]["id"])
+
+    system_prompt = result["request_payload"]["system"]
+    assert "## Writing Style" in system_prompt
+    assert "plain language" in system_prompt.lower()
