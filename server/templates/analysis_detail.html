@@ -60,29 +60,36 @@
     {% endif %}
 </div>
 
+{% macro confidence_label(score) %}{% set s = score|float(0) %}{% if s >= 0.9 %}very strong{% elif s >= 0.7 %}strong{% elif s >= 0.5 %}suggestive{% elif s >= 0.3 %}weak{% else %}excluded{% endif %}{% endmacro %}
+
 {% macro render_insight(insight) %}
 <div class="card">
     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
         <span style="font-weight:600; font-size:0.95rem;">{{ insight.title }}</span>
-        <span style="background:#e8f0fe; color:#0071e3; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.75rem; white-space:nowrap;">confidence: {{ insight.confidence }}</span>
+        <span style="background:#e8f0fe; color:#0071e3; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.75rem; white-space:nowrap;" title="confidence: {{ insight.confidence|float(0) }}">{{ confidence_label(insight.confidence) }}</span>
     </div>
     <span style="font-size:0.7rem; color:#6e6e73; text-transform:uppercase; letter-spacing:0.05em;">{{ insight.category }}</span>
     <p style="font-size:0.85rem; color:#444; line-height:1.6; margin-top:0.5rem;">{{ insight.detail }}</p>
-    {% if insight.supporting_data %}
-    <div style="background:#f5f5f7; border-radius:6px; padding:0.75rem; margin-top:0.75rem; font-size:0.8rem; font-family:monospace; color:#555;">
-        {% if insight.supporting_data is mapping %}
-        {% for k, v in insight.supporting_data.items() %}
-        {{ k }}: {{ v }}<br>
-        {% endfor %}
-        {% else %}
-        {{ insight.supporting_data }}
+    {% if insight.supporting_data or insight.confidence_explanation %}
+    <details style="margin-top:0.75rem;">
+        <summary style="cursor:pointer; font-size:0.8rem; color:#0071e3; font-weight:500;">Show details</summary>
+        {% if insight.supporting_data %}
+        <div style="background:#f5f5f7; border-radius:6px; padding:0.75rem; margin-top:0.5rem; font-size:0.8rem; font-family:monospace; color:#555;">
+            {% if insight.supporting_data is mapping %}
+            {% for k, v in insight.supporting_data.items() %}
+            {{ k }}: {{ v }}<br>
+            {% endfor %}
+            {% else %}
+            {{ insight.supporting_data }}
+            {% endif %}
+        </div>
         {% endif %}
-    </div>
-    {% endif %}
-    {% if insight.confidence_explanation %}
-    <p style="font-size:0.8rem; color:#6e6e73; margin-top:0.5rem; line-height:1.5;">
-        <strong>Confidence explanation:</strong> {{ insight.confidence_explanation }}
-    </p>
+        {% if insight.confidence_explanation %}
+        <p style="font-size:0.8rem; color:#6e6e73; margin-top:0.5rem; line-height:1.5;">
+            <strong>Confidence:</strong> {{ insight.confidence_explanation }}
+        </p>
+        {% endif %}
+    </details>
     {% endif %}
 </div>
 {% endmacro %}
@@ -110,7 +117,7 @@
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <span style="font-weight:500; font-size:0.9rem;">{{ insight.title }}</span>
             <div style="display:flex; align-items:center; gap:0.75rem;">
-                <span style="color:#0071e3; font-size:0.75rem;">{{ insight.confidence }}</span>
+                <span style="color:#0071e3; font-size:0.75rem;">{{ confidence_label(insight.confidence) }}</span>
                 <span style="color:#6e6e73; font-size:0.8rem;">&#9654;</span>
             </div>
         </div>
@@ -132,7 +139,7 @@
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <span style="font-weight:500; font-size:0.9rem;">{{ insight.title }}</span>
             <div style="display:flex; align-items:center; gap:0.75rem;">
-                <span style="color:#0071e3; font-size:0.75rem;">{{ insight.confidence }}</span>
+                <span style="color:#0071e3; font-size:0.75rem;">{{ confidence_label(insight.confidence) }}</span>
                 <span style="color:#6e6e73; font-size:0.8rem;">&#9654;</span>
             </div>
         </div>
