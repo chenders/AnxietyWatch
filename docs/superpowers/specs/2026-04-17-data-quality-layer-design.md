@@ -116,6 +116,14 @@ as non-compliance or skipped therapy.
 
 This goes inside the `## Data Quality Notes` section. If no other quality notes exist, the section is still created for just this note.
 
+### Timezone
+
+Always include in the Data Quality Notes:
+
+```
+**Timezone:** All timestamps are in US/Pacific time.
+```
+
 ### Effective Date Range
 
 The prompt opener changes from:
