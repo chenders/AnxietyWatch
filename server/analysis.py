@@ -265,7 +265,11 @@ def _serialize(row):
     return result
 
 
-def start_analysis(db, date_from: date, date_to: date, database_url: str | None = None) -> int:
+def start_analysis(
+    db, date_from: date, date_to: date,
+    database_url: str | None = None,
+    dose_tracking_incomplete: bool = False,
+) -> int:
     """Create a pending analysis row and kick off the Claude call in a background thread.
 
     Returns the analysis row ID immediately. The background worker opens its own DB
@@ -275,7 +279,9 @@ def start_analysis(db, date_from: date, date_to: date, database_url: str | None 
     if not dsn:
         raise RuntimeError("DATABASE_URL not configured")
 
-    analysis_id, system_prompt, user_message = _create_pending_analysis(db, date_from, date_to)
+    analysis_id, system_prompt, user_message = _create_pending_analysis(
+        db, date_from, date_to, dose_tracking_incomplete=dose_tracking_incomplete
+    )
 
     thread = threading.Thread(
         target=_execute_analysis,
@@ -292,13 +298,15 @@ def start_analysis(db, date_from: date, date_to: date, database_url: str | None 
     return analysis_id
 
 
-def run_analysis(db, date_from: date, date_to: date) -> int:
+def run_analysis(db, date_from: date, date_to: date, dose_tracking_incomplete: bool = False) -> int:
     """Run a full analysis synchronously (used by tests).
 
     Production callers should use start_analysis() instead to avoid blocking the
     HTTP worker on the Anthropic API call.
     """
-    analysis_id, system_prompt, user_message = _create_pending_analysis(db, date_from, date_to)
+    analysis_id, system_prompt, user_message = _create_pending_analysis(
+        db, date_from, date_to, dose_tracking_incomplete=dose_tracking_incomplete
+    )
     try:
         _complete_analysis(db, analysis_id, system_prompt, user_message)
     except Exception as e:
@@ -307,19 +315,22 @@ def run_analysis(db, date_from: date, date_to: date) -> int:
     return analysis_id
 
 
-def _create_pending_analysis(db, date_from: date, date_to: date):
+def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_incomplete: bool = False):
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     data = gather_analysis_data(cur, date_from, date_to)
-    system_prompt, user_message = build_prompt(data, date_from, date_to)
+    system_prompt, user_message = build_prompt(
+        data, date_from, date_to, dose_tracking_incomplete=dose_tracking_incomplete
+    )
 
     request_payload = {
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_message}],
     }
     cur.execute(
-        "INSERT INTO analyses (date_from, date_to, status, model, request_payload, created_at) "
-        "VALUES (%s, %s, 'pending', %s, %s, NOW()) RETURNING id",
-        (date_from, date_to, MODEL, json.dumps(request_payload)),
+        "INSERT INTO analyses (date_from, date_to, status, model, request_payload, "
+        "dose_tracking_incomplete, created_at) "
+        "VALUES (%s, %s, 'pending', %s, %s, %s, NOW()) RETURNING id",
+        (date_from, date_to, MODEL, json.dumps(request_payload), dose_tracking_incomplete),
     )
     analysis_id = cur.fetchone()["id"]
     db.commit()
@@ -477,7 +488,8 @@ def list_analyses(cur) -> list[dict]:
     """List all analyses, newest first."""
     cur.execute(
         "SELECT id, date_from, date_to, status, model, summary, trend_direction, "
-        "insights, tokens_in, tokens_out, created_at, completed_at, error_message "
+        "insights, tokens_in, tokens_out, created_at, completed_at, error_message, "
+        "dose_tracking_incomplete "
         "FROM analyses ORDER BY created_at DESC"
     )
     return [_serialize(r) for r in cur.fetchall()]

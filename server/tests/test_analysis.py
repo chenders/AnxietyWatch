@@ -573,3 +573,104 @@ def test_analysis_detail_not_found(admin_client):
     """GET /admin/analysis/999 redirects with flash."""
     resp = admin_client.get("/admin/analysis/999")
     assert resp.status_code == 302
+
+
+def test_run_analysis_stores_dose_tracking_flag(app):
+    """run_analysis stores dose_tracking_incomplete in the DB row."""
+    _insert_test_data(app)
+    with app.app_context():
+        from analysis import run_analysis, get_analysis
+        db = app.get_db()
+
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_anthropic_response()
+
+        with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+            analysis_id = run_analysis(
+                db, date(2026, 1, 10), date(2026, 1, 12),
+                dose_tracking_incomplete=True,
+            )
+
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        result = get_analysis(cur, analysis_id)
+
+    assert result["dose_tracking_incomplete"] is True
+
+
+def test_run_analysis_default_dose_tracking_false(app):
+    """run_analysis defaults dose_tracking_incomplete to False."""
+    _insert_test_data(app)
+    with app.app_context():
+        from analysis import run_analysis, get_analysis
+        db = app.get_db()
+
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_anthropic_response()
+
+        with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+            analysis_id = run_analysis(db, date(2026, 1, 10), date(2026, 1, 12))
+
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        result = get_analysis(cur, analysis_id)
+
+    assert result["dose_tracking_incomplete"] is False
+
+
+def test_analysis_run_with_checkbox(admin_client, app, monkeypatch):
+    """POST /admin/analysis/run with checkbox sends dose_tracking_incomplete."""
+    _insert_test_data(app)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response()
+
+    with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+        resp = admin_client.post(
+            "/admin/analysis/run",
+            data={
+                "date_from": "2026-01-10",
+                "date_to": "2026-01-12",
+                "dose_tracking_incomplete": "on",
+            },
+            follow_redirects=False,
+        )
+        _wait_for_analysis_threads()
+
+    assert resp.status_code == 302
+
+    with app.app_context():
+        from analysis import list_analyses
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        analyses = list_analyses(cur)
+
+    assert len(analyses) == 1
+    assert analyses[0]["dose_tracking_incomplete"] is True
+
+
+def test_analysis_run_without_checkbox(admin_client, app, monkeypatch):
+    """POST /admin/analysis/run without checkbox defaults to False."""
+    _insert_test_data(app)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response()
+
+    with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+        resp = admin_client.post(
+            "/admin/analysis/run",
+            data={"date_from": "2026-01-10", "date_to": "2026-01-12"},
+            follow_redirects=False,
+        )
+        _wait_for_analysis_threads()
+
+    assert resp.status_code == 302
+
+    with app.app_context():
+        from analysis import list_analyses
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        analyses = list_analyses(cur)
+
+    assert len(analyses) == 1
+    assert analyses[0]["dose_tracking_incomplete"] is False
