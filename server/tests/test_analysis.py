@@ -774,3 +774,134 @@ def test_analysis_run_default_plain_english_e2e(admin_client, app, monkeypatch):
     system_prompt = result["request_payload"]["system"]
     assert "## Writing Style" in system_prompt
     assert "plain language" in system_prompt.lower()
+
+
+# ---------------------------------------------------------------------------
+# Tests for flag_outliers
+# ---------------------------------------------------------------------------
+
+
+def test_flag_outliers_clean_data():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [
+        {"date": "2026-01-10", "sleep_duration_min": 480, "resting_hr": 65,
+         "hrv_avg": 45, "spo2_avg": 97, "steps": 8000},
+    ]}
+    assert flag_outliers(data) == []
+
+
+def test_flag_outliers_sleep_over_limit():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [{"date": "2026-04-04", "sleep_duration_min": 1277}]}
+    warnings = flag_outliers(data)
+    assert len(warnings) == 1
+    assert "sleep_duration_min" in warnings[0]
+    assert "1277" in warnings[0]
+
+
+def test_flag_outliers_hr_out_of_range():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [
+        {"date": "2026-01-10", "resting_hr": 185},
+        {"date": "2026-01-11", "resting_hr": 15},
+    ]}
+    warnings = flag_outliers(data)
+    assert len(warnings) == 2
+
+
+def test_flag_outliers_sleep_stage_inconsistency():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [
+        {"date": "2026-01-10", "sleep_duration_min": 420,
+         "sleep_deep_min": 200, "sleep_rem_min": 150,
+         "sleep_core_min": 200, "sleep_awake_min": 30},
+    ]}
+    warnings = flag_outliers(data)
+    assert len(warnings) == 1
+    assert "exceeds" in warnings[0].lower()
+
+
+def test_flag_outliers_skips_null_fields():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [
+        {"date": "2026-01-10", "sleep_duration_min": None, "resting_hr": None},
+    ]}
+    assert flag_outliers(data) == []
+
+
+def test_flag_outliers_multiple_days():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [
+        {"date": "2026-01-10", "sleep_duration_min": 1400, "bp_systolic": 300},
+        {"date": "2026-01-11", "blood_glucose_avg": 600},
+    ]}
+    assert len(flag_outliers(data)) == 3
+
+
+def test_flag_outliers_no_snapshots():
+    from analysis import flag_outliers
+    assert flag_outliers({"anxiety_entries": []}) == []
+
+
+def test_flag_outliers_all_limit_types():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [
+        {"date": "2026-01-10", "hrv_avg": 0},
+        {"date": "2026-01-11", "spo2_avg": 50},
+        {"date": "2026-01-12", "respiratory_rate": 2},
+        {"date": "2026-01-13", "bp_diastolic": 200},
+        {"date": "2026-01-14", "blood_glucose_avg": 5},
+        {"date": "2026-01-15", "steps": 200000},
+        {"date": "2026-01-16", "active_calories": 10000},
+        {"date": "2026-01-17", "exercise_minutes": 600},
+        {"date": "2026-01-18", "skin_temp_deviation": -10.0},
+    ]}
+    assert len(flag_outliers(data)) == 9
+
+
+# ---------------------------------------------------------------------------
+# Tests for compute_effective_dates
+# ---------------------------------------------------------------------------
+
+
+def test_compute_effective_dates_trims_to_data():
+    from analysis import compute_effective_dates
+    data = {
+        "anxiety_entries": [{"timestamp": "2026-01-15T12:00:00"}, {"timestamp": "2026-03-20T08:00:00"}],
+        "health_snapshots": [{"date": "2026-01-20"}, {"date": "2026-03-15"}],
+        "medication_doses": [], "cpap_sessions": [], "barometric_readings": [],
+    }
+    eff_from, eff_to = compute_effective_dates(data, date(2025, 12, 1), date(2026, 4, 30))
+    assert eff_from == date(2026, 1, 15)
+    assert eff_to == date(2026, 3, 20)
+
+
+def test_compute_effective_dates_no_data():
+    from analysis import compute_effective_dates
+    data = {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+            "cpap_sessions": [], "barometric_readings": []}
+    eff_from, eff_to = compute_effective_dates(data, date(2026, 1, 1), date(2026, 1, 31))
+    assert eff_from == date(2026, 1, 1)
+    assert eff_to == date(2026, 1, 31)
+
+
+def test_compute_effective_dates_single_day():
+    from analysis import compute_effective_dates
+    data = {"anxiety_entries": [], "health_snapshots": [{"date": "2026-02-14"}],
+            "medication_doses": [], "cpap_sessions": [], "barometric_readings": []}
+    eff_from, eff_to = compute_effective_dates(data, date(2026, 1, 1), date(2026, 3, 31))
+    assert eff_from == date(2026, 2, 14)
+    assert eff_to == date(2026, 2, 14)
+
+
+def test_compute_effective_dates_mixed_sources():
+    from analysis import compute_effective_dates
+    data = {
+        "anxiety_entries": [], "health_snapshots": [],
+        "medication_doses": [{"timestamp": "2026-02-01T10:00:00"}],
+        "cpap_sessions": [{"date": "2026-03-01"}],
+        "barometric_readings": [{"timestamp": "2026-02-15T14:30:00"}],
+    }
+    eff_from, eff_to = compute_effective_dates(data, date(2026, 1, 1), date(2026, 4, 1))
+    assert eff_from == date(2026, 2, 1)
+    assert eff_to == date(2026, 3, 1)

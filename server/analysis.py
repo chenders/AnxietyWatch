@@ -81,6 +81,71 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
     return data
 
 
+# Hard physiological limits for outlier detection.
+PHYSIOLOGICAL_LIMITS = {
+    "sleep_duration_min": (0, 960),
+    "resting_hr": (30, 130),
+    "hrv_avg": (1, 300),
+    "spo2_avg": (70, 100),
+    "respiratory_rate": (6, 40),
+    "bp_systolic": (60, 250),
+    "bp_diastolic": (30, 150),
+    "blood_glucose_avg": (30, 500),
+    "steps": (0, 100_000),
+    "active_calories": (0, 5000),
+    "exercise_minutes": (0, 480),
+    "skin_temp_deviation": (-5.0, 5.0),
+}
+
+SLEEP_STAGE_FIELDS = ["sleep_deep_min", "sleep_rem_min", "sleep_core_min", "sleep_awake_min"]
+
+
+def flag_outliers(data: dict) -> list[str]:
+    """Check health snapshots for physiologically implausible values."""
+    warnings = []
+    for snapshot in data.get("health_snapshots", []):
+        day = snapshot.get("date", "unknown")
+        for field, (lo, hi) in PHYSIOLOGICAL_LIMITS.items():
+            value = snapshot.get(field)
+            if value is None:
+                continue
+            if value < lo:
+                warnings.append(f"{day}: {field} of {value} is below minimum {lo} — likely tracking/sensor error")
+            elif value > hi:
+                warnings.append(f"{day}: {field} of {value} exceeds maximum {hi} — likely tracking/sensor error")
+        # Sleep stage consistency
+        duration = snapshot.get("sleep_duration_min")
+        if duration is not None:
+            stage_values = [snapshot.get(f) for f in SLEEP_STAGE_FIELDS]
+            present = [v for v in stage_values if v is not None]
+            if present:
+                stage_total = sum(present)
+                if stage_total > duration:
+                    warnings.append(
+                        f"{day}: sleep stages total ({stage_total} min) exceeds "
+                        f"sleep_duration_min ({duration} min) — likely HealthKit stitching error"
+                    )
+    return warnings
+
+
+def compute_effective_dates(data: dict, date_from: date, date_to: date) -> tuple[date, date]:
+    """Determine the actual date range covered by the data."""
+    all_dates = []
+    for source in ("health_snapshots", "cpap_sessions"):
+        for row in data.get(source, []):
+            d = row.get("date")
+            if d:
+                all_dates.append(date.fromisoformat(str(d)))
+    for source in ("anxiety_entries", "medication_doses", "barometric_readings"):
+        for row in data.get(source, []):
+            ts = row.get("timestamp")
+            if ts:
+                all_dates.append(datetime.fromisoformat(str(ts)).date())
+    if not all_dates:
+        return date_from, date_to
+    return min(all_dates), max(all_dates)
+
+
 def build_prompt(
     data: dict,
     date_from: date,
