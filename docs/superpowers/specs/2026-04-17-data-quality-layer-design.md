@@ -116,25 +116,75 @@ as non-compliance or skipped therapy.
 
 This goes inside the `## Data Quality Notes` section. If no other quality notes exist, the section is still created for just this note.
 
-### Timezone
+### Timezone (Admin-Configurable)
 
-Always include in the Data Quality Notes:
-
-```
-**Timezone:** All timestamps are in US/Pacific time.
-```
-
-### Therapy Schedule
-
-Always include in the Data Quality Notes:
+The user's timezone is stored in the existing `settings` table (`key = 'timezone'`). If not set, defaults to `US/Pacific`. Always include in the Data Quality Notes:
 
 ```
-**Therapy schedule:** The patient sees their provider on Mondays at 2:30 PM (Zoom),
-Thursdays at 1:00 PM (in-person), and Fridays at 2:00 PM (in-person). The commute to
-the provider takes about 30 minutes, and the patient is often 5-10 minutes late. Factor
-this into temporal pattern analysis — anxiety may spike before sessions, shift after
-sessions, or correlate with commute days.
+**Timezone:** All timestamps are in {timezone} time.
 ```
+
+#### Admin Setting
+
+The timezone setting lives on the existing admin Settings page (or a new `/admin/settings` page if one doesn't exist yet). A simple text input pre-populated with the current value, saved to `settings` table with `key = 'timezone'`. Uses IANA timezone names (e.g., `US/Pacific`, `US/Eastern`, `America/Chicago`).
+
+#### Read at Analysis Time
+
+`_create_pending_analysis` reads the timezone from the `settings` table and passes it to `build_prompt` as a `timezone: str` parameter (default `'US/Pacific'`).
+
+### Therapy Schedule (Database-Driven)
+
+Therapy sessions are stored in a `therapy_sessions` table and read at analysis time. If any active sessions exist, inject a natural-language summary into the Data Quality Notes:
+
+```
+**Therapy schedule:** The patient has the following recurring appointments:
+- Mondays at 2:30 PM (virtual/Zoom)
+- Thursdays at 1:00 PM (in-person, ~30 min commute)
+- Fridays at 2:00 PM (in-person, ~30 min commute)
+Notes: Patient is often 5-10 minutes late.
+Factor this into temporal pattern analysis — anxiety may spike before sessions,
+shift after sessions, or correlate with commute days.
+```
+
+If no therapy sessions are configured, this block is omitted entirely.
+
+#### Database Table
+
+```sql
+CREATE TABLE IF NOT EXISTS therapy_sessions (
+    id SERIAL PRIMARY KEY,
+    frequency TEXT NOT NULL DEFAULT 'weekly'
+        CHECK (frequency IN ('weekly', 'monthly')),
+    day_of_week INTEGER CHECK (day_of_week BETWEEN 0 AND 6),
+    day_of_month INTEGER CHECK (day_of_month BETWEEN 1 AND 31),
+    time_of_day TIME NOT NULL,
+    session_type TEXT NOT NULL DEFAULT 'in-person'
+        CHECK (session_type IN ('in-person', 'virtual')),
+    commute_minutes INTEGER NOT NULL DEFAULT 0,
+    notes TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+- `frequency`: `'weekly'` or `'monthly'`
+- `day_of_week`: 0=Monday through 6=Sunday (used when frequency is weekly)
+- `day_of_month`: 1-31 (used when frequency is monthly)
+- `session_type`: `'in-person'` or `'virtual'`
+- `commute_minutes`: commute time in minutes (typically 0 for virtual)
+- `notes`: free-text for anything else (e.g., "patient is often 5-10 minutes late")
+- `is_active`: soft delete
+
+#### Admin Page: `/admin/therapy-schedule`
+
+- Lists all active sessions in a table
+- Form to add a new session: frequency (select), day (select — weekday names for weekly, 1-31 for monthly), time (time input), type (select: in-person/virtual), commute minutes (number), notes (textarea)
+- Delete button per row (sets `is_active = FALSE`)
+- Linked from the admin nav
+
+#### Prompt Builder Integration
+
+`_create_pending_analysis` reads active therapy sessions from the DB and passes them to `build_prompt` as a list of dicts. `build_prompt` accepts a new `therapy_sessions: list[dict] | None = None` parameter. If sessions are present, it formats a natural-language summary and appends it to the Data Quality Notes section.
 
 ### Effective Date Range
 
@@ -162,10 +212,18 @@ system, user_msg = build_prompt(data, date_from, date_to, ...)
 data = gather_analysis_data(cur, date_from, date_to)
 outlier_warnings = flag_outliers(data)
 effective_from, effective_to = compute_effective_dates(data, date_from, date_to)
-system, user_msg = build_prompt(data, effective_from, effective_to, outlier_warnings=outlier_warnings, ...)
+therapy_sessions = read_active_therapy_sessions(cur)
+timezone = read_setting(cur, 'timezone', default='US/Pacific')
+system, user_msg = build_prompt(
+    data, effective_from, effective_to,
+    outlier_warnings=outlier_warnings,
+    therapy_sessions=therapy_sessions,
+    timezone=timezone,
+    ...
+)
 ```
 
-`build_prompt` gains a new parameter `outlier_warnings: list[str] = None` (default empty). The Data Quality Notes section is built from the combination of `dose_tracking_incomplete`, `outlier_warnings`, and the always-present CPAP note.
+`build_prompt` gains new parameters: `outlier_warnings: list[str] | None = None`, `therapy_sessions: list[dict] | None = None`, and `timezone: str = 'US/Pacific'`. The Data Quality Notes section is built from the combination of `dose_tracking_incomplete`, `outlier_warnings`, the always-present CPAP note, timezone, and therapy schedule (if configured).
 
 ## Testing
 
@@ -188,6 +246,13 @@ system, user_msg = build_prompt(data, effective_from, effective_to, outlier_warn
 - Dose tracking caveat and outlier warnings coexist in same section
 - Effective dates used in prompt text, not UI dates
 - No Data Quality Notes header duplication when multiple note types present
+- Timezone from settings appears in prompt (default and custom)
+- Therapy sessions formatted correctly when present
+- No therapy section when no active sessions exist
+
+### Admin page tests
+- Therapy schedule CRUD: add, list, delete
+- Timezone setting: read default, update, read updated value
 
 ### Existing tests
 - All 26 existing analysis tests continue to pass (no regressions)
