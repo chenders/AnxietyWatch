@@ -665,6 +665,85 @@ def analysis_detail(analysis_id):
     )
 
 
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+@admin_bp.route("/therapy-schedule", methods=["GET", "POST"])
+@require_admin
+def therapy_schedule():
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    if request.method == "POST":
+        frequency = request.form.get("frequency", "weekly")
+        day_of_week = request.form.get("day_of_week")
+        day_of_month = request.form.get("day_of_month")
+        time_of_day = request.form.get("time_of_day", "")
+        session_type = request.form.get("session_type", "in-person")
+        commute_minutes = int(request.form.get("commute_minutes", 0) or 0)
+        notes = request.form.get("notes", "").strip() or None
+
+        if not time_of_day:
+            flash("Time is required.", "error")
+            return redirect(url_for("admin.therapy_schedule"))
+
+        cur.execute(
+            "INSERT INTO therapy_sessions "
+            "(frequency, day_of_week, day_of_month, time_of_day, session_type, commute_minutes, notes) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (
+                frequency,
+                int(day_of_week) if frequency == "weekly" and day_of_week else None,
+                int(day_of_month) if frequency == "monthly" and day_of_month else None,
+                time_of_day,
+                session_type,
+                commute_minutes,
+                notes,
+            ),
+        )
+        db.commit()
+        flash("Session added.", "success")
+        return redirect(url_for("admin.therapy_schedule"))
+
+    cur.execute("SELECT * FROM therapy_sessions WHERE is_active = TRUE ORDER BY day_of_week, time_of_day")
+    sessions = cur.fetchall()
+    return render_template("therapy_schedule.html", sessions=sessions, day_names=DAY_NAMES)
+
+
+@admin_bp.route("/therapy-schedule/delete/<int:session_id>", methods=["POST"])
+@require_admin
+def therapy_schedule_delete(session_id):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("UPDATE therapy_sessions SET is_active = FALSE WHERE id = %s", (session_id,))
+    db.commit()
+    flash("Session removed.", "success")
+    return redirect(url_for("admin.therapy_schedule"))
+
+
+@admin_bp.route("/settings", methods=["GET", "POST"])
+@require_admin
+def app_settings():
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    if request.method == "POST":
+        timezone = request.form.get("timezone", "US/Pacific").strip()
+        cur.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES ('timezone', %s, NOW()) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+            (timezone,),
+        )
+        db.commit()
+        flash("Settings saved.", "success")
+        return redirect(url_for("admin.app_settings"))
+
+    cur.execute("SELECT value FROM settings WHERE key = 'timezone'")
+    row = cur.fetchone()
+    timezone = row["value"] if row else "US/Pacific"
+    return render_template("app_settings.html", timezone=timezone)
+
+
 BROWSABLE_TABLES = {
     "anxiety_entries": {"order": "timestamp DESC", "label": "Anxiety Entries"},
     "medication_definitions": {"order": "name", "label": "Medication Definitions"},
