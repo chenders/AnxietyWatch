@@ -86,6 +86,7 @@ def build_prompt(
     date_from: date,
     date_to: date,
     dose_tracking_incomplete: bool = False,
+    detailed_output: bool = False,
 ) -> tuple[str, str]:
     """Build system prompt and user message for Claude analysis.
 
@@ -95,8 +96,9 @@ def build_prompt(
 
     parts.append(
         "You are a clinical data analyst specializing in anxiety disorder pattern recognition."
-        " You are analyzing personal health tracking data to find patterns, correlations, and"
-        " insights that could help understand anxiety triggers and trends."
+        " You are analyzing the user's personal health tracking data to find patterns, correlations,"
+        " and insights that could help them understand their anxiety triggers and trends."
+        " Address the user directly (you/your) — they are reading this themselves."
     )
 
     parts.append(
@@ -157,14 +159,32 @@ def build_prompt(
         "\nRespond with valid JSON only. No markdown, no explanation outside the JSON.\n"
         "\n```json\n"
         "{\n"
-        '  "summary": "Multi-paragraph narrative summary of findings for this period. Be thorough and specific with numbers.",\n'
+        '  "summary": "'
+        + (
+            "Multi-paragraph narrative summary of findings for this period."
+            " Be thorough and specific with numbers, dates, and statistical values inline."
+            if detailed_output else
+            "Multi-paragraph narrative summary written in plain, conversational language."
+            " Describe findings clearly — reference data to support your points but put specific"
+            " dates, raw values, and measurements in supporting_data rather than listing them inline."
+            " Address the user directly (you/your)."
+        )
+        + '",\n'
         '  "trend_direction": "improving | worsening | stable | mixed",\n'
         '  "insights": [\n'
         "    {\n"
         f'      "category": "one of: {category_str}",\n'
         '      "severity": "high | medium | low",\n'
         '      "title": "Short, specific title describing the finding",\n'
-        '      "detail": "Detailed explanation with specific numbers, dates, and reasoning",\n'
+        '      "detail": "'
+        + (
+            "Detailed explanation with specific numbers, dates, and reasoning"
+            if detailed_output else
+            "Clear, readable explanation of this finding in plain language."
+            " Explain what it means for the user, not just what the numbers say."
+            " Put the raw data points in supporting_data."
+        )
+        + '",\n'
         '      "confidence": 0.85,\n'
         '      "confidence_explanation": "Why this confidence level — what would raise or lower it, sample size considerations",\n'
         '      "supporting_data": {\n'
@@ -187,6 +207,24 @@ def build_prompt(
         " Note when more data would strengthen a finding."
     )
 
+    if not detailed_output:
+        parts.append(
+            "\n## Writing Style\n"
+            "\nWrite for a normal person, not a statistician."
+            "\n- Use plain language throughout the summary and insight details."
+            "\n- Instead of citing r-values or p-values inline (e.g., 'r = 0.82, p < 0.01'),"
+            " describe the strength in plain terms: 'strong connection', 'closely linked',"
+            " 'weak relationship', 'no clear pattern'. Put the actual r/p values in supporting_data."
+            "\n- Do NOT write data-heavy sentences that list multiple dates and raw values inline."
+            " Bad: 'CPAP was used on only 3 of the 18+ days: March 29 (544 min, AHI 4.07),"
+            " March 30 (388 min, AHI 1.39), and April 5 (138 min, AHI 4.35).' Good: 'CPAP data"
+            " was only available for 3 out of 18+ days, suggesting most sessions haven't been imported yet.'"
+            "\n- Put raw numbers, specific date-by-date breakdowns, statistical values, and detailed"
+            " measurements in the supporting_data field where the user can drill into them if they want."
+            "\n- Technical terms like HRV, AHI, SpO2 are fine — but always explain their significance"
+            " in human terms (e.g., 'your heart rate variability dropped, which often signals stress')."
+        )
+
     parts.append(
         "\n## Philosophy\n"
         "\nCast a wide net. The user wants:"
@@ -194,7 +232,6 @@ def build_prompt(
         "\n- Surprising discoveries they would never think to look for"
         "\n- Coincidental correlations are OK — label them honestly and let the user investigate"
         "\n- More information is better than less — use confidence scores to help navigate"
-        "\n- More detail is better than less — include specific numbers, dates, comparisons"
         "\n- Err on the side of inclusion at lower confidence rather than omission"
     )
 
@@ -278,6 +315,7 @@ def start_analysis(
     db, date_from: date, date_to: date,
     database_url: str | None = None,
     dose_tracking_incomplete: bool = False,
+    detailed_output: bool = False,
 ) -> int:
     """Create a pending analysis row and kick off the Claude call in a background thread.
 
@@ -289,7 +327,9 @@ def start_analysis(
         raise RuntimeError("DATABASE_URL not configured")
 
     analysis_id, system_prompt, user_message = _create_pending_analysis(
-        db, date_from, date_to, dose_tracking_incomplete=dose_tracking_incomplete
+        db, date_from, date_to,
+        dose_tracking_incomplete=dose_tracking_incomplete,
+        detailed_output=detailed_output,
     )
 
     thread = threading.Thread(
@@ -307,14 +347,18 @@ def start_analysis(
     return analysis_id
 
 
-def run_analysis(db, date_from: date, date_to: date, dose_tracking_incomplete: bool = False) -> int:
+def run_analysis(db, date_from: date, date_to: date,
+                 dose_tracking_incomplete: bool = False,
+                 detailed_output: bool = False) -> int:
     """Run a full analysis synchronously (used by tests).
 
     Production callers should use start_analysis() instead to avoid blocking the
     HTTP worker on the Anthropic API call.
     """
     analysis_id, system_prompt, user_message = _create_pending_analysis(
-        db, date_from, date_to, dose_tracking_incomplete=dose_tracking_incomplete
+        db, date_from, date_to,
+        dose_tracking_incomplete=dose_tracking_incomplete,
+        detailed_output=detailed_output,
     )
     try:
         _complete_analysis(db, analysis_id, system_prompt, user_message)
@@ -324,11 +368,14 @@ def run_analysis(db, date_from: date, date_to: date, dose_tracking_incomplete: b
     return analysis_id
 
 
-def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_incomplete: bool = False):
+def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_incomplete: bool = False,
+                             detailed_output: bool = False):
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     data = gather_analysis_data(cur, date_from, date_to)
     system_prompt, user_message = build_prompt(
-        data, date_from, date_to, dose_tracking_incomplete=dose_tracking_incomplete
+        data, date_from, date_to,
+        dose_tracking_incomplete=dose_tracking_incomplete,
+        detailed_output=detailed_output,
     )
 
     request_payload = {

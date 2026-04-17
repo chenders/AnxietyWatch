@@ -618,6 +618,7 @@ def analysis_run():
         return redirect(url_for("admin.analysis"))
 
     dose_tracking_incomplete = "dose_tracking_incomplete" in request.form
+    detailed_output = "detailed_output" in request.form
 
     db = get_db()
     try:
@@ -627,6 +628,7 @@ def analysis_run():
             db, date_from, date_to,
             database_url=database_url,
             dose_tracking_incomplete=dose_tracking_incomplete,
+            detailed_output=detailed_output,
         )
         return redirect(url_for("admin.analysis_detail", analysis_id=analysis_id))
     except Exception:
