@@ -60,7 +60,7 @@
     {% endif %}
 </div>
 
-{% macro confidence_label(score) %}{% set s = score|float(0) %}{% if s >= 0.9 %}very strong{% elif s >= 0.7 %}strong{% elif s >= 0.5 %}moderate{% else %}suggestive{% endif %}{% endmacro %}
+{% macro confidence_label(score) %}{% set s = score|float(0) %}{% if s >= 0.9 %}very strong{% elif s >= 0.7 %}strong{% elif s >= 0.5 %}suggestive{% elif s >= 0.3 %}weak{% else %}excluded{% endif %}{% endmacro %}
 
 {% macro render_insight(insight) %}
 <div class="card">
