@@ -146,12 +146,18 @@ def compute_effective_dates(data: dict, date_from: date, date_to: date) -> tuple
     return min(all_dates), max(all_dates)
 
 
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
 def build_prompt(
     data: dict,
     date_from: date,
     date_to: date,
     dose_tracking_incomplete: bool = False,
     detailed_output: bool = False,
+    outlier_warnings: list[str] | None = None,
+    therapy_sessions: list[dict] | None = None,
+    timezone: str = "US/Pacific",
 ) -> tuple[str, str]:
     """Build system prompt and user message for Claude analysis.
 
@@ -181,16 +187,61 @@ def build_prompt(
         " signals and anxiety severity (from the app's correlation engine)"
     )
 
+    # -- Data Quality Notes (always present) --
+    dq_parts = []
+
     if dose_tracking_incomplete:
-        parts.append(
-            "\n## Data Quality Notes\n"
-            "\n**Medication dose tracking is incomplete.** The user's dose log has unreliable"
+        dq_parts.append(
+            "**Medication dose tracking is incomplete.** The user's dose log has unreliable"
             " timestamps and may be missing entries. The dose log is incomplete — do NOT analyze"
             " dose-response timing or any correlation that depends on when a dose was taken"
             " relative to other events. You may note which medications appear in the data and their"
             " approximate daily frequency, but treat all intraday dose timing as unreliable and do"
             " not draw conclusions from it."
         )
+
+    if outlier_warnings:
+        dq_parts.append(
+            "**The following values are flagged as physiologically implausible — likely tracking"
+            " or sensor errors. Do NOT use these values for pattern analysis, correlations, or"
+            " conclusions. Note their existence if relevant but treat the underlying data as"
+            " unreliable for those dates/fields.**\n\n"
+            + "\n".join(f"- {w}" for w in outlier_warnings)
+        )
+
+    dq_parts.append(
+        "**CPAP usage:** The user wears a CPAP every night. If CPAP session data is absent"
+        " for any dates in this range, it means the data has not been imported yet — do NOT"
+        " interpret missing CPAP data as non-compliance or skipped therapy."
+    )
+
+    dq_parts.append(f"**Timezone:** All timestamps are in {timezone} time.")
+
+    if therapy_sessions:
+        lines = []
+        for s in therapy_sessions:
+            day = DAY_NAMES[s["day_of_week"]] + "s" if s.get("day_of_week") is not None else f"day {s['day_of_month']}"
+            time_str = str(s["time_of_day"])[:5]
+            # Format time as 12-hour
+            h, m = int(time_str.split(":")[0]), time_str.split(":")[1]
+            ampm = "AM" if h < 12 else "PM"
+            h12 = h if 1 <= h <= 12 else (h - 12 if h > 12 else 12)
+            time_fmt = f"{h12}:{m} {ampm}"
+            typ = "virtual/Zoom" if s["session_type"] == "virtual" else "in-person"
+            commute = f", ~{s['commute_minutes']} min commute" if s.get("commute_minutes") else ""
+            lines.append(f"- {day} at {time_fmt} ({typ}{commute})")
+        notes = [s.get("notes") for s in therapy_sessions if s.get("notes")]
+        schedule_text = "**Therapy schedule:** The patient has the following recurring appointments:\n"
+        schedule_text += "\n".join(lines)
+        if notes:
+            schedule_text += "\nNotes: " + "; ".join(notes)
+        schedule_text += (
+            "\nFactor this into temporal pattern analysis — anxiety may spike before sessions,"
+            " shift after sessions, or correlate with commute days."
+        )
+        dq_parts.append(schedule_text)
+
+    parts.append("\n## Data Quality Notes\n\n" + "\n\n".join(dq_parts))
 
     goals = [
         "**Confirm or challenge suspected patterns** — validate what the data actually shows",
@@ -437,10 +488,31 @@ def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_i
                              detailed_output: bool = False):
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     data = gather_analysis_data(cur, date_from, date_to)
+
+    # -- Data quality enrichment --
+    outlier_warnings = flag_outliers(data)
+    effective_from, effective_to = compute_effective_dates(data, date_from, date_to)
+
+    # Read timezone setting (default US/Pacific)
+    cur.execute("SELECT value FROM settings WHERE key = 'timezone'")
+    tz_row = cur.fetchone()
+    tz = tz_row["value"] if tz_row else "US/Pacific"
+
+    # Read active therapy sessions
+    cur.execute(
+        "SELECT frequency, day_of_week, day_of_month, time_of_day, "
+        "session_type, commute_minutes, notes "
+        "FROM therapy_sessions WHERE is_active = TRUE ORDER BY time_of_day"
+    )
+    therapy_rows = [dict(r) for r in cur.fetchall()]
+
     system_prompt, user_message = build_prompt(
-        data, date_from, date_to,
+        data, effective_from, effective_to,
         dose_tracking_incomplete=dose_tracking_incomplete,
         detailed_output=detailed_output,
+        outlier_warnings=outlier_warnings if outlier_warnings else None,
+        therapy_sessions=therapy_rows if therapy_rows else None,
+        timezone=tz,
     )
 
     request_payload = {
