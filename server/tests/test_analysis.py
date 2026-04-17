@@ -192,7 +192,7 @@ def test_build_prompt_default_includes_medication_goal(app):
 
 
 def test_build_prompt_dose_caveat_removes_medication_goal(app):
-    """build_prompt with dose_tracking_incomplete removes goal #4 and adds caveat."""
+    """build_prompt with dose_tracking_incomplete removes medication effectiveness goal and adds caveat."""
     with app.app_context():
         from analysis import build_prompt
         system, user_msg = build_prompt(
@@ -203,7 +203,7 @@ def test_build_prompt_dose_caveat_removes_medication_goal(app):
             dose_tracking_incomplete=True,
         )
 
-    # Goal #4 removed
+    # Medication effectiveness goal removed
     assert "medication effectiveness" not in system.lower()
     # Caveat injected
     assert "Data Quality Notes" in system
