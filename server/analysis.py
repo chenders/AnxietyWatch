@@ -81,12 +81,83 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
     return data
 
 
+# Hard physiological limits for outlier detection.
+PHYSIOLOGICAL_LIMITS = {
+    "sleep_duration_min": (0, 960),
+    "resting_hr": (30, 130),
+    "hrv_avg": (1, 300),
+    "spo2_avg": (70, 100),
+    "respiratory_rate": (6, 40),
+    "bp_systolic": (60, 250),
+    "bp_diastolic": (30, 150),
+    "blood_glucose_avg": (30, 500),
+    "steps": (0, 100_000),
+    "active_calories": (0, 5000),
+    "exercise_minutes": (0, 480),
+    "skin_temp_deviation": (-5.0, 5.0),
+}
+
+SLEEP_STAGE_FIELDS = ["sleep_deep_min", "sleep_rem_min", "sleep_core_min", "sleep_awake_min"]
+
+
+def flag_outliers(data: dict) -> list[str]:
+    """Check health snapshots for physiologically implausible values."""
+    warnings = []
+    for snapshot in data.get("health_snapshots", []):
+        day = snapshot.get("date", "unknown")
+        for field, (lo, hi) in PHYSIOLOGICAL_LIMITS.items():
+            value = snapshot.get(field)
+            if value is None:
+                continue
+            if value < lo:
+                warnings.append(f"{day}: {field} of {value} is below minimum {lo} — likely tracking/sensor error")
+            elif value > hi:
+                warnings.append(f"{day}: {field} of {value} exceeds maximum {hi} — likely tracking/sensor error")
+        # Sleep stage consistency
+        duration = snapshot.get("sleep_duration_min")
+        if duration is not None:
+            stage_values = [snapshot.get(f) for f in SLEEP_STAGE_FIELDS]
+            present = [v for v in stage_values if v is not None]
+            if present:
+                stage_total = sum(present)
+                if stage_total > duration:
+                    warnings.append(
+                        f"{day}: sleep stages total ({stage_total} min) exceeds "
+                        f"sleep_duration_min ({duration} min) — likely HealthKit stitching error"
+                    )
+    return warnings
+
+
+def compute_effective_dates(data: dict, date_from: date, date_to: date) -> tuple[date, date]:
+    """Determine the actual date range covered by the data."""
+    all_dates = []
+    for source in ("health_snapshots", "cpap_sessions"):
+        for row in data.get(source, []):
+            d = row.get("date")
+            if d:
+                all_dates.append(date.fromisoformat(str(d)))
+    for source in ("anxiety_entries", "medication_doses", "barometric_readings"):
+        for row in data.get(source, []):
+            ts = row.get("timestamp")
+            if ts:
+                all_dates.append(datetime.fromisoformat(str(ts)).date())
+    if not all_dates:
+        return date_from, date_to
+    return min(all_dates), max(all_dates)
+
+
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
 def build_prompt(
     data: dict,
     date_from: date,
     date_to: date,
     dose_tracking_incomplete: bool = False,
     detailed_output: bool = False,
+    outlier_warnings: list[str] | None = None,
+    therapy_sessions: list[dict] | None = None,
+    timezone: str = "US/Pacific",
 ) -> tuple[str, str]:
     """Build system prompt and user message for Claude analysis.
 
@@ -116,10 +187,12 @@ def build_prompt(
         " signals and anxiety severity (from the app's correlation engine)"
     )
 
+    # -- Data Quality Notes (always present) --
+    dq_parts = []
+
     if dose_tracking_incomplete:
-        parts.append(
-            "\n## Data Quality Notes\n"
-            "\n**Medication dose tracking is incomplete.** The user's dose log has unreliable"
+        dq_parts.append(
+            "**Medication dose tracking is incomplete.** The user's dose log has unreliable"
             " timestamps and may be missing entries. The dose log is incomplete — do NOT analyze"
             " dose-response timing or any correlation that depends on when a dose was taken"
             " relative to other events. You may note which medications appear in the data and their"
@@ -127,10 +200,67 @@ def build_prompt(
             " not draw conclusions from it."
         )
 
+    if outlier_warnings:
+        dq_parts.append(
+            "**The following values are flagged as physiologically implausible — likely tracking"
+            " or sensor errors. Do NOT use these values for pattern analysis, correlations, or"
+            " conclusions. Note their existence if relevant but treat the underlying data as"
+            " unreliable for those dates/fields.**\n\n"
+            + "\n".join(f"- {w}" for w in outlier_warnings)
+        )
+
+    dq_parts.append(
+        "**CPAP usage:** The user wears a CPAP every night. If CPAP session data is absent"
+        " for any dates in this range, it means the data has not been imported yet — do NOT"
+        " interpret missing CPAP data as non-compliance or skipped therapy."
+    )
+
+    dq_parts.append(f"**Timezone:** All timestamps are in {timezone} time.")
+
+    if therapy_sessions:
+        lines = []
+        for s in therapy_sessions:
+            freq = s.get("frequency", "weekly")
+            if freq == "weekly":
+                dow = s.get("day_of_week")
+                if dow is None or dow not in range(7):
+                    continue
+                day = DAY_NAMES[dow] + "s"
+            elif freq == "monthly":
+                dom = s.get("day_of_month")
+                if dom is None:
+                    continue
+                day = f"day {dom}"
+            else:
+                continue
+            time_str = str(s["time_of_day"])[:5]
+            # Format time as 12-hour
+            h, m = int(time_str.split(":")[0]), time_str.split(":")[1]
+            ampm = "AM" if h < 12 else "PM"
+            h12 = h if 1 <= h <= 12 else (h - 12 if h > 12 else 12)
+            time_fmt = f"{h12}:{m} {ampm}"
+            typ = "virtual/Zoom" if s["session_type"] == "virtual" else "in-person"
+            commute = f", ~{s['commute_minutes']} min commute" if s.get("commute_minutes") else ""
+            lines.append(f"- {day} at {time_fmt} ({typ}{commute})")
+        notes = [s.get("notes") for s in therapy_sessions if s.get("notes")]
+        schedule_text = "**Therapy schedule:** The patient has the following recurring appointments:\n"
+        schedule_text += "\n".join(lines)
+        if notes:
+            schedule_text += "\nNotes: " + "; ".join(notes)
+        schedule_text += (
+            "\nFactor this into temporal pattern analysis — anxiety may spike before sessions,"
+            " shift after sessions, or correlate with commute days."
+        )
+        dq_parts.append(schedule_text)
+
+    parts.append("\n## Data Quality Notes\n\n" + "\n\n".join(dq_parts))
+
     goals = [
         "**Confirm or challenge suspected patterns** — validate what the data actually shows",
-        "**Find non-obvious correlations** — even if potentially coincidental, include them with honest confidence scores",
-        "**Detect temporal patterns** — time-of-day, day-of-week, multi-day sequences, lagged effects (e.g., poor sleep → next-day anxiety)",
+        "**Find non-obvious correlations** — even if potentially coincidental,"
+        " include them with honest confidence scores",
+        "**Detect temporal patterns** — time-of-day, day-of-week, multi-day sequences,"
+        " lagged effects (e.g., poor sleep → next-day anxiety)",
     ]
     if not dose_tracking_incomplete:
         goals.append(
@@ -186,7 +316,8 @@ def build_prompt(
         )
         + '",\n'
         '      "confidence": 0.85,\n'
-        '      "confidence_explanation": "Why this confidence level — what would raise or lower it, sample size considerations",\n'
+        '      "confidence_explanation": "Why this confidence level —'
+        ' what would raise or lower it, sample size considerations",\n'
         '      "supporting_data": {\n'
         '        "relevant_key": "value — include the specific numbers that support this insight"\n'
         "      }\n"
@@ -372,10 +503,31 @@ def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_i
                              detailed_output: bool = False):
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     data = gather_analysis_data(cur, date_from, date_to)
+
+    # -- Data quality enrichment --
+    outlier_warnings = flag_outliers(data)
+    effective_from, effective_to = compute_effective_dates(data, date_from, date_to)
+
+    # Read timezone setting (default US/Pacific)
+    cur.execute("SELECT value FROM settings WHERE key = 'timezone'")
+    tz_row = cur.fetchone()
+    tz = tz_row["value"] if tz_row else "US/Pacific"
+
+    # Read active therapy sessions
+    cur.execute(
+        "SELECT frequency, day_of_week, day_of_month, time_of_day, "
+        "session_type, commute_minutes, notes "
+        "FROM therapy_sessions WHERE is_active = TRUE ORDER BY time_of_day"
+    )
+    therapy_rows = [dict(r) for r in cur.fetchall()]
+
     system_prompt, user_message = build_prompt(
-        data, date_from, date_to,
+        data, effective_from, effective_to,
         dose_tracking_incomplete=dose_tracking_incomplete,
         detailed_output=detailed_output,
+        outlier_warnings=outlier_warnings if outlier_warnings else None,
+        therapy_sessions=therapy_rows if therapy_rows else None,
+        timezone=tz,
     )
 
     request_payload = {

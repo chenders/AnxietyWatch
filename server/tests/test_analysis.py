@@ -56,7 +56,8 @@ def _clean_tables(app):
         cur.execute(
             "TRUNCATE anxiety_entries, health_snapshots, medication_definitions, "
             "medication_doses, cpap_sessions, barometric_readings, correlations, "
-            "analyses, api_keys, sync_log RESTART IDENTITY CASCADE"
+            "analyses, api_keys, sync_log, therapy_sessions, settings "
+            "RESTART IDENTITY CASCADE"
         )
         cur.execute(
             "INSERT INTO api_keys (key_hash, key_prefix, label) "
@@ -178,7 +179,7 @@ def test_build_prompt_includes_output_schema(app):
 
 
 def test_build_prompt_default_includes_medication_goal(app):
-    """build_prompt without caveat includes medication effectiveness goal."""
+    """build_prompt without caveat includes medication effectiveness goal and always-on DQ notes."""
     with app.app_context():
         from analysis import build_prompt
         system, _user_msg = build_prompt(
@@ -188,7 +189,10 @@ def test_build_prompt_default_includes_medication_goal(app):
         )
 
     assert "medication effectiveness" in system.lower()
-    assert "Data Quality Notes" not in system
+    # Data Quality Notes is always present (CPAP assumption + timezone at minimum)
+    assert "Data Quality Notes" in system
+    assert "CPAP" in system
+    assert "US/Pacific" in system
 
 
 def test_build_prompt_dose_caveat_removes_medication_goal(app):
@@ -774,3 +778,348 @@ def test_analysis_run_default_plain_english_e2e(admin_client, app, monkeypatch):
     system_prompt = result["request_payload"]["system"]
     assert "## Writing Style" in system_prompt
     assert "plain language" in system_prompt.lower()
+
+
+# ---------------------------------------------------------------------------
+# Tests for flag_outliers
+# ---------------------------------------------------------------------------
+
+
+def test_flag_outliers_clean_data():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [
+        {"date": "2026-01-10", "sleep_duration_min": 480, "resting_hr": 65,
+         "hrv_avg": 45, "spo2_avg": 97, "steps": 8000},
+    ]}
+    assert flag_outliers(data) == []
+
+
+def test_flag_outliers_sleep_over_limit():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [{"date": "2026-04-04", "sleep_duration_min": 1277}]}
+    warnings = flag_outliers(data)
+    assert len(warnings) == 1
+    assert "sleep_duration_min" in warnings[0]
+    assert "1277" in warnings[0]
+
+
+def test_flag_outliers_hr_out_of_range():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [
+        {"date": "2026-01-10", "resting_hr": 185},
+        {"date": "2026-01-11", "resting_hr": 15},
+    ]}
+    warnings = flag_outliers(data)
+    assert len(warnings) == 2
+
+
+def test_flag_outliers_sleep_stage_inconsistency():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [
+        {"date": "2026-01-10", "sleep_duration_min": 420,
+         "sleep_deep_min": 200, "sleep_rem_min": 150,
+         "sleep_core_min": 200, "sleep_awake_min": 30},
+    ]}
+    warnings = flag_outliers(data)
+    assert len(warnings) == 1
+    assert "exceeds" in warnings[0].lower()
+
+
+def test_flag_outliers_skips_null_fields():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [
+        {"date": "2026-01-10", "sleep_duration_min": None, "resting_hr": None},
+    ]}
+    assert flag_outliers(data) == []
+
+
+def test_flag_outliers_multiple_days():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [
+        {"date": "2026-01-10", "sleep_duration_min": 1400, "bp_systolic": 300},
+        {"date": "2026-01-11", "blood_glucose_avg": 600},
+    ]}
+    assert len(flag_outliers(data)) == 3
+
+
+def test_flag_outliers_no_snapshots():
+    from analysis import flag_outliers
+    assert flag_outliers({"anxiety_entries": []}) == []
+
+
+def test_flag_outliers_all_limit_types():
+    from analysis import flag_outliers
+    data = {"health_snapshots": [
+        {"date": "2026-01-10", "hrv_avg": 0},
+        {"date": "2026-01-11", "spo2_avg": 50},
+        {"date": "2026-01-12", "respiratory_rate": 2},
+        {"date": "2026-01-13", "bp_diastolic": 200},
+        {"date": "2026-01-14", "blood_glucose_avg": 5},
+        {"date": "2026-01-15", "steps": 200000},
+        {"date": "2026-01-16", "active_calories": 10000},
+        {"date": "2026-01-17", "exercise_minutes": 600},
+        {"date": "2026-01-18", "skin_temp_deviation": -10.0},
+    ]}
+    assert len(flag_outliers(data)) == 9
+
+
+# ---------------------------------------------------------------------------
+# Tests for compute_effective_dates
+# ---------------------------------------------------------------------------
+
+
+def test_compute_effective_dates_trims_to_data():
+    from analysis import compute_effective_dates
+    data = {
+        "anxiety_entries": [{"timestamp": "2026-01-15T12:00:00"}, {"timestamp": "2026-03-20T08:00:00"}],
+        "health_snapshots": [{"date": "2026-01-20"}, {"date": "2026-03-15"}],
+        "medication_doses": [], "cpap_sessions": [], "barometric_readings": [],
+    }
+    eff_from, eff_to = compute_effective_dates(data, date(2025, 12, 1), date(2026, 4, 30))
+    assert eff_from == date(2026, 1, 15)
+    assert eff_to == date(2026, 3, 20)
+
+
+def test_compute_effective_dates_no_data():
+    from analysis import compute_effective_dates
+    data = {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+            "cpap_sessions": [], "barometric_readings": []}
+    eff_from, eff_to = compute_effective_dates(data, date(2026, 1, 1), date(2026, 1, 31))
+    assert eff_from == date(2026, 1, 1)
+    assert eff_to == date(2026, 1, 31)
+
+
+def test_compute_effective_dates_single_day():
+    from analysis import compute_effective_dates
+    data = {"anxiety_entries": [], "health_snapshots": [{"date": "2026-02-14"}],
+            "medication_doses": [], "cpap_sessions": [], "barometric_readings": []}
+    eff_from, eff_to = compute_effective_dates(data, date(2026, 1, 1), date(2026, 3, 31))
+    assert eff_from == date(2026, 2, 14)
+    assert eff_to == date(2026, 2, 14)
+
+
+def test_compute_effective_dates_mixed_sources():
+    from analysis import compute_effective_dates
+    data = {
+        "anxiety_entries": [], "health_snapshots": [],
+        "medication_doses": [{"timestamp": "2026-02-01T10:00:00"}],
+        "cpap_sessions": [{"date": "2026-03-01"}],
+        "barometric_readings": [{"timestamp": "2026-02-15T14:30:00"}],
+    }
+    eff_from, eff_to = compute_effective_dates(data, date(2026, 1, 1), date(2026, 4, 1))
+    assert eff_from == date(2026, 2, 1)
+    assert eff_to == date(2026, 3, 1)
+
+
+# ---------------------------------------------------------------------------
+# Prompt integration tests — build_prompt with new data quality params
+# ---------------------------------------------------------------------------
+
+
+def test_build_prompt_outlier_warnings_in_dq_notes():
+    """build_prompt includes outlier warnings in Data Quality Notes."""
+    from analysis import build_prompt
+    data = {
+        "anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [], "correlations": [],
+    }
+    system, _ = build_prompt(
+        data, date(2026, 1, 1), date(2026, 1, 7),
+        outlier_warnings=["2026-01-03: resting_hr=185 outside [25, 170]"],
+    )
+    assert "physiologically implausible" in system.lower()
+    assert "resting_hr=185" in system
+
+
+def test_build_prompt_cpap_note_always_present():
+    """build_prompt always includes the CPAP assumption note."""
+    from analysis import build_prompt
+    data = {
+        "anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [], "correlations": [],
+    }
+    system, _ = build_prompt(data, date(2026, 1, 1), date(2026, 1, 7))
+    assert "CPAP" in system
+    assert "not been imported" in system
+
+
+def test_build_prompt_custom_timezone():
+    """build_prompt includes the configured timezone."""
+    from analysis import build_prompt
+    data = {
+        "anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [], "correlations": [],
+    }
+    system, _ = build_prompt(
+        data, date(2026, 1, 1), date(2026, 1, 7), timezone="US/Eastern",
+    )
+    assert "US/Eastern" in system
+
+
+def test_build_prompt_therapy_schedule_formatting():
+    """build_prompt formats therapy sessions into natural-language schedule."""
+    from analysis import build_prompt
+    data = {
+        "anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [], "correlations": [],
+    }
+    sessions = [
+        {"day_of_week": 0, "day_of_month": None, "time_of_day": "14:30:00",
+         "session_type": "virtual", "commute_minutes": 0, "notes": None,
+         "frequency": "weekly"},
+        {"day_of_week": 3, "day_of_month": None, "time_of_day": "13:00:00",
+         "session_type": "in-person", "commute_minutes": 30,
+         "notes": "often 5-10 minutes late", "frequency": "weekly"},
+    ]
+    system, _ = build_prompt(
+        data, date(2026, 1, 1), date(2026, 1, 7), therapy_sessions=sessions,
+    )
+    assert "Therapy schedule" in system
+    assert "Mondays" in system
+    assert "2:30 PM" in system
+    assert "virtual/Zoom" in system
+    assert "Thursdays" in system
+    assert "1:00 PM" in system
+    assert "30 min commute" in system
+    assert "often 5-10 minutes late" in system
+
+
+def test_build_prompt_dose_caveat_plus_outliers_coexist():
+    """build_prompt includes both dose caveat and outlier warnings together."""
+    from analysis import build_prompt
+    data = {
+        "anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [], "correlations": [],
+    }
+    system, _ = build_prompt(
+        data, date(2026, 1, 1), date(2026, 1, 7),
+        dose_tracking_incomplete=True,
+        outlier_warnings=["2026-01-05: steps=200000 outside [0, 100000]"],
+    )
+    assert "dose log is incomplete" in system
+    assert "steps=200000" in system
+    assert "CPAP" in system
+
+
+def test_build_prompt_effective_dates_in_user_message():
+    """build_prompt uses effective (trimmed) dates in user message."""
+    from analysis import build_prompt
+    data = {
+        "anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [], "correlations": [],
+    }
+    _, user_msg = build_prompt(data, date(2026, 2, 5), date(2026, 2, 20))
+    assert "2026-02-05" in user_msg
+    assert "2026-02-20" in user_msg
+
+
+# ---------------------------------------------------------------------------
+# Wiring integration tests — _create_pending_analysis reads from DB
+# ---------------------------------------------------------------------------
+
+
+def test_wiring_flags_outliers(app):
+    """_create_pending_analysis includes outlier warnings in the prompt."""
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        # Insert a snapshot with an impossible resting HR
+        cur.execute(
+            "INSERT INTO health_snapshots (date, resting_hr) VALUES (%s, %s)",
+            (date(2026, 1, 10), 250),
+        )
+        db.commit()
+
+        from analysis import _create_pending_analysis
+        _id, system_prompt, _user_msg = _create_pending_analysis(
+            db, date(2026, 1, 10), date(2026, 1, 10),
+        )
+
+    assert "resting_hr" in system_prompt
+    assert "250" in system_prompt
+    assert "physiologically implausible" in system_prompt.lower()
+
+
+def test_wiring_trims_effective_dates(app):
+    """_create_pending_analysis trims date range to actual data span."""
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        # Insert data only on Jan 15
+        cur.execute(
+            "INSERT INTO health_snapshots (date, resting_hr) VALUES (%s, %s)",
+            (date(2026, 1, 15), 65),
+        )
+        db.commit()
+
+        from analysis import _create_pending_analysis
+        _id, _system, user_msg = _create_pending_analysis(
+            db, date(2026, 1, 1), date(2026, 1, 31),
+        )
+
+    # User message should reference the effective dates, not the full range
+    assert "2026-01-15" in user_msg
+    assert "2026-01-01" not in user_msg
+    assert "2026-01-31" not in user_msg
+
+
+def test_wiring_reads_timezone(app):
+    """_create_pending_analysis reads timezone from settings table."""
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO settings (key, value) VALUES ('timezone', 'America/Chicago') "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+        )
+        db.commit()
+
+        from analysis import _create_pending_analysis
+        _id, system_prompt, _user_msg = _create_pending_analysis(
+            db, date(2026, 1, 1), date(2026, 1, 7),
+        )
+
+    assert "America/Chicago" in system_prompt
+
+
+def test_wiring_reads_therapy_sessions(app):
+    """_create_pending_analysis reads active therapy sessions from DB."""
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO therapy_sessions "
+            "(frequency, day_of_week, time_of_day, session_type, commute_minutes, is_active) "
+            "VALUES ('weekly', 4, '14:00', 'in-person', 30, TRUE)"
+        )
+        # Inactive session should be excluded
+        cur.execute(
+            "INSERT INTO therapy_sessions "
+            "(frequency, day_of_week, time_of_day, session_type, commute_minutes, is_active) "
+            "VALUES ('weekly', 2, '10:00', 'virtual', 0, FALSE)"
+        )
+        db.commit()
+
+        from analysis import _create_pending_analysis
+        _id, system_prompt, _user_msg = _create_pending_analysis(
+            db, date(2026, 1, 1), date(2026, 1, 7),
+        )
+
+    assert "Fridays" in system_prompt
+    assert "2:00 PM" in system_prompt
+    assert "30 min commute" in system_prompt
+    # Inactive session's day (Wednesday) should NOT appear
+    assert "Wednesdays" not in system_prompt
+
+
+def test_wiring_default_timezone_when_unset(app):
+    """_create_pending_analysis defaults to US/Pacific when no timezone setting exists."""
+    with app.app_context():
+        db = app.get_db()
+
+        from analysis import _create_pending_analysis
+        _id, system_prompt, _user_msg = _create_pending_analysis(
+            db, date(2026, 1, 1), date(2026, 1, 7),
+        )
+
+    assert "US/Pacific" in system_prompt
