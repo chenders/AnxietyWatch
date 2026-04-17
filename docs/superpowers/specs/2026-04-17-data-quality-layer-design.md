@@ -124,6 +124,18 @@ Always include in the Data Quality Notes:
 **Timezone:** All timestamps are in US/Pacific time.
 ```
 
+### Therapy Schedule
+
+Always include in the Data Quality Notes:
+
+```
+**Therapy schedule:** The patient sees their provider on Mondays at 2:30 PM (Zoom),
+Thursdays at 1:00 PM (in-person), and Fridays at 2:00 PM (in-person). The commute to
+the provider takes about 30 minutes, and the patient is often 5-10 minutes late. Factor
+this into temporal pattern analysis — anxiety may spike before sessions, shift after
+sessions, or correlate with commute days.
+```
+
 ### Effective Date Range
 
 The prompt opener changes from:

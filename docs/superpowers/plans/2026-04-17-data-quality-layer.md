@@ -409,6 +409,16 @@ def test_build_prompt_always_includes_timezone():
     assert "US/Pacific" in system
 
 
+def test_build_prompt_always_includes_therapy_schedule():
+    """build_prompt always includes the therapy schedule note."""
+    from analysis import build_prompt
+    system, _ = build_prompt(EMPTY_DATA, date(2026, 1, 1), date(2026, 1, 7))
+    assert "Mondays at 2:30" in system
+    assert "Thursdays at 1:00" in system
+    assert "Fridays at 2:00" in system
+    assert "Zoom" in system
+
+
 def test_build_prompt_with_outlier_warnings():
     """build_prompt includes outlier warnings in Data Quality Notes."""
     from analysis import build_prompt
@@ -502,6 +512,14 @@ def build_prompt(
     )
 
     dq_parts.append("**Timezone:** All timestamps are in US/Pacific time.")
+
+    dq_parts.append(
+        "**Therapy schedule:** The patient sees their provider on Mondays at 2:30 PM"
+        " (Zoom), Thursdays at 1:00 PM (in-person), and Fridays at 2:00 PM (in-person)."
+        " The commute to the provider takes about 30 minutes, and the patient is often"
+        " 5-10 minutes late. Factor this into temporal pattern analysis — anxiety may"
+        " spike before sessions, shift after sessions, or correlate with commute days."
+    )
 
     parts.append("\n## Data Quality Notes\n\n" + "\n\n".join(dq_parts))
 ```
