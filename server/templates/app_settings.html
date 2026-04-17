@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Settings — Anxiety Watch Admin{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+
+<div class="card">
+    <h2>Timezone</h2>
+    <form method="post">
+        <div class="mb-1">
+            <label for="timezone"><strong>Timezone</strong></label>
+            <input type="text" id="timezone" name="timezone" value="{{ timezone }}" placeholder="US/Pacific">
+            <small style="color:#6e6e73;">IANA timezone name (e.g., US/Pacific, US/Eastern, America/Chicago). Used in AI analysis prompts.</small>
+        </div>
+        <button type="submit" class="btn btn-primary">Save</button>
+    </form>
+</div>
+{% endblock %}
