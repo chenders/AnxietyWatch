@@ -165,8 +165,8 @@ def build_prompt(
             " Be thorough and specific with numbers, dates, and statistical values inline."
             if detailed_output else
             "Multi-paragraph narrative summary written in plain, conversational language."
-            " Describe findings clearly — reference data to support your points but put specific"
-            " dates, raw values, and measurements in supporting_data rather than listing them inline."
+            " Describe findings clearly without listing raw data inline — keep specific numbers,"
+            " dates, and measurements in each insight's supporting_data field instead."
             " Address the user directly (you/your)."
         )
         + '",\n'
