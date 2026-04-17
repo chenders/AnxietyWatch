@@ -15,6 +15,16 @@ struct SettingsView: View {
     @State private var activeHoursStart = RandomCheckInManager.quietHoursEnd
     @State private var activeHoursEnd = RandomCheckInManager.quietHoursStart
 
+    private var checkInSummary: String {
+        let plural = checkInFrequency == 1 ? "" : "s"
+        let startHour = activeHoursStart % 12 == 0 ? 12 : activeHoursStart % 12
+        let startPeriod = activeHoursStart < 12 ? "AM" : "PM"
+        let endHour = activeHoursEnd % 12 == 0 ? 12 : activeHoursEnd % 12
+        let endPeriod = activeHoursEnd < 12 ? "AM" : "PM"
+        return "You'll get \(checkInFrequency) random check-in\(plural)"
+            + " between \(startHour) \(startPeriod) and \(endHour) \(endPeriod)."
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -194,7 +204,7 @@ struct SettingsView: View {
                             RandomCheckInManager.scheduleNextCheckIn()
                         }
 
-                        Text("You'll get \(checkInFrequency) random check-in\(checkInFrequency == 1 ? "" : "s") between \(activeHoursStart % 12 == 0 ? 12 : activeHoursStart % 12) \(activeHoursStart < 12 ? "AM" : "PM") and \(activeHoursEnd % 12 == 0 ? 12 : activeHoursEnd % 12) \(activeHoursEnd < 12 ? "AM" : "PM").")
+                        Text(checkInSummary)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
