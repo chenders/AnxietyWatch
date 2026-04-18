@@ -799,6 +799,41 @@ def psychiatrist_profile_research():
 
 
 # ---------------------------------------------------------------------------
+# Conflicts
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/conflicts")
+@require_admin
+def conflicts():
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute(
+        "SELECT id, status, description, created_at, resolved_at "
+        "FROM conflicts ORDER BY "
+        "CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC"
+    )
+    conflict_list = cur.fetchall()
+
+    return render_template("conflicts.html", conflicts=conflict_list)
+
+
+@admin_bp.route("/conflicts/new", methods=["GET", "POST"])
+@require_admin
+def conflict_new():
+    # Placeholder — implemented in Task 9
+    return render_template("conflicts.html", conflicts=[])
+
+
+@admin_bp.route("/conflicts/<int:conflict_id>", methods=["GET", "POST"])
+@require_admin
+def conflict_detail(conflict_id):
+    # Placeholder — implemented in Task 9
+    return redirect(url_for("admin.conflicts"))
+
+
+# ---------------------------------------------------------------------------
 # AI Analysis
 # ---------------------------------------------------------------------------
 
