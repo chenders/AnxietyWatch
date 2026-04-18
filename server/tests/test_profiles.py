@@ -395,3 +395,103 @@ def test_psychiatrist_research(client):
     assert resp.status_code == 200
     data = resp.get_json()
     assert "research_result" in data
+
+
+def test_build_prompt_without_patient_context(app):
+    """build_prompt with no patient_context omits the section entirely."""
+    with app.app_context():
+        from analysis import build_prompt
+        system, _ = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 1), date(2026, 1, 7),
+        )
+    assert "Patient Context" not in system
+
+
+def test_build_prompt_with_patient_context(app):
+    """build_prompt with patient_context includes Patient Context section."""
+    with app.app_context():
+        from analysis import build_prompt
+        patient_context = {
+            "patient_name": "Test User",
+            "patient_summary": "Male, 34, GAD since 2018. Takes Clonazepam 1mg.",
+            "psychiatrist_summary": "Board-certified psychiatrist specializing in anxiety.",
+            "active_conflict": None,
+        }
+        system, _ = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 1), date(2026, 1, 7),
+            patient_context=patient_context,
+        )
+    assert "## Patient Context" in system
+    assert "Test User" in system
+    assert "GAD since 2018" in system
+    assert "Board-certified psychiatrist" in system
+
+
+def test_build_prompt_with_active_conflict(app):
+    """build_prompt with active conflict includes conflict note."""
+    with app.app_context():
+        from analysis import build_prompt
+        patient_context = {
+            "patient_name": "Test User",
+            "patient_summary": "Male, 34, GAD since 2018.",
+            "psychiatrist_summary": "Anxiety specialist.",
+            "active_conflict": "Disagreement about medication dosage reduction.",
+        }
+        system, _ = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 1), date(2026, 1, 7),
+            patient_context=patient_context,
+        )
+    assert "Active conflict" in system
+    assert "medication dosage reduction" in system
+
+
+def test_build_prompt_patient_only_no_psychiatrist(app):
+    """build_prompt with patient but no psychiatrist summary omits psychiatrist line."""
+    with app.app_context():
+        from analysis import build_prompt
+        patient_context = {
+            "patient_name": None,
+            "patient_summary": "Male, 34.",
+            "psychiatrist_summary": None,
+            "active_conflict": None,
+        }
+        system, _ = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 1), date(2026, 1, 7),
+            patient_context=patient_context,
+        )
+    assert "## Patient Context" in system
+    assert "Psychiatrist:" not in system
+
+
+def test_create_pending_analysis_reads_patient_context(app):
+    """_create_pending_analysis reads patient_profile and injects context into prompt."""
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO patient_profile (name, profile_summary) "
+            "VALUES ('Test User', 'Test patient summary for prompt injection')"
+        )
+        # Insert some data so the analysis has something to work with
+        cur.execute(
+            "INSERT INTO anxiety_entries (timestamp, severity, notes, tags) "
+            "VALUES ('2026-01-10 12:00:00+00', 5, 'test', '[]')"
+        )
+        db.commit()
+
+        from analysis import _create_pending_analysis
+        analysis_id, system_prompt, user_message = _create_pending_analysis(
+            db, date(2026, 1, 10), date(2026, 1, 10),
+        )
+
+    assert "Patient Context" in system_prompt
+    assert "Test User" in system_prompt
+    assert "Test patient summary" in system_prompt

@@ -158,6 +158,7 @@ def build_prompt(
     outlier_warnings: list[str] | None = None,
     therapy_sessions: list[dict] | None = None,
     timezone: str = "US/Pacific",
+    patient_context: dict | None = None,
 ) -> tuple[str, str]:
     """Build system prompt and user message for Claude analysis.
 
@@ -186,6 +187,42 @@ def build_prompt(
         "\n- **Correlations**: Pre-computed Pearson correlations between individual physiological"
         " signals and anxiety severity (from the app's correlation engine)"
     )
+
+    # -- Patient Context (optional) --
+    if patient_context:
+        ctx_parts = []
+        name = patient_context.get("patient_name")
+        summary = patient_context.get("patient_summary")
+        if summary:
+            if name:
+                ctx_parts.append(f"**Patient:** {name} — {summary}")
+            else:
+                ctx_parts.append(f"**Patient:** {summary}")
+
+        psych_summary = patient_context.get("psychiatrist_summary")
+        if psych_summary:
+            ctx_parts.append(f"**Psychiatrist:** {psych_summary}")
+
+        conflict_desc = patient_context.get("active_conflict")
+        if conflict_desc:
+            ctx_parts.append(
+                f"**Active conflict with psychiatrist:** The patient and psychiatrist are "
+                f"currently in a disagreement. Description: {conflict_desc}. Factor this "
+                f"into your analysis — anxiety patterns during this period may be influenced "
+                f"by therapeutic relationship stress. Detailed conflict analysis will be "
+                f"conducted separately."
+            )
+
+        if ctx_parts:
+            parts.append("\n## Patient Context\n\n" + "\n\n".join(ctx_parts))
+
+        # If patient has a name, instruct Claude to use it
+        if name:
+            parts[0] = parts[0].rstrip() + (
+                f" Use the patient's name ({name}) throughout the response for readability"
+                f" (e.g., \"{name}'s HRV was elevated\" rather than \"The patient's HRV"
+                f" was elevated\")."
+            )
 
     # -- Data Quality Notes (always present) --
     dq_parts = []
@@ -521,6 +558,30 @@ def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_i
     )
     therapy_rows = [dict(r) for r in cur.fetchall()]
 
+    # Read patient context (profiles + active conflict)
+    patient_context = None
+    cur.execute("SELECT name, profile_summary FROM patient_profile LIMIT 1")
+    patient_row = cur.fetchone()
+    if patient_row and patient_row.get("profile_summary"):
+        patient_context = {
+            "patient_name": patient_row.get("name"),
+            "patient_summary": patient_row["profile_summary"],
+            "psychiatrist_summary": None,
+            "active_conflict": None,
+        }
+        cur.execute("SELECT profile_summary FROM psychiatrist_profile LIMIT 1")
+        psych_row = cur.fetchone()
+        if psych_row and psych_row.get("profile_summary"):
+            patient_context["psychiatrist_summary"] = psych_row["profile_summary"]
+
+        cur.execute(
+            "SELECT description FROM conflicts WHERE status = 'active' "
+            "ORDER BY created_at DESC LIMIT 1"
+        )
+        conflict_row = cur.fetchone()
+        if conflict_row:
+            patient_context["active_conflict"] = conflict_row["description"]
+
     system_prompt, user_message = build_prompt(
         data, effective_from, effective_to,
         dose_tracking_incomplete=dose_tracking_incomplete,
@@ -528,6 +589,7 @@ def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_i
         outlier_warnings=outlier_warnings if outlier_warnings else None,
         therapy_sessions=therapy_rows if therapy_rows else None,
         timezone=tz,
+        patient_context=patient_context,
     )
 
     request_payload = {
