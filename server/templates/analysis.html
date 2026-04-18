@@ -3,6 +3,18 @@
 {% block content %}
 <h1>AI Analysis</h1>
 
+{% if active_conflict %}
+<div class="card" style="border-left:3px solid #ff9500; background:#fff8f0; margin-bottom:1rem;">
+    <div style="display:flex; align-items:center; gap:0.75rem;">
+        <span style="font-size:1.2rem;">&#9888;</span>
+        <div>
+            <strong>Active conflict detected</strong> — conflict research &amp; analysis will run automatically after the health analysis completes.
+            <div style="font-size:0.8rem; color:#6e6e73; margin-top:0.25rem;">{{ active_conflict.description[:150] }}</div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="card">
     <h2>New Analysis</h2>
     <form method="post" action="{{ url_for('admin.analysis_run') }}">

@@ -54,9 +54,11 @@ def _clean_tables(app):
         db = app.get_db()
         cur = db.cursor()
         cur.execute(
-            "TRUNCATE anxiety_entries, medication_definitions, medication_doses, "
-            "cpap_sessions, health_snapshots, barometric_readings, sync_log, api_keys, settings, "
-            "pharmacies, prescriptions, pharmacy_call_logs, correlations "
+            "TRUNCATE anxiety_entries, health_snapshots, medication_definitions, "
+            "medication_doses, cpap_sessions, barometric_readings, correlations, "
+            "analyses, api_keys, sync_log, therapy_sessions, settings, "
+            "patient_profile, psychiatrist_profile, conflicts, analysis_jobs, "
+            "pharmacies, prescriptions, pharmacy_call_logs "
             "RESTART IDENTITY CASCADE"
         )
         # Insert a test API key

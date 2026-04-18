@@ -2,16 +2,21 @@
 
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import sys
 from functools import wraps
 
+from datetime import date as date_type
+
+import anthropic
 import psycopg2.extras
 from flask import (
     Blueprint,
     current_app,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -533,6 +538,421 @@ def clear_prescriptions():
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
+# Patient Profile
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/patient-profile", methods=["GET", "POST"])
+@require_admin
+def patient_profile():
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip() or None
+        dob_str = request.form.get("date_of_birth", "").strip()
+        dob = None
+        if dob_str:
+            try:
+                date_type.fromisoformat(dob_str)
+                dob = dob_str
+            except ValueError:
+                flash("Invalid date of birth format.", "error")
+                return redirect(url_for("admin.patient_profile"))
+        gender_raw = request.form.get("gender", "").strip()
+        VALID_GENDERS = {"male", "female", "non_binary", "other", "prefer_not_to_say"}
+        gender_normalized = gender_raw.lower().replace("-", "_").replace(" ", "_") if gender_raw else ""
+        gender = gender_normalized if gender_normalized in VALID_GENDERS else None
+        other_meds = request.form.get("other_medications", "").strip() or None
+        history_raw = request.form.get("medical_history_raw", "").strip() or None
+        history_structured = request.form.get("medical_history_structured", "").strip() or None
+        profile_summary = request.form.get("profile_summary", "").strip() or None
+
+        # Check if row exists
+        cur.execute("SELECT id FROM patient_profile LIMIT 1")
+        existing = cur.fetchone()
+
+        if existing:
+            cur.execute(
+                "UPDATE patient_profile SET name = %s, date_of_birth = %s, gender = %s, "
+                "other_medications = %s, medical_history_raw = %s, "
+                "medical_history_structured = %s, profile_summary = %s, "
+                "updated_at = NOW() WHERE id = %s",
+                (name, dob, gender, other_meds, history_raw, history_structured,
+                 profile_summary, existing["id"]),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO patient_profile (name, date_of_birth, gender, other_medications, "
+                "medical_history_raw, medical_history_structured, profile_summary) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (name, dob, gender, other_meds, history_raw, history_structured, profile_summary),
+            )
+        db.commit()
+        flash("Patient profile saved.", "success")
+        return redirect(url_for("admin.patient_profile"))
+
+    # GET — load existing profile and active medications
+    cur.execute("SELECT * FROM patient_profile LIMIT 1")
+    profile = cur.fetchone() or {}
+
+    cur.execute(
+        "SELECT name, default_dose_mg, category FROM medication_definitions "
+        "WHERE is_active = TRUE ORDER BY name"
+    )
+    medications = cur.fetchall()
+
+    return render_template("patient_profile.html", profile=profile, medications=medications)
+
+
+@admin_bp.route("/patient-profile/refine", methods=["POST"])
+@require_admin
+def patient_profile_refine():
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 400
+
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid or missing JSON body"}), 400
+    raw = data.get("medical_history_raw", "")
+    structured_draft = data.get("structured_draft")
+    answers = data.get("answers")
+
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+
+    if structured_draft and answers:
+        # Finalization round — combine original + draft + answers
+        prompt = (
+            f"Original medical history:\n{raw}\n\n"
+            f"Your structured version:\n{structured_draft}\n\n"
+            f"Patient's answers to your follow-up questions:\n{answers}\n\n"
+            "Produce a final structured medical history incorporating these answers. "
+            "Use clear categories (Diagnoses, Surgeries, Allergies, Family History, etc.)."
+        )
+    else:
+        # First round — parse and ask follow-up questions
+        prompt = (
+            f"Parse this medical history. Structure it into relevant categories "
+            f"(diagnoses, surgeries, allergies, family history, etc.). "
+            f"List follow-up questions that would be clinically relevant for someone "
+            f"using an anxiety tracking app.\n\n{raw}"
+        )
+
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception:
+        current_app.logger.exception("Patient profile refine request failed")
+        return jsonify({"error": "AI refinement is temporarily unavailable"}), 502
+    structured = message.content[0].text
+
+    return jsonify({"structured": structured})
+
+
+@admin_bp.route("/patient-profile/generate-summary", methods=["POST"])
+@require_admin
+def patient_profile_generate_summary():
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 400
+
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("SELECT * FROM patient_profile LIMIT 1")
+    profile = cur.fetchone()
+    if not profile:
+        return jsonify({"error": "No patient profile found"}), 404
+
+    cur.execute(
+        "SELECT name, default_dose_mg, category FROM medication_definitions "
+        "WHERE is_active = TRUE ORDER BY name"
+    )
+    medications = cur.fetchall()
+
+    parts = []
+    if profile.get("name"):
+        parts.append(f"Name: {profile['name']}")
+    if profile.get("date_of_birth"):
+        parts.append(f"Date of birth: {profile['date_of_birth']}")
+    if profile.get("gender"):
+        parts.append(f"Gender: {profile['gender']}")
+    if medications:
+        med_list = ", ".join(f"{m['name']} {m['default_dose_mg']}mg ({m['category']})" for m in medications)
+        parts.append(f"Tracked medications: {med_list}")
+    if profile.get("other_medications"):
+        parts.append(f"Other medications: {profile['other_medications']}")
+    history = profile.get("medical_history_structured") or profile.get("medical_history_raw")
+    if history:
+        parts.append(f"Medical history:\n{history}")
+
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": (
+                "Synthesize the following patient information into a concise, prompt-ready "
+                "summary paragraph suitable for injection into an AI health analysis prompt. "
+                "Include all clinically relevant details. Be factual and concise.\n\n"
+                + "\n".join(parts)
+            )}],
+        )
+    except Exception:
+        current_app.logger.exception("Patient summary generation failed")
+        return jsonify({"error": "Summary generation is temporarily unavailable"}), 502
+    summary = message.content[0].text
+
+    return jsonify({"summary": summary})
+
+
+# ---------------------------------------------------------------------------
+# Psychiatrist Profile
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/psychiatrist-profile", methods=["GET", "POST"])
+@require_admin
+def psychiatrist_profile():
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        location = request.form.get("location", "").strip()
+        profile_summary = request.form.get("profile_summary", "").strip() or None
+
+        if not name or not location:
+            flash("Name and location are required.", "error")
+            return redirect(url_for("admin.psychiatrist_profile"))
+
+        cur.execute("SELECT id FROM psychiatrist_profile LIMIT 1")
+        existing = cur.fetchone()
+
+        if existing:
+            cur.execute(
+                "UPDATE psychiatrist_profile SET name = %s, location = %s, "
+                "profile_summary = %s, updated_at = NOW() WHERE id = %s",
+                (name, location, profile_summary, existing["id"]),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO psychiatrist_profile (name, location, profile_summary) "
+                "VALUES (%s, %s, %s)",
+                (name, location, profile_summary),
+            )
+        db.commit()
+        flash("Psychiatrist profile saved.", "success")
+        return redirect(url_for("admin.psychiatrist_profile"))
+
+    cur.execute("SELECT * FROM psychiatrist_profile LIMIT 1")
+    profile = cur.fetchone() or {}
+
+    return render_template("psychiatrist_profile.html", profile=profile)
+
+
+@admin_bp.route("/psychiatrist-profile/research", methods=["POST"])
+@require_admin
+def psychiatrist_profile_research():
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 400
+
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid or missing JSON body"}), 400
+    name = (data.get("name") or "").strip()
+    location = (data.get("location") or "").strip()
+
+    if not name or not location:
+        return jsonify({"error": "Name and location required"}), 400
+
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    try:
+        message = client.messages.create(
+            model="claude-opus-4-7",
+            max_tokens=4096,
+            tools=[{"type": "web_search_20250305"}],
+            messages=[{"role": "user", "content": (
+                f"Research this psychiatrist: {name}, located in/near {location}. "
+                "Find their credentials, board certifications, medical school, specialty areas, "
+                "treatment philosophy (if publicly stated), published research, and any public "
+                "disciplinary records or malpractice history. Use reliable sources. Cite each finding. "
+                "Return your findings as a JSON object with keys: credentials, medical_school, "
+                "board_certifications, specialty, treatment_philosophy, publications, "
+                "disciplinary_history, sources."
+            )}],
+        )
+    except Exception:
+        current_app.logger.exception("Psychiatrist research request failed")
+        return jsonify({"error": "Psychiatrist research is temporarily unavailable"}), 502
+
+    # Extract text from response (may have tool_use blocks interspersed)
+    text_parts = [block.text for block in message.content if hasattr(block, "text")]
+    research_text = "\n".join(text_parts)
+
+    # Try to parse as JSON, fall back to raw text
+    try:
+        # Strip markdown code fences if present
+        clean = research_text.strip()
+        if clean.startswith("```"):
+            clean = clean.split("\n", 1)[1]
+            clean = clean.rsplit("```", 1)[0]
+        research_result = json.loads(clean)
+    except (json.JSONDecodeError, IndexError):
+        research_result = {"raw_response": research_text}
+
+    # Save to DB
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id FROM psychiatrist_profile LIMIT 1")
+    existing = cur.fetchone()
+
+    if existing:
+        cur.execute(
+            "UPDATE psychiatrist_profile SET name = %s, location = %s, "
+            "research_result = %s, researched_at = NOW(), "
+            "updated_at = NOW() WHERE id = %s",
+            (name, location, json.dumps(research_result), existing["id"]),
+        )
+    else:
+        cur.execute(
+            "INSERT INTO psychiatrist_profile (name, location, research_result, researched_at) "
+            "VALUES (%s, %s, %s, NOW())",
+            (name, location, json.dumps(research_result)),
+        )
+    db.commit()
+
+    return jsonify({"research_result": research_result})
+
+
+# ---------------------------------------------------------------------------
+# Conflicts
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/conflicts")
+@require_admin
+def conflicts():
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute(
+        "SELECT id, status, description, created_at, resolved_at "
+        "FROM conflicts ORDER BY "
+        "CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC"
+    )
+    conflict_list = cur.fetchall()
+
+    return render_template("conflicts.html", conflicts=conflict_list)
+
+
+@admin_bp.route("/conflicts/new", methods=["GET", "POST"])
+@require_admin
+def conflict_new():
+    if request.method == "POST":
+        description = request.form.get("description", "").strip()
+        if not description:
+            flash("Description is required.", "error")
+            return redirect(url_for("admin.conflict_new"))
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO conflicts (description, patient_perspective, patient_assumptions, "
+            "patient_desired_resolution, patient_wants_from_other, "
+            "psychiatrist_perspective, psychiatrist_assumptions, "
+            "psychiatrist_desired_resolution, psychiatrist_wants_from_other, "
+            "additional_context) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (
+                description,
+                request.form.get("patient_perspective", "").strip() or None,
+                request.form.get("patient_assumptions", "").strip() or None,
+                request.form.get("patient_desired_resolution", "").strip() or None,
+                request.form.get("patient_wants_from_other", "").strip() or None,
+                request.form.get("psychiatrist_perspective", "").strip() or None,
+                request.form.get("psychiatrist_assumptions", "").strip() or None,
+                request.form.get("psychiatrist_desired_resolution", "").strip() or None,
+                request.form.get("psychiatrist_wants_from_other", "").strip() or None,
+                request.form.get("additional_context", "").strip() or None,
+            ),
+        )
+        conflict_id = cur.fetchone()[0]
+        db.commit()
+        flash("Conflict created.", "success")
+        return redirect(url_for("admin.conflict_detail", conflict_id=conflict_id))
+
+    return render_template("conflict_detail.html", conflict={}, is_new=True)
+
+
+@admin_bp.route("/conflicts/<int:conflict_id>", methods=["GET", "POST"])
+@require_admin
+def conflict_detail(conflict_id):
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    if request.method == "POST":
+        action = request.form.get("action")
+
+        if action == "resolve":
+            cur.execute(
+                "UPDATE conflicts SET status = 'resolved', resolved_at = NOW(), "
+                "updated_at = NOW() WHERE id = %s",
+                (conflict_id,),
+            )
+            db.commit()
+            flash("Conflict marked as resolved.", "success")
+        elif action == "reopen":
+            cur.execute(
+                "UPDATE conflicts SET status = 'active', resolved_at = NULL, "
+                "updated_at = NOW() WHERE id = %s",
+                (conflict_id,),
+            )
+            db.commit()
+            flash("Conflict reopened.", "success")
+        else:
+            # Save form fields
+            description = request.form.get("description", "").strip()
+            if not description:
+                flash("Description is required.", "error")
+                return redirect(url_for("admin.conflict_detail", conflict_id=conflict_id))
+            cur.execute(
+                "UPDATE conflicts SET description = %s, "
+                "patient_perspective = %s, patient_assumptions = %s, "
+                "patient_desired_resolution = %s, patient_wants_from_other = %s, "
+                "psychiatrist_perspective = %s, psychiatrist_assumptions = %s, "
+                "psychiatrist_desired_resolution = %s, psychiatrist_wants_from_other = %s, "
+                "additional_context = %s, updated_at = NOW() WHERE id = %s",
+                (
+                    description,
+                    request.form.get("patient_perspective", "").strip() or None,
+                    request.form.get("patient_assumptions", "").strip() or None,
+                    request.form.get("patient_desired_resolution", "").strip() or None,
+                    request.form.get("patient_wants_from_other", "").strip() or None,
+                    request.form.get("psychiatrist_perspective", "").strip() or None,
+                    request.form.get("psychiatrist_assumptions", "").strip() or None,
+                    request.form.get("psychiatrist_desired_resolution", "").strip() or None,
+                    request.form.get("psychiatrist_wants_from_other", "").strip() or None,
+                    request.form.get("additional_context", "").strip() or None,
+                    conflict_id,
+                ),
+            )
+            db.commit()
+            flash("Conflict saved.", "success")
+
+        return redirect(url_for("admin.conflict_detail", conflict_id=conflict_id))
+
+    cur.execute("SELECT * FROM conflicts WHERE id = %s", (conflict_id,))
+    conflict = cur.fetchone()
+    if not conflict:
+        flash("Conflict not found.", "error")
+        return redirect(url_for("admin.conflicts"))
+
+    return render_template("conflict_detail.html", conflict=conflict, is_new=False)
+
+
+# ---------------------------------------------------------------------------
 # AI Analysis
 # ---------------------------------------------------------------------------
 
@@ -583,6 +1003,13 @@ def analysis():
         max_date = date_type.today()
         min_date = max_date - timedelta(days=30)
 
+    # Check for active conflict
+    cur.execute(
+        "SELECT id, description FROM conflicts "
+        "WHERE status = 'active' ORDER BY created_at DESC LIMIT 1"
+    )
+    active_conflict = cur.fetchone()
+
     from analysis import MODEL
     return render_template(
         "analysis.html",
@@ -590,6 +1017,7 @@ def analysis():
         min_date=min_date,
         max_date=max_date,
         model_name=MODEL,
+        active_conflict=active_conflict,
     )
 
 
@@ -656,12 +1084,27 @@ def analysis_detail(analysis_id):
     medium = [i for i in insights if i.get("severity") == "medium"]
     low = [i for i in insights if i.get("severity") == "low"]
 
+    # Load conflict analysis jobs (if any)
+    cur.execute(
+        "SELECT * FROM analysis_jobs WHERE analysis_id = %s AND job_type != 'health_analysis' "
+        "ORDER BY id",
+        (analysis_id,),
+    )
+    conflict_jobs = cur.fetchall()
+
+    # Organize conflict jobs by type
+    conflict_data = {}
+    for job in conflict_jobs:
+        conflict_data[job["job_type"]] = job
+
     return render_template(
         "analysis_detail.html",
         a=a,
         high_insights=high,
         medium_insights=medium,
         low_insights=low,
+        conflict_jobs=conflict_jobs,
+        conflict_data=conflict_data,
     )
 
 
@@ -761,6 +1204,10 @@ BROWSABLE_TABLES = {
     "prescriptions": {"order": "date_filled DESC", "label": "Prescriptions"},
     "pharmacy_call_logs": {"order": "timestamp DESC", "label": "Pharmacy Call Logs"},
     "sync_log": {"order": "received_at DESC", "label": "Sync Log"},
+    "patient_profile": {"order": "updated_at DESC", "label": "Patient Profile"},
+    "psychiatrist_profile": {"order": "updated_at DESC", "label": "Psychiatrist Profile"},
+    "conflicts": {"order": "created_at DESC", "label": "Conflicts"},
+    "analysis_jobs": {"order": "created_at DESC", "label": "Analysis Jobs"},
 }
 
 

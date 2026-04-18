@@ -21,48 +21,72 @@ struct BarometricTrendChart: View {
         BaselineCalculator.barometricPressureBaseline(from: allSnapshots)
     }
 
+    /// Unified data point for the chart — avoids ForEach/MapContentBuilder
+    /// ambiguity that occurs on some Xcode versions when Charts and MapKit
+    /// cross-import overlays are both active.
+    private struct ChartDatum: Identifiable {
+        let id: UUID
+        let timestamp: Date
+        let kPa: Double
+    }
+
+    private var chartData: [ChartDatum] {
+        displayReadings.map {
+            ChartDatum(id: $0.id, timestamp: $0.timestamp, kPa: $0.pressureKPa)
+        }
+    }
+
     var body: some View {
         ChartCard(
             title: "Barometric Pressure",
             subtitle: baseline.map { String(format: "30-day avg: %.1f kPa", $0.mean) },
             isEmpty: readings.isEmpty
         ) {
-            Chart {
-                // Explicit Plot wrapping avoids MapContentBuilder ambiguity
-                // on Xcode 16.4+ where ForEach resolves to MapKit's overload.
-                Plot {
-                    ForEach(displayReadings) { reading in
-                        LineMark(
-                            x: .value("Time", reading.timestamp, unit: .hour),
-                            y: .value("kPa", reading.pressureKPa)
-                        )
-                        .foregroundStyle(.gray)
-                        .interpolationMethod(.catmullRom)
-                    }
-                }
-
-                if let baseline {
-                    RuleMark(y: .value("Baseline", baseline.mean))
-                        .foregroundStyle(.green.opacity(0.6))
-                        .lineStyle(StrokeStyle(dash: [5, 3]))
-                        .annotation(position: .trailing, alignment: .leading) {
-                            Text("avg")
-                                .font(.caption2)
-                                .foregroundStyle(.green)
-                        }
-                }
-
-                Plot {
-                    ForEach(entries) { entry in
-                        RuleMark(x: .value("Time", entry.timestamp, unit: .hour))
-                            .foregroundStyle(anxietyColor(entry.severity).opacity(0.2))
-                            .lineStyle(StrokeStyle(lineWidth: 2))
-                    }
-                }
+            Chart(chartData) { datum in
+                LineMark(
+                    x: .value("Time", datum.timestamp, unit: .hour),
+                    y: .value("kPa", datum.kPa)
+                )
+                .foregroundStyle(.gray)
+                .interpolationMethod(.catmullRom)
             }
+            .chartOverlay(content: baselineOverlay)
+            .chartOverlay(content: entriesOverlay)
             .chartXScale(domain: dateRange)
             .chartYAxisLabel("kPa")
             .frame(height: 180)
+        }
+    }
+
+    private func baselineOverlay(proxy: ChartProxy) -> some View {
+        GeometryReader { geo in
+            if let baseline,
+               let yPos = proxy.position(forY: baseline.mean) {
+                Path { path in
+                    path.move(to: CGPoint(x: 0, y: yPos))
+                    path.addLine(to: CGPoint(x: geo.size.width, y: yPos))
+                }
+                .stroke(.green.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
+
+                Text("avg")
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                    .position(x: geo.size.width - 12, y: yPos - 8)
+            }
+        }
+    }
+
+    private func entriesOverlay(proxy: ChartProxy) -> some View {
+        GeometryReader { geo in
+            ForEach(entries) { entry in
+                if let xPos = proxy.position(forX: entry.timestamp) {
+                    Path { path in
+                        path.move(to: CGPoint(x: xPos, y: 0))
+                        path.addLine(to: CGPoint(x: xPos, y: geo.size.height))
+                    }
+                    .stroke(anxietyColor(entry.severity).opacity(0.2), lineWidth: 2)
+                }
+            }
         }
     }
 
