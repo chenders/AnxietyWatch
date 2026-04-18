@@ -533,6 +533,64 @@ def clear_prescriptions():
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
+# Patient Profile
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/patient-profile", methods=["GET", "POST"])
+@require_admin
+def patient_profile():
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip() or None
+        dob_str = request.form.get("date_of_birth", "").strip()
+        dob = dob_str if dob_str else None
+        gender = request.form.get("gender", "").strip() or None
+        other_meds = request.form.get("other_medications", "").strip() or None
+        history_raw = request.form.get("medical_history_raw", "").strip() or None
+        history_structured = request.form.get("medical_history_structured", "").strip() or None
+        profile_summary = request.form.get("profile_summary", "").strip() or None
+
+        # Check if row exists
+        cur.execute("SELECT id FROM patient_profile LIMIT 1")
+        existing = cur.fetchone()
+
+        if existing:
+            cur.execute(
+                "UPDATE patient_profile SET name = %s, date_of_birth = %s, gender = %s, "
+                "other_medications = %s, medical_history_raw = %s, "
+                "medical_history_structured = %s, profile_summary = %s, "
+                "updated_at = NOW() WHERE id = %s",
+                (name, dob, gender, other_meds, history_raw, history_structured,
+                 profile_summary, existing["id"]),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO patient_profile (name, date_of_birth, gender, other_medications, "
+                "medical_history_raw, medical_history_structured, profile_summary) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (name, dob, gender, other_meds, history_raw, history_structured, profile_summary),
+            )
+        db.commit()
+        flash("Patient profile saved.", "success")
+        return redirect(url_for("admin.patient_profile"))
+
+    # GET — load existing profile and active medications
+    cur.execute("SELECT * FROM patient_profile LIMIT 1")
+    profile = cur.fetchone() or {}
+
+    cur.execute(
+        "SELECT name, default_dose_mg, category FROM medication_definitions "
+        "WHERE is_active = TRUE ORDER BY name"
+    )
+    medications = cur.fetchall()
+
+    return render_template("patient_profile.html", profile=profile, medications=medications)
+
+
+# ---------------------------------------------------------------------------
 # AI Analysis
 # ---------------------------------------------------------------------------
 
