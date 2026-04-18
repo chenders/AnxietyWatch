@@ -33,12 +33,11 @@ def _extract_json_text(full_text):
       - Bare JSON (no fences)
     """
     # Fenced block: ```json ... ``` or ``` ... ```
-    # Use a regex that strips any language tag after the opening fence
-    fence_match = re.search(
-        r"```\s*(?:\w+)?\s*([\s\S]*?)```", full_text
-    )
-    if fence_match:
-        return fence_match.group(1).strip()
+    # Use regex that strips any language tag; skip empty inline fences
+    for fence_match in re.finditer(r"```\s*(?:\w+)?\s*([\s\S]*?)```", full_text):
+        content = fence_match.group(1).strip()
+        if content:
+            return content
 
     # Unclosed fence (truncated response) — take everything after the opening
     unclosed_match = re.search(r"```\s*(?:\w+)?\s*([\s\S]*)", full_text)

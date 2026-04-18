@@ -111,3 +111,22 @@ def test_parse_scalar_returns_none():
     assert parse_llm_json('42') is None
     assert parse_llm_json('null') is None
     assert parse_llm_json('true') is None
+
+
+def test_extract_json_text_skips_empty_inline_fence():
+    """_extract_json_text skips empty inline fences and finds the real block."""
+    text = 'Use ```json``` format.\n\n```json\n{"key": "val"}\n```'
+    extracted = _extract_json_text(text)
+    assert extracted == '{"key": "val"}'
+
+
+def test_parse_literal_newlines_in_values():
+    """Actual literal newlines inside JSON strings (invalid JSON) are repaired."""
+    # Literal newline chars inside a JSON value — json.loads will reject this,
+    # but json_repair should fix it, then _clean_citation_artifacts cleans up.
+    text = '{"credentials": "MD,\nBoard Certified;\nlicensed in Oregon"}'
+    result = parse_llm_json(text)
+    assert result is not None
+    assert "MD," in result["credentials"]
+    assert "Board Certified" in result["credentials"]
+    assert "\n" not in result["credentials"]
