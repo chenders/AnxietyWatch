@@ -24,7 +24,8 @@ def create_analysis_jobs(db, analysis_id):
     """
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    # Check for active conflict
+    # Pick the most recent active conflict for this analysis run.
+    # Multiple conflicts may be active simultaneously; each run analyzes one.
     cur.execute(
         "SELECT id FROM conflicts WHERE status = 'active' ORDER BY created_at DESC LIMIT 1"
     )

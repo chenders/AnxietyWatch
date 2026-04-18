@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS conflicts (
 );
 ```
 
-- `status`: `active` or `resolved`. Only one conflict should be `active` at a time.
+- `status`: `active` or `resolved`. Multiple conflicts may be `active` simultaneously; each analysis run selects the most recent active conflict via `ORDER BY created_at DESC LIMIT 1`.
 - Patient-side fields: the patient's own perspective, stated in good faith
 - Psychiatrist-side fields: the patient's best-faith effort at representing the psychiatrist's position
 - `additional_context`: anything else relevant to understanding the conflict
