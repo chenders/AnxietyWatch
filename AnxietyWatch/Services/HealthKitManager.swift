@@ -50,6 +50,9 @@ actor HealthKitManager: HealthKitDataSource {
         types.insert(HKCategoryType(.sleepAnalysis))
         types.insert(HKWorkoutType.workoutType())
         types.insert(HKCorrelationType(.bloodPressure))
+        // Characteristic types (demographics — no samples, just static properties)
+        types.insert(HKCharacteristicType(.dateOfBirth))
+        types.insert(HKCharacteristicType(.biologicalSex))
         return types
     }
 
@@ -552,5 +555,17 @@ actor HealthKitManager: HealthKitDataSource {
                 totalCalories: calories
             )
         }
+    }
+
+    // MARK: - Demographics
+
+    /// Read date of birth from HealthKit.
+    func dateOfBirth() throws -> DateComponents? {
+        try healthStore.dateOfBirthComponents()
+    }
+
+    /// Read biological sex from HealthKit.
+    func biologicalSex() throws -> HKBiologicalSex {
+        try healthStore.biologicalSex().biologicalSex
     }
 }
