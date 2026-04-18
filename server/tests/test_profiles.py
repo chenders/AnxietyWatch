@@ -39,7 +39,8 @@ def _init_db():
 
 
 @pytest.fixture()
-def app(_init_db):
+def app(_init_db, monkeypatch):
+    monkeypatch.setenv("ADMIN_PASSWORD", "test")
     app = create_app({"TESTING": True, "DATABASE_URL": DATABASE_URL})
     return app
 

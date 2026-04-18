@@ -99,6 +99,16 @@ def mark_running(db, job_id):
     db.commit()
 
 
+def store_request_payload(db, job_id, request_payload):
+    """Persist the full request payload before calling the API."""
+    cur = db.cursor()
+    cur.execute(
+        "UPDATE analysis_jobs SET request_payload = %s WHERE id = %s",
+        (json.dumps(request_payload), job_id),
+    )
+    db.commit()
+
+
 def mark_completed(db, job_id, result, response_payload, tokens_in, tokens_out):
     """Mark a job as completed with its results."""
     cur = db.cursor()
@@ -265,13 +275,16 @@ def _execute_single_job(job, database_url):
             system_prompt = payload["system"]
             user_message = payload["messages"][0]["content"]
 
+            request_payload = {
+                "model": job["model"],
+                "max_tokens": 16384,
+                "system": system_prompt,
+                "messages": [{"role": "user", "content": user_message}],
+            }
+            store_request_payload(conn, job["id"], request_payload)
+
             client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-            message = client.messages.create(
-                model=job["model"],
-                max_tokens=16384,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_message}],
-            )
+            message = client.messages.create(**request_payload)
             raw = message.model_dump()
             parsed = parse_response(raw)
             result = {
@@ -287,16 +300,18 @@ def _execute_single_job(job, database_url):
             # Conflict analysis jobs
             system, user_msg, tools = build_job_prompt(conn, job, dep_results)
 
-            client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-            kwargs = {
+            request_payload = {
                 "model": job["model"],
                 "max_tokens": 8192,
                 "system": system,
                 "messages": [{"role": "user", "content": user_msg}],
             }
             if tools:
-                kwargs["tools"] = tools
-            message = client.messages.create(**kwargs)
+                request_payload["tools"] = tools
+            store_request_payload(conn, job["id"], request_payload)
+
+            client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+            message = client.messages.create(**request_payload)
 
             raw = message.model_dump()
             result = parse_job_result(job["job_type"], message)
