@@ -799,8 +799,10 @@ def psychiatrist_profile_research():
     try:
         from json_repair import repair_json
 
-        # Try fenced JSON block first (Claude often wraps in ```json ... ```)
-        fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", research_text, re.DOTALL)
+        # Try fenced JSON block first (Claude often wraps in ```json ... ```).
+        # Capture the entire fenced payload and let json_repair/json.loads
+        # handle nested objects and arrays.
+        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", research_text)
         json_text = fence_match.group(1) if fence_match else research_text.strip()
         repaired = repair_json(json_text)
         parsed = json.loads(repaired)
