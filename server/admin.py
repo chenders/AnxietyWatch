@@ -754,8 +754,8 @@ def psychiatrist_profile_research():
     data = request.get_json(silent=True)
     if not data:
         return jsonify({"error": "Invalid or missing JSON body"}), 400
-    name = data.get("name", "")
-    location = data.get("location", "")
+    name = (data.get("name") or "").strip()
+    location = (data.get("location") or "").strip()
 
     if not name or not location:
         return jsonify({"error": "Name and location required"}), 400

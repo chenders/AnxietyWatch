@@ -224,7 +224,7 @@
         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
             <strong style="font-size:0.9rem;">{{ f.claim }}</strong>
             {% if f.confidence is defined %}
-            <span style="background:#e8f0fe; color:#0071e3; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.75rem; white-space:nowrap;">{{ "%.0f"|format(f.confidence * 100) }}%</span>
+            <span style="background:#e8f0fe; color:#0071e3; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.75rem; white-space:nowrap;">{{ "%.0f"|format((f.confidence|default(0)|float) * 100) }}%</span>
             {% endif %}
         </div>
         <p style="font-size:0.85rem; color:#444; line-height:1.5;">{{ f.assessment }}</p>
