@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sys
 from functools import wraps
@@ -792,15 +793,34 @@ def psychiatrist_profile_research():
     text_parts = [block.text for block in message.content if hasattr(block, "text")]
     research_text = "\n".join(text_parts)
 
-    # Try to parse as JSON, fall back to raw text
+    # Web search citations insert literal newlines inside JSON string values,
+    # making standard json.loads fail. Use json_repair to handle this.
+    research_result = None
     try:
-        # Strip markdown code fences if present
-        clean = research_text.strip()
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1]
-            clean = clean.rsplit("```", 1)[0]
-        research_result = json.loads(clean)
-    except (json.JSONDecodeError, IndexError):
+        from json_repair import repair_json
+
+        # Try fenced JSON block first (Claude often wraps in ```json ... ```).
+        # Capture the entire fenced payload and let json_repair/json.loads
+        # handle nested objects and arrays.
+        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", research_text)
+        json_text = fence_match.group(1) if fence_match else research_text.strip()
+        repaired = repair_json(json_text)
+        parsed = json.loads(repaired)
+        if isinstance(parsed, dict):
+            # Clean citation-artifact newlines from values throughout the parsed JSON.
+            def _clean(v):
+                if isinstance(v, str):
+                    return re.sub(r"\n+", " ", v).strip()
+                if isinstance(v, list):
+                    return [_clean(x) for x in v]
+                if isinstance(v, dict):
+                    return {k: _clean(val) for k, val in v.items()}
+                return v
+            research_result = _clean(parsed)
+    except Exception:
+        current_app.logger.exception("JSON repair failed, storing raw text")
+
+    if research_result is None:
         research_result = {"raw_response": research_text}
 
     # Save to DB
@@ -825,6 +845,66 @@ def psychiatrist_profile_research():
     db.commit()
 
     return jsonify({"research_result": research_result})
+
+
+@admin_bp.route("/psychiatrist-profile/generate-summary", methods=["POST"])
+@require_admin
+def psychiatrist_profile_generate_summary():
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 400
+
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("SELECT * FROM psychiatrist_profile LIMIT 1")
+    profile = cur.fetchone()
+    if not profile:
+        return jsonify({"error": "No psychiatrist profile found"}), 404
+
+    research = profile.get("research_result")
+    if not research:
+        return jsonify({"error": "No research results to summarize. Run research first."}), 400
+
+    parts = []
+    if profile.get("name"):
+        parts.append(f"Name: {profile['name']}")
+    if profile.get("location"):
+        parts.append(f"Location: {profile['location']}")
+
+    if isinstance(research, dict) and "raw_response" not in research:
+        for key, value in research.items():
+            if value and key != "sources":
+                label = key.replace("_", " ").title()
+                if isinstance(value, list):
+                    items = [json.dumps(v) if isinstance(v, dict) else str(v) for v in value]
+                    parts.append(f"{label}: {'; '.join(items)}")
+                else:
+                    parts.append(f"{label}: {value}")
+    else:
+        raw = research.get("raw_response", "") if isinstance(research, dict) else str(research)
+        parts.append(f"Research findings:\n{raw[:3000]}")
+
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": (
+                "Synthesize the following psychiatrist information into a concise, prompt-ready "
+                "summary paragraph suitable for injection into an AI health analysis prompt. "
+                "Include credentials, specialty, treatment approach, and any notable details. "
+                "This summary helps the AI understand the psychiatrist's perspective when "
+                "analyzing a patient's health data. Be factual and concise.\n\n"
+                + "\n".join(parts)
+            )}],
+        )
+    except Exception:
+        current_app.logger.exception("Psychiatrist summary generation failed")
+        return jsonify({"error": "Summary generation is temporarily unavailable"}), 502
+
+    text_parts = [block.text for block in message.content if hasattr(block, "text")]
+    summary = "\n".join(text_parts)
+    return jsonify({"summary": summary})
 
 
 # ---------------------------------------------------------------------------
