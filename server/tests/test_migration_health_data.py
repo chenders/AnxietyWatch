@@ -22,13 +22,16 @@ DATABASE_URL = os.environ.get(
 
 @pytest.fixture(scope="session")
 def _init_db():
-    """Create tables once per test session."""
+    """Reset and create tables once per test session."""
     conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = True
     cur = conn.cursor()
+    cur.execute("DROP SCHEMA IF EXISTS public CASCADE")
+    cur.execute("CREATE SCHEMA public")
     schema_path = os.path.join(os.path.dirname(__file__), "..", "schema.sql")
     with open(schema_path) as f:
         cur.execute(f.read())
+    cur.close()
     conn.close()
 
 

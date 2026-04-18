@@ -21,7 +21,7 @@ def run_migration(database_url: str, dry_run: bool = False) -> dict:
     try:
         # 1. SpO2: scale 0-1 values to 0-100
         # Only affect values that are clearly on a 0-1 scale (<= 1.0).
-        # Values already on 0-100 scale will be > 70 and won't match.
+        # Values already on a 0-100 scale will be > 1.0 and won't match.
         cur.execute(
             "UPDATE health_snapshots SET spo2_avg = spo2_avg * 100 "
             "WHERE spo2_avg IS NOT NULL AND spo2_avg <= 1.0"
