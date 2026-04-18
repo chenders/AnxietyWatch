@@ -561,29 +561,32 @@ def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_i
     )
     therapy_rows = [dict(r) for r in cur.fetchall()]
 
-    # Read patient context (profiles + active conflict)
-    patient_context = None
+    # Read patient context (profiles + active conflict).
+    # Include context when any of the three sources is available.
     cur.execute("SELECT name, profile_summary FROM patient_profile LIMIT 1")
     patient_row = cur.fetchone()
-    if patient_row and patient_row.get("profile_summary"):
-        patient_context = {
-            "patient_name": patient_row.get("name"),
-            "patient_summary": patient_row["profile_summary"],
-            "psychiatrist_summary": None,
-            "active_conflict": None,
-        }
-        cur.execute("SELECT profile_summary FROM psychiatrist_profile LIMIT 1")
-        psych_row = cur.fetchone()
-        if psych_row and psych_row.get("profile_summary"):
-            patient_context["psychiatrist_summary"] = psych_row["profile_summary"]
 
-        cur.execute(
-            "SELECT description FROM conflicts WHERE status = 'active' "
-            "ORDER BY created_at DESC LIMIT 1"
-        )
-        conflict_row = cur.fetchone()
-        if conflict_row:
-            patient_context["active_conflict"] = conflict_row["description"]
+    cur.execute("SELECT profile_summary FROM psychiatrist_profile LIMIT 1")
+    psych_row = cur.fetchone()
+
+    cur.execute(
+        "SELECT description FROM conflicts WHERE status = 'active' "
+        "ORDER BY created_at DESC LIMIT 1"
+    )
+    conflict_row = cur.fetchone()
+
+    patient_summary = patient_row.get("profile_summary") if patient_row else None
+    psychiatrist_summary = psych_row.get("profile_summary") if psych_row else None
+    active_conflict = conflict_row.get("description") if conflict_row else None
+
+    patient_context = None
+    if patient_summary or psychiatrist_summary or active_conflict:
+        patient_context = {
+            "patient_name": patient_row.get("name") if patient_row else None,
+            "patient_summary": patient_summary,
+            "psychiatrist_summary": psychiatrist_summary,
+            "active_conflict": active_conflict,
+        }
 
     system_prompt, user_message = build_prompt(
         data, effective_from, effective_to,

@@ -177,7 +177,7 @@ def finalize_analysis(db, analysis_id):
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     cur.execute(
-        "SELECT status, result, response_payload, tokens_in, tokens_out "
+        "SELECT status, result, response_payload, tokens_in, tokens_out, error_message "
         "FROM analysis_jobs WHERE analysis_id = %s AND job_type = 'health_analysis'",
         (analysis_id,),
     )
@@ -187,10 +187,11 @@ def finalize_analysis(db, analysis_id):
         return
 
     if health_job["status"] == "failed":
+        error_detail = health_job.get("error_message") or "Health analysis job failed"
         cur.execute(
-            "UPDATE analyses SET status = 'failed', error_message = 'Health analysis job failed', "
+            "UPDATE analyses SET status = 'failed', error_message = %s, "
             "completed_at = NOW() WHERE id = %s",
-            (analysis_id,),
+            (error_detail, analysis_id),
         )
     elif health_job["status"] == "completed" and health_job["result"]:
         result = health_job["result"]
