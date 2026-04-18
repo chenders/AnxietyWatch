@@ -2,9 +2,10 @@
 
 import json
 import logging
-import re
 
 import psycopg2.extras
+
+from json_helpers import parse_llm_json
 
 logger = logging.getLogger(__name__)
 
@@ -182,41 +183,11 @@ def build_job_prompt(db, job, dep_results):
         return system, user_msg, tools
 
 
-def _clean_citation_artifacts(v):
-    """Recursively clean citation-artifact newlines from parsed JSON values."""
-    if isinstance(v, str):
-        return re.sub(r"\n+", " ", v).strip()
-    if isinstance(v, list):
-        return [_clean_citation_artifacts(x) for x in v]
-    if isinstance(v, dict):
-        return {k: _clean_citation_artifacts(val) for k, val in v.items()}
-    return v
-
-
-def _extract_json_text(full_text):
-    """Extract JSON text from a response, handling fenced and unfenced JSON.
-
-    Handles: ```json ... ```, ``` ... ```, unclosed fences (truncated
-    responses), and bare JSON.
-    """
-    if "```json" in full_text:
-        json_text = full_text.split("```json", 1)[1]
-        if "```" in json_text:
-            json_text = json_text.rsplit("```", 1)[0]
-        return json_text.strip()
-    if "```" in full_text:
-        json_text = full_text.split("```", 1)[1]
-        if json_text.count("```") >= 1:
-            json_text = json_text.rsplit("```", 1)[0]
-        return json_text.strip()
-    return full_text.strip()
-
-
 def parse_job_result(job_type, message):
     """Parse a Claude API response into structured result for a conflict job.
 
-    Extracts JSON from the response text, handling markdown code fences
-    and citation-artifact newlines from web search responses.
+    Extracts JSON from the response text, handling markdown code fences,
+    unclosed fences, and citation-artifact newlines from web search responses.
     """
     # Collect text blocks from the response
     text_parts = []
@@ -225,25 +196,14 @@ def parse_job_result(job_type, message):
             text_parts.append(block.text)
 
     full_text = "\n".join(text_parts).strip()
+    result = parse_llm_json(full_text)
 
-    # Try to extract and parse JSON
-    try:
-        json_text = _extract_json_text(full_text)
-        result = json.loads(json_text)
-    except (json.JSONDecodeError, IndexError):
-        # Web search citations insert literal newlines in JSON string values.
-        # Use json_repair to handle this.
-        try:
-            from json_repair import repair_json
-            json_text = _extract_json_text(full_text)
-            repaired = repair_json(json_text)
-            result = json.loads(repaired)
-        except Exception:
-            logger.exception("Failed to parse JSON from %s job response, using raw text", job_type)
-            if job_type == "conflict_synthesis":
-                return {"summary": full_text, "raw": True}
-            return {"findings": [{"claim": "Raw response", "assessment": full_text,
-                                  "sources": [], "confidence": 0.5,
-                                  "confidence_explanation": "Could not parse structured response"}]}
+    if result is None:
+        logger.warning("Failed to parse JSON from %s job response, using raw text", job_type)
+        if job_type == "conflict_synthesis":
+            return {"summary": full_text, "raw": True}
+        return {"findings": [{"claim": "Raw response", "assessment": full_text,
+                              "sources": [], "confidence": 0.5,
+                              "confidence_explanation": "Could not parse structured response"}]}
 
-    return _clean_citation_artifacts(result)
+    return result
