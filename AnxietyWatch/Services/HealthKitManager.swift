@@ -444,6 +444,8 @@ actor HealthKitManager: HealthKitDataSource {
     // MARK: - Sleep Analysis
 
     /// Query sleep stages for a date range. Returns aggregated minutes per stage.
+    /// Merges overlapping intervals from multiple sources (Watch + iPhone)
+    /// to prevent double-counting.
     func querySleepAnalysis(start: Date, end: Date) async throws -> SleepData {
         guard isAvailable else { return SleepData() }
         let type = HKCategoryType(.sleepAnalysis)
@@ -467,28 +469,39 @@ actor HealthKitManager: HealthKitDataSource {
             healthStore.execute(query)
         }
 
-        var data = SleepData()
+        // Group sample intervals by sleep stage, then merge overlaps per stage.
+        var deepIntervals: [(Date, Date)] = []
+        var remIntervals: [(Date, Date)] = []
+        var coreIntervals: [(Date, Date)] = []
+        var awakeIntervals: [(Date, Date)] = []
+
         for sample in samples {
-            let minutes = Int(sample.endDate.timeIntervalSince(sample.startDate) / 60)
+            let interval = (sample.startDate, sample.endDate)
             guard let value = HKCategoryValueSleepAnalysis(rawValue: sample.value) else { continue }
 
             switch value {
             case .asleepDeep:
-                data.deepMinutes += minutes
+                deepIntervals.append(interval)
             case .asleepREM:
-                data.remMinutes += minutes
+                remIntervals.append(interval)
             case .asleepCore:
-                data.coreMinutes += minutes
+                coreIntervals.append(interval)
             case .awake:
-                data.awakeMinutes += minutes
+                awakeIntervals.append(interval)
             case .inBed:
-                break // Not counted toward sleep total
+                break
             case .asleepUnspecified:
-                data.coreMinutes += minutes
+                coreIntervals.append(interval)
             @unknown default:
                 break
             }
         }
+
+        var data = SleepData()
+        data.deepMinutes = SleepIntervalMerger.mergedMinutes(deepIntervals)
+        data.remMinutes = SleepIntervalMerger.mergedMinutes(remIntervals)
+        data.coreMinutes = SleepIntervalMerger.mergedMinutes(coreIntervals)
+        data.awakeMinutes = SleepIntervalMerger.mergedMinutes(awakeIntervals)
         data.totalMinutes = data.deepMinutes + data.remMinutes + data.coreMinutes
         return data
     }
