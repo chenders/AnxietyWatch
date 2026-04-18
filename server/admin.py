@@ -805,16 +805,18 @@ def psychiatrist_profile_research():
         repaired = repair_json(json_text)
         parsed = json.loads(repaired)
         if isinstance(parsed, dict):
-            # Clean citation-artifact newlines from values
+            # Clean citation-artifact newlines from values throughout the parsed JSON.
             def _clean(v):
                 if isinstance(v, str):
                     return re.sub(r"\n+", " ", v).strip()
                 if isinstance(v, list):
                     return [_clean(x) for x in v]
+                if isinstance(v, dict):
+                    return {k: _clean(val) for k, val in v.items()}
                 return v
-            research_result = {k: _clean(v) for k, v in parsed.items()}
+            research_result = _clean(parsed)
     except Exception:
-        current_app.logger.debug("JSON repair failed, storing raw text")
+        current_app.logger.exception("JSON repair failed, storing raw text")
 
     if research_result is None:
         research_result = {"raw_response": research_text}
