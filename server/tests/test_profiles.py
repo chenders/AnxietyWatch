@@ -471,6 +471,120 @@ def test_build_prompt_patient_only_no_psychiatrist(app):
     assert "Psychiatrist:" not in system
 
 
+def test_sync_demographics_creates_patient_profile(client, app):
+    """Sync payload with demographics creates patient_profile row."""
+    resp = client.post("/api/sync", json={
+        "syncType": "full",
+        "clientVersion": "1.0",
+        "deviceName": "Test iPhone",
+        "demographics": {
+            "dateOfBirth": "1992-03-15",
+            "biologicalSex": "male",
+        },
+        "anxietyEntries": [],
+        "medicationDefinitions": [],
+        "medicationDoses": [],
+        "cpapSessions": [],
+        "healthSnapshots": [],
+        "barometricReadings": [],
+        "pharmacies": [],
+        "prescriptions": [],
+        "pharmacyCallLogs": [],
+    }, headers={"Authorization": f"Bearer {TEST_API_KEY}", "Content-Type": "application/json"})
+
+    assert resp.status_code == 200
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM patient_profile LIMIT 1")
+        row = cur.fetchone()
+    assert row is not None
+    assert str(row["date_of_birth"]) == "1992-03-15"
+    assert row["gender"] == "male"
+
+
+def test_sync_demographics_does_not_overwrite_manual_values(client, app):
+    """Sync demographics doesn't overwrite manually-entered profile values."""
+    # Create manual profile first
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO patient_profile (name, date_of_birth, gender) "
+            "VALUES ('Manual Name', '1990-01-01', 'Non-binary')"
+        )
+        db.commit()
+
+    resp = client.post("/api/sync", json={
+        "syncType": "full",
+        "clientVersion": "1.0",
+        "demographics": {
+            "dateOfBirth": "1992-03-15",
+            "biologicalSex": "male",
+        },
+        "anxietyEntries": [],
+        "medicationDefinitions": [],
+        "medicationDoses": [],
+        "cpapSessions": [],
+        "healthSnapshots": [],
+        "barometricReadings": [],
+        "pharmacies": [],
+        "prescriptions": [],
+        "pharmacyCallLogs": [],
+    }, headers={"Authorization": f"Bearer {TEST_API_KEY}", "Content-Type": "application/json"})
+    assert resp.status_code == 200
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM patient_profile LIMIT 1")
+        row = cur.fetchone()
+    # Should NOT be overwritten
+    assert str(row["date_of_birth"]) == "1990-01-01"
+    assert row["gender"] == "Non-binary"
+    assert row["name"] == "Manual Name"
+
+
+def test_sync_demographics_fills_null_fields(client, app):
+    """Sync demographics fills NULL fields but not populated ones."""
+    # Create profile with name but no DOB/gender
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO patient_profile (name) VALUES ('Test User')"
+        )
+        db.commit()
+
+    client.post("/api/sync", json={
+        "syncType": "full",
+        "clientVersion": "1.0",
+        "demographics": {
+            "dateOfBirth": "1992-03-15",
+            "biologicalSex": "female",
+        },
+        "anxietyEntries": [],
+        "medicationDefinitions": [],
+        "medicationDoses": [],
+        "cpapSessions": [],
+        "healthSnapshots": [],
+        "barometricReadings": [],
+        "pharmacies": [],
+        "prescriptions": [],
+        "pharmacyCallLogs": [],
+    }, headers={"Authorization": f"Bearer {TEST_API_KEY}", "Content-Type": "application/json"})
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM patient_profile LIMIT 1")
+        row = cur.fetchone()
+    assert row["name"] == "Test User"  # preserved
+    assert str(row["date_of_birth"]) == "1992-03-15"  # filled
+    assert row["gender"] == "female"  # filled
+
+
 def test_create_pending_analysis_reads_patient_context(app):
     """_create_pending_analysis reads patient_profile and injects context into prompt."""
     with app.app_context():
