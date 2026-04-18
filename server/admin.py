@@ -840,6 +840,10 @@ def conflicts():
 @require_admin
 def conflict_new():
     if request.method == "POST":
+        description = request.form.get("description", "").strip()
+        if not description:
+            flash("Description is required.", "error")
+            return redirect(url_for("admin.conflict_new"))
         db = get_db()
         cur = db.cursor()
         cur.execute(
@@ -850,7 +854,7 @@ def conflict_new():
             "additional_context) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (
-                request.form.get("description", "").strip(),
+                description,
                 request.form.get("patient_perspective", "").strip() or None,
                 request.form.get("patient_assumptions", "").strip() or None,
                 request.form.get("patient_desired_resolution", "").strip() or None,
@@ -897,6 +901,10 @@ def conflict_detail(conflict_id):
             flash("Conflict reopened.", "success")
         else:
             # Save form fields
+            description = request.form.get("description", "").strip()
+            if not description:
+                flash("Description is required.", "error")
+                return redirect(url_for("admin.conflict_detail", conflict_id=conflict_id))
             cur.execute(
                 "UPDATE conflicts SET description = %s, "
                 "patient_perspective = %s, patient_assumptions = %s, "
@@ -905,7 +913,7 @@ def conflict_detail(conflict_id):
                 "psychiatrist_desired_resolution = %s, psychiatrist_wants_from_other = %s, "
                 "additional_context = %s, updated_at = NOW() WHERE id = %s",
                 (
-                    request.form.get("description", "").strip(),
+                    description,
                     request.form.get("patient_perspective", "").strip() or None,
                     request.form.get("patient_assumptions", "").strip() or None,
                     request.form.get("patient_desired_resolution", "").strip() or None,

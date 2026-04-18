@@ -506,6 +506,13 @@ def create_app(test_config=None):
             except (ValueError, TypeError):
                 dob = None
 
+        # Normalize biologicalSex to canonical gender values
+        if sex:
+            valid_genders = {"male", "female", "non_binary", "other", "prefer_not_to_say"}
+            sex = sex.lower().replace("-", "_").replace(" ", "_")
+            if sex not in valid_genders:
+                sex = None
+
         cur.execute("SELECT id, date_of_birth, gender FROM patient_profile LIMIT 1")
         existing = cur.fetchone()
 
