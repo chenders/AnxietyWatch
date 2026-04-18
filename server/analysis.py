@@ -485,22 +485,21 @@ def start_analysis(
     dose_tracking_incomplete: bool = False,
     detailed_output: bool = False,
 ) -> int:
-    """Create a pending analysis row and kick off the Claude call in a background thread.
+    """Create a pending analysis row, create jobs, and dispatch in background.
 
-    Returns the analysis row ID immediately. The background worker opens its own DB
-    connection so it can outlive the originating HTTP request.
+    Returns the analysis row ID immediately.
     """
     dsn = database_url or os.environ.get("DATABASE_URL")
     if not dsn:
         raise RuntimeError("DATABASE_URL not configured")
 
-    analysis_id, system_prompt, user_message = _create_pending_analysis(
+    analysis_id, _, _ = _create_pending_analysis(
         db, date_from, date_to,
         dose_tracking_incomplete=dose_tracking_incomplete,
         detailed_output=detailed_output,
     )
 
-    # Create jobs via dispatcher
+    # Create jobs via dispatcher (inline import to avoid circular dependency)
     from job_dispatcher import create_analysis_jobs, dispatch_analysis
     create_analysis_jobs(db, analysis_id)
 

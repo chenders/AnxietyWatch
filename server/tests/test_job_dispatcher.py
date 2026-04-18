@@ -1,11 +1,10 @@
 """Tests for the analysis job dispatcher."""
 
 import hashlib
-import json
 import os
 import sys
+import time
 from datetime import date
-from unittest.mock import patch, MagicMock
 
 import psycopg2
 import psycopg2.extras
@@ -271,8 +270,7 @@ def test_start_analysis_creates_jobs(app):
         analysis_id = start_analysis(db, date(2026, 1, 10), date(2026, 1, 10),
                                      database_url=database_url)
 
-        # Give the background thread a moment to create jobs
-        import time
+        # Give the background thread a moment
         time.sleep(1)
 
         cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -302,7 +300,6 @@ def test_start_analysis_with_conflict_creates_6_jobs(app):
         analysis_id = start_analysis(db, date(2026, 1, 10), date(2026, 1, 10),
                                      database_url=DATABASE_URL)
 
-        import time
         time.sleep(1)
 
         cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
