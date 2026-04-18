@@ -51,6 +51,7 @@ struct BarometricTrendChart: View {
                 .interpolationMethod(.catmullRom)
             }
             .chartOverlay(content: baselineOverlay)
+            .chartOverlay(content: entriesOverlay)
             .chartXScale(domain: dateRange)
             .chartYAxisLabel("kPa")
             .frame(height: 180)
@@ -71,6 +72,20 @@ struct BarometricTrendChart: View {
                     .font(.caption2)
                     .foregroundStyle(.green)
                     .position(x: geo.size.width - 12, y: yPos - 8)
+            }
+        }
+    }
+
+    private func entriesOverlay(proxy: ChartProxy) -> some View {
+        GeometryReader { geo in
+            ForEach(entries) { entry in
+                if let xPos = proxy.position(forX: entry.timestamp) {
+                    Path { path in
+                        path.move(to: CGPoint(x: xPos, y: 0))
+                        path.addLine(to: CGPoint(x: xPos, y: geo.size.height))
+                    }
+                    .stroke(anxietyColor(entry.severity).opacity(0.2), lineWidth: 2)
+                }
             }
         }
     }
