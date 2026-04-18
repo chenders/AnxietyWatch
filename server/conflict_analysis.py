@@ -113,16 +113,16 @@ def _build_context_block(db, conflict_id, health_summary=None):
     c = cur.fetchone()
 
     parts = [
-        f"## Context\n",
+        "## Context\n",
         f"**Patient Profile:**\n{patient_summary}\n",
         f"**Psychiatrist Profile:**\n{psych_summary}\n",
         f"**Conflict Description:**\n{c['description']}\n",
-        f"**Patient's Position:**",
+        "**Patient's Position:**",
         f"- Perspective: {c.get('patient_perspective') or 'Not provided'}",
         f"- Assumptions: {c.get('patient_assumptions') or 'Not provided'}",
         f"- Desired resolution: {c.get('patient_desired_resolution') or 'Not provided'}",
         f"- Wants from psychiatrist: {c.get('patient_wants_from_other') or 'Not provided'}\n",
-        f"**Psychiatrist's Position (as understood by patient):**",
+        "**Psychiatrist's Position (as understood by patient):**",
         f"- Perspective: {c.get('psychiatrist_perspective') or 'Not provided'}",
         f"- Assumptions: {c.get('psychiatrist_assumptions') or 'Not provided'}",
         f"- Desired resolution: {c.get('psychiatrist_desired_resolution') or 'Not provided'}",
