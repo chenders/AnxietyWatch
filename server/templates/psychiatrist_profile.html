@@ -52,7 +52,14 @@
             {% endfor %}
         </div>
         {% else %}
-        <pre style="background:#f5f5f7; padding:1rem; border-radius:6px; font-size:0.8rem; white-space:pre-wrap;">{{ r.get('raw_response', r|tojson(indent=2)) if r is mapping else (r if r is string else r|tojson(indent=2)) }}</pre>
+        {% set raw_text = r.get('raw_response', '') if r is mapping else (r if r is string else '') %}
+        <div style="font-size:0.85rem; line-height:1.8; color:#1d1d1f;">
+            {% for para in raw_text.split('\n\n') %}
+            {% if para.strip() %}
+            <p style="margin-bottom:0.75rem;">{{ para.strip()|e }}</p>
+            {% endif %}
+            {% endfor %}
+        </div>
         {% endif %}
     </div>
     {% endif %}

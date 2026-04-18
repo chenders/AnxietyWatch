@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sys
 from functools import wraps
@@ -792,15 +793,30 @@ def psychiatrist_profile_research():
     text_parts = [block.text for block in message.content if hasattr(block, "text")]
     research_text = "\n".join(text_parts)
 
-    # Try to parse as JSON, fall back to raw text
+    # Web search citations insert literal newlines inside JSON string values,
+    # making standard json.loads fail. Use json_repair to handle this.
+    research_result = None
     try:
-        # Strip markdown code fences if present
-        clean = research_text.strip()
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1]
-            clean = clean.rsplit("```", 1)[0]
-        research_result = json.loads(clean)
-    except (json.JSONDecodeError, IndexError):
+        from json_repair import repair_json
+
+        # Try fenced JSON block first (Claude often wraps in ```json ... ```)
+        fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", research_text, re.DOTALL)
+        json_text = fence_match.group(1) if fence_match else research_text.strip()
+        repaired = repair_json(json_text)
+        parsed = json.loads(repaired)
+        if isinstance(parsed, dict):
+            # Clean citation-artifact newlines from values
+            def _clean(v):
+                if isinstance(v, str):
+                    return re.sub(r"\n+", " ", v).strip()
+                if isinstance(v, list):
+                    return [_clean(x) for x in v]
+                return v
+            research_result = {k: _clean(v) for k, v in parsed.items()}
+    except Exception:
+        current_app.logger.debug("JSON repair failed, storing raw text")
+
+    if research_result is None:
         research_result = {"raw_response": research_text}
 
     # Save to DB
