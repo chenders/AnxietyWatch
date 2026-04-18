@@ -843,6 +843,64 @@ def psychiatrist_profile_research():
     return jsonify({"research_result": research_result})
 
 
+@admin_bp.route("/psychiatrist-profile/generate-summary", methods=["POST"])
+@require_admin
+def psychiatrist_profile_generate_summary():
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 400
+
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("SELECT * FROM psychiatrist_profile LIMIT 1")
+    profile = cur.fetchone()
+    if not profile:
+        return jsonify({"error": "No psychiatrist profile found"}), 404
+
+    research = profile.get("research_result")
+    if not research:
+        return jsonify({"error": "No research results to summarize. Run research first."}), 400
+
+    parts = []
+    if profile.get("name"):
+        parts.append(f"Name: {profile['name']}")
+    if profile.get("location"):
+        parts.append(f"Location: {profile['location']}")
+
+    if isinstance(research, dict) and "raw_response" not in research:
+        for key, value in research.items():
+            if value and key != "sources":
+                label = key.replace("_", " ").title()
+                if isinstance(value, list):
+                    parts.append(f"{label}: {'; '.join(str(v) for v in value)}")
+                else:
+                    parts.append(f"{label}: {value}")
+    else:
+        raw = research.get("raw_response", "") if isinstance(research, dict) else str(research)
+        parts.append(f"Research findings:\n{raw[:3000]}")
+
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": (
+                "Synthesize the following psychiatrist information into a concise, prompt-ready "
+                "summary paragraph suitable for injection into an AI health analysis prompt. "
+                "Include credentials, specialty, treatment approach, and any notable details. "
+                "This summary helps the AI understand the psychiatrist's perspective when "
+                "analyzing a patient's health data. Be factual and concise.\n\n"
+                + "\n".join(parts)
+            )}],
+        )
+    except Exception:
+        current_app.logger.exception("Psychiatrist summary generation failed")
+        return jsonify({"error": "Summary generation is temporarily unavailable"}), 502
+
+    summary = message.content[0].text
+    return jsonify({"summary": summary})
+
+
 # ---------------------------------------------------------------------------
 # Conflicts
 # ---------------------------------------------------------------------------

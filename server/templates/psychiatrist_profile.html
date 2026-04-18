@@ -67,10 +67,16 @@
     <div class="card">
         <h2>Profile Summary</h2>
         <p style="font-size:0.8rem; color:#6e6e73; margin-bottom:0.5rem;">
-            This summary is injected into analysis prompts. Edit to correct any inaccuracies from the research.
+            This summary is injected into analysis prompts. Generate it from research results, then edit if needed.
         </p>
         <textarea name="profile_summary" rows="4"
-                  style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit;">{{ profile.profile_summary or '' }}</textarea>
+                  style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit;"
+                  placeholder="Click 'Generate Summary' to create from research results">{{ profile.profile_summary or '' }}</textarea>
+        {% if profile.research_result %}
+        <div style="margin-top:0.75rem;">
+            <button type="button" id="btn-generate-summary" class="btn btn-primary btn-sm">Generate Summary</button>
+        </div>
+        {% endif %}
     </div>
 
     <button type="submit" class="btn btn-primary">Save Profile</button>
@@ -110,6 +116,32 @@ document.addEventListener("DOMContentLoaded", function () {
             researchBtn.disabled = false;
         }
     });
+
+    // --- Generate Summary ---
+    var summaryBtn = document.getElementById("btn-generate-summary");
+    var summaryTextarea = document.querySelector('textarea[name="profile_summary"]');
+
+    if (summaryBtn && summaryTextarea) {
+        summaryBtn.addEventListener("click", async function () {
+            summaryBtn.disabled = true;
+            summaryBtn.textContent = "Generating...";
+
+            try {
+                var resp = await fetch("{{ url_for('admin.psychiatrist_profile_generate_summary') }}", {
+                    method: "POST"
+                });
+                if (!resp.ok) throw new Error((await resp.json()).error || "Request failed");
+                var data = await resp.json();
+                summaryTextarea.value = data.summary || "";
+                summaryBtn.textContent = "Generate Summary";
+            } catch (e) {
+                alert(e.message || "Unable to generate summary.");
+                summaryBtn.textContent = "Generate Summary";
+            } finally {
+                summaryBtn.disabled = false;
+            }
+        });
+    }
 });
 </script>
 {% endblock %}
