@@ -94,6 +94,7 @@ def create_app(test_config=None):
                 "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS cpap_usage_minutes INTEGER",
                 "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS barometric_pressure_avg_kpa DOUBLE PRECISION",
                 "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS barometric_pressure_change_kpa DOUBLE PRECISION",
+                "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS skin_temp_wrist DOUBLE PRECISION",
             ]
             for stmt in _snapshot_migrations:
                 cur.execute(stmt)

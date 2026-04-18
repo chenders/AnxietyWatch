@@ -110,16 +110,19 @@ struct SnapshotAggregator {
         // Compute deviation from rolling 14-day baseline of raw wrist temps
         if let skinTempValue {
             let baselineWindow = 14
-            guard let cutoff = calendar.date(byAdding: .day, value: -baselineWindow, to: start) else { return }
-            let historical = try modelContext.fetch(
-                FetchDescriptor<HealthSnapshot>(
-                    predicate: #Predicate { $0.date >= cutoff && $0.date < start }
+            if let cutoff = calendar.date(byAdding: .day, value: -baselineWindow, to: start) {
+                let historical = try modelContext.fetch(
+                    FetchDescriptor<HealthSnapshot>(
+                        predicate: #Predicate { $0.date >= cutoff && $0.date < start }
+                    )
                 )
-            )
-            let wristTemps = historical.compactMap(\.skinTempWrist)
-            if wristTemps.count >= baselineWindow {
-                let mean = wristTemps.reduce(0, +) / Double(wristTemps.count)
-                snapshot.skinTempDeviation = skinTempValue - mean
+                let wristTemps = historical.compactMap(\.skinTempWrist)
+                if wristTemps.count >= baselineWindow {
+                    let mean = wristTemps.reduce(0, +) / Double(wristTemps.count)
+                    snapshot.skinTempDeviation = skinTempValue - mean
+                } else {
+                    snapshot.skinTempDeviation = nil
+                }
             } else {
                 snapshot.skinTempDeviation = nil
             }

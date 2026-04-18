@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS health_snapshots (
     sleep_core_min          INTEGER,
     sleep_awake_min         INTEGER,
     skin_temp_deviation     DOUBLE PRECISION,
-    skin_temp_wrist             DOUBLE PRECISION,
+    skin_temp_wrist         DOUBLE PRECISION,
     respiratory_rate        DOUBLE PRECISION,
     spo2_avg                DOUBLE PRECISION,
     steps                   INTEGER,
