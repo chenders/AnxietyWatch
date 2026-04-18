@@ -10,7 +10,7 @@ import anthropic
 import psycopg2
 import psycopg2.extras
 
-MODEL = "claude-opus-4-6"
+MODEL = "claude-opus-4-7"
 
 
 def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
