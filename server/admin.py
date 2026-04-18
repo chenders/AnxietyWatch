@@ -1164,6 +1164,10 @@ BROWSABLE_TABLES = {
     "prescriptions": {"order": "date_filled DESC", "label": "Prescriptions"},
     "pharmacy_call_logs": {"order": "timestamp DESC", "label": "Pharmacy Call Logs"},
     "sync_log": {"order": "received_at DESC", "label": "Sync Log"},
+    "patient_profile": {"order": "updated_at DESC", "label": "Patient Profile"},
+    "psychiatrist_profile": {"order": "updated_at DESC", "label": "Psychiatrist Profile"},
+    "conflicts": {"order": "created_at DESC", "label": "Conflicts"},
+    "analysis_jobs": {"order": "created_at DESC", "label": "Analysis Jobs"},
 }
 
 
