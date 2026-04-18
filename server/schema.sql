@@ -263,3 +263,9 @@ CREATE TABLE IF NOT EXISTS analysis_jobs (
 
 -- Indexes for common query patterns (only on non-PK / non-UNIQUE columns)
 CREATE INDEX IF NOT EXISTS idx_sync_log_received_at ON sync_log (received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conflicts_status_created
+    ON conflicts (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analysis_jobs_analysis_id_job_type
+    ON analysis_jobs (analysis_id, job_type);
+CREATE INDEX IF NOT EXISTS idx_analysis_jobs_status
+    ON analysis_jobs (status);

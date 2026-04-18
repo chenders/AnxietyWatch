@@ -8,6 +8,8 @@ import secrets
 import sys
 from functools import wraps
 
+from datetime import date as date_type
+
 import anthropic
 import psycopg2.extras
 from flask import (
@@ -549,8 +551,18 @@ def patient_profile():
     if request.method == "POST":
         name = request.form.get("name", "").strip() or None
         dob_str = request.form.get("date_of_birth", "").strip()
-        dob = dob_str if dob_str else None
-        gender = request.form.get("gender", "").strip() or None
+        dob = None
+        if dob_str:
+            try:
+                date_type.fromisoformat(dob_str)
+                dob = dob_str
+            except ValueError:
+                flash("Invalid date of birth format.", "error")
+                return redirect(url_for("admin.patient_profile"))
+        gender_raw = request.form.get("gender", "").strip()
+        VALID_GENDERS = {"male", "female", "non_binary", "other", "prefer_not_to_say"}
+        gender_normalized = gender_raw.lower().replace("-", "_").replace(" ", "_") if gender_raw else ""
+        gender = gender_normalized if gender_normalized in VALID_GENDERS else None
         other_meds = request.form.get("other_medications", "").strip() or None
         history_raw = request.form.get("medical_history_raw", "").strip() or None
         history_structured = request.form.get("medical_history_structured", "").strip() or None
@@ -787,9 +799,10 @@ def psychiatrist_profile_research():
 
     if existing:
         cur.execute(
-            "UPDATE psychiatrist_profile SET research_result = %s, researched_at = NOW(), "
+            "UPDATE psychiatrist_profile SET name = %s, location = %s, "
+            "research_result = %s, researched_at = NOW(), "
             "updated_at = NOW() WHERE id = %s",
-            (json.dumps(research_result), existing["id"]),
+            (name, location, json.dumps(research_result), existing["id"]),
         )
     else:
         cur.execute(

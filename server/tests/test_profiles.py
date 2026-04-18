@@ -163,7 +163,7 @@ def test_patient_profile_save(client, app):
     assert row is not None
     assert row["name"] == "Test User"
     assert str(row["date_of_birth"]) == "1992-03-15"
-    assert row["gender"] == "Male"
+    assert row["gender"] == "male"
     assert row["other_medications"] == "Vitamin D 2000IU daily"
     assert row["medical_history_raw"] == "History of GAD since 2018"
 
@@ -190,7 +190,7 @@ def test_patient_profile_update_existing(client, app):
         cur.execute("SELECT * FROM patient_profile LIMIT 1")
         row = cur.fetchone()
     assert row["name"] == "Updated Name"
-    assert row["gender"] == "Non-binary"
+    assert row["gender"] == "non_binary"
 
 
 def test_patient_profile_shows_active_medications(client, app):

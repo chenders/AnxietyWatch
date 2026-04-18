@@ -19,7 +19,7 @@
         <div style="margin-top:0.75rem;">
             <button type="button" id="btn-research" class="btn btn-primary btn-sm">Research</button>
             {% if profile.researched_at %}
-            <span style="font-size:0.8rem; color:#6e6e73; margin-left:0.5rem;">Last researched: {{ profile.researched_at[:16] if profile.researched_at else '' }}</span>
+            <span style="font-size:0.8rem; color:#6e6e73; margin-left:0.5rem;">Last researched: {{ profile.researched_at.strftime('%Y-%m-%d %H:%M') }}</span>
             {% endif %}
         </div>
     </div>
