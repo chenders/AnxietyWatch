@@ -822,15 +822,97 @@ def conflicts():
 @admin_bp.route("/conflicts/new", methods=["GET", "POST"])
 @require_admin
 def conflict_new():
-    # Placeholder — implemented in Task 9
-    return render_template("conflicts.html", conflicts=[])
+    if request.method == "POST":
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO conflicts (description, patient_perspective, patient_assumptions, "
+            "patient_desired_resolution, patient_wants_from_other, "
+            "psychiatrist_perspective, psychiatrist_assumptions, "
+            "psychiatrist_desired_resolution, psychiatrist_wants_from_other, "
+            "additional_context) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (
+                request.form.get("description", "").strip(),
+                request.form.get("patient_perspective", "").strip() or None,
+                request.form.get("patient_assumptions", "").strip() or None,
+                request.form.get("patient_desired_resolution", "").strip() or None,
+                request.form.get("patient_wants_from_other", "").strip() or None,
+                request.form.get("psychiatrist_perspective", "").strip() or None,
+                request.form.get("psychiatrist_assumptions", "").strip() or None,
+                request.form.get("psychiatrist_desired_resolution", "").strip() or None,
+                request.form.get("psychiatrist_wants_from_other", "").strip() or None,
+                request.form.get("additional_context", "").strip() or None,
+            ),
+        )
+        conflict_id = cur.fetchone()[0]
+        db.commit()
+        flash("Conflict created.", "success")
+        return redirect(url_for("admin.conflict_detail", conflict_id=conflict_id))
+
+    return render_template("conflict_detail.html", conflict={}, is_new=True)
 
 
 @admin_bp.route("/conflicts/<int:conflict_id>", methods=["GET", "POST"])
 @require_admin
 def conflict_detail(conflict_id):
-    # Placeholder — implemented in Task 9
-    return redirect(url_for("admin.conflicts"))
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    if request.method == "POST":
+        action = request.form.get("action")
+
+        if action == "resolve":
+            cur.execute(
+                "UPDATE conflicts SET status = 'resolved', resolved_at = NOW(), "
+                "updated_at = NOW() WHERE id = %s",
+                (conflict_id,),
+            )
+            db.commit()
+            flash("Conflict marked as resolved.", "success")
+        elif action == "reopen":
+            cur.execute(
+                "UPDATE conflicts SET status = 'active', resolved_at = NULL, "
+                "updated_at = NOW() WHERE id = %s",
+                (conflict_id,),
+            )
+            db.commit()
+            flash("Conflict reopened.", "success")
+        else:
+            # Save form fields
+            cur.execute(
+                "UPDATE conflicts SET description = %s, "
+                "patient_perspective = %s, patient_assumptions = %s, "
+                "patient_desired_resolution = %s, patient_wants_from_other = %s, "
+                "psychiatrist_perspective = %s, psychiatrist_assumptions = %s, "
+                "psychiatrist_desired_resolution = %s, psychiatrist_wants_from_other = %s, "
+                "additional_context = %s, updated_at = NOW() WHERE id = %s",
+                (
+                    request.form.get("description", "").strip(),
+                    request.form.get("patient_perspective", "").strip() or None,
+                    request.form.get("patient_assumptions", "").strip() or None,
+                    request.form.get("patient_desired_resolution", "").strip() or None,
+                    request.form.get("patient_wants_from_other", "").strip() or None,
+                    request.form.get("psychiatrist_perspective", "").strip() or None,
+                    request.form.get("psychiatrist_assumptions", "").strip() or None,
+                    request.form.get("psychiatrist_desired_resolution", "").strip() or None,
+                    request.form.get("psychiatrist_wants_from_other", "").strip() or None,
+                    request.form.get("additional_context", "").strip() or None,
+                    conflict_id,
+                ),
+            )
+            db.commit()
+            flash("Conflict saved.", "success")
+
+        return redirect(url_for("admin.conflict_detail", conflict_id=conflict_id))
+
+    cur.execute("SELECT * FROM conflicts WHERE id = %s", (conflict_id,))
+    conflict = cur.fetchone()
+    if not conflict:
+        flash("Conflict not found.", "error")
+        return redirect(url_for("admin.conflicts"))
+
+    return render_template("conflict_detail.html", conflict=conflict, is_new=False)
 
 
 # ---------------------------------------------------------------------------

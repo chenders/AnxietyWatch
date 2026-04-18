@@ -97,3 +97,85 @@ def test_conflicts_list_shows_conflicts(client, app):
     assert resp.status_code == 200
     assert b"Active conflict about meds" in resp.data
     assert b"Old resolved conflict" in resp.data
+
+
+def test_conflict_new_page(client):
+    """GET /admin/conflicts/new returns 200 with empty form."""
+    _login(client)
+    resp = client.get("/admin/conflicts/new")
+    assert resp.status_code == 200
+    assert b"New Conflict" in resp.data
+
+
+def test_conflict_create(client, app):
+    """POST /admin/conflicts/new creates a conflict."""
+    _login(client)
+    resp = client.post("/admin/conflicts/new", data={
+        "description": "Disagreement about Clonazepam reduction timeline",
+        "patient_perspective": "I think the taper is too fast",
+        "patient_assumptions": "Rapid tapers cause rebound anxiety",
+        "patient_desired_resolution": "Slower taper schedule",
+        "patient_wants_from_other": "More conservative approach",
+        "psychiatrist_perspective": "Current taper follows guidelines",
+        "psychiatrist_assumptions": "Patient can handle this pace",
+        "psychiatrist_desired_resolution": "Stick with the current plan",
+        "psychiatrist_wants_from_other": "Trust the process",
+        "additional_context": "Have been on this medication for 3 years",
+    }, follow_redirects=False)
+    assert resp.status_code == 302  # redirect to detail page
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM conflicts LIMIT 1")
+        row = cur.fetchone()
+    assert row is not None
+    assert row["status"] == "active"
+    assert "Clonazepam" in row["description"]
+    assert row["patient_perspective"] == "I think the taper is too fast"
+    assert row["psychiatrist_perspective"] == "Current taper follows guidelines"
+
+
+def test_conflict_detail_page(client, app):
+    """GET /admin/conflicts/<id> shows conflict detail form."""
+    _login(client)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO conflicts (description, patient_perspective) "
+            "VALUES ('Test conflict', 'My side') RETURNING id"
+        )
+        conflict_id = cur.fetchone()[0]
+        db.commit()
+
+    resp = client.get(f"/admin/conflicts/{conflict_id}")
+    assert resp.status_code == 200
+    assert b"Test conflict" in resp.data
+    assert b"My side" in resp.data
+
+
+def test_conflict_update(client, app):
+    """POST /admin/conflicts/<id> updates a conflict."""
+    _login(client)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO conflicts (description) VALUES ('Original description') RETURNING id"
+        )
+        conflict_id = cur.fetchone()[0]
+        db.commit()
+
+    client.post(f"/admin/conflicts/{conflict_id}", data={
+        "description": "Updated description",
+        "patient_perspective": "New perspective",
+    }, follow_redirects=True)
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM conflicts WHERE id = %s", (conflict_id,))
+        row = cur.fetchone()
+    assert row["description"] == "Updated description"
+    assert row["patient_perspective"] == "New perspective"
