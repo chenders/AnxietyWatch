@@ -3,8 +3,8 @@
 import hashlib
 import os
 import sys
-import time
 from datetime import date
+from unittest.mock import patch
 
 import psycopg2
 import psycopg2.extras
@@ -253,7 +253,8 @@ def test_cascade_failures(app):
     assert f"Dependency job {validity_id} failed" in jobs[2]["error_message"]
 
 
-def test_start_analysis_creates_jobs(app):
+@patch("job_dispatcher.dispatch_analysis")
+def test_start_analysis_creates_jobs(mock_dispatch, app):
     """start_analysis creates analysis_jobs rows via the dispatcher."""
     with app.app_context():
         db = app.get_db()
@@ -266,12 +267,8 @@ def test_start_analysis_creates_jobs(app):
         db.commit()
 
         from analysis import start_analysis
-        database_url = DATABASE_URL
         analysis_id = start_analysis(db, date(2026, 1, 10), date(2026, 1, 10),
-                                     database_url=database_url)
-
-        # Give the background thread a moment
-        time.sleep(1)
+                                     database_url=DATABASE_URL)
 
         cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(
@@ -282,9 +279,11 @@ def test_start_analysis_creates_jobs(app):
 
     assert len(jobs) >= 1  # at least health_analysis
     assert any(j["job_type"] == "health_analysis" for j in jobs)
+    mock_dispatch.assert_called_once()
 
 
-def test_start_analysis_with_conflict_creates_6_jobs(app):
+@patch("job_dispatcher.dispatch_analysis")
+def test_start_analysis_with_conflict_creates_6_jobs(mock_dispatch, app):
     """start_analysis with active conflict creates all 6 job types."""
     _create_test_conflict(app)
     with app.app_context():
@@ -300,8 +299,6 @@ def test_start_analysis_with_conflict_creates_6_jobs(app):
         analysis_id = start_analysis(db, date(2026, 1, 10), date(2026, 1, 10),
                                      database_url=DATABASE_URL)
 
-        time.sleep(1)
-
         cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(
             "SELECT job_type FROM analysis_jobs WHERE analysis_id = %s ORDER BY id",
@@ -312,3 +309,4 @@ def test_start_analysis_with_conflict_creates_6_jobs(app):
     assert len(job_types) == 6
     assert "health_analysis" in job_types
     assert "conflict_synthesis" in job_types
+    mock_dispatch.assert_called_once()
