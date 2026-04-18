@@ -73,12 +73,12 @@ enum DataExporter {
 
         // Health snapshots
         csv = "date,hrv_avg,hrv_min,resting_hr,sleep_total_min,sleep_deep_min,sleep_rem_min,"
-        csv += "sleep_core_min,sleep_awake_min,skin_temp_dev,resp_rate,spo2_avg,"
+        csv += "sleep_core_min,sleep_awake_min,skin_temp_dev,skin_temp_wrist,resp_rate,spo2_avg,"
         csv += "steps,active_cal,exercise_min,env_sound_avg,bp_sys,bp_dia,glucose_avg\n"
         for h in bundle.healthSnapshots {
             csv += "\(h.date),\(opt(h.hrvAvg)),\(opt(h.hrvMin)),\(opt(h.restingHR)),"
             csv += "\(opt(h.sleepDurationMin)),\(opt(h.sleepDeepMin)),\(opt(h.sleepREMMin)),"
-            csv += "\(opt(h.sleepCoreMin)),\(opt(h.sleepAwakeMin)),\(opt(h.skinTempDeviation)),"
+            csv += "\(opt(h.sleepCoreMin)),\(opt(h.sleepAwakeMin)),\(opt(h.skinTempDeviation)),\(opt(h.skinTempWrist)),"
             csv += "\(opt(h.respiratoryRate)),\(opt(h.spo2Avg)),\(opt(h.steps)),"
             csv += "\(opt(h.activeCalories)),\(opt(h.exerciseMinutes)),\(opt(h.environmentalSoundAvg)),"
             csv += "\(opt(h.bpSystolic)),\(opt(h.bpDiastolic)),\(opt(h.bloodGlucoseAvg))\n"
@@ -178,6 +178,7 @@ enum DataExporter {
                                   sleepDurationMin: h.sleepDurationMin, sleepDeepMin: h.sleepDeepMin,
                                   sleepREMMin: h.sleepREMMin, sleepCoreMin: h.sleepCoreMin,
                                   sleepAwakeMin: h.sleepAwakeMin, skinTempDeviation: h.skinTempDeviation,
+                                  skinTempWrist: h.skinTempWrist,
                                   respiratoryRate: h.respiratoryRate, spo2Avg: h.spo2Avg,
                                   steps: h.steps, activeCalories: h.activeCalories,
                                   exerciseMinutes: h.exerciseMinutes,
@@ -257,6 +258,7 @@ enum DataExporter {
         let date: String; let hrvAvg: Double?; let hrvMin: Double?; let restingHR: Double?
         let sleepDurationMin: Int?; let sleepDeepMin: Int?; let sleepREMMin: Int?
         let sleepCoreMin: Int?; let sleepAwakeMin: Int?; let skinTempDeviation: Double?
+        let skinTempWrist: Double?
         let respiratoryRate: Double?; let spo2Avg: Double?; let steps: Int?
         let activeCalories: Double?; let exerciseMinutes: Int?
         let environmentalSoundAvg: Double?; let bpSystolic: Double?

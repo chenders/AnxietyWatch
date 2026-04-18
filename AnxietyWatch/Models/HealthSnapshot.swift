@@ -25,6 +25,9 @@ final class HealthSnapshot {
 
     // Overnight metrics
     var skinTempDeviation: Double?
+    /// Raw absolute wrist temperature during sleep (°C, typically 35–37).
+    /// skinTempDeviation is computed from the rolling baseline of this value.
+    var skinTempWrist: Double?
     var respiratoryRate: Double?
     var spo2Avg: Double?
 

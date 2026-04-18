@@ -177,6 +177,61 @@ struct SnapshotAggregatorMockTests {
         #expect(s.spo2Avg == nil)
     }
 
+    @Test("Skin temp wrist stores raw absolute temperature")
+    func skinTempWristRaw() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        await mock.setAverage(.appleSleepingWristTemperature, value: 35.5)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.skinTempWrist == 35.5)
+    }
+
+    @Test("Skin temp deviation is nil without enough baseline data")
+    func skinTempDeviationNilWithoutBaseline() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        await mock.setAverage(.appleSleepingWristTemperature, value: 35.5)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        // Only one day — not enough for a 14-day baseline
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.skinTempDeviation == nil)
+    }
+
+    @Test("Skin temp deviation computed from rolling baseline")
+    func skinTempDeviationFromBaseline() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+
+        // Pre-populate 14 days of historical snapshots with known wrist temps
+        let cal = Calendar.current
+        for dayOffset in (-14)...(-1) {
+            let date = cal.date(byAdding: .day, value: dayOffset, to: referenceDate)!
+            let snapshot = HealthSnapshot(date: date)
+            snapshot.skinTempWrist = 35.0  // baseline will be 35.0
+            context.insert(snapshot)
+        }
+        try context.save()
+
+        // Today's wrist temp is 35.8 — deviation should be +0.8
+        await mock.setAverage(.appleSleepingWristTemperature, value: 35.8)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+
+        let all = try context.fetch(FetchDescriptor<HealthSnapshot>(
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        ))
+        let today = all.first { cal.isDate($0.date, inSameDayAs: referenceDate) }!
+        #expect(today.skinTempWrist == 35.8)
+        #expect(today.skinTempDeviation != nil)
+        #expect(abs(today.skinTempDeviation! - 0.8) < 0.01)
+    }
+
     @Test("Aggregating same day twice updates existing snapshot")
     func deduplicatesSnapshots() async throws {
         let container = try TestHelpers.makeFullContainer()
