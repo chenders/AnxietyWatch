@@ -599,7 +599,9 @@ def patient_profile_refine():
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 400
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid or missing JSON body"}), 400
     raw = data.get("medical_history_raw", "")
     structured_draft = data.get("structured_draft")
     answers = data.get("answers")
@@ -737,7 +739,9 @@ def psychiatrist_profile_research():
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 400
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid or missing JSON body"}), 400
     name = data.get("name", "")
     location = data.get("location", "")
 

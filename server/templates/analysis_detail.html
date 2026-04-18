@@ -11,7 +11,10 @@
 </div>
 
 {% set has_conflict = conflict_jobs|length > 0 %}
-{% set active_tab = request.args.get('tab', 'conflict' if has_conflict else 'health') %}
+{% set default_tab = 'conflict' if has_conflict else 'health' %}
+{% set allowed_tabs = ['health', 'conflict'] if has_conflict else ['health'] %}
+{% set requested_tab = request.args.get('tab') %}
+{% set active_tab = requested_tab if requested_tab in allowed_tabs else default_tab %}
 
 {% if has_conflict %}
 <div class="tabs" style="margin-bottom:1rem;">

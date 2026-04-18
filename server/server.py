@@ -3,7 +3,7 @@
 import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from functools import wraps
 
 import psycopg2
@@ -498,6 +498,13 @@ def create_app(test_config=None):
         sex = demographics.get("biologicalSex")
         if not dob and not sex:
             return
+
+        # Validate date format before passing to Postgres
+        if dob:
+            try:
+                date.fromisoformat(dob)
+            except (ValueError, TypeError):
+                dob = None
 
         cur.execute("SELECT id, date_of_birth, gender FROM patient_profile LIMIT 1")
         existing = cur.fetchone()

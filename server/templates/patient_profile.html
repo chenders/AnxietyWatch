@@ -21,8 +21,15 @@
                 <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Gender</label><br>
                 <select name="gender" style="padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; width:100%;">
                     <option value="">—</option>
-                    {% for opt in ["Male", "Female", "Non-binary", "Other", "Prefer not to say"] %}
-                    <option value="{{ opt }}" {{ 'selected' if profile.gender == opt else '' }}>{{ opt }}</option>
+                    {% set normalized_gender = (profile.gender or '')|lower|replace('-', '_')|replace(' ', '_') %}
+                    {% for value, label in [
+                        ('male', 'Male'),
+                        ('female', 'Female'),
+                        ('non_binary', 'Non-binary'),
+                        ('other', 'Other'),
+                        ('prefer_not_to_say', 'Prefer not to say')
+                    ] %}
+                    <option value="{{ value }}" {{ 'selected' if normalized_gender == value else '' }}>{{ label }}</option>
                     {% endfor %}
                 </select>
             </div>

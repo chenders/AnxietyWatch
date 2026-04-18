@@ -6,11 +6,12 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import analysis
 import anthropic
 import psycopg2
 import psycopg2.extras
 
-MODEL = "claude-opus-4-7"
+MODEL = analysis.MODEL
 
 logger = logging.getLogger(__name__)
 
