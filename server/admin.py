@@ -966,6 +966,10 @@ def analysis():
         max_date = date_type.today()
         min_date = max_date - timedelta(days=30)
 
+    # Check for active conflict
+    cur.execute("SELECT description FROM conflicts WHERE status = 'active' LIMIT 1")
+    active_conflict = cur.fetchone()
+
     from analysis import MODEL
     return render_template(
         "analysis.html",
@@ -973,6 +977,7 @@ def analysis():
         min_date=min_date,
         max_date=max_date,
         model_name=MODEL,
+        active_conflict=active_conflict,
     )
 
 

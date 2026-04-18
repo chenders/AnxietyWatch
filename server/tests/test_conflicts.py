@@ -232,6 +232,30 @@ def test_conflict_reopen(client, app):
     assert row["resolved_at"] is None
 
 
+def test_analysis_page_shows_conflict_banner(client, app):
+    """Analysis page shows banner when an active conflict exists."""
+    _login(client)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO conflicts (description) VALUES ('Active conflict about meds')"
+        )
+        db.commit()
+
+    resp = client.get("/admin/analysis")
+    assert resp.status_code == 200
+    assert b"Active conflict detected" in resp.data
+
+
+def test_analysis_page_no_banner_without_conflict(client):
+    """Analysis page shows no banner when no active conflict exists."""
+    _login(client)
+    resp = client.get("/admin/analysis")
+    assert resp.status_code == 200
+    assert b"Active conflict detected" not in resp.data
+
+
 def test_conflict_status_check_constraint(app):
     """conflicts.status only allows 'active' or 'resolved'."""
     with app.app_context():
