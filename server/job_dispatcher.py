@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import time
-import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import anthropic
