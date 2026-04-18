@@ -876,7 +876,8 @@ def psychiatrist_profile_generate_summary():
             if value and key != "sources":
                 label = key.replace("_", " ").title()
                 if isinstance(value, list):
-                    parts.append(f"{label}: {'; '.join(str(v) for v in value)}")
+                    items = [json.dumps(v) if isinstance(v, dict) else str(v) for v in value]
+                    parts.append(f"{label}: {'; '.join(items)}")
                 else:
                     parts.append(f"{label}: {value}")
     else:
@@ -901,7 +902,8 @@ def psychiatrist_profile_generate_summary():
         current_app.logger.exception("Psychiatrist summary generation failed")
         return jsonify({"error": "Summary generation is temporarily unavailable"}), 502
 
-    summary = message.content[0].text
+    text_parts = [block.text for block in message.content if hasattr(block, "text")]
+    summary = "\n".join(text_parts)
     return jsonify({"summary": summary})
 
 
