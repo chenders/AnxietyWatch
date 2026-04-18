@@ -406,6 +406,124 @@ def test_psychiatrist_research(client):
     assert call_kwargs["tools"] == [{"type": "web_search_20250305", "name": "web_search"}]
 
 
+def test_psychiatrist_research_repairs_fenced_json(client, app):
+    """Web search responses with fenced JSON and citation newlines are repaired."""
+    _login(client)
+    # Simulate Claude's web search response: preamble, fenced JSON with literal
+    # newlines inside string values (from citation text blocks), and caveats after.
+    fenced_response = (
+        "I'll research this psychiatrist. Let me search.\n\n"
+        '```json\n'
+        '{\n'
+        '  "credentials": "\nMD, Board Certified\n; \nlicensed in Oregon\n",\n'
+        '  "specialty": "Anxiety disorders",\n'
+        '  "publications": [{"title": "\nSome\npaper\n", "year": 2020}],\n'
+        '  "sources": ["https://example.com"]\n'
+        '}\n'
+        '```\n\n'
+        "**Caveats:** Verify with the medical board."
+    )
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}), \
+            patch("admin.anthropic") as mock_anthropic:
+        mock_client = MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_claude_response(fenced_response)
+
+        resp = client.post("/admin/psychiatrist-profile/research", json={
+            "name": "Jane Smith MD",
+            "location": "Portland, OR",
+        })
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    result = data["research_result"]
+
+    # JSON was parsed (not raw_response fallback)
+    assert "raw_response" not in result
+    # Citation newlines cleaned from string values
+    assert "\n" not in result["credentials"]
+    assert "MD, Board Certified" in result["credentials"]
+    # Nested dict in list was also cleaned
+    assert "\n" not in result["publications"][0]["title"]
+    assert result["publications"][0]["title"] == "Some paper"
+
+    # Verify it was saved to DB
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT research_result FROM psychiatrist_profile LIMIT 1")
+        row = cur.fetchone()
+        assert row["research_result"]["credentials"] == result["credentials"]
+
+
+def test_psychiatrist_generate_summary_no_api_key(client):
+    """POST /admin/psychiatrist-profile/generate-summary returns 400 without API key."""
+    _login(client)
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+        resp = client.post("/admin/psychiatrist-profile/generate-summary")
+    assert resp.status_code == 400
+
+
+def test_psychiatrist_generate_summary_no_profile(client):
+    """POST /admin/psychiatrist-profile/generate-summary returns 404 without a profile."""
+    _login(client)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        resp = client.post("/admin/psychiatrist-profile/generate-summary")
+    assert resp.status_code == 404
+
+
+def test_psychiatrist_generate_summary_no_research(client):
+    """POST /admin/psychiatrist-profile/generate-summary returns 400 without research results."""
+    _login(client)
+    client.post("/admin/psychiatrist-profile", data={
+        "name": "Jane Smith MD",
+        "location": "Portland, OR",
+    })
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        resp = client.post("/admin/psychiatrist-profile/generate-summary")
+    assert resp.status_code == 400
+    assert "research" in resp.get_json()["error"].lower()
+
+
+def test_psychiatrist_generate_summary_success(client, app):
+    """POST /admin/psychiatrist-profile/generate-summary synthesizes research into summary."""
+    _login(client)
+    # Create profile with research results
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO psychiatrist_profile (name, location, research_result, researched_at) "
+            "VALUES (%s, %s, %s, NOW())",
+            ("Jane Smith MD", "Portland, OR", json.dumps({
+                "credentials": "MD, Board Certified Psychiatry",
+                "specialty": "Anxiety disorders",
+            })),
+        )
+        db.commit()
+
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}), \
+            patch("admin.anthropic") as mock_anthropic:
+        mock_client = MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_claude_response(
+            "Dr. Jane Smith is a board-certified psychiatrist specializing in anxiety disorders."
+        )
+        resp = client.post("/admin/psychiatrist-profile/generate-summary")
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "summary" in data
+    assert "Jane Smith" in data["summary"]
+
+    # Verify the prompt included research data
+    call_kwargs = mock_client.messages.create.call_args[1]
+    assert "Credentials" in call_kwargs["messages"][0]["content"]
+    assert "Board Certified" in call_kwargs["messages"][0]["content"]
+
+
 def test_build_prompt_without_patient_context(app):
     """build_prompt with no patient_context omits the section entirely."""
     with app.app_context():
