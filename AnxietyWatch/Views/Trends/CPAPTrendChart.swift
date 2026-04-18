@@ -13,17 +13,37 @@ struct CPAPTrendChart: View {
         BaselineCalculator.cpapAHIBaseline(from: allSnapshots)
     }
 
+    /// Unified data point for the AHI chart — avoids ForEach/MapContentBuilder
+    /// ambiguity that occurs on some Xcode versions when Charts and MapKit
+    /// cross-import overlays are both active.
+    private struct AHIDatum: Identifiable {
+        let id: UUID
+        let date: Date
+        let ahi: Double
+        let color: Color
+    }
+
+    private var ahiData: [AHIDatum] {
+        sessions.map {
+            AHIDatum(id: $0.id, date: $0.date, ahi: $0.ahi, color: ahiColor($0.ahi))
+        }
+    }
+
     var body: some View {
         ChartCard(
             title: "CPAP — AHI & Usage",
             subtitle: baseline.map { String(format: "30-day avg: %.1f events/hr", $0.mean) },
             isEmpty: sessions.isEmpty
         ) {
-            Chart {
-                ahiBars
-                baselineRules
-                anxietyOverlay
+            Chart(ahiData) { datum in
+                BarMark(
+                    x: .value("Date", datum.date, unit: .day),
+                    y: .value("AHI", datum.ahi)
+                )
+                .foregroundStyle(datum.color.gradient)
             }
+            .chartOverlay(content: baselineOverlay)
+            .chartOverlay(content: anxietyEntriesOverlay)
             .chartXScale(domain: dateRange)
             .chartYAxisLabel("AHI (events/hr)")
             .frame(height: 180)
@@ -42,49 +62,47 @@ struct CPAPTrendChart: View {
         }
     }
 
-    @ChartContentBuilder
-    private var ahiBars: some ChartContent {
-        Plot {
-            ForEach(sessions) { session in
-                BarMark(
-                    x: .value("Date", session.date, unit: .day),
-                    y: .value("AHI", session.ahi)
-                )
-                .foregroundStyle(ahiColor(session.ahi).gradient)
+    private func baselineOverlay(proxy: ChartProxy) -> some View {
+        GeometryReader { geo in
+            if let baseline,
+               let meanY = proxy.position(forY: baseline.mean) {
+                Path { path in
+                    path.move(to: CGPoint(x: 0, y: meanY))
+                    path.addLine(to: CGPoint(x: geo.size.width, y: meanY))
+                }
+                .stroke(.green.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
+
+                Text("avg")
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                    .position(x: geo.size.width - 12, y: meanY - 8)
+
+                if let upperY = proxy.position(forY: baseline.upperBound) {
+                    Path { path in
+                        path.move(to: CGPoint(x: 0, y: upperY))
+                        path.addLine(to: CGPoint(x: geo.size.width, y: upperY))
+                    }
+                    .stroke(.red.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                }
             }
         }
     }
 
-    @ChartContentBuilder
-    private var baselineRules: some ChartContent {
-        if let baseline {
-            RuleMark(y: .value("Baseline", baseline.mean))
-                .foregroundStyle(.green.opacity(0.6))
-                .lineStyle(StrokeStyle(dash: [5, 3]))
-                .annotation(position: .trailing, alignment: .leading) {
-                    Text("avg")
-                        .font(.caption2)
-                        .foregroundStyle(.green)
-                }
-
-            RuleMark(y: .value("Upper", baseline.upperBound))
-                .foregroundStyle(.red.opacity(0.3))
-                .lineStyle(StrokeStyle(dash: [3, 3]))
-        }
-    }
-
-    @ChartContentBuilder
-    private var anxietyOverlay: some ChartContent {
-        Plot {
+    private func anxietyEntriesOverlay(proxy: ChartProxy) -> some View {
+        GeometryReader { geo in
             ForEach(entries) { entry in
-                RuleMark(x: .value("Date", entry.timestamp, unit: .day))
-                    .foregroundStyle(Color.severity(entry.severity).opacity(0.25))
-                    .lineStyle(StrokeStyle(lineWidth: 2))
-                    .annotation(position: .top, spacing: 0) {
-                        Text("\(entry.severity)")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(Color.severity(entry.severity))
+                if let xPos = proxy.position(forX: entry.timestamp) {
+                    Path { path in
+                        path.move(to: CGPoint(x: xPos, y: 0))
+                        path.addLine(to: CGPoint(x: xPos, y: geo.size.height))
                     }
+                    .stroke(Color.severity(entry.severity).opacity(0.25), lineWidth: 2)
+
+                    Text("\(entry.severity)")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Color.severity(entry.severity))
+                        .position(x: xPos, y: 4)
+                }
             }
         }
     }
