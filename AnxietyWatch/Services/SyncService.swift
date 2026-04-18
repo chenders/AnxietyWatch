@@ -91,10 +91,10 @@ final class SyncService {
             let hkManager = HealthKitManager.shared
             do {
                 if let dobComponents = try await hkManager.dateOfBirth(),
-                   let dobDate = Calendar.current.date(from: dobComponents) {
-                    let formatter = ISO8601DateFormatter()
-                    formatter.formatOptions = [.withFullDate]
-                    demographics["dateOfBirth"] = formatter.string(from: dobDate)
+                   let year = dobComponents.year,
+                   let month = dobComponents.month,
+                   let day = dobComponents.day {
+                    demographics["dateOfBirth"] = String(format: "%04d-%02d-%02d", year, month, day)
                 }
             } catch {
                 // HealthKit may deny access — non-fatal

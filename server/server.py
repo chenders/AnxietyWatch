@@ -513,6 +513,10 @@ def create_app(test_config=None):
             if sex not in valid_genders:
                 sex = None
 
+        # After validation, both may have been cleared — nothing to upsert
+        if not dob and not sex:
+            return
+
         cur.execute("SELECT id, date_of_birth, gender FROM patient_profile LIMIT 1")
         existing = cur.fetchone()
 

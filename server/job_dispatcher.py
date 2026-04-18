@@ -90,13 +90,19 @@ def find_ready_jobs(db, analysis_id):
 
 
 def mark_running(db, job_id):
-    """Mark a job as running."""
+    """Atomically mark a pending job as running.
+
+    Returns True only if this call successfully claimed the job.
+    """
     cur = db.cursor()
     cur.execute(
-        "UPDATE analysis_jobs SET status = 'running', started_at = NOW() WHERE id = %s",
+        "UPDATE analysis_jobs SET status = 'running', started_at = NOW() "
+        "WHERE id = %s AND status = 'pending'",
         (job_id,),
     )
+    claimed = cur.rowcount == 1
     db.commit()
+    return claimed
 
 
 def store_request_payload(db, job_id, request_payload):
@@ -239,8 +245,8 @@ def dispatch_analysis(analysis_id, database_url):
             if not ready and no_running_jobs(conn, analysis_id):
                 break
             for job in ready:
-                mark_running(conn, job["id"])
-                pool.submit(_execute_single_job, job, database_url)
+                if mark_running(conn, job["id"]):
+                    pool.submit(_execute_single_job, job, database_url)
             # Release the transaction snapshot so VACUUM can proceed
             # while we sleep between polls.
             conn.commit()
