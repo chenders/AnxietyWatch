@@ -106,7 +106,11 @@ struct SnapshotAggregator {
 
         snapshot.skinTempDeviation = try await skinTemp
         snapshot.respiratoryRate = try await respiratoryRate
-        snapshot.spo2Avg = try await spo2
+        if let spo2Value = try await spo2 {
+            snapshot.spo2Avg = spo2Value * 100
+        } else {
+            snapshot.spo2Avg = nil
+        }
 
         if let s = try await steps { snapshot.steps = Int(s) }
         snapshot.activeCalories = try await calories

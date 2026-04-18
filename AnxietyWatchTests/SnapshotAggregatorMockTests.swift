@@ -153,6 +153,30 @@ struct SnapshotAggregatorMockTests {
         #expect(abs(s.barometricPressureChangeKPa! - 2.0) < 0.01)
     }
 
+    @Test("SpO2 is scaled from 0-1 to percentage (0-100)")
+    func spo2Scaled() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        // HealthKit returns 0.96 for 96% SpO2
+        await mock.setAverage(.oxygenSaturation, value: 0.96)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.spo2Avg == 96.0)
+    }
+
+    @Test("SpO2 nil stays nil")
+    func spo2NilStaysNil() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.spo2Avg == nil)
+    }
+
     @Test("Aggregating same day twice updates existing snapshot")
     func deduplicatesSnapshots() async throws {
         let container = try TestHelpers.makeFullContainer()
