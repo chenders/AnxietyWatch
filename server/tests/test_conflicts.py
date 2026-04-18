@@ -1,6 +1,7 @@
 """Tests for conflict CRUD and lifecycle."""
 
 import hashlib
+import json
 import os
 import sys
 
@@ -266,3 +267,74 @@ def test_conflict_status_check_constraint(app):
                 "INSERT INTO conflicts (status, description) VALUES ('invalid', 'test')"
             )
         db.rollback()
+
+
+def test_analysis_detail_shows_health_tab(client, app):
+    """Analysis detail page shows Health Analysis tab."""
+    _login(client)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO analyses (date_from, date_to, status, model, summary, "
+            "trend_direction, insights) "
+            "VALUES ('2026-01-10', '2026-01-12', 'completed', 'claude-opus-4-7', "
+            "'Test summary', 'stable', '[]') RETURNING id"
+        )
+        analysis_id = cur.fetchone()[0]
+        db.commit()
+
+    resp = client.get(f"/admin/analysis/{analysis_id}")
+    assert resp.status_code == 200
+    assert b"Health Analysis" in resp.data
+
+
+def test_analysis_detail_shows_conflict_tab_when_jobs_exist(client, app):
+    """Analysis detail page shows Conflict Analysis tab when conflict jobs exist."""
+    _login(client)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO analyses (date_from, date_to, status, model) "
+            "VALUES ('2026-01-10', '2026-01-12', 'completed', 'claude-opus-4-7') RETURNING id"
+        )
+        analysis_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO conflicts (description) VALUES ('Test conflict') RETURNING id"
+        )
+        conflict_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO analysis_jobs (analysis_id, conflict_id, job_type, status, model, "
+            "result) VALUES (%s, %s, 'patient_validity', 'completed', 'claude-opus-4-7', %s)",
+            (analysis_id, conflict_id, json.dumps({"findings": [
+                {"claim": "Test claim", "assessment": "Supported by APA guidelines",
+                 "sources": [{"title": "APA 2023", "type": "clinical_guideline"}],
+                 "confidence": 0.85, "confidence_explanation": "Strong evidence"}
+            ]})),
+        )
+        db.commit()
+
+    resp = client.get(f"/admin/analysis/{analysis_id}")
+    assert resp.status_code == 200
+    assert b"Conflict Analysis" in resp.data
+    assert b"Test claim" in resp.data
+
+
+def test_analysis_detail_no_conflict_tab_without_jobs(client, app):
+    """Analysis detail page hides Conflict Analysis tab when no conflict jobs."""
+    _login(client)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO analyses (date_from, date_to, status, model, summary) "
+            "VALUES ('2026-01-10', '2026-01-12', 'completed', 'claude-opus-4-7', 'Summary') "
+            "RETURNING id"
+        )
+        analysis_id = cur.fetchone()[0]
+        db.commit()
+
+    resp = client.get(f"/admin/analysis/{analysis_id}")
+    assert resp.status_code == 200
+    assert b"Conflict Analysis" not in resp.data

@@ -1044,12 +1044,27 @@ def analysis_detail(analysis_id):
     medium = [i for i in insights if i.get("severity") == "medium"]
     low = [i for i in insights if i.get("severity") == "low"]
 
+    # Load conflict analysis jobs (if any)
+    cur.execute(
+        "SELECT * FROM analysis_jobs WHERE analysis_id = %s AND job_type != 'health_analysis' "
+        "ORDER BY id",
+        (analysis_id,),
+    )
+    conflict_jobs = cur.fetchall()
+
+    # Organize conflict jobs by type
+    conflict_data = {}
+    for job in conflict_jobs:
+        conflict_data[job["job_type"]] = job
+
     return render_template(
         "analysis_detail.html",
         a=a,
         high_insights=high,
         medium_insights=medium,
         low_insights=low,
+        conflict_jobs=conflict_jobs,
+        conflict_data=conflict_data,
     )
 
 
