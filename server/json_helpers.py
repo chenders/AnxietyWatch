@@ -35,13 +35,13 @@ def _extract_json_text(full_text):
     # Fenced block: ```json ... ``` or ``` ... ```
     # Use a regex that strips any language tag after the opening fence
     fence_match = re.search(
-        r"```(?:\w+)?\s*([\s\S]*?)```", full_text
+        r"```\s*(?:\w+)?\s*([\s\S]*?)```", full_text
     )
     if fence_match:
         return fence_match.group(1).strip()
 
     # Unclosed fence (truncated response) — take everything after the opening
-    unclosed_match = re.search(r"```(?:\w+)?\s*([\s\S]*)", full_text)
+    unclosed_match = re.search(r"```\s*(?:\w+)?\s*([\s\S]*)", full_text)
     if unclosed_match:
         return unclosed_match.group(1).strip()
 
@@ -61,6 +61,8 @@ def parse_llm_json(full_text):
     # Fast path: try standard parsing
     try:
         result = json.loads(json_text)
+        if not isinstance(result, (dict, list)):
+            return None
         return _clean_citation_artifacts(result)
     except (json.JSONDecodeError, ValueError):
         pass
@@ -70,6 +72,8 @@ def parse_llm_json(full_text):
         from json_repair import repair_json
         repaired = repair_json(json_text)
         result = json.loads(repaired)
+        if not isinstance(result, (dict, list)):
+            return None
         return _clean_citation_artifacts(result)
     except Exception:
         logger.exception("JSON repair failed for LLM response")

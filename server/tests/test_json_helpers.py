@@ -96,3 +96,18 @@ def test_extract_json_text_multiple_fences():
     )
     extracted = _extract_json_text(text)
     assert '{"key": "val"}' == extracted
+
+
+def test_extract_json_text_space_before_language_tag():
+    """_extract_json_text handles a space between ``` and the language tag."""
+    text = '``` json\n{"key": "val"}\n```'
+    extracted = _extract_json_text(text)
+    assert extracted == '{"key": "val"}'
+
+
+def test_parse_scalar_returns_none():
+    """Scalar JSON values (string, number, null) return None — callers expect dict/list."""
+    assert parse_llm_json('"just a string"') is None
+    assert parse_llm_json('42') is None
+    assert parse_llm_json('null') is None
+    assert parse_llm_json('true') is None
