@@ -179,3 +179,66 @@ def test_conflict_update(client, app):
         row = cur.fetchone()
     assert row["description"] == "Updated description"
     assert row["patient_perspective"] == "New perspective"
+
+
+def test_conflict_resolve(client, app):
+    """POST with action=resolve marks conflict as resolved."""
+    _login(client)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO conflicts (description) VALUES ('Test conflict') RETURNING id"
+        )
+        conflict_id = cur.fetchone()[0]
+        db.commit()
+
+    client.post(f"/admin/conflicts/{conflict_id}", data={
+        "action": "resolve",
+    }, follow_redirects=True)
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM conflicts WHERE id = %s", (conflict_id,))
+        row = cur.fetchone()
+    assert row["status"] == "resolved"
+    assert row["resolved_at"] is not None
+
+
+def test_conflict_reopen(client, app):
+    """POST with action=reopen reopens a resolved conflict."""
+    _login(client)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO conflicts (status, description, resolved_at) "
+            "VALUES ('resolved', 'Test conflict', NOW()) RETURNING id"
+        )
+        conflict_id = cur.fetchone()[0]
+        db.commit()
+
+    client.post(f"/admin/conflicts/{conflict_id}", data={
+        "action": "reopen",
+    }, follow_redirects=True)
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM conflicts WHERE id = %s", (conflict_id,))
+        row = cur.fetchone()
+    assert row["status"] == "active"
+    assert row["resolved_at"] is None
+
+
+def test_conflict_status_check_constraint(app):
+    """conflicts.status only allows 'active' or 'resolved'."""
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        with pytest.raises(Exception):
+            cur.execute(
+                "INSERT INTO conflicts (status, description) VALUES ('invalid', 'test')"
+            )
+        db.rollback()
