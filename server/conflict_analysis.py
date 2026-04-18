@@ -5,6 +5,8 @@ import logging
 
 import psycopg2.extras
 
+from json_helpers import parse_llm_json
+
 logger = logging.getLogger(__name__)
 
 # System prompts for each job type
@@ -184,7 +186,8 @@ def build_job_prompt(db, job, dep_results):
 def parse_job_result(job_type, message):
     """Parse a Claude API response into structured result for a conflict job.
 
-    Extracts JSON from the response text, handling markdown code fences.
+    Extracts JSON from the response text, handling markdown code fences,
+    unclosed fences, and citation-artifact newlines from web search responses.
     """
     # Collect text blocks from the response
     text_parts = []
@@ -193,26 +196,14 @@ def parse_job_result(job_type, message):
             text_parts.append(block.text)
 
     full_text = "\n".join(text_parts).strip()
+    result = parse_llm_json(full_text)
 
-    # Try to extract JSON
-    try:
-        # Strip markdown code fences
-        clean = full_text
-        if "```json" in clean:
-            clean = clean.split("```json", 1)[1]
-            clean = clean.rsplit("```", 1)[0]
-        elif "```" in clean:
-            clean = clean.split("```", 1)[1]
-            clean = clean.rsplit("```", 1)[0]
-        result = json.loads(clean.strip())
-    except (json.JSONDecodeError, IndexError):
-        # Fallback: wrap raw text
+    if result is None:
         logger.warning("Failed to parse JSON from %s job response, using raw text", job_type)
         if job_type == "conflict_synthesis":
-            result = {"summary": full_text, "raw": True}
-        else:
-            result = {"findings": [{"claim": "Raw response", "assessment": full_text,
-                                    "sources": [], "confidence": 0.5,
-                                    "confidence_explanation": "Could not parse structured response"}]}
+            return {"summary": full_text, "raw": True}
+        return {"findings": [{"claim": "Raw response", "assessment": full_text,
+                              "sources": [], "confidence": 0.5,
+                              "confidence_explanation": "Could not parse structured response"}]}
 
     return result

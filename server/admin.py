@@ -4,7 +4,6 @@ import hashlib
 import hmac
 import json
 import os
-import re
 import secrets
 import sys
 from functools import wraps
@@ -794,31 +793,9 @@ def psychiatrist_profile_research():
     research_text = "\n".join(text_parts)
 
     # Web search citations insert literal newlines inside JSON string values,
-    # making standard json.loads fail. Use json_repair to handle this.
-    research_result = None
-    try:
-        from json_repair import repair_json
-
-        # Try fenced JSON block first (Claude often wraps in ```json ... ```).
-        # Capture the entire fenced payload and let json_repair/json.loads
-        # handle nested objects and arrays.
-        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", research_text)
-        json_text = fence_match.group(1) if fence_match else research_text.strip()
-        repaired = repair_json(json_text)
-        parsed = json.loads(repaired)
-        if isinstance(parsed, dict):
-            # Clean citation-artifact newlines from values throughout the parsed JSON.
-            def _clean(v):
-                if isinstance(v, str):
-                    return re.sub(r"\n+", " ", v).strip()
-                if isinstance(v, list):
-                    return [_clean(x) for x in v]
-                if isinstance(v, dict):
-                    return {k: _clean(val) for k, val in v.items()}
-                return v
-            research_result = _clean(parsed)
-    except Exception:
-        current_app.logger.exception("JSON repair failed, storing raw text")
+    # making standard json.loads fail. Use parse_llm_json to handle this.
+    from json_helpers import parse_llm_json
+    research_result = parse_llm_json(research_text)
 
     if research_result is None:
         research_result = {"raw_response": research_text}
