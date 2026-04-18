@@ -2,6 +2,7 @@
 
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import sys
@@ -683,6 +684,118 @@ def patient_profile_generate_summary():
     summary = message.content[0].text
 
     return jsonify({"summary": summary})
+
+
+# ---------------------------------------------------------------------------
+# Psychiatrist Profile
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/psychiatrist-profile", methods=["GET", "POST"])
+@require_admin
+def psychiatrist_profile():
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        location = request.form.get("location", "").strip()
+        profile_summary = request.form.get("profile_summary", "").strip() or None
+
+        if not name or not location:
+            flash("Name and location are required.", "error")
+            return redirect(url_for("admin.psychiatrist_profile"))
+
+        cur.execute("SELECT id FROM psychiatrist_profile LIMIT 1")
+        existing = cur.fetchone()
+
+        if existing:
+            cur.execute(
+                "UPDATE psychiatrist_profile SET name = %s, location = %s, "
+                "profile_summary = %s, updated_at = NOW() WHERE id = %s",
+                (name, location, profile_summary, existing["id"]),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO psychiatrist_profile (name, location, profile_summary) "
+                "VALUES (%s, %s, %s)",
+                (name, location, profile_summary),
+            )
+        db.commit()
+        flash("Psychiatrist profile saved.", "success")
+        return redirect(url_for("admin.psychiatrist_profile"))
+
+    cur.execute("SELECT * FROM psychiatrist_profile LIMIT 1")
+    profile = cur.fetchone() or {}
+
+    return render_template("psychiatrist_profile.html", profile=profile)
+
+
+@admin_bp.route("/psychiatrist-profile/research", methods=["POST"])
+@require_admin
+def psychiatrist_profile_research():
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 400
+
+    data = request.get_json()
+    name = data.get("name", "")
+    location = data.get("location", "")
+
+    if not name or not location:
+        return jsonify({"error": "Name and location required"}), 400
+
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    message = client.messages.create(
+        model="claude-opus-4-7",
+        max_tokens=4096,
+        tools=[{"type": "web_search_20250305"}],
+        messages=[{"role": "user", "content": (
+            f"Research this psychiatrist: {name}, located in/near {location}. "
+            "Find their credentials, board certifications, medical school, specialty areas, "
+            "treatment philosophy (if publicly stated), published research, and any public "
+            "disciplinary records or malpractice history. Use reliable sources. Cite each finding. "
+            "Return your findings as a JSON object with keys: credentials, medical_school, "
+            "board_certifications, specialty, treatment_philosophy, publications, "
+            "disciplinary_history, sources."
+        )}],
+    )
+
+    # Extract text from response (may have tool_use blocks interspersed)
+    text_parts = [block.text for block in message.content if hasattr(block, "text")]
+    research_text = "\n".join(text_parts)
+
+    # Try to parse as JSON, fall back to raw text
+    try:
+        # Strip markdown code fences if present
+        clean = research_text.strip()
+        if clean.startswith("```"):
+            clean = clean.split("\n", 1)[1]
+            clean = clean.rsplit("```", 1)[0]
+        research_result = json.loads(clean)
+    except (json.JSONDecodeError, IndexError):
+        research_result = {"raw_response": research_text}
+
+    # Save to DB
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id FROM psychiatrist_profile LIMIT 1")
+    existing = cur.fetchone()
+
+    if existing:
+        cur.execute(
+            "UPDATE psychiatrist_profile SET research_result = %s, researched_at = NOW(), "
+            "updated_at = NOW() WHERE id = %s",
+            (json.dumps(research_result), existing["id"]),
+        )
+    else:
+        cur.execute(
+            "INSERT INTO psychiatrist_profile (name, location, research_result, researched_at) "
+            "VALUES (%s, %s, %s, NOW())",
+            (name, location, json.dumps(research_result)),
+        )
+    db.commit()
+
+    return jsonify({"research_result": research_result})
 
 
 # ---------------------------------------------------------------------------

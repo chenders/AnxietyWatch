@@ -320,3 +320,78 @@ def test_refine_requires_api_key(client):
             "medical_history_raw": "test",
         })
     assert resp.status_code == 400
+
+
+def test_psychiatrist_profile_get_empty(client):
+    """GET /admin/psychiatrist-profile returns 200 with empty form."""
+    _login(client)
+    resp = client.get("/admin/psychiatrist-profile")
+    assert resp.status_code == 200
+    assert b"Psychiatrist Profile" in resp.data
+
+
+def test_psychiatrist_profile_save(client, app):
+    """POST /admin/psychiatrist-profile saves name and location."""
+    _login(client)
+    resp = client.post("/admin/psychiatrist-profile", data={
+        "name": "Jane Smith MD",
+        "location": "Portland, OR",
+    }, follow_redirects=True)
+    assert resp.status_code == 200
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM psychiatrist_profile LIMIT 1")
+        row = cur.fetchone()
+    assert row["name"] == "Jane Smith MD"
+    assert row["location"] == "Portland, OR"
+
+
+def test_psychiatrist_profile_update_existing(client, app):
+    """POST /admin/psychiatrist-profile updates existing row."""
+    _login(client)
+    client.post("/admin/psychiatrist-profile", data={
+        "name": "Jane Smith MD",
+        "location": "Portland, OR",
+    })
+    client.post("/admin/psychiatrist-profile", data={
+        "name": "Jane Smith MD",
+        "location": "Seattle, WA",
+        "profile_summary": "Board-certified psychiatrist in Seattle",
+    })
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT count(*) AS cnt FROM psychiatrist_profile")
+        assert cur.fetchone()["cnt"] == 1
+        cur.execute("SELECT * FROM psychiatrist_profile LIMIT 1")
+        row = cur.fetchone()
+    assert row["location"] == "Seattle, WA"
+    assert row["profile_summary"] == "Board-certified psychiatrist in Seattle"
+
+
+def test_psychiatrist_research(client):
+    """POST /admin/psychiatrist-profile/research returns structured results."""
+    _login(client)
+    research_json = json.dumps({
+        "credentials": "MD, Board Certified Psychiatry",
+        "specialty": "Anxiety disorders",
+        "publications": [],
+        "disciplinary_history": "None found",
+    })
+
+    with patch("admin.anthropic") as mock_anthropic:
+        mock_client = MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_claude_response(research_json)
+
+        resp = client.post("/admin/psychiatrist-profile/research", json={
+            "name": "Jane Smith MD",
+            "location": "Portland, OR",
+        })
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "research_result" in data
