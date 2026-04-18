@@ -94,6 +94,7 @@ def create_app(test_config=None):
                 "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS cpap_usage_minutes INTEGER",
                 "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS barometric_pressure_avg_kpa DOUBLE PRECISION",
                 "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS barometric_pressure_change_kpa DOUBLE PRECISION",
+                "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS skin_temp_wrist DOUBLE PRECISION",
             ]
             for stmt in _snapshot_migrations:
                 cur.execute(stmt)
@@ -354,13 +355,13 @@ def create_app(test_config=None):
                 """INSERT INTO health_snapshots (
                        date, hrv_avg, hrv_min, resting_hr,
                        sleep_duration_min, sleep_deep_min, sleep_rem_min, sleep_core_min, sleep_awake_min,
-                       skin_temp_deviation, respiratory_rate, spo2_avg,
+                       skin_temp_deviation, skin_temp_wrist, respiratory_rate, spo2_avg,
                        steps, active_calories, exercise_minutes,
                        environmental_sound_avg, bp_systolic, bp_diastolic, blood_glucose_avg,
                        cpap_ahi, cpap_usage_minutes,
                        barometric_pressure_avg_kpa, barometric_pressure_change_kpa)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (date) DO UPDATE SET
                        hrv_avg = EXCLUDED.hrv_avg,
                        hrv_min = EXCLUDED.hrv_min,
@@ -371,6 +372,7 @@ def create_app(test_config=None):
                        sleep_core_min = EXCLUDED.sleep_core_min,
                        sleep_awake_min = EXCLUDED.sleep_awake_min,
                        skin_temp_deviation = EXCLUDED.skin_temp_deviation,
+                       skin_temp_wrist = EXCLUDED.skin_temp_wrist,
                        respiratory_rate = EXCLUDED.respiratory_rate,
                        spo2_avg = EXCLUDED.spo2_avg,
                        steps = EXCLUDED.steps,
@@ -388,7 +390,7 @@ def create_app(test_config=None):
                     s["date"], s.get("hrvAvg"), s.get("hrvMin"), s.get("restingHR"),
                     s.get("sleepDurationMin"), s.get("sleepDeepMin"), s.get("sleepREMMin"),
                     s.get("sleepCoreMin"), s.get("sleepAwakeMin"),
-                    s.get("skinTempDeviation"), s.get("respiratoryRate"), s.get("spo2Avg"),
+                    s.get("skinTempDeviation"), s.get("skinTempWrist"), s.get("respiratoryRate"), s.get("spo2Avg"),
                     s.get("steps"), s.get("activeCalories"), s.get("exerciseMinutes"),
                     s.get("environmentalSoundAvg"), s.get("bpSystolic"), s.get("bpDiastolic"),
                     s.get("bloodGlucoseAvg"),
