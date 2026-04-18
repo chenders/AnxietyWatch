@@ -15,7 +15,7 @@
             <span style="background:{{ '#fff0f0' if c.status == 'active' else '#f0fff0' }}; color:{{ '#ff3b30' if c.status == 'active' else '#34c759' }}; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.7rem; margin-right:0.5rem;">{{ c.status }}</span>
             <span style="font-weight:500; font-size:0.9rem;">{{ c.description[:100] }}{{ '…' if c.description|length > 100 else '' }}</span>
         </div>
-        <span style="font-size:0.75rem; color:#6e6e73;">{{ c.created_at[:10] if c.created_at else '' }}</span>
+        <span style="font-size:0.75rem; color:#6e6e73;">{{ c.created_at.strftime('%Y-%m-%d') if c.created_at else '' }}</span>
     </div>
 </div>
 </a>

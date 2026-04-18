@@ -244,7 +244,8 @@ def test_refine_medical_history(client):
     _login(client)
     structured = "## Diagnoses\n- GAD since 2018\n\n## Follow-up Questions\n1. Any hospitalizations?"
 
-    with patch("admin.anthropic") as mock_anthropic:
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}), \
+            patch("admin.anthropic") as mock_anthropic:
         mock_client = MagicMock()
         mock_anthropic.Anthropic.return_value = mock_client
         mock_client.messages.create.return_value = _mock_claude_response(structured)
@@ -264,7 +265,8 @@ def test_refine_medical_history_finalize(client):
     _login(client)
     final = "## Diagnoses\n- GAD since 2018, no hospitalizations"
 
-    with patch("admin.anthropic") as mock_anthropic:
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}), \
+            patch("admin.anthropic") as mock_anthropic:
         mock_client = MagicMock()
         mock_anthropic.Anthropic.return_value = mock_client
         mock_client.messages.create.return_value = _mock_claude_response(final)
@@ -299,7 +301,8 @@ def test_generate_profile_summary(client, app):
 
     summary = "Male patient, born 1992. GAD since 2018. Takes Clonazepam 1mg."
 
-    with patch("admin.anthropic") as mock_anthropic:
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}), \
+            patch("admin.anthropic") as mock_anthropic:
         mock_client = MagicMock()
         mock_anthropic.Anthropic.return_value = mock_client
         mock_client.messages.create.return_value = _mock_claude_response(summary)
@@ -382,7 +385,8 @@ def test_psychiatrist_research(client):
         "disciplinary_history": "None found",
     })
 
-    with patch("admin.anthropic") as mock_anthropic:
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}), \
+            patch("admin.anthropic") as mock_anthropic:
         mock_client = MagicMock()
         mock_anthropic.Anthropic.return_value = mock_client
         mock_client.messages.create.return_value = _mock_claude_response(research_json)
