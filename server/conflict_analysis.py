@@ -177,7 +177,7 @@ def build_job_prompt(db, job, dep_results):
         context = _build_context_block(db, job["conflict_id"], health_summary)
         user_msg = context + "\n\n" + RESEARCH_OUTPUT_INSTRUCTIONS
 
-        tools = [{"type": "web_search_20250305"}]
+        tools = [{"type": "web_search_20250305", "name": "web_search"}]
         return system, user_msg, tools
 
 
