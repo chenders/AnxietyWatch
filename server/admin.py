@@ -638,11 +638,15 @@ def patient_profile_refine():
             f"using an anxiety tracking app.\n\n{raw}"
         )
 
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2048,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception:
+        current_app.logger.exception("Patient profile refine request failed")
+        return jsonify({"error": "AI refinement is temporarily unavailable"}), 502
     structured = message.content[0].text
 
     return jsonify({"structured": structured})
@@ -685,16 +689,20 @@ def patient_profile_generate_summary():
         parts.append(f"Medical history:\n{history}")
 
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": (
-            "Synthesize the following patient information into a concise, prompt-ready "
-            "summary paragraph suitable for injection into an AI health analysis prompt. "
-            "Include all clinically relevant details. Be factual and concise.\n\n"
-            + "\n".join(parts)
-        )}],
-    )
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": (
+                "Synthesize the following patient information into a concise, prompt-ready "
+                "summary paragraph suitable for injection into an AI health analysis prompt. "
+                "Include all clinically relevant details. Be factual and concise.\n\n"
+                + "\n".join(parts)
+            )}],
+        )
+    except Exception:
+        current_app.logger.exception("Patient summary generation failed")
+        return jsonify({"error": "Summary generation is temporarily unavailable"}), 502
     summary = message.content[0].text
 
     return jsonify({"summary": summary})
@@ -761,20 +769,24 @@ def psychiatrist_profile_research():
         return jsonify({"error": "Name and location required"}), 400
 
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-    message = client.messages.create(
-        model="claude-opus-4-7",
-        max_tokens=4096,
-        tools=[{"type": "web_search_20250305"}],
-        messages=[{"role": "user", "content": (
-            f"Research this psychiatrist: {name}, located in/near {location}. "
-            "Find their credentials, board certifications, medical school, specialty areas, "
-            "treatment philosophy (if publicly stated), published research, and any public "
-            "disciplinary records or malpractice history. Use reliable sources. Cite each finding. "
-            "Return your findings as a JSON object with keys: credentials, medical_school, "
-            "board_certifications, specialty, treatment_philosophy, publications, "
-            "disciplinary_history, sources."
-        )}],
-    )
+    try:
+        message = client.messages.create(
+            model="claude-opus-4-7",
+            max_tokens=4096,
+            tools=[{"type": "web_search_20250305"}],
+            messages=[{"role": "user", "content": (
+                f"Research this psychiatrist: {name}, located in/near {location}. "
+                "Find their credentials, board certifications, medical school, specialty areas, "
+                "treatment philosophy (if publicly stated), published research, and any public "
+                "disciplinary records or malpractice history. Use reliable sources. Cite each finding. "
+                "Return your findings as a JSON object with keys: credentials, medical_school, "
+                "board_certifications, specialty, treatment_philosophy, publications, "
+                "disciplinary_history, sources."
+            )}],
+        )
+    except Exception:
+        current_app.logger.exception("Psychiatrist research request failed")
+        return jsonify({"error": "Psychiatrist research is temporarily unavailable"}), 502
 
     # Extract text from response (may have tool_use blocks interspersed)
     text_parts = [block.text for block in message.content if hasattr(block, "text")]
