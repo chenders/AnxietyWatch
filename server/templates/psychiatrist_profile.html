@@ -66,4 +66,41 @@
 
     <button type="submit" class="btn btn-primary">Save Profile</button>
 </form>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var researchBtn = document.getElementById("btn-research");
+    if (!researchBtn) return;
+
+    researchBtn.addEventListener("click", async function () {
+        var nameInput = document.querySelector('input[name="name"]');
+        var locationInput = document.querySelector('input[name="location"]');
+        var name = nameInput ? nameInput.value.trim() : "";
+        var location = locationInput ? locationInput.value.trim() : "";
+
+        if (!name || !location) {
+            alert("Name and location are required for research.");
+            return;
+        }
+
+        researchBtn.disabled = true;
+        researchBtn.textContent = "Researching...";
+
+        try {
+            var resp = await fetch("{{ url_for('admin.psychiatrist_profile_research') }}", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({name: name, location: location})
+            });
+            if (!resp.ok) throw new Error((await resp.json()).error || "Request failed");
+            // Reload to show updated research results
+            window.location.reload();
+        } catch (e) {
+            alert(e.message || "Unable to complete research.");
+            researchBtn.textContent = "Research";
+            researchBtn.disabled = false;
+        }
+    });
+});
+</script>
 {% endblock %}

@@ -98,4 +98,91 @@
 
     <button type="submit" class="btn btn-primary">Save Profile</button>
 </form>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    // --- Refine with Claude ---
+    var refineBtn = document.getElementById("btn-refine");
+    var refineStatus = document.getElementById("refine-status");
+    var historyRaw = document.getElementById("history-raw");
+
+    if (refineBtn && refineStatus && historyRaw) {
+        refineBtn.addEventListener("click", async function () {
+            var raw = historyRaw.value.trim();
+            if (!raw) {
+                refineStatus.textContent = "Enter medical history first.";
+                return;
+            }
+            refineBtn.disabled = true;
+            refineStatus.textContent = "Refining with Claude...";
+
+            try {
+                var resp = await fetch("{{ url_for('admin.patient_profile_refine') }}", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({medical_history_raw: raw})
+                });
+                if (!resp.ok) throw new Error((await resp.json()).error || "Request failed");
+                var data = await resp.json();
+
+                // Show or create the structured textarea
+                var existing = document.querySelector('textarea[name="medical_history_structured"]');
+                if (!existing) {
+                    var hidden = document.querySelector('input[name="medical_history_structured"]');
+                    if (hidden) {
+                        var container = document.createElement("div");
+                        container.style.marginTop = "1rem";
+
+                        var label = document.createElement("label");
+                        label.style.cssText = "font-size:0.75rem; color:#6e6e73; text-transform:uppercase;";
+                        label.textContent = "Structured Medical History (Claude-refined)";
+                        container.appendChild(label);
+
+                        var ta = document.createElement("textarea");
+                        ta.name = "medical_history_structured";
+                        ta.rows = 8;
+                        ta.style.cssText = "width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit; margin-top:0.25rem;";
+                        container.appendChild(ta);
+
+                        hidden.parentNode.replaceChild(container, hidden);
+                        existing = ta;
+                    }
+                }
+                if (existing) existing.value = data.structured;
+                refineStatus.textContent = "Done — review and save.";
+            } catch (e) {
+                refineStatus.textContent = e.message || "Unable to refine.";
+            } finally {
+                refineBtn.disabled = false;
+            }
+        });
+    }
+
+    // --- Generate Summary ---
+    var summaryBtn = document.getElementById("btn-generate-summary");
+    var summaryTextarea = document.querySelector('textarea[name="profile_summary"]');
+
+    if (summaryBtn && summaryTextarea) {
+        summaryBtn.addEventListener("click", async function () {
+            summaryBtn.disabled = true;
+            summaryBtn.textContent = "Generating...";
+
+            try {
+                var resp = await fetch("{{ url_for('admin.patient_profile_generate_summary') }}", {
+                    method: "POST"
+                });
+                if (!resp.ok) throw new Error((await resp.json()).error || "Request failed");
+                var data = await resp.json();
+                summaryTextarea.value = data.summary || "";
+                summaryBtn.textContent = "Generate Summary";
+            } catch (e) {
+                alert(e.message || "Unable to generate summary.");
+                summaryBtn.textContent = "Generate Summary";
+            } finally {
+                summaryBtn.disabled = false;
+            }
+        });
+    }
+});
+</script>
 {% endblock %}
