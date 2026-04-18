@@ -25,13 +25,15 @@ struct BarometricTrendChart: View {
     /// ambiguity that occurs on some Xcode versions when Charts and MapKit
     /// cross-import overlays are both active.
     private struct ChartDatum: Identifiable {
-        let id = UUID()
+        let id: Date
         let timestamp: Date
         let kPa: Double
     }
 
     private var chartData: [ChartDatum] {
-        displayReadings.map { ChartDatum(timestamp: $0.timestamp, kPa: $0.pressureKPa) }
+        displayReadings.map {
+            ChartDatum(id: $0.timestamp, timestamp: $0.timestamp, kPa: $0.pressureKPa)
+        }
     }
 
     var body: some View {

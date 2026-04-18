@@ -52,7 +52,7 @@
             {% endfor %}
         </div>
         {% else %}
-        <pre style="background:#f5f5f7; padding:1rem; border-radius:6px; font-size:0.8rem; white-space:pre-wrap;">{{ r.get('raw_response', r|tojson(indent=2)) }}</pre>
+        <pre style="background:#f5f5f7; padding:1rem; border-radius:6px; font-size:0.8rem; white-space:pre-wrap;">{{ r.get('raw_response', r|tojson(indent=2)) if r is mapping else (r if r is string else r|tojson(indent=2)) }}</pre>
         {% endif %}
     </div>
     {% endif %}
