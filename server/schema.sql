@@ -269,3 +269,4 @@ CREATE INDEX IF NOT EXISTS idx_analysis_jobs_analysis_id_job_type
     ON analysis_jobs (analysis_id, job_type);
 CREATE INDEX IF NOT EXISTS idx_analysis_jobs_status
     ON analysis_jobs (status);
+

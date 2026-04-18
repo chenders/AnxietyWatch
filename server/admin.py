@@ -984,7 +984,10 @@ def analysis():
         min_date = max_date - timedelta(days=30)
 
     # Check for active conflict
-    cur.execute("SELECT description FROM conflicts WHERE status = 'active' LIMIT 1")
+    cur.execute(
+        "SELECT id, description FROM conflicts "
+        "WHERE status = 'active' ORDER BY created_at DESC LIMIT 1"
+    )
     active_conflict = cur.fetchone()
 
     from analysis import MODEL
