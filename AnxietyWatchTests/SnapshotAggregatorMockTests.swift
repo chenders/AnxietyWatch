@@ -163,7 +163,8 @@ struct SnapshotAggregatorMockTests {
         let aggregator = makeAggregator(mock: mock, context: context)
         try await aggregator.aggregateDay(referenceDate)
         let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
-        #expect(s.spo2Avg == 96.0)
+        #expect(s.spo2Avg != nil)
+        #expect(abs(s.spo2Avg! - 96.0) < 0.01)
     }
 
     @Test("SpO2 nil stays nil")

@@ -64,7 +64,7 @@ def test_spo2_scaling(app):
         run_migration(DATABASE_URL)
 
         cur.execute("SELECT spo2_avg FROM health_snapshots WHERE date = %s", (date(2026, 1, 10),))
-        assert cur.fetchone()[0] == 96.0
+        assert abs(cur.fetchone()[0] - 96.0) < 0.01
 
 
 def test_spo2_already_correct_not_touched(app):
