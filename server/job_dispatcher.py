@@ -241,6 +241,9 @@ def dispatch_analysis(analysis_id, database_url):
             for job in ready:
                 mark_running(conn, job["id"])
                 pool.submit(_execute_single_job, job, database_url)
+            # Release the transaction snapshot so VACUUM can proceed
+            # while we sleep between polls.
+            conn.commit()
             time.sleep(2)
     except Exception:
         logger.exception("Dispatch loop failed for analysis %d", analysis_id)
