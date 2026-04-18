@@ -104,7 +104,29 @@ struct SnapshotAggregator {
         snapshot.sleepCoreMin = sleepData.coreMinutes > 0 ? sleepData.coreMinutes : nil
         snapshot.sleepAwakeMin = sleepData.awakeMinutes > 0 ? sleepData.awakeMinutes : nil
 
-        snapshot.skinTempDeviation = try await skinTemp
+        let skinTempValue = try await skinTemp
+        snapshot.skinTempWrist = skinTempValue
+
+        // Compute deviation from rolling 14-day baseline of raw wrist temps
+        if let skinTempValue {
+            let baselineWindow = 14
+            guard let cutoff = calendar.date(byAdding: .day, value: -baselineWindow, to: start) else { return }
+            let historical = try modelContext.fetch(
+                FetchDescriptor<HealthSnapshot>(
+                    predicate: #Predicate { $0.date >= cutoff && $0.date < start }
+                )
+            )
+            let wristTemps = historical.compactMap(\.skinTempWrist)
+            if wristTemps.count >= baselineWindow {
+                let mean = wristTemps.reduce(0, +) / Double(wristTemps.count)
+                snapshot.skinTempDeviation = skinTempValue - mean
+            } else {
+                snapshot.skinTempDeviation = nil
+            }
+        } else {
+            snapshot.skinTempDeviation = nil
+        }
+
         snapshot.respiratoryRate = try await respiratoryRate
         if let spo2Value = try await spo2 {
             snapshot.spo2Avg = spo2Value * 100

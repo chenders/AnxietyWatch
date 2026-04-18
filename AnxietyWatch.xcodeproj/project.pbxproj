@@ -63,6 +63,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		04BF48242112459BB0004FB0 /* watchOS.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = watchOS.xcconfig; sourceTree = "<group>"; };
+		1BCE8104E10A4AEC9EDECBDA /* Project.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Project.xcconfig; sourceTree = "<group>"; };
 		833535F92F6D0B3D00B45286 /* AnxietyWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AnxietyWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8335360D2F6D0BFF00B45286 /* AnxietyWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AnxietyWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		839563762F6D2DF3002DA90A /* AnxietyWatchWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AnxietyWatchWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -70,8 +72,6 @@
 		8395637A2F6D2DF3002DA90A /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		8395638C2F6D2EE7002DA90A /* AnxietyWatchWidgetsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AnxietyWatchWidgetsExtension.entitlements; sourceTree = "<group>"; };
 		83BB00022F6E100000B45286 /* AnxietyWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnxietyWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		1BCE8104E10A4AEC9EDECBDA /* Project.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Project.xcconfig; sourceTree = "<group>"; };
-		04BF48242112459BB0004FB0 /* watchOS.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = watchOS.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -154,6 +154,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		35A1235BEA864C5680BE2482 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				1BCE8104E10A4AEC9EDECBDA /* Project.xcconfig */,
+				04BF48242112459BB0004FB0 /* watchOS.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
 		833535F02F6D0B3D00B45286 = {
 			isa = PBXGroup;
 			children = (
@@ -186,15 +195,6 @@
 				8395637A2F6D2DF3002DA90A /* SwiftUI.framework */,
 			);
 			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		35A1235BEA864C5680BE2482 /* Config */ = {
-			isa = PBXGroup;
-			children = (
-				1BCE8104E10A4AEC9EDECBDA /* Project.xcconfig */,
-				04BF48242112459BB0004FB0 /* watchOS.xcconfig */,
-			);
-			path = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
