@@ -773,7 +773,7 @@ def psychiatrist_profile_research():
         message = client.messages.create(
             model="claude-opus-4-7",
             max_tokens=4096,
-            tools=[{"type": "web_search_20250305"}],
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": (
                 f"Research this psychiatrist: {name}, located in/near {location}. "
                 "Find their credentials, board certifications, medical school, specialty areas, "
