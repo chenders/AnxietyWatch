@@ -7,11 +7,13 @@ import secrets
 import sys
 from functools import wraps
 
+import anthropic
 import psycopg2.extras
 from flask import (
     Blueprint,
     current_app,
     flash,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -588,6 +590,99 @@ def patient_profile():
     medications = cur.fetchall()
 
     return render_template("patient_profile.html", profile=profile, medications=medications)
+
+
+@admin_bp.route("/patient-profile/refine", methods=["POST"])
+@require_admin
+def patient_profile_refine():
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 400
+
+    data = request.get_json()
+    raw = data.get("medical_history_raw", "")
+    structured_draft = data.get("structured_draft")
+    answers = data.get("answers")
+
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+
+    if structured_draft and answers:
+        # Finalization round — combine original + draft + answers
+        prompt = (
+            f"Original medical history:\n{raw}\n\n"
+            f"Your structured version:\n{structured_draft}\n\n"
+            f"Patient's answers to your follow-up questions:\n{answers}\n\n"
+            "Produce a final structured medical history incorporating these answers. "
+            "Use clear categories (Diagnoses, Surgeries, Allergies, Family History, etc.)."
+        )
+    else:
+        # First round — parse and ask follow-up questions
+        prompt = (
+            f"Parse this medical history. Structure it into relevant categories "
+            f"(diagnoses, surgeries, allergies, family history, etc.). "
+            f"List follow-up questions that would be clinically relevant for someone "
+            f"using an anxiety tracking app.\n\n{raw}"
+        )
+
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    structured = message.content[0].text
+
+    return jsonify({"structured": structured})
+
+
+@admin_bp.route("/patient-profile/generate-summary", methods=["POST"])
+@require_admin
+def patient_profile_generate_summary():
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 400
+
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("SELECT * FROM patient_profile LIMIT 1")
+    profile = cur.fetchone()
+    if not profile:
+        return jsonify({"error": "No patient profile found"}), 404
+
+    cur.execute(
+        "SELECT name, default_dose_mg, category FROM medication_definitions "
+        "WHERE is_active = TRUE ORDER BY name"
+    )
+    medications = cur.fetchall()
+
+    parts = []
+    if profile.get("name"):
+        parts.append(f"Name: {profile['name']}")
+    if profile.get("date_of_birth"):
+        parts.append(f"Date of birth: {profile['date_of_birth']}")
+    if profile.get("gender"):
+        parts.append(f"Gender: {profile['gender']}")
+    if medications:
+        med_list = ", ".join(f"{m['name']} {m['default_dose_mg']}mg ({m['category']})" for m in medications)
+        parts.append(f"Tracked medications: {med_list}")
+    if profile.get("other_medications"):
+        parts.append(f"Other medications: {profile['other_medications']}")
+    history = profile.get("medical_history_structured") or profile.get("medical_history_raw")
+    if history:
+        parts.append(f"Medical history:\n{history}")
+
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    message = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": (
+            "Synthesize the following patient information into a concise, prompt-ready "
+            "summary paragraph suitable for injection into an AI health analysis prompt. "
+            "Include all clinically relevant details. Be factual and concise.\n\n"
+            + "\n".join(parts)
+        )}],
+    )
+    summary = message.content[0].text
+
+    return jsonify({"summary": summary})
 
 
 # ---------------------------------------------------------------------------

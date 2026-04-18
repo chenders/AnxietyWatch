@@ -225,3 +225,98 @@ def test_analysis_jobs_table_exists(app):
         "model",
     }
     assert expected <= columns, f"Missing columns: {expected - columns}"
+
+
+from unittest.mock import patch, MagicMock  # noqa: E402
+
+
+def _mock_claude_response(text):
+    """Create a mock Anthropic message response."""
+    mock_msg = MagicMock()
+    mock_msg.content = [MagicMock(text=text)]
+    mock_msg.usage.input_tokens = 100
+    mock_msg.usage.output_tokens = 50
+    return mock_msg
+
+
+def test_refine_medical_history(client):
+    """POST /admin/patient-profile/refine returns structured history."""
+    _login(client)
+    structured = "## Diagnoses\n- GAD since 2018\n\n## Follow-up Questions\n1. Any hospitalizations?"
+
+    with patch("admin.anthropic") as mock_anthropic:
+        mock_client = MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_claude_response(structured)
+
+        resp = client.post("/admin/patient-profile/refine", json={
+            "medical_history_raw": "I have GAD diagnosed in 2018",
+        })
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "structured" in data
+    assert "GAD" in data["structured"]
+
+
+def test_refine_medical_history_finalize(client):
+    """POST /admin/patient-profile/refine with answers finalizes the structured history."""
+    _login(client)
+    final = "## Diagnoses\n- GAD since 2018, no hospitalizations"
+
+    with patch("admin.anthropic") as mock_anthropic:
+        mock_client = MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_claude_response(final)
+
+        resp = client.post("/admin/patient-profile/refine", json={
+            "medical_history_raw": "I have GAD diagnosed in 2018",
+            "structured_draft": "## Diagnoses\n- GAD\n\n## Questions\n1. Hospitalizations?",
+            "answers": "No hospitalizations ever",
+        })
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "structured" in data
+
+
+def test_generate_profile_summary(client, app):
+    """POST /admin/patient-profile/generate-summary returns a summary."""
+    _login(client)
+    # Insert a profile first
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO patient_profile (name, date_of_birth, gender, medical_history_structured) "
+            "VALUES ('Test User', '1992-03-15', 'Male', 'GAD since 2018')"
+        )
+        cur.execute(
+            "INSERT INTO medication_definitions (name, default_dose_mg, category, is_active) "
+            "VALUES ('Clonazepam', 1.0, 'benzodiazepine', TRUE)"
+        )
+        db.commit()
+
+    summary = "Male patient, born 1992. GAD since 2018. Takes Clonazepam 1mg."
+
+    with patch("admin.anthropic") as mock_anthropic:
+        mock_client = MagicMock()
+        mock_anthropic.Anthropic.return_value = mock_client
+        mock_client.messages.create.return_value = _mock_claude_response(summary)
+
+        resp = client.post("/admin/patient-profile/generate-summary")
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "summary" in data
+    assert "Clonazepam" in data["summary"]
+
+
+def test_refine_requires_api_key(client):
+    """Refinement returns 400 if ANTHROPIC_API_KEY is not set."""
+    _login(client)
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}, clear=False):
+        resp = client.post("/admin/patient-profile/refine", json={
+            "medical_history_raw": "test",
+        })
+    assert resp.status_code == 400
