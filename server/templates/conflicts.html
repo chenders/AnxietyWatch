@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Conflicts — Anxiety Watch Admin{% endblock %}
+{% block content %}
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+    <h1 style="margin-bottom:0;">Conflicts</h1>
+    <a href="{{ url_for('admin.conflict_new') }}" class="btn btn-primary">New Conflict</a>
+</div>
+
+{% if conflicts %}
+{% for c in conflicts %}
+<a href="{{ url_for('admin.conflict_detail', conflict_id=c.id) }}" style="text-decoration:none; color:inherit; display:block;">
+<div class="card" style="cursor:pointer; border-left:3px solid {{ '#ff3b30' if c.status == 'active' else '#34c759' }};">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+            <span style="background:{{ '#fff0f0' if c.status == 'active' else '#f0fff0' }}; color:{{ '#ff3b30' if c.status == 'active' else '#34c759' }}; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.7rem; margin-right:0.5rem;">{{ c.status }}</span>
+            <span style="font-weight:500; font-size:0.9rem;">{{ c.description[:100] }}{{ '…' if c.description|length > 100 else '' }}</span>
+        </div>
+        <span style="font-size:0.75rem; color:#6e6e73;">{{ c.created_at.strftime('%Y-%m-%d') if c.created_at else '' }}</span>
+    </div>
+</div>
+</a>
+{% endfor %}
+{% else %}
+<div class="card" style="text-align:center; color:#6e6e73;">
+    <p>No conflicts recorded. Click "New Conflict" to document a disagreement with your psychiatrist.</p>
+</div>
+{% endif %}
+{% endblock %}

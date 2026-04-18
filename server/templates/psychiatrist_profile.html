@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Psychiatrist Profile — Anxiety Watch Admin{% endblock %}
+{% block content %}
+<h1>Psychiatrist Profile</h1>
+
+<form method="post" action="{{ url_for('admin.psychiatrist_profile') }}">
+    <div class="card">
+        <h2>Psychiatrist Information</h2>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+            <div>
+                <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Name</label><br>
+                <input type="text" name="name" value="{{ profile.name or '' }}" placeholder="Full name with credentials" required>
+            </div>
+            <div>
+                <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Location</label><br>
+                <input type="text" name="location" value="{{ profile.location or '' }}" placeholder="City, State or practice name" required>
+            </div>
+        </div>
+        <div style="margin-top:0.75rem;">
+            <button type="button" id="btn-research" class="btn btn-primary btn-sm">Research</button>
+            {% if profile.researched_at %}
+            <span style="font-size:0.8rem; color:#6e6e73; margin-left:0.5rem;">Last researched: {{ profile.researched_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if profile.research_result %}
+    <div class="card">
+        <h2>Research Results</h2>
+        {% set r = profile.research_result %}
+        {% if r is mapping and not r.get('raw_response') %}
+        <div style="font-size:0.85rem; line-height:1.6;">
+            {% for key, value in r.items() %}
+            {% if value %}
+            <div style="margin-bottom:0.75rem;">
+                <strong style="text-transform:capitalize;">{{ key|replace('_', ' ') }}:</strong>
+                {% if value is string %}
+                <span>{{ value }}</span>
+                {% elif value is mapping %}
+                <pre style="background:#f5f5f7; padding:0.5rem; border-radius:4px; font-size:0.8rem; white-space:pre-wrap; margin-top:0.25rem;">{{ value|tojson(indent=2) }}</pre>
+                {% elif value is iterable %}
+                <ul style="margin-top:0.25rem; padding-left:1.5rem;">
+                    {% for item in value %}
+                    <li>{{ item if item is string else item|tojson }}</li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <span>{{ value }}</span>
+                {% endif %}
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+        {% else %}
+        <pre style="background:#f5f5f7; padding:1rem; border-radius:6px; font-size:0.8rem; white-space:pre-wrap;">{{ r.get('raw_response', r|tojson(indent=2)) if r is mapping else (r if r is string else r|tojson(indent=2)) }}</pre>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <h2>Profile Summary</h2>
+        <p style="font-size:0.8rem; color:#6e6e73; margin-bottom:0.5rem;">
+            This summary is injected into analysis prompts. Edit to correct any inaccuracies from the research.
+        </p>
+        <textarea name="profile_summary" rows="4"
+                  style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit;">{{ profile.profile_summary or '' }}</textarea>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Save Profile</button>
+</form>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var researchBtn = document.getElementById("btn-research");
+    if (!researchBtn) return;
+
+    researchBtn.addEventListener("click", async function () {
+        var nameInput = document.querySelector('input[name="name"]');
+        var locationInput = document.querySelector('input[name="location"]');
+        var name = nameInput ? nameInput.value.trim() : "";
+        var location = locationInput ? locationInput.value.trim() : "";
+
+        if (!name || !location) {
+            alert("Name and location are required for research.");
+            return;
+        }
+
+        researchBtn.disabled = true;
+        researchBtn.textContent = "Researching...";
+
+        try {
+            var resp = await fetch("{{ url_for('admin.psychiatrist_profile_research') }}", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({name: name, location: location})
+            });
+            if (!resp.ok) throw new Error((await resp.json()).error || "Request failed");
+            // Reload to show updated research results
+            window.location.reload();
+        } catch (e) {
+            alert(e.message || "Unable to complete research.");
+            researchBtn.textContent = "Research";
+            researchBtn.disabled = false;
+        }
+    });
+});
+</script>
+{% endblock %}

@@ -3,7 +3,7 @@
 import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from functools import wraps
 
 import psycopg2
@@ -218,6 +218,7 @@ def create_app(test_config=None):
             counts["pharmacies"] = _upsert_pharmacies(cur, data.get("pharmacies", []))
             counts["prescriptions"] = _upsert_prescriptions(cur, data.get("prescriptions", []))
             counts["pharmacy_call_logs"] = _upsert_pharmacy_call_logs(cur, data.get("pharmacyCallLogs", []))
+            _upsert_demographics(cur, data.get("demographics"))
 
             # Log the sync
             cur.execute(
@@ -483,6 +484,63 @@ def create_app(test_config=None):
                  c.get("notes", ""), c.get("durationSeconds")),
             )
         return len(logs)
+
+    def _upsert_demographics(cur, demographics):
+        """Upsert HealthKit demographics into patient_profile.
+
+        Only sets date_of_birth and gender if the row doesn't exist yet
+        or those fields are currently NULL — never overwrites manual entries.
+        """
+        if not demographics:
+            return
+
+        dob = demographics.get("dateOfBirth")
+        sex = demographics.get("biologicalSex")
+        if not dob and not sex:
+            return
+
+        # Validate date format before passing to Postgres
+        if dob:
+            try:
+                date.fromisoformat(dob)
+            except (ValueError, TypeError):
+                dob = None
+
+        # Normalize biologicalSex to canonical gender values
+        if sex:
+            valid_genders = {"male", "female", "non_binary", "other", "prefer_not_to_say"}
+            sex = sex.lower().replace("-", "_").replace(" ", "_")
+            if sex not in valid_genders:
+                sex = None
+
+        # After validation, both may have been cleared — nothing to upsert
+        if not dob and not sex:
+            return
+
+        cur.execute("SELECT id, date_of_birth, gender FROM patient_profile LIMIT 1")
+        existing = cur.fetchone()
+
+        if existing:
+            updates = []
+            values = []
+            if dob and existing[1] is None:  # date_of_birth is NULL
+                updates.append("date_of_birth = %s")
+                values.append(dob)
+            if sex and existing[2] is None:  # gender is NULL
+                updates.append("gender = %s")
+                values.append(sex)
+            if updates:
+                updates.append("updated_at = NOW()")
+                values.append(existing[0])
+                cur.execute(
+                    f"UPDATE patient_profile SET {', '.join(updates)} WHERE id = %s",
+                    values,
+                )
+        else:
+            cur.execute(
+                "INSERT INTO patient_profile (date_of_birth, gender) VALUES (%s, %s)",
+                (dob, sex),
+            )
 
     # ---------------------------------------------------------------------------
     # GET /api/data

@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}Patient Profile — Anxiety Watch Admin{% endblock %}
+{% block content %}
+<h1>Patient Profile</h1>
+
+<form method="post" action="{{ url_for('admin.patient_profile') }}">
+    <!-- Demographics -->
+    <div class="card">
+        <h2>Demographics</h2>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem;">
+            <div>
+                <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Name</label><br>
+                <input type="text" name="name" value="{{ profile.name or '' }}" placeholder="Preferred name for reports">
+            </div>
+            <div>
+                <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Date of Birth</label><br>
+                <input type="date" name="date_of_birth" value="{{ profile.date_of_birth or '' }}"
+                       style="padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; width:100%;">
+            </div>
+            <div>
+                <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Gender</label><br>
+                <select name="gender" style="padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; width:100%;">
+                    <option value="">—</option>
+                    {% set normalized_gender = (profile.gender or '')|lower|replace('-', '_')|replace(' ', '_') %}
+                    {% for value, label in [
+                        ('male', 'Male'),
+                        ('female', 'Female'),
+                        ('non_binary', 'Non-binary'),
+                        ('other', 'Other'),
+                        ('prefer_not_to_say', 'Prefer not to say')
+                    ] %}
+                    <option value="{{ value }}" {{ 'selected' if normalized_gender == value else '' }}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Current Medications -->
+    <div class="card">
+        <h2>Current Medications</h2>
+        {% if medications %}
+        <table>
+            <thead><tr><th>Medication</th><th>Default Dose</th><th>Category</th></tr></thead>
+            <tbody>
+            {% for med in medications %}
+            <tr><td>{{ med.name }}</td><td>{{ med.default_dose_mg }} mg</td><td>{{ med.category }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:#6e6e73; font-size:0.85rem;">No active medications tracked in AnxietyWatch.</p>
+        {% endif %}
+        <div style="margin-top:1rem;">
+            <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Other Medications (not tracked in app)</label>
+            <textarea name="other_medications" rows="3"
+                      style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit; margin-top:0.25rem;"
+                      placeholder="List any medications managed by other providers (e.g., PCP, other specialists)">{{ profile.other_medications or '' }}</textarea>
+        </div>
+    </div>
+
+    <!-- Medical History -->
+    <div class="card">
+        <h2>Medical History</h2>
+        <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Raw Medical History</label>
+        <textarea name="medical_history_raw" rows="6" id="history-raw"
+                  style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit; margin-top:0.25rem;"
+                  placeholder="Describe your medical history — diagnoses, surgeries, allergies, family history, etc.">{{ profile.medical_history_raw or '' }}</textarea>
+        <div style="margin-top:0.75rem; display:flex; gap:0.5rem;">
+            <button type="button" id="btn-refine" class="btn btn-primary btn-sm">Refine with Claude</button>
+            <span id="refine-status" style="font-size:0.8rem; color:#6e6e73; align-self:center;"></span>
+        </div>
+
+        {% if profile.medical_history_structured %}
+        <div style="margin-top:1rem;">
+            <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Structured Medical History (Claude-refined)</label>
+            <textarea name="medical_history_structured" rows="8"
+                      style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit; margin-top:0.25rem;">{{ profile.medical_history_structured or '' }}</textarea>
+        </div>
+        {% else %}
+        <input type="hidden" name="medical_history_structured" value="">
+        {% endif %}
+    </div>
+
+    <!-- Profile Summary -->
+    <div class="card">
+        <h2>Profile Summary</h2>
+        <p style="font-size:0.8rem; color:#6e6e73; margin-bottom:0.5rem;">
+            This summary is injected into every analysis prompt. Generate it from your profile data, then edit if needed.
+        </p>
+        <textarea name="profile_summary" rows="5"
+                  style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit;"
+                  placeholder="Click 'Generate Summary' to create from your profile data">{{ profile.profile_summary or '' }}</textarea>
+        <div style="margin-top:0.75rem;">
+            <button type="button" id="btn-generate-summary" class="btn btn-primary btn-sm">Generate Summary</button>
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Save Profile</button>
+</form>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    // --- Refine with Claude ---
+    var refineBtn = document.getElementById("btn-refine");
+    var refineStatus = document.getElementById("refine-status");
+    var historyRaw = document.getElementById("history-raw");
+
+    if (refineBtn && refineStatus && historyRaw) {
+        refineBtn.addEventListener("click", async function () {
+            var raw = historyRaw.value.trim();
+            if (!raw) {
+                refineStatus.textContent = "Enter medical history first.";
+                return;
+            }
+            refineBtn.disabled = true;
+            refineStatus.textContent = "Refining with Claude...";
+
+            try {
+                var resp = await fetch("{{ url_for('admin.patient_profile_refine') }}", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({medical_history_raw: raw})
+                });
+                if (!resp.ok) throw new Error((await resp.json()).error || "Request failed");
+                var data = await resp.json();
+
+                // Show or create the structured textarea
+                var existing = document.querySelector('textarea[name="medical_history_structured"]');
+                if (!existing) {
+                    var hidden = document.querySelector('input[name="medical_history_structured"]');
+                    if (hidden) {
+                        var container = document.createElement("div");
+                        container.style.marginTop = "1rem";
+
+                        var label = document.createElement("label");
+                        label.style.cssText = "font-size:0.75rem; color:#6e6e73; text-transform:uppercase;";
+                        label.textContent = "Structured Medical History (Claude-refined)";
+                        container.appendChild(label);
+
+                        var ta = document.createElement("textarea");
+                        ta.name = "medical_history_structured";
+                        ta.rows = 8;
+                        ta.style.cssText = "width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit; margin-top:0.25rem;";
+                        container.appendChild(ta);
+
+                        hidden.parentNode.replaceChild(container, hidden);
+                        existing = ta;
+                    }
+                }
+                if (existing) existing.value = data.structured;
+                refineStatus.textContent = "Done — review and save.";
+            } catch (e) {
+                refineStatus.textContent = e.message || "Unable to refine.";
+            } finally {
+                refineBtn.disabled = false;
+            }
+        });
+    }
+
+    // --- Generate Summary ---
+    var summaryBtn = document.getElementById("btn-generate-summary");
+    var summaryTextarea = document.querySelector('textarea[name="profile_summary"]');
+
+    if (summaryBtn && summaryTextarea) {
+        summaryBtn.addEventListener("click", async function () {
+            summaryBtn.disabled = true;
+            summaryBtn.textContent = "Generating...";
+
+            try {
+                var resp = await fetch("{{ url_for('admin.patient_profile_generate_summary') }}", {
+                    method: "POST"
+                });
+                if (!resp.ok) throw new Error((await resp.json()).error || "Request failed");
+                var data = await resp.json();
+                summaryTextarea.value = data.summary || "";
+                summaryBtn.textContent = "Generate Summary";
+            } catch (e) {
+                alert(e.message || "Unable to generate summary.");
+                summaryBtn.textContent = "Generate Summary";
+            } finally {
+                summaryBtn.disabled = false;
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

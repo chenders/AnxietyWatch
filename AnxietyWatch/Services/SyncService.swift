@@ -1,4 +1,5 @@
 import Foundation
+import HealthKit
 import SwiftData
 import UIKit
 
@@ -84,8 +85,35 @@ final class SyncService {
         lastSyncResult = "Syncing..."
 
         do {
+            // Read HealthKit demographics before entering the sync payload build
+            // (HealthKitManager is an actor, so these calls require await)
+            var demographics: [String: String] = [:]
+            let hkManager = HealthKitManager.shared
+            do {
+                if let dobComponents = try await hkManager.dateOfBirth(),
+                   let year = dobComponents.year,
+                   let month = dobComponents.month,
+                   let day = dobComponents.day {
+                    demographics["dateOfBirth"] = String(format: "%04d-%02d-%02d", year, month, day)
+                }
+            } catch {
+                // HealthKit may deny access — non-fatal
+            }
+            do {
+                let sex = try await hkManager.biologicalSex()
+                switch sex {
+                case .male: demographics["biologicalSex"] = "male"
+                case .female: demographics["biologicalSex"] = "female"
+                case .other: demographics["biologicalSex"] = "other"
+                case .notSet: break
+                @unknown default: break
+                }
+            } catch {
+                // HealthKit may deny access — non-fatal
+            }
+
             // Incremental: only records since last sync
-            let payload = try buildPayload(from: modelContext)
+            let payload = try buildPayload(from: modelContext, demographics: demographics.isEmpty ? nil : demographics)
 
             guard var urlComponents = URLComponents(string: serverURL) else {
                 throw SyncError.invalidURL
@@ -273,7 +301,7 @@ final class SyncService {
 
     // MARK: - Private
 
-    private func buildPayload(from context: ModelContext) throws -> Data {
+    private func buildPayload(from context: ModelContext, demographics: [String: String]? = nil) throws -> Data {
         let since = lastSyncDate
 
         // Reuse DataExporter's JSON format — the server gets the same schema as file exports
@@ -289,6 +317,9 @@ final class SyncService {
         }
         json["clientVersion"] = "1.0"
         json["deviceName"] = UIDevice.current.name
+        if let demographics {
+            json["demographics"] = demographics
+        }
 
         return try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
     }

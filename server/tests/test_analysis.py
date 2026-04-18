@@ -56,7 +56,8 @@ def _clean_tables(app):
         cur.execute(
             "TRUNCATE anxiety_entries, health_snapshots, medication_definitions, "
             "medication_doses, cpap_sessions, barometric_readings, correlations, "
-            "analyses, api_keys, sync_log, therapy_sessions, settings "
+            "analyses, api_keys, sync_log, therapy_sessions, settings, "
+            "patient_profile, psychiatrist_profile, conflicts, analysis_jobs "
             "RESTART IDENTITY CASCADE"
         )
         cur.execute(

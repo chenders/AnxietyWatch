@@ -158,6 +158,7 @@ def build_prompt(
     outlier_warnings: list[str] | None = None,
     therapy_sessions: list[dict] | None = None,
     timezone: str = "US/Pacific",
+    patient_context: dict | None = None,
 ) -> tuple[str, str]:
     """Build system prompt and user message for Claude analysis.
 
@@ -186,6 +187,42 @@ def build_prompt(
         "\n- **Correlations**: Pre-computed Pearson correlations between individual physiological"
         " signals and anxiety severity (from the app's correlation engine)"
     )
+
+    # -- Patient Context (optional) --
+    if patient_context:
+        ctx_parts = []
+        name = patient_context.get("patient_name")
+        summary = patient_context.get("patient_summary")
+        if summary:
+            if name:
+                ctx_parts.append(f"**Patient:** {name} — {summary}")
+            else:
+                ctx_parts.append(f"**Patient:** {summary}")
+
+        psych_summary = patient_context.get("psychiatrist_summary")
+        if psych_summary:
+            ctx_parts.append(f"**Psychiatrist:** {psych_summary}")
+
+        conflict_desc = patient_context.get("active_conflict")
+        if conflict_desc:
+            ctx_parts.append(
+                f"**Active conflict with psychiatrist:** The patient and psychiatrist are "
+                f"currently in a disagreement. Description: {conflict_desc}. Factor this "
+                f"into your analysis — anxiety patterns during this period may be influenced "
+                f"by therapeutic relationship stress. Detailed conflict analysis will be "
+                f"conducted separately."
+            )
+
+        if ctx_parts:
+            parts.append("\n## Patient Context\n\n" + "\n\n".join(ctx_parts))
+
+        # If patient has a name, instruct Claude to use it
+        if name:
+            parts[0] = parts[0].rstrip() + (
+                f" Use the patient's name ({name}) throughout the response for readability"
+                f" (e.g., \"{name}'s HRV was elevated\" rather than \"The patient's HRV"
+                f" was elevated\")."
+            )
 
     # -- Data Quality Notes (always present) --
     dq_parts = []
@@ -448,31 +485,34 @@ def start_analysis(
     dose_tracking_incomplete: bool = False,
     detailed_output: bool = False,
 ) -> int:
-    """Create a pending analysis row and kick off the Claude call in a background thread.
+    """Create a pending analysis row, create jobs, and dispatch in background.
 
-    Returns the analysis row ID immediately. The background worker opens its own DB
-    connection so it can outlive the originating HTTP request.
+    Returns the analysis row ID immediately.
     """
     dsn = database_url or os.environ.get("DATABASE_URL")
     if not dsn:
         raise RuntimeError("DATABASE_URL not configured")
 
-    analysis_id, system_prompt, user_message = _create_pending_analysis(
+    analysis_id, _, _ = _create_pending_analysis(
         db, date_from, date_to,
         dose_tracking_incomplete=dose_tracking_incomplete,
         detailed_output=detailed_output,
     )
 
+    # Create jobs via dispatcher (inline import to avoid circular dependency)
+    from job_dispatcher import create_analysis_jobs, dispatch_analysis
+    create_analysis_jobs(db, analysis_id)
+
     thread = threading.Thread(
-        target=_execute_analysis,
-        args=(analysis_id, system_prompt, user_message, dsn),
+        target=dispatch_analysis,
+        args=(analysis_id, dsn),
         name=f"analysis-{analysis_id}",
         daemon=True,
     )
     try:
         thread.start()
     except Exception as e:
-        logging.exception("Failed to start background thread for analysis %d", analysis_id)
+        logging.exception("Failed to start dispatch thread for analysis %d", analysis_id)
         _mark_analysis_failed(db, dsn, analysis_id, e)
         raise
     return analysis_id
@@ -521,6 +561,33 @@ def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_i
     )
     therapy_rows = [dict(r) for r in cur.fetchall()]
 
+    # Read patient context (profiles + active conflict).
+    # Include context when any of the three sources is available.
+    cur.execute("SELECT name, profile_summary FROM patient_profile LIMIT 1")
+    patient_row = cur.fetchone()
+
+    cur.execute("SELECT profile_summary FROM psychiatrist_profile LIMIT 1")
+    psych_row = cur.fetchone()
+
+    cur.execute(
+        "SELECT description FROM conflicts WHERE status = 'active' "
+        "ORDER BY created_at DESC LIMIT 1"
+    )
+    conflict_row = cur.fetchone()
+
+    patient_summary = patient_row.get("profile_summary") if patient_row else None
+    psychiatrist_summary = psych_row.get("profile_summary") if psych_row else None
+    active_conflict = conflict_row.get("description") if conflict_row else None
+
+    patient_context = None
+    if patient_summary or psychiatrist_summary or active_conflict:
+        patient_context = {
+            "patient_name": patient_row.get("name") if patient_row else None,
+            "patient_summary": patient_summary,
+            "psychiatrist_summary": psychiatrist_summary,
+            "active_conflict": active_conflict,
+        }
+
     system_prompt, user_message = build_prompt(
         data, effective_from, effective_to,
         dose_tracking_incomplete=dose_tracking_incomplete,
@@ -528,6 +595,7 @@ def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_i
         outlier_warnings=outlier_warnings if outlier_warnings else None,
         therapy_sessions=therapy_rows if therapy_rows else None,
         timezone=tz,
+        patient_context=patient_context,
     )
 
     request_payload = {

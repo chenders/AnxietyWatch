@@ -10,6 +10,21 @@
     <a href="{{ url_for('admin.analysis') }}" style="color:#0071e3; font-size:0.85rem; text-decoration:none;">&larr; Back to Analysis</a>
 </div>
 
+{% set has_conflict = conflict_jobs|length > 0 %}
+{% set default_tab = 'conflict' if has_conflict else 'health' %}
+{% set allowed_tabs = ['health', 'conflict'] if has_conflict else ['health'] %}
+{% set requested_tab = request.args.get('tab') %}
+{% set active_tab = requested_tab if requested_tab in allowed_tabs else default_tab %}
+
+{% if has_conflict %}
+<div class="tabs" style="margin-bottom:1rem;">
+    <a href="?tab=health" class="tab {{ 'active' if active_tab == 'health' else '' }}" style="display:inline-block; padding:0.5rem 1rem; text-decoration:none; border-bottom:2px solid {{ '#0071e3' if active_tab == 'health' else 'transparent' }}; color:{{ '#0071e3' if active_tab == 'health' else '#6e6e73' }}; font-weight:{{ '600' if active_tab == 'health' else '400' }};">Health Analysis</a>
+    <a href="?tab=conflict" class="tab {{ 'active' if active_tab == 'conflict' else '' }}" style="display:inline-block; padding:0.5rem 1rem; text-decoration:none; border-bottom:2px solid {{ '#0071e3' if active_tab == 'conflict' else 'transparent' }}; color:{{ '#0071e3' if active_tab == 'conflict' else '#6e6e73' }}; font-weight:{{ '600' if active_tab == 'conflict' else '400' }};">Conflict Analysis</a>
+</div>
+{% else %}
+<h2 style="margin-bottom:1rem; font-size:1rem; color:#1d1d1f;">Health Analysis</h2>
+{% endif %}
+
 {% if a.status in ('pending', 'running') %}
 <div class="card" style="border-left:3px solid #007aff; background:#f5f9ff;">
     <div style="display:flex; align-items:center; gap:0.75rem;">
@@ -25,6 +40,7 @@
 <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
 {% endif %}
 
+{% if active_tab == 'health' or not has_conflict %}
 <!-- Header card -->
 <div class="card" style="border-left:3px solid {{ '#34c759' if a.trend_direction == 'improving' else '#ff9500' if a.trend_direction == 'worsening' else '#007aff' if a.trend_direction == 'stable' else '#af52de' }};">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
@@ -177,4 +193,112 @@
     </details>
 </div>
 {% endif %}
+{% endif %} {# end health tab #}
+
+{% if active_tab == 'conflict' and has_conflict %}
+<!-- Job status overview -->
+<div class="card">
+    <h2>Conflict Analysis Jobs</h2>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.85rem;">
+    {% for job in conflict_jobs %}
+    <div style="display:flex; align-items:center; gap:0.5rem; padding:0.4rem;">
+        <span style="background:{{ '#34c759' if job.status == 'completed' else '#ff3b30' if job.status == 'failed' else '#ff9500' if job.status == 'running' else '#d2d2d7' }}; color:{{ '#fff' if job.status in ('completed', 'failed', 'running') else '#1d1d1f' }}; padding:0.1rem 0.4rem; border-radius:4px; font-size:0.7rem; min-width:65px; text-align:center;">{{ job.status }}</span>
+        <span>{{ job.job_type|replace('_', ' ')|title }}</span>
+    </div>
+    {% endfor %}
+    </div>
+</div>
+
+{% macro render_findings(title, job) %}
+{% if job %}
+<div class="card">
+    <h2>{{ title }}</h2>
+    {% if job.status == 'failed' %}
+    <div style="background:#fff0f0; color:#ff3b30; padding:0.75rem; border-radius:6px;">
+        <strong>Failed:</strong> {{ job.error_message or 'Unknown error' }}
+    </div>
+    {% elif job.status == 'completed' and job.result %}
+    {% set findings = job.result.get('findings', []) if job.result is mapping else [] %}
+    {% for f in findings %}
+    <div style="border-bottom:1px solid #e5e5e7; padding:0.75rem 0; {% if loop.last %}border-bottom:none;{% endif %}">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
+            <strong style="font-size:0.9rem;">{{ f.claim }}</strong>
+            {% if f.confidence is defined %}
+            <span style="background:#e8f0fe; color:#0071e3; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.75rem; white-space:nowrap;">{{ "%.0f"|format((f.confidence|default(0)|float) * 100) }}%</span>
+            {% endif %}
+        </div>
+        <p style="font-size:0.85rem; color:#444; line-height:1.5;">{{ f.assessment }}</p>
+        {% if f.sources %}
+        <div style="margin-top:0.5rem; font-size:0.75rem; color:#6e6e73;">
+            {% for s in f.sources %}
+            <span>{{ s.title }}{% if s.year %} ({{ s.year }}){% endif %}{% if s.type %} [{{ s.type }}]{% endif %}</span>{% if not loop.last %} · {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% if f.confidence_explanation %}
+        <p style="font-size:0.75rem; color:#6e6e73; margin-top:0.25rem;">{{ f.confidence_explanation }}</p>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% if not findings %}
+    <p style="color:#6e6e73; font-size:0.85rem;">No findings available.</p>
+    {% endif %}
+    {% elif job.status in ('pending', 'running') %}
+    <p style="color:#007aff; font-size:0.85rem;">In progress…</p>
+    {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
+{{ render_findings("Evidence Supporting Patient's Position", conflict_data.get('patient_validity')) }}
+{{ render_findings("Evidence Supporting Psychiatrist's Position", conflict_data.get('psychiatrist_validity')) }}
+{{ render_findings("Criticisms of Patient's Position", conflict_data.get('patient_criticism')) }}
+{{ render_findings("Criticisms of Psychiatrist's Position", conflict_data.get('psychiatrist_criticism')) }}
+
+<!-- Synthesis -->
+{% set synthesis = conflict_data.get('conflict_synthesis') %}
+{% if synthesis %}
+<div class="card">
+    <h2>Synthesis</h2>
+    {% if synthesis.status == 'failed' %}
+    <div style="background:#fff0f0; color:#ff3b30; padding:0.75rem; border-radius:6px;">
+        <strong>Failed:</strong> {{ synthesis.error_message or 'Unknown error' }}
+    </div>
+    {% elif synthesis.status == 'completed' and synthesis.result %}
+    {% set r = synthesis.result %}
+    {% if r.summary %}
+    <p style="font-size:0.9rem; line-height:1.6; margin-bottom:1rem;">{{ r.summary }}</p>
+    {% endif %}
+
+    {% if r.areas_of_agreement %}
+    <h3 style="font-size:0.9rem; margin-bottom:0.5rem;">Areas of Agreement</h3>
+    <ul style="font-size:0.85rem; padding-left:1.5rem; margin-bottom:1rem;">
+    {% for area in r.areas_of_agreement %}
+    <li>{{ area }}</li>
+    {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if r.suggested_paths_forward %}
+    <h3 style="font-size:0.9rem; margin-bottom:0.5rem;">Suggested Paths Forward</h3>
+    {% for path in r.suggested_paths_forward %}
+    <div style="border-left:3px solid #34c759; padding-left:0.75rem; margin-bottom:0.75rem;">
+        <p style="font-size:0.85rem; font-weight:500;">{{ path.approach }}</p>
+        <p style="font-size:0.8rem; color:#444;">{{ path.evidence_basis }}</p>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if r.confidence is defined %}
+    <p style="font-size:0.75rem; color:#6e6e73; margin-top:1rem;">
+        Overall confidence: {{ "%.0f"|format(r.confidence * 100) }}% — {{ r.confidence_explanation or '' }}
+    </p>
+    {% endif %}
+    {% elif synthesis.status in ('pending', 'running') %}
+    <p style="color:#007aff; font-size:0.85rem;">Synthesis in progress…</p>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endif %} {# end conflict tab #}
 {% endblock %}

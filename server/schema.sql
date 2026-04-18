@@ -192,5 +192,81 @@ CREATE TABLE IF NOT EXISTS therapy_sessions (
     )
 );
 
+CREATE TABLE IF NOT EXISTS patient_profile (
+    id                          SERIAL PRIMARY KEY,
+    name                        TEXT,
+    date_of_birth               DATE,
+    gender                      TEXT,
+    medical_history_raw         TEXT,
+    medical_history_structured  TEXT,
+    other_medications           TEXT,
+    profile_summary             TEXT,
+    updated_at                  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS psychiatrist_profile (
+    id                SERIAL PRIMARY KEY,
+    name              TEXT NOT NULL,
+    location          TEXT NOT NULL,
+    research_result   JSONB,
+    profile_summary   TEXT,
+    researched_at     TIMESTAMPTZ,
+    updated_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS conflicts (
+    id                              SERIAL PRIMARY KEY,
+    status                          TEXT NOT NULL DEFAULT 'active'
+                                        CHECK (status IN ('active', 'resolved')),
+    description                     TEXT NOT NULL,
+    patient_perspective             TEXT,
+    patient_assumptions             TEXT,
+    patient_desired_resolution      TEXT,
+    patient_wants_from_other        TEXT,
+    psychiatrist_perspective        TEXT,
+    psychiatrist_assumptions        TEXT,
+    psychiatrist_desired_resolution TEXT,
+    psychiatrist_wants_from_other   TEXT,
+    additional_context              TEXT,
+    created_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    resolved_at                     TIMESTAMPTZ,
+    updated_at                      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS analysis_jobs (
+    id                SERIAL PRIMARY KEY,
+    analysis_id       INTEGER NOT NULL REFERENCES analyses(id),
+    conflict_id       INTEGER REFERENCES conflicts(id),
+    job_type          TEXT NOT NULL
+                          CHECK (job_type IN (
+                              'health_analysis',
+                              'patient_validity',
+                              'psychiatrist_validity',
+                              'patient_criticism',
+                              'psychiatrist_criticism',
+                              'conflict_synthesis'
+                          )),
+    depends_on        INTEGER[],
+    status            TEXT NOT NULL DEFAULT 'pending'
+                          CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+    request_payload   JSONB,
+    response_payload  JSONB,
+    result            JSONB,
+    model             TEXT NOT NULL,
+    tokens_in         INTEGER,
+    tokens_out        INTEGER,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at        TIMESTAMPTZ,
+    completed_at      TIMESTAMPTZ,
+    error_message     TEXT
+);
+
 -- Indexes for common query patterns (only on non-PK / non-UNIQUE columns)
 CREATE INDEX IF NOT EXISTS idx_sync_log_received_at ON sync_log (received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conflicts_status_created
+    ON conflicts (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analysis_jobs_analysis_id_job_type
+    ON analysis_jobs (analysis_id, job_type);
+CREATE INDEX IF NOT EXISTS idx_analysis_jobs_status
+    ON analysis_jobs (status);
+
