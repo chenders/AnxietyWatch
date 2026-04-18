@@ -117,7 +117,7 @@ def test_build_job_prompt_patient_validity(app):
     assert "Test User" in user_msg or "GAD since 2018" in user_msg
     assert "Taper is too fast" in user_msg
     assert "HRV down" in user_msg
-    assert tools is not None  # web search tool
+    assert tools == [{"type": "web_search_20250305", "name": "web_search"}]
 
 
 def test_build_job_prompt_psychiatrist_criticism(app):

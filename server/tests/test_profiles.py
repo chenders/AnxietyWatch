@@ -401,6 +401,10 @@ def test_psychiatrist_research(client):
     data = resp.get_json()
     assert "research_result" in data
 
+    # Verify the Anthropic API was called with the correct web_search tool definition
+    call_kwargs = mock_client.messages.create.call_args[1]
+    assert call_kwargs["tools"] == [{"type": "web_search_20250305", "name": "web_search"}]
+
 
 def test_build_prompt_without_patient_context(app):
     """build_prompt with no patient_context omits the section entirely."""
