@@ -252,3 +252,66 @@ def test_cascade_failures(app):
     assert f"Dependency job {health_id} failed" in jobs[1]["error_message"]
     assert jobs[2]["status"] == "failed"
     assert f"Dependency job {validity_id} failed" in jobs[2]["error_message"]
+
+
+def test_start_analysis_creates_jobs(app):
+    """start_analysis creates analysis_jobs rows via the dispatcher."""
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        # Insert test data so analysis has something to work with
+        cur.execute(
+            "INSERT INTO anxiety_entries (timestamp, severity, notes, tags) "
+            "VALUES ('2026-01-10 12:00:00+00', 5, 'test', '[]')"
+        )
+        db.commit()
+
+        from analysis import start_analysis
+        database_url = DATABASE_URL
+        analysis_id = start_analysis(db, date(2026, 1, 10), date(2026, 1, 10),
+                                     database_url=database_url)
+
+        # Give the background thread a moment to create jobs
+        import time
+        time.sleep(1)
+
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "SELECT * FROM analysis_jobs WHERE analysis_id = %s",
+            (analysis_id,),
+        )
+        jobs = cur.fetchall()
+
+    assert len(jobs) >= 1  # at least health_analysis
+    assert any(j["job_type"] == "health_analysis" for j in jobs)
+
+
+def test_start_analysis_with_conflict_creates_6_jobs(app):
+    """start_analysis with active conflict creates all 6 job types."""
+    _create_test_conflict(app)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO anxiety_entries (timestamp, severity, notes, tags) "
+            "VALUES ('2026-01-10 12:00:00+00', 5, 'test', '[]')"
+        )
+        db.commit()
+
+        from analysis import start_analysis
+        analysis_id = start_analysis(db, date(2026, 1, 10), date(2026, 1, 10),
+                                     database_url=DATABASE_URL)
+
+        import time
+        time.sleep(1)
+
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "SELECT job_type FROM analysis_jobs WHERE analysis_id = %s ORDER BY id",
+            (analysis_id,),
+        )
+        job_types = [r["job_type"] for r in cur.fetchall()]
+
+    assert len(job_types) == 6
+    assert "health_analysis" in job_types
+    assert "conflict_synthesis" in job_types

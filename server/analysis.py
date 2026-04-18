@@ -500,16 +500,20 @@ def start_analysis(
         detailed_output=detailed_output,
     )
 
+    # Create jobs via dispatcher
+    from job_dispatcher import create_analysis_jobs, dispatch_analysis
+    create_analysis_jobs(db, analysis_id)
+
     thread = threading.Thread(
-        target=_execute_analysis,
-        args=(analysis_id, system_prompt, user_message, dsn),
+        target=dispatch_analysis,
+        args=(analysis_id, dsn),
         name=f"analysis-{analysis_id}",
         daemon=True,
     )
     try:
         thread.start()
     except Exception as e:
-        logging.exception("Failed to start background thread for analysis %d", analysis_id)
+        logging.exception("Failed to start dispatch thread for analysis %d", analysis_id)
         _mark_analysis_failed(db, dsn, analysis_id, e)
         raise
     return analysis_id
