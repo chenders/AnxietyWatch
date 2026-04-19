@@ -5,7 +5,12 @@
 <p><strong>{{ song.artist }}</strong>{% if song.album %} · {{ song.album }}{% endif %}</p>
 
 {% if song.genius_url %}
-<p><a href="{{ song.genius_url }}" target="_blank" rel="noopener noreferrer">View on Genius ↗</a></p>
+<p>
+    <a href="{{ song.genius_url }}" target="_blank" rel="noopener noreferrer">View on Genius ↗</a>
+    · <form method="POST" action="{{ url_for('admin.admin_song_refetch_lyrics', song_id=song.id) }}" style="display: inline;">
+        <button type="submit" class="btn btn-sm">Re-fetch lyrics</button>
+    </form>
+</p>
 {% endif %}
 
 <form method="POST" style="margin-top: 1.5em;">
