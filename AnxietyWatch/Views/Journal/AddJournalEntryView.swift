@@ -14,6 +14,8 @@ struct AddJournalEntryView: View {
     @State private var tags: [String] = []
     @State private var timestamp = Date.now
     @State private var expressMode = true
+    @State private var selectedSong: Song?
+    @State private var showingSongSearch = false
 
     /// Express mode: tapping a severity circle saves immediately and dismisses.
     /// Toggle off to add notes/tags before saving.
@@ -56,6 +58,46 @@ struct AddJournalEntryView: View {
                     }
                 }
 
+                Section("Song in your head?") {
+                    if let song = selectedSong {
+                        HStack(spacing: 12) {
+                            if let urlString = song.albumArtURL, let url = URL(string: urlString) {
+                                AsyncImage(url: url) { image in
+                                    image.resizable().aspectRatio(contentMode: .fill)
+                                } placeholder: {
+                                    Image(systemName: "music.note")
+                                        .frame(width: 36, height: 36)
+                                        .background(.quaternary, in: .rect(cornerRadius: 5))
+                                }
+                                .frame(width: 36, height: 36)
+                                .clipShape(.rect(cornerRadius: 5))
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(song.title)
+                                    .font(.subheadline.bold())
+                                Text(song.artist)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button {
+                                selectedSong = nil
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } else {
+                        Button {
+                            showingSongSearch = true
+                        } label: {
+                            Label("Search songs...", systemImage: "music.note")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 Section("When") {
                     DatePicker("Time", selection: $timestamp)
                 }
@@ -70,6 +112,9 @@ struct AddJournalEntryView: View {
                     Button("Save") { save() }
                         .disabled(severity == nil)
                 }
+            }
+            .sheet(isPresented: $showingSongSearch) {
+                SongSearchSheet(mode: .picker($selectedSong))
             }
         }
     }
@@ -179,6 +224,14 @@ struct AddJournalEntryView: View {
             tags: tags
         )
         modelContext.insert(entry)
+
+        if let song = selectedSong {
+            let occurrence = SongOccurrence(timestamp: timestamp, source: "journal")
+            occurrence.song = song
+            occurrence.anxietyEntry = entry
+            modelContext.insert(occurrence)
+        }
+
         dismiss()
     }
 }
