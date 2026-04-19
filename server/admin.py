@@ -1286,7 +1286,7 @@ def admin_song_detail(song_id):
         old = cur.fetchone()
         lyrics_source = old["lyrics_source"] if old else None
         if lyrics != (old["lyrics"] if old else None):
-            lyrics_source = "manual"
+            lyrics_source = "manual" if lyrics else None
 
         title = request.form.get("title", "").strip()
         artist = request.form.get("artist", "").strip()

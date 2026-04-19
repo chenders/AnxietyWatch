@@ -40,7 +40,7 @@ def search_songs(query: str, api_token: str | None = None) -> list[dict]:
                 "album_art_url": song.get("song_art_image_url"),
             })
         return results
-    except requests.RequestException:
+    except (requests.RequestException, ValueError):
         log.exception("Genius search failed")
         return []
 
@@ -71,7 +71,7 @@ def fetch_song_metadata(genius_id: int, api_token: str | None = None) -> dict | 
             "album_art_url": song.get("song_art_image_url"),
             "genius_url": song.get("url"),
         }
-    except requests.RequestException:
+    except (requests.RequestException, ValueError):
         log.exception("Genius metadata fetch failed for %d", genius_id)
         return None
 
@@ -141,6 +141,6 @@ def fetch_lyrics_musixmatch(title: str, artist: str) -> str | None:
             if disclaimer_marker in lyrics:
                 lyrics = lyrics[:lyrics.index(disclaimer_marker)].strip()
         return lyrics if lyrics else None
-    except requests.RequestException:
+    except (requests.RequestException, ValueError):
         log.exception("Musixmatch fetch failed for %s - %s", artist, title)
         return None

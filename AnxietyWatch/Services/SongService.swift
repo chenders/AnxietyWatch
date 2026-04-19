@@ -169,8 +169,8 @@ enum SongService {
                 if existing.album != entry.album { existing.album = entry.album; didChange = true }
                 if existing.geniusId != entry.geniusId { existing.geniusId = entry.geniusId; didChange = true }
                 if existing.albumArtURL != entry.albumArtUrl { existing.albumArtURL = entry.albumArtUrl; didChange = true }
-                if let serverLyrics = entry.lyrics, existing.lyrics != serverLyrics {
-                    existing.lyrics = serverLyrics
+                if existing.lyrics != entry.lyrics {
+                    existing.lyrics = entry.lyrics
                     existing.lyricsSource = entry.lyricsSource
                     didChange = true
                 }
@@ -192,8 +192,8 @@ enum SongService {
                     if existing.artist != entry.artist { existing.artist = entry.artist }
                     if existing.album != entry.album { existing.album = entry.album }
                     if existing.albumArtURL != entry.albumArtUrl { existing.albumArtURL = entry.albumArtUrl }
-                    if let serverLyrics = entry.lyrics, existing.lyrics != serverLyrics {
-                        existing.lyrics = serverLyrics
+                    if existing.lyrics != entry.lyrics {
+                        existing.lyrics = entry.lyrics
                         existing.lyricsSource = entry.lyricsSource
                     }
                     existing.updatedAt = Date()
@@ -238,10 +238,8 @@ enum SongService {
                 existing.album = server.album
                 existing.albumArtURL = server.albumArtUrl
                 existing.geniusURL = server.geniusUrl
-                if server.lyrics != nil {
-                    existing.lyrics = server.lyrics
-                    existing.lyricsSource = server.lyricsSource
-                }
+                existing.lyrics = server.lyrics
+                existing.lyricsSource = server.lyricsSource
                 existing.updatedAt = Date()
                 return existing
             }

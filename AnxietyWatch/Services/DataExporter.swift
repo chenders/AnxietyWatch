@@ -137,7 +137,7 @@ enum DataExporter {
         files.append(("songs.csv", Data(csv.utf8)))
 
         // Song occurrences
-        csv = "timestamp,song_id,source,anxiety_entry_timestamp,notes\n"
+        csv = "timestamp,song_uuid,source,anxiety_entry_timestamp,notes\n"
         for o in bundle.songOccurrences {
             csv += "\(o.timestamp),\(o.songId),\(o.source ?? ""),\(o.anxietyEntryTimestamp ?? ""),\"\(escapeCsv(o.notes ?? ""))\"\n"
         }
