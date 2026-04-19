@@ -1288,13 +1288,19 @@ def admin_song_detail(song_id):
         if lyrics != (old["lyrics"] if old else None):
             lyrics_source = "manual"
 
+        title = request.form.get("title", "").strip()
+        artist = request.form.get("artist", "").strip()
+        if not title or not artist:
+            flash("Title and artist are required.", "error")
+            return redirect(url_for("admin.admin_song_detail", song_id=song_id))
+
         cur.execute(
             """UPDATE songs SET title = %s, artist = %s, album = %s,
                                 lyrics = %s, lyrics_source = %s, updated_at = NOW()
                WHERE id = %s""",
             (
-                request.form.get("title", "").strip(),
-                request.form.get("artist", "").strip(),
+                title,
+                artist,
                 request.form.get("album", "").strip() or None,
                 lyrics,
                 lyrics_source,

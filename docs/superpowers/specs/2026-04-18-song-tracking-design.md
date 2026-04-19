@@ -41,7 +41,7 @@ CREATE TABLE song_occurrences (
     song_id          INTEGER NOT NULL REFERENCES songs(id),
     timestamp        TIMESTAMPTZ NOT NULL,
     source           TEXT,          -- 'journal', 'checkin', 'standalone'
-    anxiety_entry_id INTEGER,       -- FK to anxiety_entries, nullable
+    anxiety_entry_id TIMESTAMPTZ,   -- joins to anxiety_entries.timestamp, nullable
     notes            TEXT,
     created_at       TIMESTAMPTZ DEFAULT NOW()
 );

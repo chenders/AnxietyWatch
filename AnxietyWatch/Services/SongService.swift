@@ -137,6 +137,8 @@ enum SongService {
             let artist: String
             let album: String?
             let albumArtUrl: String?
+            let lyrics: String?
+            let lyricsSource: String?
             let hasLyrics: Bool
 
             enum CodingKeys: String, CodingKey {
@@ -144,6 +146,8 @@ enum SongService {
                 case geniusId = "genius_id"
                 case title, artist, album
                 case albumArtUrl = "album_art_url"
+                case lyrics
+                case lyricsSource = "lyrics_source"
                 case hasLyrics = "has_lyrics"
             }
         }
@@ -165,6 +169,11 @@ enum SongService {
                 if existing.album != entry.album { existing.album = entry.album; didChange = true }
                 if existing.geniusId != entry.geniusId { existing.geniusId = entry.geniusId; didChange = true }
                 if existing.albumArtURL != entry.albumArtUrl { existing.albumArtURL = entry.albumArtUrl; didChange = true }
+                if let serverLyrics = entry.lyrics, existing.lyrics != serverLyrics {
+                    existing.lyrics = serverLyrics
+                    existing.lyricsSource = entry.lyricsSource
+                    didChange = true
+                }
                 if didChange {
                     existing.updatedAt = Date()
                     count += 1
@@ -183,6 +192,10 @@ enum SongService {
                     if existing.artist != entry.artist { existing.artist = entry.artist }
                     if existing.album != entry.album { existing.album = entry.album }
                     if existing.albumArtURL != entry.albumArtUrl { existing.albumArtURL = entry.albumArtUrl }
+                    if let serverLyrics = entry.lyrics, existing.lyrics != serverLyrics {
+                        existing.lyrics = serverLyrics
+                        existing.lyricsSource = entry.lyricsSource
+                    }
                     existing.updatedAt = Date()
                     count += 1
                     continue
@@ -198,6 +211,8 @@ enum SongService {
                 albumArtURL: entry.albumArtUrl
             )
             song.serverId = serverId
+            song.lyrics = entry.lyrics
+            song.lyricsSource = entry.lyricsSource
             context.insert(song)
             count += 1
         }

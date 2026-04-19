@@ -691,6 +691,7 @@ def create_app(test_config=None):
         cur.execute("""
             SELECT s.id, s.genius_id, s.title, s.artist, s.album,
                    s.album_art_url, s.genius_url, s.updated_at,
+                   s.lyrics, s.lyrics_source,
                    s.lyrics IS NOT NULL AS has_lyrics,
                    COUNT(so.id) AS occurrence_count,
                    MAX(so.timestamp) AS last_occurrence
@@ -749,6 +750,18 @@ def create_app(test_config=None):
             artist = data.get("artist", "").strip()
             if not title or not artist:
                 return jsonify({"error": "title and artist are required"}), 400
+            # Check for existing manual song (normalized match)
+            cur.execute(
+                """SELECT * FROM songs
+                   WHERE genius_id IS NULL
+                     AND lower(btrim(title)) = lower(btrim(%s))
+                     AND lower(btrim(artist)) = lower(btrim(%s))""",
+                (title, artist),
+            )
+            existing = cur.fetchone()
+            if existing:
+                db.commit()
+                return jsonify(_serialize_row(existing)), 200
             cur.execute(
                 """INSERT INTO songs (title, artist, album, album_art_url)
                    VALUES (%s, %s, %s, %s)
@@ -773,15 +786,12 @@ def create_app(test_config=None):
         if not updates:
             return jsonify({"error": "No valid fields to update"}), 400
 
-        updates["updated_at"] = "NOW()"
         set_parts = []
         values = []
         for k, v in updates.items():
-            if v == "NOW()":
-                set_parts.append(f"{k} = NOW()")
-            else:
-                set_parts.append(f"{k} = %s")
-                values.append(v)
+            set_parts.append(f"{k} = %s")
+            values.append(v)
+        set_parts.append("updated_at = NOW()")
         values.append(song_id)
 
         cur.execute(
