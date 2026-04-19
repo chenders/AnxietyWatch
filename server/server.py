@@ -607,7 +607,7 @@ def create_app(test_config=None):
                 """INSERT INTO song_occurrences (song_id, timestamp, source, anxiety_entry_id, notes)
                    VALUES (%s, %s, %s, %s, %s)
                    ON CONFLICT (song_id, timestamp, source) DO NOTHING""",
-                (song_id, o["timestamp"], o.get("source", "standalone"),
+                (song_id, o["timestamp"], o.get("source") or "standalone",
                  o.get("anxietyEntryTimestamp"), o.get("notes")),
             )
         return len(occurrences)
@@ -823,7 +823,7 @@ def create_app(test_config=None):
             """INSERT INTO song_occurrences (song_id, timestamp, source, anxiety_entry_id, notes)
                VALUES (%s, %s, %s, %s, %s)
                RETURNING *""",
-            (song_id, timestamp, data.get("source"), data.get("anxiety_entry_id"), data.get("notes")),
+            (song_id, timestamp, data.get("source") or "standalone", data.get("anxiety_entry_id"), data.get("notes")),
         )
         occurrence = cur.fetchone()
         db.commit()

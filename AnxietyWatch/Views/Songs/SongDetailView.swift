@@ -101,9 +101,7 @@ struct SongDetailView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button(isEditing ? "Done" : "Edit") {
                     if isEditing {
-                        if song.lyrics != nil {
-                            song.lyricsSource = "manual"
-                        }
+                        song.lyricsSource = song.lyrics != nil ? "manual" : nil
                         song.updatedAt = Date()
                     }
                     isEditing.toggle()
