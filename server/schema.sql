@@ -270,3 +270,27 @@ CREATE INDEX IF NOT EXISTS idx_analysis_jobs_analysis_id_job_type
 CREATE INDEX IF NOT EXISTS idx_analysis_jobs_status
     ON analysis_jobs (status);
 
+CREATE TABLE IF NOT EXISTS songs (
+    id              SERIAL PRIMARY KEY,
+    genius_id       INTEGER UNIQUE,
+    title           TEXT NOT NULL,
+    artist          TEXT NOT NULL,
+    album           TEXT,
+    album_art_url   TEXT,
+    genius_url      TEXT,
+    lyrics          TEXT,
+    lyrics_source   TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS song_occurrences (
+    id               SERIAL PRIMARY KEY,
+    song_id          INTEGER NOT NULL REFERENCES songs(id),
+    timestamp        TIMESTAMPTZ NOT NULL,
+    source           TEXT,
+    anxiety_entry_id TIMESTAMPTZ,
+    notes            TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
