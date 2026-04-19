@@ -21,6 +21,9 @@ final class AnxietyEntry {
     /// Optional for migration — nil treated as "user" for historical entries.
     var source: String?
 
+    @Relationship(deleteRule: .nullify, inverse: \SongOccurrence.anxietyEntry)
+    var songOccurrences: [SongOccurrence]?
+
     init(
         timestamp: Date = .now,
         severity: Int = 5,

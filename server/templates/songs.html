@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Songs{% endblock %}
+{% block content %}
+<h2>Songs</h2>
+<p>{{ songs | length }} songs tracked</p>
+<table>
+    <thead>
+        <tr>
+            <th>Title</th>
+            <th>Artist</th>
+            <th>Album</th>
+            <th style="text-align:right">Occurrences</th>
+            <th>Last Seen</th>
+            <th>Lyrics</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for song in songs %}
+        <tr>
+            <td><a href="{{ url_for('admin.admin_song_detail', song_id=song.id) }}">{{ song.title }}</a></td>
+            <td>{{ song.artist }}</td>
+            <td>{{ song.album or '' }}</td>
+            <td style="text-align:right">{{ song.occurrence_count }}</td>
+            <td>{{ song.last_occurrence.strftime('%Y-%m-%d %H:%M') if song.last_occurrence else '—' }}</td>
+            <td>{{ '✓' if song.has_lyrics else '✗' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% if not songs %}
+<p style="color: #888; margin-top: 1em;">No songs tracked yet. Songs appear here when logged from the iOS app.</p>
+{% endif %}
+{% endblock %}

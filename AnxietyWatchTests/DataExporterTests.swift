@@ -163,4 +163,33 @@ struct DataExporterTests {
         #expect(bundle.anxietyEntries.count == 1)
         #expect(bundle.anxietyEntries.first?.severity == 7)
     }
+
+    @Test("JSON export includes song and song occurrence data")
+    func jsonExportIncludesSongs() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let song = ModelFactory.song(title: "Everybody Hurts", artist: "R.E.M.")
+        song.serverId = 1
+        song.geniusId = 4535
+        context.insert(song)
+
+        let entry = ModelFactory.anxietyEntry(severity: 7)
+        context.insert(entry)
+
+        let occ = ModelFactory.songOccurrence(source: "journal")
+        occ.song = song
+        occ.anxietyEntry = entry
+        context.insert(occ)
+        try context.save()
+
+        let data = try DataExporter.exportJSON(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        let songs = json["songs"] as? [Any]
+        #expect(songs?.count == 1)
+
+        let occurrences = json["songOccurrences"] as? [Any]
+        #expect(occurrences?.count == 1)
+    }
 }

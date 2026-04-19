@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{{ song.title }} — {{ song.artist }}{% endblock %}
+{% block content %}
+<h2>{{ song.title }}</h2>
+<p><strong>{{ song.artist }}</strong>{% if song.album %} · {{ song.album }}{% endif %}</p>
+
+{% if song.genius_url %}
+<p><a href="{{ song.genius_url }}" target="_blank" rel="noopener noreferrer">View on Genius ↗</a></p>
+{% endif %}
+
+<form method="POST" style="margin-top: 1.5em;">
+    <div style="margin-bottom: 1em;">
+        <label for="title"><strong>Title</strong></label><br>
+        <input type="text" name="title" id="title" value="{{ song.title }}" style="width: 100%; max-width: 400px;">
+    </div>
+    <div style="margin-bottom: 1em;">
+        <label for="artist"><strong>Artist</strong></label><br>
+        <input type="text" name="artist" id="artist" value="{{ song.artist }}" style="width: 100%; max-width: 400px;">
+    </div>
+    <div style="margin-bottom: 1em;">
+        <label for="album"><strong>Album</strong></label><br>
+        <input type="text" name="album" id="album" value="{{ song.album or '' }}" style="width: 100%; max-width: 400px;">
+    </div>
+    <div style="margin-bottom: 1em;">
+        <label for="lyrics"><strong>Lyrics</strong>
+            {% if song.lyrics_source %}
+            <span style="color: #888; font-weight: normal;">(source: {{ song.lyrics_source }})</span>
+            {% endif %}
+        </label><br>
+        <textarea name="lyrics" id="lyrics" rows="20" style="width: 100%; max-width: 600px; font-family: monospace;">{{ song.lyrics or '' }}</textarea>
+    </div>
+    <button type="submit" class="btn btn-primary">Save</button>
+</form>
+
+<h3 style="margin-top: 2em;">Occurrences ({{ occurrences | length }})</h3>
+<table>
+    <thead>
+        <tr>
+            <th>When</th>
+            <th>Source</th>
+            <th>Anxiety</th>
+            <th>Notes</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for occ in occurrences %}
+        <tr>
+            <td>{{ occ.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>{{ occ.source or '—' }}</td>
+            <td>{{ occ.severity if occ.severity is not none else '—' }}</td>
+            <td>{{ occ.notes or '' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% if not occurrences %}
+<p style="color: #888;">No occurrences logged yet.</p>
+{% endif %}
+{% endblock %}

@@ -6,40 +6,61 @@ struct JournalListView: View {
     @Query(sort: \AnxietyEntry.timestamp, order: .reverse)
     private var entries: [AnxietyEntry]
     @State private var showingAddEntry = false
+    @State private var selectedSegment = 0
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(entries) { entry in
-                    NavigationLink {
-                        JournalEntryDetailView(entry: entry)
-                    } label: {
-                        JournalEntryRow(entry: entry)
-                    }
+            VStack(spacing: 0) {
+                Picker("View", selection: $selectedSegment) {
+                    Text("Journal").tag(0)
+                    Text("Songs").tag(1)
                 }
-                .onDelete(perform: deleteEntries)
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+
+                if selectedSegment == 0 {
+                    journalList
+                } else {
+                    SongCatalogView()
+                }
             }
-            .navigationTitle("Journal")
+            .navigationTitle(selectedSegment == 0 ? "Journal" : "Songs")
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingAddEntry = true
-                    } label: {
-                        Image(systemName: "plus")
+                if selectedSegment == 0 {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            showingAddEntry = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
                     }
                 }
             }
             .sheet(isPresented: $showingAddEntry) {
                 AddJournalEntryView()
             }
-            .overlay {
-                if entries.isEmpty {
-                    ContentUnavailableView(
-                        "No Entries Yet",
-                        systemImage: "book",
-                        description: Text("Tap + to log your first anxiety entry")
-                    )
+        }
+    }
+
+    private var journalList: some View {
+        List {
+            ForEach(entries) { entry in
+                NavigationLink {
+                    JournalEntryDetailView(entry: entry)
+                } label: {
+                    JournalEntryRow(entry: entry)
                 }
+            }
+            .onDelete(perform: deleteEntries)
+        }
+        .overlay {
+            if entries.isEmpty {
+                ContentUnavailableView(
+                    "No Entries Yet",
+                    systemImage: "book",
+                    description: Text("Tap + to log your first anxiety entry")
+                )
             }
         }
     }
