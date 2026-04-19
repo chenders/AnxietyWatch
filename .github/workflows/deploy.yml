@@ -55,20 +55,6 @@ jobs:
         run: |
           cp ${{ github.workspace }}/server/docker-compose.prod.yml /opt/anxietywatch/docker-compose.yml
 
-      - name: Write .env
-        run: |
-          cat > /opt/anxietywatch/.env << 'EOF'
-          ADMIN_PASSWORD=${{ secrets.ANXIETYWATCH_ADMIN_PASSWORD }}
-          SECRET_KEY=${{ secrets.ANXIETYWATCH_SECRET_KEY }}
-          POSTGRES_USER=anxietywatch
-          POSTGRES_PASSWORD=${{ secrets.ANXIETYWATCH_DB_PASSWORD }}
-          POSTGRES_DB=anxietywatch
-          DATABASE_URL=postgresql://anxietywatch:${{ secrets.ANXIETYWATCH_DB_PASSWORD }}@anxietywatch-db:5432/anxietywatch
-          GRAPHQL_API_KEY=${{ secrets.GRAPHQL_API_KEY }}
-          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-          EOF
-          chmod 600 /opt/anxietywatch/.env
-
       - name: Pull and deploy
         working-directory: /opt/anxietywatch
         run: |
