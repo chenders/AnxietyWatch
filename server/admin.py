@@ -1328,6 +1328,31 @@ def admin_song_detail(song_id):
     return render_template("song_detail.html", song=song, occurrences=occurrences)
 
 
+@admin_bp.route("/songs/<int:song_id>/refetch-lyrics", methods=["POST"])
+@require_admin
+def admin_song_refetch_lyrics(song_id):
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT genius_url FROM songs WHERE id = %s", (song_id,))
+    song = cur.fetchone()
+    if not song or not song["genius_url"]:
+        flash("No Genius URL for this song.", "error")
+        return redirect(url_for("admin.admin_song_detail", song_id=song_id))
+
+    from genius import scrape_lyrics
+    lyrics = scrape_lyrics(song["genius_url"])
+    if lyrics:
+        cur.execute(
+            "UPDATE songs SET lyrics = %s, lyrics_source = 'genius', updated_at = NOW() WHERE id = %s",
+            (lyrics, song_id),
+        )
+        db.commit()
+        flash("Lyrics re-fetched from Genius.", "success")
+    else:
+        flash("Could not fetch lyrics from Genius.", "error")
+    return redirect(url_for("admin.admin_song_detail", song_id=song_id))
+
+
 BROWSABLE_TABLES = {
     "anxiety_entries": {"order": "timestamp DESC", "label": "Anxiety Entries"},
     "medication_definitions": {"order": "name", "label": "Medication Definitions"},
