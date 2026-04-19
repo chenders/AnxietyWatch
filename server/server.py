@@ -14,6 +14,7 @@ from correlations import (
     compute_correlations, store_correlations, get_correlations,
     get_paired_day_count, correlations_are_stale, MINIMUM_PAIRED_DAYS,
 )
+from genius import search_songs, fetch_song_metadata, scrape_lyrics, fetch_lyrics_musixmatch
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -598,6 +599,151 @@ def create_app(test_config=None):
         rows = cur.fetchall()
         # Serialize dates/datetimes to ISO strings
         return [_serialize_row(r) for r in rows]
+
+    # ---------------------------------------------------------------------------
+    # Song endpoints
+    # ---------------------------------------------------------------------------
+
+    @app.route("/api/songs/search", methods=["GET"])
+    @require_api_key
+    def api_songs_search():
+        query = request.args.get("q", "").strip()
+        if not query:
+            return jsonify({"error": "Missing query parameter 'q'"}), 400
+        token = os.environ.get("GENIUS_API_TOKEN")
+        results = search_songs(query, api_token=token)
+        return jsonify({"results": results})
+
+    @app.route("/api/songs", methods=["GET"])
+    @require_api_key
+    def api_songs_list():
+        db = get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT s.id, s.genius_id, s.title, s.artist, s.album,
+                   s.album_art_url, s.genius_url, s.lyrics IS NOT NULL AS has_lyrics,
+                   COUNT(so.id) AS occurrence_count,
+                   MAX(so.timestamp) AS last_occurrence
+            FROM songs s
+            LEFT JOIN song_occurrences so ON so.song_id = s.id
+            GROUP BY s.id
+            ORDER BY last_occurrence DESC NULLS LAST, s.title
+        """)
+        songs = [_serialize_row(row) for row in cur.fetchall()]
+        return jsonify({"songs": songs})
+
+    @app.route("/api/songs", methods=["POST"])
+    @require_api_key
+    def api_songs_create():
+        data = request.get_json(silent=True) or {}
+        db = get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        genius_id = data.get("genius_id")
+
+        # If genius_id provided, check for existing
+        if genius_id:
+            cur.execute("SELECT * FROM songs WHERE genius_id = %s", (genius_id,))
+            existing = cur.fetchone()
+            if existing:
+                db.commit()
+                return jsonify(_serialize_row(existing)), 200
+
+            # Fetch metadata and lyrics from Genius
+            token = os.environ.get("GENIUS_API_TOKEN")
+            meta = fetch_song_metadata(genius_id, api_token=token)
+            if not meta:
+                return jsonify({"error": "Could not fetch song metadata"}), 502
+
+            lyrics = None
+            lyrics_source = None
+            if meta.get("genius_url"):
+                lyrics = scrape_lyrics(meta["genius_url"])
+                if lyrics:
+                    lyrics_source = "genius"
+            if not lyrics:
+                lyrics = fetch_lyrics_musixmatch(meta["title"], meta["artist"])
+                if lyrics:
+                    lyrics_source = "musixmatch"
+
+            cur.execute(
+                """INSERT INTO songs (genius_id, title, artist, album, album_art_url, genius_url, lyrics, lyrics_source)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   RETURNING *""",
+                (genius_id, meta["title"], meta["artist"], meta.get("album"),
+                 meta.get("album_art_url"), meta.get("genius_url"), lyrics, lyrics_source),
+            )
+        else:
+            # Manual entry — title and artist required
+            title = data.get("title", "").strip()
+            artist = data.get("artist", "").strip()
+            if not title or not artist:
+                return jsonify({"error": "title and artist are required"}), 400
+            cur.execute(
+                """INSERT INTO songs (title, artist, album, album_art_url)
+                   VALUES (%s, %s, %s, %s)
+                   RETURNING *""",
+                (title, artist, data.get("album"), data.get("album_art_url")),
+            )
+
+        song = cur.fetchone()
+        db.commit()
+        return jsonify(_serialize_row(song)), 201
+
+    @app.route("/api/songs/<int:song_id>", methods=["PUT"])
+    @require_api_key
+    def api_songs_update(song_id):
+        data = request.get_json(silent=True) or {}
+        db = get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # Build SET clause from allowed fields
+        allowed = {"title", "artist", "album", "album_art_url", "genius_url", "lyrics", "lyrics_source"}
+        updates = {k: v for k, v in data.items() if k in allowed}
+        if not updates:
+            return jsonify({"error": "No valid fields to update"}), 400
+
+        updates["updated_at"] = "NOW()"
+        set_parts = []
+        values = []
+        for k, v in updates.items():
+            if v == "NOW()":
+                set_parts.append(f"{k} = NOW()")
+            else:
+                set_parts.append(f"{k} = %s")
+                values.append(v)
+        values.append(song_id)
+
+        cur.execute(
+            f"UPDATE songs SET {', '.join(set_parts)} WHERE id = %s RETURNING *",
+            values,
+        )
+        song = cur.fetchone()
+        if not song:
+            return jsonify({"error": "Song not found"}), 404
+        db.commit()
+        return jsonify(_serialize_row(song))
+
+    @app.route("/api/songs/<int:song_id>/occurrences", methods=["POST"])
+    @require_api_key
+    def api_song_occurrence_create(song_id):
+        data = request.get_json(silent=True) or {}
+        db = get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        timestamp = data.get("timestamp")
+        if not timestamp:
+            return jsonify({"error": "timestamp is required"}), 400
+
+        cur.execute(
+            """INSERT INTO song_occurrences (song_id, timestamp, source, anxiety_entry_id, notes)
+               VALUES (%s, %s, %s, %s, %s)
+               RETURNING *""",
+            (song_id, timestamp, data.get("source"), data.get("anxiety_entry_id"), data.get("notes")),
+        )
+        occurrence = cur.fetchone()
+        db.commit()
+        return jsonify(_serialize_row(occurrence)), 201
 
     def _serialize_row(row):
         result = {}

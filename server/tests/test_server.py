@@ -58,7 +58,8 @@ def _clean_tables(app):
             "medication_doses, cpap_sessions, barometric_readings, correlations, "
             "analyses, api_keys, sync_log, therapy_sessions, settings, "
             "patient_profile, psychiatrist_profile, conflicts, analysis_jobs, "
-            "pharmacies, prescriptions, pharmacy_call_logs "
+            "pharmacies, prescriptions, pharmacy_call_logs, "
+            "songs, song_occurrences "
             "RESTART IDENTITY CASCADE"
         )
         # Insert a test API key
@@ -566,3 +567,100 @@ def test_sync_pharmacy_call_logs(client):
     resp = client.post("/api/sync", json=payload, headers=auth_header())
     assert resp.status_code == 200
     assert resp.get_json()["counts"]["pharmacy_call_logs"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Song endpoints
+# ---------------------------------------------------------------------------
+
+
+def test_search_songs_requires_auth(client):
+    rv = client.get("/api/songs/search?q=test")
+    assert rv.status_code == 401
+
+
+def test_search_songs_requires_query(client):
+    rv = client.get("/api/songs/search", headers=auth_header())
+    assert rv.status_code == 400
+
+
+def test_get_songs_empty(client):
+    rv = client.get("/api/songs", headers=auth_header())
+    assert rv.status_code == 200
+    data = rv.get_json()
+    assert data["songs"] == []
+
+
+def test_post_song_manual(client):
+    """Create a song without a genius_id (manual entry)."""
+    rv = client.post(
+        "/api/songs",
+        json={"title": "Test Song", "artist": "Test Artist"},
+        headers=auth_header(),
+    )
+    assert rv.status_code == 201
+    data = rv.get_json()
+    assert data["title"] == "Test Song"
+    assert data["artist"] == "Test Artist"
+    assert data["id"] is not None
+
+
+def test_get_songs_returns_created_song(client):
+    client.post(
+        "/api/songs",
+        json={"title": "Test Song", "artist": "Test Artist"},
+        headers=auth_header(),
+    )
+    rv = client.get("/api/songs", headers=auth_header())
+    data = rv.get_json()
+    assert len(data["songs"]) == 1
+    assert data["songs"][0]["title"] == "Test Song"
+
+
+def test_put_song_updates_lyrics(client):
+    rv = client.post(
+        "/api/songs",
+        json={"title": "Test Song", "artist": "Test Artist"},
+        headers=auth_header(),
+    )
+    song_id = rv.get_json()["id"]
+    rv = client.put(
+        f"/api/songs/{song_id}",
+        json={"lyrics": "Hello world lyrics", "lyrics_source": "manual"},
+        headers=auth_header(),
+    )
+    assert rv.status_code == 200
+    assert rv.get_json()["lyrics"] == "Hello world lyrics"
+
+
+def test_post_song_occurrence(client):
+    rv = client.post(
+        "/api/songs",
+        json={"title": "Test Song", "artist": "Test Artist"},
+        headers=auth_header(),
+    )
+    song_id = rv.get_json()["id"]
+    rv = client.post(
+        f"/api/songs/{song_id}/occurrences",
+        json={"timestamp": "2026-04-18T14:30:00Z", "source": "journal"},
+        headers=auth_header(),
+    )
+    assert rv.status_code == 201
+    assert rv.get_json()["song_id"] == song_id
+
+
+def test_get_songs_includes_occurrence_count(client):
+    rv = client.post(
+        "/api/songs",
+        json={"title": "Test Song", "artist": "Test Artist"},
+        headers=auth_header(),
+    )
+    song_id = rv.get_json()["id"]
+    client.post(
+        f"/api/songs/{song_id}/occurrences",
+        json={"timestamp": "2026-04-18T14:30:00Z", "source": "standalone"},
+        headers=auth_header(),
+    )
+    rv = client.get("/api/songs", headers=auth_header())
+    songs = rv.get_json()["songs"]
+    assert songs[0]["occurrence_count"] == 1
