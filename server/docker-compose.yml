@@ -32,6 +32,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GENIUS_API_TOKEN: ${GENIUS_API_TOKEN:-}
+      MUSIXMATCH_API_KEY: ${MUSIXMATCH_API_KEY:-}
     shm_size: "256mb"
     ports:
       - "0.0.0.0:8081:8080"
