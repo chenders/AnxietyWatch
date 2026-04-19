@@ -664,3 +664,58 @@ def test_get_songs_includes_occurrence_count(client):
     rv = client.get("/api/songs", headers=auth_header())
     songs = rv.get_json()["songs"]
     assert songs[0]["occurrence_count"] == 1
+
+
+def test_sync_with_songs(client):
+    """Songs and song_occurrences in sync payload are upserted."""
+    payload = {
+        "syncType": "full",
+        "exportDate": "2026-04-18T12:00:00Z",
+        "songs": [
+            {
+                "serverId": None,
+                "title": "Everybody Hurts",
+                "artist": "R.E.M.",
+                "album": "Automatic for the People",
+                "geniusId": 4535,
+                "lyrics": "When your day is long...",
+                "lyricsSource": "manual",
+                "updatedAt": "2026-04-18T15:00:00Z",
+            }
+        ],
+        "songOccurrences": [
+            {
+                "songGeniusId": 4535,
+                "timestamp": "2026-04-18T14:30:00Z",
+                "source": "journal",
+                "anxietyEntryTimestamp": None,
+            }
+        ],
+    }
+    rv = client.post("/api/sync", json=payload, headers=auth_header())
+    assert rv.status_code == 200
+    data = rv.get_json()
+    assert data["counts"]["songs"] == 1
+    assert data["counts"]["song_occurrences"] == 1
+
+
+def test_sync_songs_upsert_by_genius_id(client):
+    """Syncing a song twice with same genius_id updates rather than duplicates."""
+    song = {
+        "title": "Everybody Hurts",
+        "artist": "R.E.M.",
+        "geniusId": 4535,
+        "updatedAt": "2026-04-18T15:00:00Z",
+    }
+    payload1 = {"syncType": "full", "songs": [song]}
+    client.post("/api/sync", json=payload1, headers=auth_header())
+
+    song["lyrics"] = "Updated lyrics"
+    song["updatedAt"] = "2026-04-19T10:00:00Z"
+    payload2 = {"syncType": "incremental", "songs": [song]}
+    client.post("/api/sync", json=payload2, headers=auth_header())
+
+    rv = client.get("/api/songs", headers=auth_header())
+    songs = rv.get_json()["songs"]
+    assert len(songs) == 1
+    # Verify the lyrics were updated

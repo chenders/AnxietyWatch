@@ -220,6 +220,8 @@ def create_app(test_config=None):
             counts["prescriptions"] = _upsert_prescriptions(cur, data.get("prescriptions", []))
             counts["pharmacy_call_logs"] = _upsert_pharmacy_call_logs(cur, data.get("pharmacyCallLogs", []))
             _upsert_demographics(cur, data.get("demographics"))
+            counts["songs"] = _upsert_songs(cur, data.get("songs", []))
+            counts["song_occurrences"] = _upsert_song_occurrences(cur, data.get("songOccurrences", []))
 
             # Log the sync
             cur.execute(
@@ -542,6 +544,65 @@ def create_app(test_config=None):
                 "INSERT INTO patient_profile (date_of_birth, gender) VALUES (%s, %s)",
                 (dob, sex),
             )
+
+    def _upsert_songs(cur, songs):
+        for s in songs:
+            genius_id = s.get("geniusId")
+            if genius_id:
+                cur.execute(
+                    """INSERT INTO songs (genius_id, title, artist, album, album_art_url,
+                                          genius_url, lyrics, lyrics_source, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s::timestamptz, NOW()))
+                       ON CONFLICT (genius_id) DO UPDATE SET
+                           title = EXCLUDED.title,
+                           artist = EXCLUDED.artist,
+                           album = COALESCE(EXCLUDED.album, songs.album),
+                           album_art_url = COALESCE(EXCLUDED.album_art_url, songs.album_art_url),
+                           genius_url = COALESCE(EXCLUDED.genius_url, songs.genius_url),
+                           lyrics = COALESCE(EXCLUDED.lyrics, songs.lyrics),
+                           lyrics_source = COALESCE(EXCLUDED.lyrics_source, songs.lyrics_source),
+                           updated_at = GREATEST(EXCLUDED.updated_at, songs.updated_at)""",
+                    (genius_id, s["title"], s["artist"], s.get("album"),
+                     s.get("albumArtUrl"), s.get("geniusUrl"),
+                     s.get("lyrics"), s.get("lyricsSource"), s.get("updatedAt")),
+                )
+            else:
+                # Manual song without genius_id — upsert by title+artist
+                cur.execute(
+                    """INSERT INTO songs (title, artist, album, lyrics, lyrics_source, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, COALESCE(%s::timestamptz, NOW()))
+                       ON CONFLICT DO NOTHING""",
+                    (s["title"], s["artist"], s.get("album"),
+                     s.get("lyrics"), s.get("lyricsSource"), s.get("updatedAt")),
+                )
+        return len(songs)
+
+    def _upsert_song_occurrences(cur, occurrences):
+        for o in occurrences:
+            # Resolve song_id from genius_id or title
+            song_id = None
+            genius_id = o.get("songGeniusId")
+            if genius_id:
+                cur.execute("SELECT id FROM songs WHERE genius_id = %s", (genius_id,))
+                row = cur.fetchone()
+                if row:
+                    song_id = row[0] if isinstance(row, tuple) else row.get("id", row[0])
+            if not song_id:
+                server_id = o.get("songServerId")
+                if server_id:
+                    song_id = server_id
+
+            if not song_id:
+                continue  # Can't link occurrence without a song
+
+            cur.execute(
+                """INSERT INTO song_occurrences (song_id, timestamp, source, anxiety_entry_id, notes)
+                   VALUES (%s, %s, %s, %s, %s)
+                   ON CONFLICT DO NOTHING""",
+                (song_id, o["timestamp"], o.get("source"),
+                 o.get("anxietyEntryTimestamp"), o.get("notes")),
+            )
+        return len(occurrences)
 
     # ---------------------------------------------------------------------------
     # GET /api/data
