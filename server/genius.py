@@ -96,11 +96,15 @@ def scrape_lyrics(genius_url: str) -> str | None:
 
         parts = []
         for container in containers:
+            # Remove header/metadata elements (contributor count, translations)
+            for el in container.find_all(attrs={"data-exclude-from-selection": "true"}):
+                el.decompose()
             # Replace <br> tags with newlines before extracting text
             for br in container.find_all("br"):
                 br.replace_with("\n")
-            text = container.get_text(separator="\n")
-            parts.append(text.strip())
+            text = container.get_text().strip()
+            if text:
+                parts.append(text)
 
         lyrics = "\n\n".join(parts).strip()
         return lyrics if lyrics else None
