@@ -78,6 +78,36 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
     )
     data["correlations"] = [_serialize(r) for r in cur.fetchall()]
 
+    # Song occurrences with song metadata
+    cur.execute(
+        """SELECT so.timestamp, so.source, so.notes,
+                  s.title, s.artist, s.album, s.lyrics,
+                  ae.severity AS anxiety_severity
+           FROM song_occurrences so
+           JOIN songs s ON s.id = so.song_id
+           LEFT JOIN anxiety_entries ae ON ae.timestamp = so.anxiety_entry_id
+           WHERE so.timestamp >= %s AND so.timestamp < %s
+           ORDER BY so.timestamp""",
+        (ts_start, ts_end),
+    )
+    data["song_occurrences"] = [_serialize(r) for r in cur.fetchall()]
+
+    # All songs (for frequency context even if no occurrences in this range)
+    cur.execute(
+        """SELECT s.id, s.title, s.artist, s.lyrics IS NOT NULL AS has_lyrics,
+                  COUNT(so.id) AS total_occurrences,
+                  COUNT(so.id) FILTER (WHERE so.timestamp >= %s AND so.timestamp < %s) AS period_occurrences,
+                  AVG(ae.severity) FILTER (WHERE so.timestamp >= %s AND so.timestamp < %s) AS avg_anxiety
+           FROM songs s
+           LEFT JOIN song_occurrences so ON so.song_id = s.id
+           LEFT JOIN anxiety_entries ae ON ae.timestamp = so.anxiety_entry_id
+           GROUP BY s.id
+           HAVING COUNT(so.id) > 0
+           ORDER BY period_occurrences DESC, total_occurrences DESC""",
+        (ts_start, ts_end, ts_start, ts_end),
+    )
+    data["song_summary"] = [_serialize(r) for r in cur.fetchall()]
+
     return data
 
 
@@ -186,6 +216,9 @@ def build_prompt(
         "\n- **Barometric readings**: Atmospheric pressure (kPa) and relative altitude"
         "\n- **Correlations**: Pre-computed Pearson correlations between individual physiological"
         " signals and anxiety severity (from the app's correlation engine)"
+        "\n- **Song occurrences**: Songs the user reports having stuck in their head (earworms),"
+        " with timestamps, linked anxiety severity, and optionally lyrics. Songs often reflect"
+        " subconscious emotional processing and can be predictive of anxiety patterns."
     )
 
     # -- Patient Context (optional) --
@@ -305,6 +338,10 @@ def build_prompt(
         )
     goals += [
         "**Identify compound triggers** — multiple factors combining (e.g., poor sleep + low HRV + barometric drop)",
+        "**Analyze earworm patterns** — correlate recurring songs with anxiety severity and timing."
+        " For songs with lyrics, analyze emotional themes and what feelings they might reflect."
+        " Identify songs that appear before anxiety spikes (predictive) vs. during (concurrent)"
+        " vs. after (processing).",
         "**Flag anomalies** — unusual data points, sudden shifts, outliers worth investigating",
         "**Assess CPAP/sleep apnea connections** — how CPAP compliance and AHI relate to anxiety",
         "**Note environmental factors** — barometric pressure changes and their timing relative to anxiety",
@@ -313,7 +350,7 @@ def build_prompt(
     parts.append(f"\n## Analysis Goals\n\n{numbered_goals}")
 
     categories = [
-        "correlation", "temporal_pattern", "anomaly",
+        "correlation", "temporal_pattern", "song_pattern", "anomaly",
         "sleep_apnea_connection", "environmental",
         "compound_trigger", "recommendation",
     ]
@@ -414,6 +451,43 @@ def build_prompt(
         user_parts.append(f"## {source_name}")
         user_parts.append(json.dumps(rows, default=str, separators=(",", ":")))
         user_parts.append("")
+
+    # Song patterns section
+    song_summary = data.get("song_summary", [])
+    song_occurrences = data.get("song_occurrences", [])
+    if song_summary:
+        user_parts.append("## Song Patterns (Earworms)\n")
+        user_parts.append(json.dumps(song_summary, indent=2, default=str))
+
+        # Include lyrics for songs with high occurrence or strong anxiety correlation
+        songs_with_lyrics = [
+            occ for occ in song_occurrences
+            if occ.get("lyrics")
+        ]
+        seen_titles = set()
+        for occ in songs_with_lyrics:
+            title_key = f"{occ['title']} — {occ['artist']}"
+            if title_key not in seen_titles:
+                seen_titles.add(title_key)
+                user_parts.append(f"\n### {title_key}\nLyrics:\n{occ['lyrics']}\n")
+
+        # For songs without lyrics that show interesting patterns, instruct Claude to search
+        songs_needing_lookup = [
+            s for s in song_summary
+            if not s.get("has_lyrics") and (
+                s.get("period_occurrences", 0) >= 3
+                or (s.get("avg_anxiety") and s["avg_anxiety"] >= 6)
+            )
+        ]
+        if songs_needing_lookup:
+            titles = [f"'{s['title']}' by {s['artist']}" for s in songs_needing_lookup]
+            user_parts.append(
+                f"\nThe following songs lack stored lyrics but show notable patterns."
+                f" Use web search to find and analyze their lyrics: {', '.join(titles)}\n"
+            )
+    elif song_occurrences:
+        user_parts.append("## Song Occurrences\n")
+        user_parts.append(json.dumps(song_occurrences, indent=2, default=str))
 
     user_message = "\n".join(user_parts)
 
