@@ -24,6 +24,8 @@ enum DataExporter {
         let pharmacies: [PharmacyDTO]
         let prescriptions: [PrescriptionDTO]
         let pharmacyCallLogs: [PharmacyCallLogDTO]
+        let songs: [SongDTO]
+        let songOccurrences: [SongOccurrenceDTO]
     }
 
     static func exportJSON(from context: ModelContext, start: Date? = nil, end: Date? = nil) throws -> Data {
@@ -127,6 +129,20 @@ enum DataExporter {
         }
         files.append(("pharmacy_call_logs.csv", Data(csv.utf8)))
 
+        // Songs
+        csv = "id,server_id,genius_id,title,artist,album,has_lyrics\n"
+        for s in bundle.songs {
+            csv += "\(s.id),\(opt(s.serverId)),\(opt(s.geniusId)),\"\(escapeCsv(s.title))\",\"\(escapeCsv(s.artist))\",\"\(escapeCsv(s.album ?? ""))\",\(s.lyrics != nil)\n"
+        }
+        files.append(("songs.csv", Data(csv.utf8)))
+
+        // Song occurrences
+        csv = "timestamp,song_id,source,anxiety_entry_timestamp,notes\n"
+        for o in bundle.songOccurrences {
+            csv += "\(o.timestamp),\(o.songId),\(o.source ?? ""),\(o.anxietyEntryTimestamp ?? ""),\"\(escapeCsv(o.notes ?? ""))\"\n"
+        }
+        files.append(("song_occurrences.csv", Data(csv.utf8)))
+
         return files
     }
 
@@ -143,6 +159,8 @@ enum DataExporter {
         let pharmacies: [Pharmacy] = (try? context.fetch(FetchDescriptor<Pharmacy>(sortBy: [SortDescriptor(\.name)]))) ?? []
         let prescriptionsAll: [Prescription] = (try? context.fetch(FetchDescriptor<Prescription>(sortBy: [SortDescriptor(\.dateFilled)]))) ?? []
         let callLogs: [PharmacyCallLog] = (try? context.fetch(FetchDescriptor<PharmacyCallLog>(sortBy: [SortDescriptor(\.timestamp)]))) ?? []
+        let allSongs: [Song] = (try? context.fetch(FetchDescriptor<Song>(sortBy: [SortDescriptor(\.title)]))) ?? []
+        let allSongOccurrences: [SongOccurrence] = (try? context.fetch(FetchDescriptor<SongOccurrence>(sortBy: [SortDescriptor(\.timestamp)]))) ?? []
 
         func inRange(_ date: Date) -> Bool {
             if let s = start, date < s { return false }
@@ -224,6 +242,33 @@ enum DataExporter {
                 PharmacyCallLogDTO(timestamp: isoFormatter.string(from: c.timestamp),
                                    direction: c.direction, pharmacyName: c.pharmacyName,
                                    notes: c.notes, durationSeconds: c.durationSeconds)
+            },
+            songs: allSongs.map { s in
+                SongDTO(
+                    id: s.id.uuidString,
+                    serverId: s.serverId,
+                    geniusId: s.geniusId,
+                    title: s.title,
+                    artist: s.artist,
+                    album: s.album,
+                    albumArtUrl: s.albumArtURL,
+                    geniusUrl: s.geniusURL,
+                    lyrics: s.lyrics,
+                    lyricsSource: s.lyricsSource,
+                    updatedAt: isoFormatter.string(from: s.updatedAt)
+                )
+            },
+            songOccurrences: allSongOccurrences.filter { inRange($0.timestamp) }.map { o in
+                SongOccurrenceDTO(
+                    id: o.id.uuidString,
+                    songId: o.song?.id.uuidString ?? "",
+                    songServerId: o.song?.serverId,
+                    songGeniusId: o.song?.geniusId,
+                    timestamp: isoFormatter.string(from: o.timestamp),
+                    source: o.source,
+                    anxietyEntryTimestamp: o.anxietyEntry.map { isoFormatter.string(from: $0.timestamp) },
+                    notes: o.notes
+                )
             }
         )
     }
@@ -292,5 +337,28 @@ enum DataExporter {
     struct PharmacyCallLogDTO: Codable {
         let timestamp: String; let direction: String; let pharmacyName: String
         let notes: String; let durationSeconds: Int?
+    }
+    struct SongDTO: Codable {
+        let id: String
+        let serverId: Int?
+        let geniusId: Int?
+        let title: String
+        let artist: String
+        let album: String?
+        let albumArtUrl: String?
+        let geniusUrl: String?
+        let lyrics: String?
+        let lyricsSource: String?
+        let updatedAt: String
+    }
+    struct SongOccurrenceDTO: Codable {
+        let id: String
+        let songId: String
+        let songServerId: Int?
+        let songGeniusId: Int?
+        let timestamp: String
+        let source: String?
+        let anxietyEntryTimestamp: String?
+        let notes: String?
     }
 }
