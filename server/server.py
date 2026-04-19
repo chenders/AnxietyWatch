@@ -587,14 +587,14 @@ def create_app(test_config=None):
 
     def _upsert_song_occurrences(cur, occurrences):
         for o in occurrences:
-            # Resolve song_id from genius_id or title
+            # Resolve song_id from genius_id or server_id
             song_id = None
             genius_id = o.get("songGeniusId")
             if genius_id:
                 cur.execute("SELECT id FROM songs WHERE genius_id = %s", (genius_id,))
                 row = cur.fetchone()
                 if row:
-                    song_id = row[0] if isinstance(row, tuple) else row.get("id", row[0])
+                    song_id = row[0] if isinstance(row, tuple) else row["id"]
             if not song_id:
                 server_id = o.get("songServerId")
                 if server_id:

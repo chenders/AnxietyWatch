@@ -167,7 +167,7 @@ Logs a song occurrence.
 {
   "timestamp": "2026-04-18T14:30:00Z",
   "source": "journal",
-  "anxiety_entry_id": 42,
+  "anxiety_entry_id": "2026-04-18T13:00:00Z",
   "notes": null
 }
 ```
@@ -285,23 +285,23 @@ Presented as a `.sheet` from three surfaces: Songs catalog + button, journal ent
   "songs": [
     {
       "id": "uuid",
-      "server_id": 1,
-      "genius_id": 4535,
+      "serverId": 1,
+      "geniusId": 4535,
       "title": "Everybody Hurts",
       "artist": "R.E.M.",
       "album": "Automatic for the People",
       "lyrics": "When your day is long...",
-      "lyrics_source": "manual",
-      "updated_at": "2026-04-18T15:00:00Z"
+      "lyricsSource": "manual",
+      "updatedAt": "2026-04-18T15:00:00Z"
     }
   ],
-  "song_occurrences": [
+  "songOccurrences": [
     {
       "id": "uuid",
-      "song_server_id": 1,
+      "songServerId": 1,
       "timestamp": "2026-04-18T14:30:00Z",
       "source": "journal",
-      "anxiety_entry_id": "uuid-of-entry"
+      "anxietyEntryTimestamp": "2026-04-18T13:00:00Z"
     }
   ]
 }
