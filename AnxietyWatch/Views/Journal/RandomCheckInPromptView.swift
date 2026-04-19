@@ -5,6 +5,8 @@ import SwiftData
 struct RandomCheckInPromptView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedSong: Song?
+    @State private var showingSongSearch = false
 
     var body: some View {
         NavigationStack {
@@ -42,6 +44,42 @@ struct RandomCheckInPromptView: View {
                 }
                 .padding(.horizontal, 24)
 
+                // Optional song picker
+                VStack(spacing: 8) {
+                    if let song = selectedSong {
+                        HStack(spacing: 10) {
+                            Image(systemName: "music.note")
+                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(song.title)
+                                    .font(.caption.bold())
+                                Text(song.artist)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button {
+                                selectedSong = nil
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 24)
+                    } else {
+                        Button {
+                            showingSongSearch = true
+                        } label: {
+                            Label("Song in your head?", systemImage: "music.note")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.top, 8)
+
                 Spacer()
             }
             .toolbar {
@@ -52,6 +90,9 @@ struct RandomCheckInPromptView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showingSongSearch) {
+                SongSearchSheet(mode: .picker($selectedSong))
+            }
         }
     }
 
@@ -61,6 +102,14 @@ struct RandomCheckInPromptView: View {
             source: "random_checkin"
         )
         modelContext.insert(entry)
+
+        if let song = selectedSong {
+            let occurrence = SongOccurrence(timestamp: entry.timestamp, source: "checkin")
+            occurrence.song = song
+            occurrence.anxietyEntry = entry
+            modelContext.insert(occurrence)
+        }
+
         try? modelContext.save()
         RandomCheckInManager.completeCheckIn()
         dismiss()

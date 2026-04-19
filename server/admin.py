@@ -179,11 +179,11 @@ def resmed_settings():
     db = get_db()
     cur = db.cursor()
     secret_key = os.environ.get("SECRET_KEY")
-    if not secret_key:
-        flash("SECRET_KEY not configured — cannot encrypt credentials.", "error")
-        return redirect(url_for("admin.resmed_settings"))
 
     if request.method == "POST":
+        if not secret_key:
+            flash("SECRET_KEY not configured — cannot encrypt credentials.", "error")
+            return redirect(url_for("admin.resmed_settings"))
         action = request.form.get("action", "save")
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "")
@@ -1248,6 +1248,84 @@ def app_settings():
     row = cur.fetchone()
     timezone = row["value"] if row else "US/Pacific"
     return render_template("app_settings.html", timezone=timezone)
+
+
+# ---------------------------------------------------------------------------
+# Songs
+# ---------------------------------------------------------------------------
+
+
+@admin_bp.route("/songs")
+@require_admin
+def admin_songs():
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT s.*, COUNT(so.id) AS occurrence_count,
+               MAX(so.timestamp) AS last_occurrence,
+               s.lyrics IS NOT NULL AS has_lyrics
+        FROM songs s
+        LEFT JOIN song_occurrences so ON so.song_id = s.id
+        GROUP BY s.id
+        ORDER BY last_occurrence DESC NULLS LAST, s.title
+    """)
+    songs = cur.fetchall()
+    return render_template("songs.html", songs=songs)
+
+
+@admin_bp.route("/songs/<int:song_id>", methods=["GET", "POST"])
+@require_admin
+def admin_song_detail(song_id):
+    db = get_db()
+    cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    if request.method == "POST":
+        lyrics = request.form.get("lyrics", "").strip() or None
+        # If lyrics changed, set source to "manual"
+        cur.execute("SELECT lyrics, lyrics_source FROM songs WHERE id = %s", (song_id,))
+        old = cur.fetchone()
+        lyrics_source = old["lyrics_source"] if old else None
+        if lyrics != (old["lyrics"] if old else None):
+            lyrics_source = "manual" if lyrics else None
+
+        title = request.form.get("title", "").strip()
+        artist = request.form.get("artist", "").strip()
+        if not title or not artist:
+            flash("Title and artist are required.", "error")
+            return redirect(url_for("admin.admin_song_detail", song_id=song_id))
+
+        cur.execute(
+            """UPDATE songs SET title = %s, artist = %s, album = %s,
+                                lyrics = %s, lyrics_source = %s, updated_at = NOW()
+               WHERE id = %s""",
+            (
+                title,
+                artist,
+                request.form.get("album", "").strip() or None,
+                lyrics,
+                lyrics_source,
+                song_id,
+            ),
+        )
+        db.commit()
+        flash("Song updated.", "success")
+
+    cur.execute("SELECT * FROM songs WHERE id = %s", (song_id,))
+    song = cur.fetchone()
+    if not song:
+        flash("Song not found.", "error")
+        return redirect(url_for("admin.admin_songs"))
+
+    cur.execute("""
+        SELECT so.*, ae.severity
+        FROM song_occurrences so
+        LEFT JOIN anxiety_entries ae ON ae.timestamp = so.anxiety_entry_id
+        WHERE so.song_id = %s
+        ORDER BY so.timestamp DESC
+    """, (song_id,))
+    occurrences = cur.fetchall()
+
+    return render_template("song_detail.html", song=song, occurrences=occurrences)
 
 
 BROWSABLE_TABLES = {

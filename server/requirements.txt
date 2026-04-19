@@ -14,3 +14,5 @@ numpy>=1.26
 scipy>=1.12
 anthropic>=0.39
 json-repair>=0.30
+beautifulsoup4>=4.12
+lxml>=5.0

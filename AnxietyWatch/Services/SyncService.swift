@@ -152,6 +152,9 @@ final class SyncService {
                 upsertCorrelations(correlationList, modelContext: modelContext)
             }
 
+            // Pull songs catalog (server → iOS)
+            try? await SongService.fetchCatalog(into: modelContext)
+
             let size = ByteCountFormatter.string(fromByteCount: Int64(payload.count), countStyle: .file)
             lastSyncResult = "Synced \(size) at \(Date.now.formatted(.dateTime.hour().minute()))"
         } catch is URLError {
@@ -216,6 +219,16 @@ final class SyncService {
         }
 
         return try PrescriptionImporter.importRecords(records, into: modelContext)
+    }
+
+    // MARK: - Fetch songs from server
+
+    /// Pull the song catalog from the server and upsert into SwiftData.
+    /// Returns the number of songs added or updated.
+    @discardableResult
+    func fetchSongs(modelContext: ModelContext) async throws -> Int {
+        guard isConfigured else { throw SyncError.notConfigured }
+        return try await SongService.fetchCatalog(into: modelContext)
     }
 
     /// Find existing MedicationDefinition by name (case-insensitive) or create a new one.
