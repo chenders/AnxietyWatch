@@ -447,7 +447,10 @@ def build_prompt(
         f"Analyze this health tracking data from {date_from.isoformat()} to {date_to.isoformat()}.\n"
     ]
 
+    song_keys = {"song_summary", "song_occurrences"}
     for source_name, rows in data.items():
+        if source_name in song_keys:
+            continue  # Handled in the dedicated Song Patterns section below
         user_parts.append(f"## {source_name}")
         user_parts.append(json.dumps(rows, default=str, separators=(",", ":")))
         user_parts.append("")

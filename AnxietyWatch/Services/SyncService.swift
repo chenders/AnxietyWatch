@@ -153,9 +153,7 @@ final class SyncService {
             }
 
             // Pull songs catalog (server → iOS)
-            if let songsPulled = try? await SongService.fetchCatalog(into: modelContext) {
-                _ = songsPulled
-            }
+            try? await SongService.fetchCatalog(into: modelContext)
 
             let size = ByteCountFormatter.string(fromByteCount: Int64(payload.count), countStyle: .file)
             lastSyncResult = "Synced \(size) at \(Date.now.formatted(.dateTime.hour().minute()))"

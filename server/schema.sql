@@ -292,12 +292,12 @@ CREATE TABLE IF NOT EXISTS song_occurrences (
     id               SERIAL PRIMARY KEY,
     song_id          INTEGER NOT NULL REFERENCES songs(id),
     timestamp        TIMESTAMPTZ NOT NULL,
-    source           TEXT,
+    source           TEXT NOT NULL DEFAULT 'standalone',
     anxiety_entry_id TIMESTAMPTZ,
     notes            TEXT,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT song_occurrences_natural_key_unique
-        UNIQUE (song_id, timestamp, source, anxiety_entry_id)
+        UNIQUE (song_id, timestamp, source)
 );
 
 CREATE INDEX IF NOT EXISTS idx_song_occurrences_timestamp
