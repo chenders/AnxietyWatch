@@ -311,7 +311,7 @@ def _execute_single_job(job, database_url):
 
             request_payload = {
                 "model": job["model"],
-                "max_tokens": 8192,
+                "max_tokens": 16384,
                 "system": system,
                 "messages": [{"role": "user", "content": user_msg}],
             }
