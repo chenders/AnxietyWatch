@@ -152,22 +152,38 @@ enum SongService {
 
         var count = 0
         for entry in catalog {
-            // Check if song already exists locally by serverId
             let serverId = entry.id
+
+            // Check if song already exists locally by serverId — update metadata
             let descriptor = FetchDescriptor<Song>(
                 predicate: #Predicate<Song> { $0.serverId == serverId }
             )
-            if (try? context.fetch(descriptor).first) != nil {
-                continue  // Already have this song
+            if let existing = try? context.fetch(descriptor).first {
+                var didChange = false
+                if existing.title != entry.title { existing.title = entry.title; didChange = true }
+                if existing.artist != entry.artist { existing.artist = entry.artist; didChange = true }
+                if existing.album != entry.album { existing.album = entry.album; didChange = true }
+                if existing.geniusId != entry.geniusId { existing.geniusId = entry.geniusId; didChange = true }
+                if existing.albumArtURL != entry.albumArtUrl { existing.albumArtURL = entry.albumArtUrl; didChange = true }
+                if didChange {
+                    existing.updatedAt = Date()
+                    count += 1
+                }
+                continue
             }
 
-            // Also check by geniusId
+            // Check by geniusId — link serverId and update metadata
             if let geniusId = entry.geniusId {
                 let geniusDescriptor = FetchDescriptor<Song>(
                     predicate: #Predicate<Song> { $0.geniusId == geniusId }
                 )
                 if let existing = try? context.fetch(geniusDescriptor).first {
                     existing.serverId = serverId
+                    if existing.title != entry.title { existing.title = entry.title }
+                    if existing.artist != entry.artist { existing.artist = entry.artist }
+                    if existing.album != entry.album { existing.album = entry.album }
+                    if existing.albumArtURL != entry.albumArtUrl { existing.albumArtURL = entry.albumArtUrl }
+                    existing.updatedAt = Date()
                     count += 1
                     continue
                 }

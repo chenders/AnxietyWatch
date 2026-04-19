@@ -561,17 +561,25 @@ def create_app(test_config=None):
                            genius_url = COALESCE(EXCLUDED.genius_url, songs.genius_url),
                            lyrics = COALESCE(EXCLUDED.lyrics, songs.lyrics),
                            lyrics_source = COALESCE(EXCLUDED.lyrics_source, songs.lyrics_source),
-                           updated_at = GREATEST(EXCLUDED.updated_at, songs.updated_at)""",
+                           updated_at = GREATEST(EXCLUDED.updated_at, songs.updated_at)
+                       WHERE EXCLUDED.updated_at >= songs.updated_at""",
                     (genius_id, s["title"], s["artist"], s.get("album"),
                      s.get("albumArtUrl"), s.get("geniusUrl"),
                      s.get("lyrics"), s.get("lyricsSource"), s.get("updatedAt")),
                 )
             else:
-                # Manual song without genius_id — upsert by title+artist
+                # Manual song without genius_id — upsert by normalized title+artist
                 cur.execute(
                     """INSERT INTO songs (title, artist, album, lyrics, lyrics_source, updated_at)
                        VALUES (%s, %s, %s, %s, %s, COALESCE(%s::timestamptz, NOW()))
-                       ON CONFLICT DO NOTHING""",
+                       ON CONFLICT (lower(btrim(title)), lower(btrim(artist)))
+                           WHERE genius_id IS NULL
+                       DO UPDATE SET
+                           album = COALESCE(EXCLUDED.album, songs.album),
+                           lyrics = COALESCE(EXCLUDED.lyrics, songs.lyrics),
+                           lyrics_source = COALESCE(EXCLUDED.lyrics_source, songs.lyrics_source),
+                           updated_at = GREATEST(EXCLUDED.updated_at, songs.updated_at)
+                       WHERE EXCLUDED.updated_at >= songs.updated_at""",
                     (s["title"], s["artist"], s.get("album"),
                      s.get("lyrics"), s.get("lyricsSource"), s.get("updatedAt")),
                 )
@@ -682,7 +690,8 @@ def create_app(test_config=None):
         cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
             SELECT s.id, s.genius_id, s.title, s.artist, s.album,
-                   s.album_art_url, s.genius_url, s.lyrics IS NOT NULL AS has_lyrics,
+                   s.album_art_url, s.genius_url, s.updated_at,
+                   s.lyrics IS NOT NULL AS has_lyrics,
                    COUNT(so.id) AS occurrence_count,
                    MAX(so.timestamp) AS last_occurrence
             FROM songs s
@@ -795,6 +804,10 @@ def create_app(test_config=None):
         timestamp = data.get("timestamp")
         if not timestamp:
             return jsonify({"error": "timestamp is required"}), 400
+
+        cur.execute("SELECT 1 FROM songs WHERE id = %s", (song_id,))
+        if cur.fetchone() is None:
+            return jsonify({"error": "song not found"}), 404
 
         cur.execute(
             """INSERT INTO song_occurrences (song_id, timestamp, source, anxiety_entry_id, notes)

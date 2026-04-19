@@ -464,12 +464,19 @@ def build_prompt(
             occ for occ in song_occurrences
             if occ.get("lyrics")
         ]
+        max_lyrics_songs = 5
+        max_lyrics_chars = 3000
         seen_titles = set()
         for occ in songs_with_lyrics:
+            if len(seen_titles) >= max_lyrics_songs:
+                break
             title_key = f"{occ['title']} — {occ['artist']}"
             if title_key not in seen_titles:
                 seen_titles.add(title_key)
-                user_parts.append(f"\n### {title_key}\nLyrics:\n{occ['lyrics']}\n")
+                lyrics = occ["lyrics"][:max_lyrics_chars]
+                if len(occ["lyrics"]) > max_lyrics_chars:
+                    lyrics += "\n[lyrics truncated]"
+                user_parts.append(f"\n### {title_key}\nLyrics:\n{lyrics}\n")
 
         # For songs without lyrics that show interesting patterns, instruct Claude to search
         songs_needing_lookup = [

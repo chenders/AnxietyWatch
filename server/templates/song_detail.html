@@ -5,7 +5,7 @@
 <p><strong>{{ song.artist }}</strong>{% if song.album %} · {{ song.album }}{% endif %}</p>
 
 {% if song.genius_url %}
-<p><a href="{{ song.genius_url }}" target="_blank">View on Genius ↗</a></p>
+<p><a href="{{ song.genius_url }}" target="_blank" rel="noopener noreferrer">View on Genius ↗</a></p>
 {% endif %}
 
 <form method="POST" style="margin-top: 1.5em;">
