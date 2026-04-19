@@ -22,6 +22,8 @@ enum TestHelpers {
             PharmacyCallLog.self,
             HealthSample.self,
             PhysiologicalCorrelation.self,
+            Song.self,
+            SongOccurrence.self,
         ])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [config])
