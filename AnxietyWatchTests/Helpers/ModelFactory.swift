@@ -316,4 +316,31 @@ enum ModelFactory {
             pharmacy: pharmacy
         )
     }
+
+    // MARK: - Songs
+
+    static func song(
+        title: String = "Test Song",
+        artist: String = "Test Artist",
+        album: String? = "Test Album",
+        geniusId: Int? = nil,
+        albumArtURL: String? = nil,
+        geniusURL: String? = nil
+    ) -> Song {
+        Song(
+            title: title,
+            artist: artist,
+            album: album,
+            geniusId: geniusId,
+            albumArtURL: albumArtURL,
+            geniusURL: geniusURL
+        )
+    }
+
+    static func songOccurrence(
+        timestamp: Date = referenceDate,
+        source: String? = "journal"
+    ) -> SongOccurrence {
+        SongOccurrence(timestamp: timestamp, source: source)
+    }
 }
