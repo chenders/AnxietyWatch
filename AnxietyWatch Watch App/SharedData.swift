@@ -14,5 +14,6 @@ enum SharedData {
         static let hrvAvg = "hrvAvg"
         static let restingHR = "restingHR"
         static let lastUpdate = "lastUpdate"
+        static let pendingRandomCheckIn = "pendingRandomCheckIn"
     }
 }

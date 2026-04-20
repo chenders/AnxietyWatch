@@ -13,7 +13,7 @@
 ## Testing
 
 - After writing or modifying code, run the relevant tests to verify your changes:
-  - iOS: `xcodebuild test -scheme AnxietyWatch -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:AnxietyWatchTests`
+  - iOS: `xcodebuild test -scheme AnxietyWatch -destination 'generic/platform=iOS Simulator' -only-testing:AnxietyWatchTests`
   - Server: `cd server && python -m pytest tests/`
   - Server lint: `cd server && flake8 . --max-line-length=120 --exclude=__pycache__`
 - All new or changed code must include tests. Use Swift Testing (`@Test`, `#expect()`) for iOS tests.

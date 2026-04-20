@@ -48,7 +48,7 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
         lastAnxiety = ctx[SharedData.Key.lastAnxiety] as? Int
         hrvAvg = ctx[SharedData.Key.hrvAvg] as? Double
         restingHR = ctx[SharedData.Key.restingHR] as? Double
-        pendingRandomCheckIn = ctx["pendingRandomCheckIn"] as? Bool ?? false
+        pendingRandomCheckIn = ctx[SharedData.Key.pendingRandomCheckIn] as? Bool ?? false
         pushToWidget()
     }
 
@@ -95,7 +95,7 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
         if let v = data["lastAnxiety"] as? Int { lastAnxiety = v }
         if let v = data["hrvAvg"] as? Double { hrvAvg = v }
         if let v = data["restingHR"] as? Double { restingHR = v }
-        pendingRandomCheckIn = data["pendingRandomCheckIn"] as? Bool ?? pendingRandomCheckIn
+        pendingRandomCheckIn = data[SharedData.Key.pendingRandomCheckIn] as? Bool ?? pendingRandomCheckIn
         pushToWidget()
     }
 }
