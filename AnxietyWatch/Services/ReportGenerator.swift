@@ -35,13 +35,15 @@ enum ReportGenerator {
             } else {
                 let severities = entries.map(\.severity)
                 let avg = Double(severities.reduce(0, +)) / Double(severities.count)
-                let maxEntry = entries.max(by: { $0.severity < $1.severity })!
-                let minEntry = entries.min(by: { $0.severity < $1.severity })!
 
                 cursor.drawBody("Total entries: \(entries.count)")
                 cursor.drawBody(String(format: "Average severity: %.1f / 10", avg))
-                cursor.drawBody("Highest: \(maxEntry.severity)/10 on \(shortDate(maxEntry.timestamp))")
-                cursor.drawBody("Lowest: \(minEntry.severity)/10 on \(shortDate(minEntry.timestamp))")
+                if let maxEntry = entries.max(by: { $0.severity < $1.severity }) {
+                    cursor.drawBody("Highest: \(maxEntry.severity)/10 on \(shortDate(maxEntry.timestamp))")
+                }
+                if let minEntry = entries.min(by: { $0.severity < $1.severity }) {
+                    cursor.drawBody("Lowest: \(minEntry.severity)/10 on \(shortDate(minEntry.timestamp))")
+                }
 
                 let highCount = entries.filter { $0.severity >= 7 }.count
                 if highCount > 0 {
@@ -98,10 +100,10 @@ enum ReportGenerator {
             } else {
                 let values = hrvSnapshots.compactMap(\.hrvAvg)
                 let mean = values.reduce(0, +) / Double(values.count)
-                let min = values.min()!
-                let max = values.max()!
                 cursor.drawBody(String(format: "Period average: %.1f ms (SDNN)", mean))
-                cursor.drawBody(String(format: "Range: %.0f – %.0f ms", min, max))
+                if let minVal = values.min(), let maxVal = values.max() {
+                    cursor.drawBody(String(format: "Range: %.0f – %.0f ms", minVal, maxVal))
+                }
 
                 if let baseline = BaselineCalculator.hrvBaseline(from: snapshots) {
                     cursor.drawBody(String(format: "30-day baseline: %.1f ms (σ = %.1f)", baseline.mean, baseline.standardDeviation))
@@ -119,7 +121,9 @@ enum ReportGenerator {
                 let values = hrSnapshots.compactMap(\.restingHR)
                 let mean = values.reduce(0, +) / Double(values.count)
                 cursor.drawBody(String(format: "Average: %.0f bpm", mean))
-                cursor.drawBody(String(format: "Range: %.0f – %.0f bpm", values.min()!, values.max()!))
+                if let minVal = values.min(), let maxVal = values.max() {
+                    cursor.drawBody(String(format: "Range: %.0f – %.0f bpm", minVal, maxVal))
+                }
                 cursor.y += 12
             }
 

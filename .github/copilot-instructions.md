@@ -14,6 +14,8 @@ This is an open-source personal project — not a commercial product, no App Sto
 
 **Never push directly to `main`.** Always create a feature branch from `main`. Use descriptive branch names like `feat/add-export-csv` or `fix/healthkit-auth-crash`.
 
+**Stage specific files by name.** Never use `git add -A` or `git add .` — this prevents committing tool artifacts or sensitive files.
+
 ## Repository Structure
 
 This is a **multi-language monorepo** with two distinct components:
