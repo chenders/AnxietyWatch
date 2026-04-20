@@ -3,7 +3,6 @@
 import os
 
 import psycopg2
-import pytest
 from alembic.config import Config
 from alembic import command
 
@@ -88,12 +87,12 @@ class TestBaselineMigration:
         # Walgreens/CapRx columns on prescriptions
         rx_cols = _column_names("prescriptions")
         for col in ("walgreens_rx_id", "directions", "days_supply",
-                     "patient_pay", "dosage_form"):
+                    "patient_pay", "dosage_form"):
             assert col in rx_cols, f"prescriptions.{col} missing"
         # Health snapshot extensions
         hs_cols = _column_names("health_snapshots")
         for col in ("cpap_ahi", "cpap_usage_minutes",
-                     "barometric_pressure_avg_kpa", "skin_temp_wrist"):
+                    "barometric_pressure_avg_kpa", "skin_temp_wrist"):
             assert col in hs_cols, f"health_snapshots.{col} missing"
         # Analyses dose_tracking_incomplete
         an_cols = _column_names("analyses")
