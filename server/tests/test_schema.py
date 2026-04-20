@@ -19,6 +19,10 @@ if "test" not in _db_name:
         "DATABASE_URL must point to a database whose name contains 'test'."
     )
 
+# Ensure env.py sees the resolved test URL (it reads DATABASE_URL env var
+# first). Set once at module level so the intent is explicit.
+os.environ["DATABASE_URL"] = DATABASE_URL
+
 
 @pytest.fixture(scope="session")
 def _init_db():
@@ -36,8 +40,6 @@ def _init_db():
     alembic_ini = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
     cfg = Config(alembic_ini)
     cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
-    # Ensure env.py sees the same URL (it reads DATABASE_URL env var first)
-    os.environ["DATABASE_URL"] = DATABASE_URL
     command.upgrade(cfg, "head")
 
 
