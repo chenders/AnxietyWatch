@@ -55,90 +55,20 @@ def create_app(test_config=None):
             db.close()
 
     def init_db():
-        """Apply schema.sql to the database."""
-        schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
-        with open(schema_path) as f:
-            sql = f.read()
-        db = get_db()
-        with db.cursor() as cur:
-            cur.execute(sql)
-            # Migrations: make pressure/leak columns nullable for cloud imports
-            cur.execute("ALTER TABLE cpap_sessions ALTER COLUMN pressure_min DROP NOT NULL")
-            cur.execute("ALTER TABLE cpap_sessions ALTER COLUMN pressure_max DROP NOT NULL")
-            cur.execute("ALTER TABLE cpap_sessions ALTER COLUMN pressure_mean DROP NOT NULL")
-            cur.execute("ALTER TABLE cpap_sessions ALTER COLUMN leak_rate_95th DROP NOT NULL")
-            # Migrations: add Walgreens prescription import columns
-            cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS prescriber_name TEXT NOT NULL DEFAULT ''")
-            cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS ndc_code TEXT NOT NULL DEFAULT ''")
-            cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS rx_status TEXT NOT NULL DEFAULT ''")
-            cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS last_fill_date TIMESTAMPTZ")
-            cur.execute(
-                "ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS "
-                "import_source TEXT NOT NULL DEFAULT 'manual'"
-            )
-            cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS walgreens_rx_id TEXT")
-            cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS directions TEXT NOT NULL DEFAULT ''")
-            # Migrate: add CapRx columns if missing
-            # Uses IF NOT EXISTS for safety — no need for information_schema check
-            _caprx_migrations = [
-                "ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS days_supply INTEGER",
-                "ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS patient_pay DOUBLE PRECISION",
-                "ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS plan_pay DOUBLE PRECISION",
-                "ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS dosage_form TEXT NOT NULL DEFAULT ''",
-                "ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS drug_type TEXT NOT NULL DEFAULT ''",
-            ]
-            for stmt in _caprx_migrations:
-                cur.execute(stmt)
-            # Migrate: add CPAP/barometric columns to health_snapshots
-            _snapshot_migrations = [
-                "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS cpap_ahi DOUBLE PRECISION",
-                "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS cpap_usage_minutes INTEGER",
-                "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS barometric_pressure_avg_kpa DOUBLE PRECISION",
-                "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS barometric_pressure_change_kpa DOUBLE PRECISION",
-                "ALTER TABLE health_snapshots ADD COLUMN IF NOT EXISTS skin_temp_wrist DOUBLE PRECISION",
-            ]
-            for stmt in _snapshot_migrations:
-                cur.execute(stmt)
-            # Migrate: add correlations table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS correlations (
-                    id SERIAL PRIMARY KEY,
-                    signal_name TEXT NOT NULL,
-                    correlation DOUBLE PRECISION NOT NULL,
-                    p_value DOUBLE PRECISION NOT NULL,
-                    sample_count INTEGER NOT NULL,
-                    mean_severity_when_abnormal DOUBLE PRECISION,
-                    mean_severity_when_normal DOUBLE PRECISION,
-                    computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    UNIQUE(signal_name)
-                )
-            """)
-            # Migrate: add analyses table
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS analyses (
-                    id SERIAL PRIMARY KEY,
-                    date_from DATE NOT NULL,
-                    date_to DATE NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    model TEXT NOT NULL,
-                    request_payload JSONB,
-                    response_payload JSONB,
-                    summary TEXT,
-                    trend_direction TEXT,
-                    insights JSONB,
-                    tokens_in INTEGER,
-                    tokens_out INTEGER,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    completed_at TIMESTAMPTZ,
-                    error_message TEXT
-                )
-            """)
-            # Migrate: add dose_tracking_incomplete to analyses
-            cur.execute(
-                "ALTER TABLE analyses ADD COLUMN IF NOT EXISTS "
-                "dose_tracking_incomplete BOOLEAN NOT NULL DEFAULT FALSE"
-            )
-        db.commit()
+        """Apply database migrations via Alembic."""
+        from alembic.config import Config
+        from alembic import command
+
+        # Match get_db(): require an explicit DATABASE_URL so Alembic cannot
+        # fall back to the default sqlalchemy.url from alembic.ini.
+        dsn = app.config.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
+        if not dsn:
+            raise RuntimeError("DATABASE_URL not configured")
+
+        alembic_ini = os.path.join(os.path.dirname(__file__), "alembic.ini")
+        alembic_cfg = Config(alembic_ini)
+        alembic_cfg.set_main_option("sqlalchemy.url", dsn)
+        command.upgrade(alembic_cfg, "head")
 
     @app.cli.command("init-db")
     def init_db_command():
