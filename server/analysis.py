@@ -11,6 +11,11 @@ import psycopg2
 import psycopg2.extras
 
 MODEL = "claude-opus-4-7"
+ALLOWED_MODELS = {
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-opus-4-5-20250414",
+}
 
 
 def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
@@ -586,6 +591,7 @@ def start_analysis(
         dose_tracking_incomplete=dose_tracking_incomplete,
         detailed_output=detailed_output,
         model=effective_model,
+        include_conflict=include_conflict,
     )
 
     # Create jobs via dispatcher (inline import to avoid circular dependency)
@@ -629,7 +635,8 @@ def run_analysis(db, date_from: date, date_to: date,
 
 
 def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_incomplete: bool = False,
-                             detailed_output: bool = False, model: str | None = None):
+                             detailed_output: bool = False, model: str | None = None,
+                             include_conflict: bool = True):
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     data = gather_analysis_data(cur, date_from, date_to)
 
@@ -658,15 +665,20 @@ def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_i
     cur.execute("SELECT profile_summary FROM psychiatrist_profile LIMIT 1")
     psych_row = cur.fetchone()
 
-    cur.execute(
-        "SELECT description FROM conflicts WHERE status = 'active' "
-        "ORDER BY created_at DESC LIMIT 1"
-    )
-    conflict_row = cur.fetchone()
+    # Only include conflict context in the health prompt when conflict
+    # analysis is also being run; otherwise the prompt would reference
+    # a "separate conflict analysis" that won't actually happen.
+    active_conflict = None
+    if include_conflict:
+        cur.execute(
+            "SELECT description FROM conflicts WHERE status = 'active' "
+            "ORDER BY created_at DESC LIMIT 1"
+        )
+        conflict_row = cur.fetchone()
+        active_conflict = conflict_row.get("description") if conflict_row else None
 
     patient_summary = patient_row.get("profile_summary") if patient_row else None
     psychiatrist_summary = psych_row.get("profile_summary") if psych_row else None
-    active_conflict = conflict_row.get("description") if conflict_row else None
 
     patient_context = None
     if patient_summary or psychiatrist_summary or active_conflict:

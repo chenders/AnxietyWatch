@@ -1068,12 +1068,18 @@ def analysis():
     active_conflict = cur.fetchone()
 
     from analysis import MODEL
+    model_choices = [
+        ("claude-opus-4-7", "Claude Opus 4.7"),
+        ("claude-opus-4-6", "Claude Opus 4.6"),
+        ("claude-opus-4-5-20250414", "Claude Opus 4.5"),
+    ]
     return render_template(
         "analysis.html",
         analyses=analyses,
         min_date=min_date,
         max_date=max_date,
         default_model=MODEL,
+        model_choices=model_choices,
         active_conflict=active_conflict,
     )
 
@@ -1104,13 +1110,24 @@ def analysis_run():
 
     dose_tracking_incomplete = "dose_tracking_incomplete" in request.form
     detailed_output = "detailed_output" in request.form
-    include_conflict = "include_conflict" in request.form
-    model = request.form.get("model", "claude-opus-4-7")
 
-    # Validate model against allowed list
-    allowed_models = {"claude-opus-4-7", "claude-opus-4-6", "claude-opus-4-5-20250414"}
-    if model not in allowed_models:
-        model = "claude-opus-4-7"
+    from analysis import MODEL, ALLOWED_MODELS
+    model = request.form.get("model", MODEL)
+    if model not in ALLOWED_MODELS:
+        model = MODEL
+
+    # Checkbox is only rendered when an active conflict exists.
+    # Default to True when the checkbox wasn't present in the form.
+    if "include_conflict" in request.form:
+        include_conflict = True
+    else:
+        db_check = get_db()
+        cur_check = db_check.cursor()
+        cur_check.execute(
+            "SELECT 1 FROM conflicts WHERE status = 'active' LIMIT 1"
+        )
+        has_active_conflict = cur_check.fetchone() is not None
+        include_conflict = not has_active_conflict
 
     db = get_db()
     try:

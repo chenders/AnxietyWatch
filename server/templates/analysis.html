@@ -75,11 +75,7 @@
                 <div>
                     <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Model</label><br>
                     <select name="model" style="padding:0.4rem 0.5rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.85rem;">
-                        {% for value, label in [
-                            ('claude-opus-4-7', 'Claude Opus 4.7'),
-                            ('claude-opus-4-6', 'Claude Opus 4.6'),
-                            ('claude-opus-4-5-20250414', 'Claude Opus 4.5'),
-                        ] %}
+                        {% for value, label in model_choices %}
                         <option value="{{ value }}" {{ 'selected' if value == default_model else '' }}>{{ label }}</option>
                         {% endfor %}
                     </select>

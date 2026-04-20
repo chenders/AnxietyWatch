@@ -247,11 +247,11 @@
     <p style="color:#007aff; font-size:0.85rem;">In progress…</p>
     {% endif %}
 
-    {% if job.tokens_in %}
+    {% if job.tokens_in is not none or job.tokens_out is not none or job.model %}
     <div style="font-size:0.75rem; color:#6e6e73; margin-top:0.75rem; display:flex; gap:1.5rem;">
-        <span>{{ "{:,}".format(job.tokens_in) }} tokens in</span>
-        <span>{{ "{:,}".format(job.tokens_out) }} tokens out</span>
-        <span>{{ job.model }}</span>
+        {% if job.tokens_in is not none %}<span>{{ "{:,}".format(job.tokens_in) }} tokens in</span>{% endif %}
+        {% if job.tokens_out is not none %}<span>{{ "{:,}".format(job.tokens_out) }} tokens out</span>{% endif %}
+        {% if job.model %}<span>{{ job.model }}</span>{% endif %}
     </div>
     {% endif %}
 
