@@ -28,7 +28,7 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
 
-    # Require SECRET_KEY from the environment in production.
+    # Require SECRET_KEY from the environment for all non-testing runs.
     # Tests may rely on the env var set in CI, or fall back to a test-only default.
     secret_key = os.environ.get("SECRET_KEY")
     if secret_key:
