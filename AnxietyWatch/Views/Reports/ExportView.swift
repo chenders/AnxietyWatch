@@ -84,7 +84,7 @@ struct ExportView: View {
     private func exportJSON() {
         do {
             let data = try DataExporter.exportJSON(from: modelContext, start: startDate, end: endDate)
-            let url = tempURL("anxietyscope-export.json")
+            let url = tempURL("anxietywatch-export.json")
             try data.write(to: url)
             shareItems = [url]
             showingShare = true
