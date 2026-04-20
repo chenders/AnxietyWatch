@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftData
 import WatchConnectivity
 
@@ -71,6 +72,61 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
         handleIncoming(userInfo)
+    }
+
+    // MARK: - Sensor Data Receive
+
+    nonisolated func session(
+        _ session: WCSession,
+        didReceive file: WCSessionFile
+    ) {
+        guard let metadata = file.metadata,
+              metadata["type"] as? String == "sensorData" else { return }
+
+        guard let container = modelContainer else { return }
+
+        do {
+            let data = try Data(contentsOf: file.fileURL)
+            let payload = try JSONDecoder().decode(SensorTransferPayload.self, from: data)
+            let context = ModelContext(container)
+
+            for dto in payload.spectrograms {
+                let spec = AccelSpectrogram(
+                    timestamp: dto.timestamp,
+                    tremorBandPower: dto.tremorBandPower,
+                    breathingBandPower: dto.breathingBandPower,
+                    fidgetBandPower: dto.fidgetBandPower,
+                    activityLevel: dto.activityLevel,
+                    sensorSessionID: dto.sensorSessionID
+                )
+                context.insert(spec)
+            }
+
+            for dto in payload.breathingRates {
+                let rate = DerivedBreathingRate(
+                    timestamp: dto.timestamp,
+                    breathsPerMinute: dto.breathsPerMinute,
+                    confidence: dto.confidence,
+                    source: dto.source,
+                    sensorSessionID: dto.sensorSessionID
+                )
+                context.insert(rate)
+            }
+
+            for dto in payload.hrvReadings {
+                let reading = HRVReading(
+                    timestamp: dto.timestamp,
+                    rmssd: dto.rmssd, sdnn: dto.sdnn, pnn50: dto.pnn50,
+                    lfPower: dto.lfPower, hfPower: dto.hfPower, lfHfRatio: dto.lfHfRatio,
+                    sensorSessionID: dto.sensorSessionID
+                )
+                context.insert(reading)
+            }
+
+            try context.save()
+        } catch {
+            // Log error but don't crash — sensor sync is non-critical
+        }
     }
 
     nonisolated private func handleIncoming(_ message: [String: Any]) {

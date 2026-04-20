@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import WatchConnectivity
 import WidgetKit
 
@@ -40,6 +41,58 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
             }
         } else {
             WCSession.default.transferUserInfo(message)
+        }
+    }
+
+    // MARK: - Sensor Data Transfer
+
+    /// Batch sensor data into JSON and transfer to iPhone via file transfer.
+    /// Call periodically (e.g., every 5 minutes) during active sensor capture.
+    func transferSensorData(modelContainer: ModelContainer) {
+        guard WCSession.default.activationState == .activated else { return }
+
+        let context = ModelContext(modelContainer)
+
+        do {
+            // Fetch un-synced spectrograms (most recent 500)
+            var specDescriptor = FetchDescriptor<AccelSpectrogram>(
+                sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+            )
+            specDescriptor.fetchLimit = 500
+            let spectrograms = try context.fetch(specDescriptor)
+
+            // Fetch un-synced breathing rates
+            var brDescriptor = FetchDescriptor<DerivedBreathingRate>(
+                sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+            )
+            brDescriptor.fetchLimit = 500
+            let breathingRates = try context.fetch(brDescriptor)
+
+            // Fetch un-synced HRV readings
+            var hrvDescriptor = FetchDescriptor<HRVReading>(
+                sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+            )
+            hrvDescriptor.fetchLimit = 500
+            let hrvReadings = try context.fetch(hrvDescriptor)
+
+            guard !spectrograms.isEmpty || !breathingRates.isEmpty || !hrvReadings.isEmpty else { return }
+
+            // Encode to JSON
+            let payload = SensorTransferPayload(
+                spectrograms: spectrograms.map { SensorTransferPayload.SpectrogramDTO(from: $0) },
+                breathingRates: breathingRates.map { SensorTransferPayload.BreathingRateDTO(from: $0) },
+                hrvReadings: hrvReadings.map { SensorTransferPayload.HRVDTO(from: $0) }
+            )
+            let data = try JSONEncoder().encode(payload)
+
+            // Write to temp file and transfer
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sensor_\(Int(Date.now.timeIntervalSinceReferenceDate)).json")
+            try data.write(to: tempURL)
+            WCSession.default.transferFile(tempURL, metadata: ["type": "sensorData"])
+
+        } catch {
+            lastSyncStatus = "Sensor sync failed"
         }
     }
 
