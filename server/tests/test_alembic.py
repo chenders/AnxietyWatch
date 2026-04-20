@@ -30,6 +30,8 @@ def _alembic_cfg():
     """Build an Alembic config pointing at the test database."""
     cfg = Config(ALEMBIC_INI)
     cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
+    # Ensure env.py sees the same URL (it reads DATABASE_URL env var first)
+    os.environ["DATABASE_URL"] = DATABASE_URL
     return cfg
 
 

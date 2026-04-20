@@ -17,4 +17,4 @@ RUN chmod 0644 /etc/cron.d/resmed-sync
 COPY caprx-cron /etc/cron.d/caprx-sync
 RUN chmod 0644 /etc/cron.d/caprx-sync
 
-CMD ["sh", "-c", "alembic upgrade head && cron && exec gunicorn --bind 0.0.0.0:8080 --workers 2 --timeout 120 --access-logfile - 'server:create_app()'"]
+CMD ["sh", "-c", ": \"${DATABASE_URL:?DATABASE_URL must be set}\" && alembic upgrade head && cron && exec gunicorn --bind 0.0.0.0:8080 --workers 2 --timeout 120 --access-logfile - 'server:create_app()'"]
