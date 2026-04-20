@@ -60,6 +60,12 @@ actor MockHealthKitDataSource: HealthKitDataSource {
         onNewSamples: @Sendable @escaping ([(type: String, value: Double, timestamp: Date, source: String?)]) -> Void
     ) async {}
 
+    var heartbeatSeriesResult: [Double] = []
+
+    func queryHeartbeatSeries(start: Date, end: Date) async throws -> [Double] {
+        heartbeatSeriesResult
+    }
+
     // Convenience setters
     func setAverage(_ id: HKQuantityTypeIdentifier, value: Double) {
         averageResults[id] = value
@@ -78,5 +84,8 @@ actor MockHealthKitDataSource: HealthKitDataSource {
     }
     func setSleep(_ data: SleepData) {
         sleepResult = data
+    }
+    func setHeartbeatSeries(_ intervals: [Double]) {
+        heartbeatSeriesResult = intervals
     }
 }
