@@ -3,6 +3,7 @@
 {% block content %}
 <h2>Songs</h2>
 <p>{{ songs | length }} songs tracked</p>
+<div class="table-wrap">
 <table>
     <thead>
         <tr>
@@ -27,6 +28,7 @@
         {% endfor %}
     </tbody>
 </table>
+</div>
 {% if not songs %}
 <p style="color: #888; margin-top: 1em;">No songs tracked yet. Songs appear here when logged from the iOS app.</p>
 {% endif %}

@@ -21,7 +21,7 @@
     </div>
 
     <!-- Two-column perspectives -->
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+    <div class="responsive-grid-2">
         <!-- Patient side -->
         <div class="card">
             <h2 style="color:#0071e3;">Your Side</h2>
@@ -82,7 +82,7 @@
     </div>
 
     <!-- Actions -->
-    <div style="display:flex; gap:0.75rem; align-items:center;">
+    <div class="btn-row">
         <button type="submit" class="btn btn-primary">{{ 'Create Conflict' if is_new else 'Save' }}</button>
         {% if not is_new %}
             {% if conflict.status == 'active' %}
