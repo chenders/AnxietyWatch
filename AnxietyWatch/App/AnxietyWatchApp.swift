@@ -29,6 +29,11 @@ struct AnxietyWatchApp: App {
             PhysiologicalCorrelation.self,
             Song.self,
             SongOccurrence.self,
+            // Sensor capture (synced from watch)
+            SensorSession.self,
+            HRVReading.self,
+            AccelSpectrogram.self,
+            DerivedBreathingRate.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
