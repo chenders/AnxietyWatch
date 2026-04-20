@@ -12,8 +12,9 @@ struct SettingsView: View {
     @Query private var allMeds: [MedicationDefinition]
     @State private var checkInsEnabled = RandomCheckInManager.isEnabled
     @State private var checkInFrequency = RandomCheckInManager.frequencyPerDay
-    @State private var activeHoursStart = RandomCheckInManager.quietHoursEnd
-    @State private var activeHoursEnd = RandomCheckInManager.quietHoursStart
+    // Active hours are the inverse of quiet hours: active starts when quiet ends
+    @State private var activeHoursStart = RandomCheckInManager.activeHoursStart
+    @State private var activeHoursEnd = RandomCheckInManager.activeHoursEnd
 
     var body: some View {
         NavigationStack {
@@ -182,13 +183,13 @@ struct SettingsView: View {
                             .labelsHidden()
                         }
                         .onChange(of: activeHoursStart) { _, newValue in
-                            RandomCheckInManager.quietHoursEnd = newValue
+                            RandomCheckInManager.activeHoursStart = newValue
                             RandomCheckInManager.cancelAll()
                             RandomCheckInManager.isEnabled = true
                             RandomCheckInManager.scheduleNextCheckIn()
                         }
                         .onChange(of: activeHoursEnd) { _, newValue in
-                            RandomCheckInManager.quietHoursStart = newValue
+                            RandomCheckInManager.activeHoursEnd = newValue
                             RandomCheckInManager.cancelAll()
                             RandomCheckInManager.isEnabled = true
                             RandomCheckInManager.scheduleNextCheckIn()

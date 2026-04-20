@@ -186,6 +186,17 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var healthSection: some View {
+        vitalsCards
+        activityCards
+        sleepCard
+        audioCards
+        bloodPressureAndGlucoseCards
+    }
+
+    // MARK: - Vitals (HR, HRV, Resting HR, SpO2, RR, VO2 Max, Walking HR, Steadiness, AFib)
+
+    @ViewBuilder
+    private var vitalsCards: some View {
         // Heart Rate — sparkline
         let hrType = HKQuantityTypeIdentifier.heartRate.rawValue
         if let latest = vm.latestSample(for: hrType) {
@@ -323,28 +334,12 @@ struct DashboardView: View {
                 visualization: .none
             )
         }
+    }
 
-        // Sleep — stage breakdown
-        if let (snapshot, isToday) = vm.lastSnapshotWith(\.sleepDurationMin, from: recentSnapshots) {
-            let sleep = snapshot.sleepDurationMin!
-            let hours = sleep / 60
-            let mins = sleep % 60
-            LiveMetricCard(
-                title: "Sleep",
-                value: "\(hours)h \(mins)m",
-                unitLabel: "",
-                trend: nil,
-                freshness: isToday ? "last night" : vm.staleLabel(snapshot.date),
-                color: isToday ? vm.sleepColor(minutes: sleep) : .secondary,
-                visualization: .sleepStages(
-                    deep: snapshot.sleepDeepMin ?? 0,
-                    rem: snapshot.sleepREMMin ?? 0,
-                    core: snapshot.sleepCoreMin ?? 0,
-                    awake: snapshot.sleepAwakeMin ?? 0
-                )
-            )
-        }
+    // MARK: - Activity (Sleep, Steps, Calories, Exercise)
 
+    @ViewBuilder
+    private var activityCards: some View {
         // Steps — progress bar
         if let (snapshot, isToday) = vm.lastSnapshotWith(\.steps, from: recentSnapshots) {
             let steps = snapshot.steps!
@@ -386,7 +381,37 @@ struct DashboardView: View {
                 visualization: .progressBar(current: Double(mins), goal: 30, color: .green)
             )
         }
+    }
 
+    // MARK: - Sleep
+
+    @ViewBuilder
+    private var sleepCard: some View {
+        if let (snapshot, isToday) = vm.lastSnapshotWith(\.sleepDurationMin, from: recentSnapshots) {
+            let sleep = snapshot.sleepDurationMin!
+            let hours = sleep / 60
+            let mins = sleep % 60
+            LiveMetricCard(
+                title: "Sleep",
+                value: "\(hours)h \(mins)m",
+                unitLabel: "",
+                trend: nil,
+                freshness: isToday ? "last night" : vm.staleLabel(snapshot.date),
+                color: isToday ? vm.sleepColor(minutes: sleep) : .secondary,
+                visualization: .sleepStages(
+                    deep: snapshot.sleepDeepMin ?? 0,
+                    rem: snapshot.sleepREMMin ?? 0,
+                    core: snapshot.sleepCoreMin ?? 0,
+                    awake: snapshot.sleepAwakeMin ?? 0
+                )
+            )
+        }
+    }
+
+    // MARK: - Audio (Environmental Sound, Headphone Audio)
+
+    @ViewBuilder
+    private var audioCards: some View {
         // Environmental Sound — sparkline
         let envType = HKQuantityTypeIdentifier.environmentalAudioExposure.rawValue
         if let latest = vm.latestSample(for: envType) {
@@ -420,7 +445,12 @@ struct DashboardView: View {
                 )
             )
         }
+    }
 
+    // MARK: - Blood Pressure & Glucose
+
+    @ViewBuilder
+    private var bloodPressureAndGlucoseCards: some View {
         // Blood Pressure
         let bpSysType = HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue
         let bpDiaType = HKQuantityTypeIdentifier.bloodPressureDiastolic.rawValue
