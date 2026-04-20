@@ -72,10 +72,9 @@ struct QuickLogView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                showingConfirmation = false
-            }
+        .task {
+            try? await Task.sleep(for: .seconds(1.5))
+            showingConfirmation = false
         }
     }
 

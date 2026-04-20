@@ -67,12 +67,12 @@ struct HRVTrendChart: View {
                         .lineStyle(StrokeStyle(dash: [3, 3]))
                 case .entry(let entry):
                     RuleMark(x: .value("Date", entry.timestamp, unit: .day))
-                        .foregroundStyle(anxietyColor(entry.severity).opacity(0.25))
+                        .foregroundStyle(Color.severity(entry.severity).opacity(0.25))
                         .lineStyle(StrokeStyle(lineWidth: 2))
                         .annotation(position: .top, spacing: 0) {
                             Text("\(entry.severity)")
                                 .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(anxietyColor(entry.severity))
+                                .foregroundStyle(Color.severity(entry.severity))
                         }
                 }
             }
@@ -87,14 +87,6 @@ struct HRVTrendChart: View {
         return String(format: "30-day avg: %.0f ms · %@", baseline.mean, status)
     }
 
-    private func anxietyColor(_ severity: Int) -> Color {
-        switch severity {
-        case 1...3: return .green
-        case 4...6: return .yellow
-        case 7...8: return .orange
-        default: return .red
-        }
-    }
 }
 
 private enum ChartDatum: Identifiable {

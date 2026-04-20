@@ -120,12 +120,7 @@ struct SeverityBadge: View {
     }
 
     private var color: Color {
-        switch severity {
-        case 1...3: return .green
-        case 4...6: return .yellow
-        case 7...8: return .orange
-        default: return .red
-        }
+        .severity(severity)
     }
 }
 

@@ -84,18 +84,10 @@ struct BarometricTrendChart: View {
                         path.move(to: CGPoint(x: xPos, y: 0))
                         path.addLine(to: CGPoint(x: xPos, y: geo.size.height))
                     }
-                    .stroke(anxietyColor(entry.severity).opacity(0.2), lineWidth: 2)
+                    .stroke(Color.severity(entry.severity).opacity(0.2), lineWidth: 2)
                 }
             }
         }
     }
 
-    private func anxietyColor(_ severity: Int) -> Color {
-        switch severity {
-        case 1...3: return .green
-        case 4...6: return .yellow
-        case 7...8: return .orange
-        default: return .red
-        }
-    }
 }

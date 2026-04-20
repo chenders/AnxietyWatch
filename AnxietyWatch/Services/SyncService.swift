@@ -303,10 +303,14 @@ final class SyncService {
             }
         }
 
-        // Remove correlations no longer returned by server
-        let allLocal = (try? modelContext.fetch(FetchDescriptor<PhysiologicalCorrelation>())) ?? []
-        for local in allLocal where !seenSignals.contains(local.signalName) {
-            modelContext.delete(local)
+        // Remove correlations no longer returned by server — but only if the server
+        // actually returned data. An empty array likely means the endpoint had no data
+        // yet, not that all correlations should be wiped.
+        if !correlations.isEmpty {
+            let allLocal = (try? modelContext.fetch(FetchDescriptor<PhysiologicalCorrelation>())) ?? []
+            for local in allLocal where !seenSignals.contains(local.signalName) {
+                modelContext.delete(local)
+            }
         }
 
         try? modelContext.save()

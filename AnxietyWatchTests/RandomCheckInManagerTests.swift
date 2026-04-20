@@ -31,6 +31,27 @@ struct RandomCheckInManagerTests {
         #expect(RandomCheckInManager.quietHoursEnd == 8)
     }
 
+    @Test("activeHoursStart/End mirror quietHoursEnd/Start")
+    func activeHoursMirrorQuietHours() {
+        clearState()
+        // Defaults: quiet 22-8, so active 8-22
+        #expect(RandomCheckInManager.activeHoursStart == 8)
+        #expect(RandomCheckInManager.activeHoursEnd == 22)
+
+        // Setting active hours updates quiet hours
+        RandomCheckInManager.activeHoursStart = 9
+        RandomCheckInManager.activeHoursEnd = 21
+        #expect(RandomCheckInManager.quietHoursEnd == 9)
+        #expect(RandomCheckInManager.quietHoursStart == 21)
+
+        // Setting quiet hours updates active hours
+        RandomCheckInManager.quietHoursStart = 23
+        RandomCheckInManager.quietHoursEnd = 7
+        #expect(RandomCheckInManager.activeHoursEnd == 23)
+        #expect(RandomCheckInManager.activeHoursStart == 7)
+        clearState()
+    }
+
     @Test("Default is disabled")
     func defaultDisabled() {
         clearState()

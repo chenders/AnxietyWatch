@@ -108,6 +108,7 @@ struct RandomCheckInPromptView: View {
             occurrence.song = song
             occurrence.anxietyEntry = entry
             modelContext.insert(occurrence)
+            song.updatedAt = Date()
         }
 
         try? modelContext.save()

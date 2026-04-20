@@ -41,12 +41,11 @@ struct SongCatalogView: View {
         }
     }
 
-    /// Songs sorted by most recent occurrence, then by title.
+    /// Songs sorted by most recent activity (updatedAt), then by title.
+    /// Uses the pre-maintained updatedAt timestamp instead of scanning all occurrences.
     private var sortedSongs: [Song] {
         songs.sorted { a, b in
-            let aLast = a.occurrences.map(\.timestamp).max() ?? .distantPast
-            let bLast = b.occurrences.map(\.timestamp).max() ?? .distantPast
-            if aLast != bLast { return aLast > bLast }
+            if a.updatedAt != b.updatedAt { return a.updatedAt > b.updatedAt }
             return a.title < b.title
         }
     }
