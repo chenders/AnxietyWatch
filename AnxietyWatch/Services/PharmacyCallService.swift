@@ -47,6 +47,11 @@ final class PharmacyCallService: NSObject, CXCallObserverDelegate {
             pharmacy: pharmacy
         )
         modelContext.insert(log)
+        do {
+            try modelContext.save()
+        } catch {
+            Log.data.error("Failed to save call log: \(error, privacy: .public)")
+        }
 
         pendingCallLogId = log.id
 
@@ -82,6 +87,11 @@ final class PharmacyCallService: NSObject, CXCallObserverDelegate {
             pharmacy: pharmacy
         )
         modelContext.insert(log)
+        do {
+            try modelContext.save()
+        } catch {
+            Log.data.error("Failed to save manual call log: \(error, privacy: .public)")
+        }
     }
 
     // MARK: - CXCallObserverDelegate
@@ -153,5 +163,10 @@ final class PharmacyCallService: NSObject, CXCallObserverDelegate {
         descriptor.fetchLimit = 1
         guard let log = try? context.fetch(descriptor).first else { return }
         apply(log)
+        do {
+            try context.save()
+        } catch {
+            Log.data.error("Failed to save call log update: \(error, privacy: .public)")
+        }
     }
 }

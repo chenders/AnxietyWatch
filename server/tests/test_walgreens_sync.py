@@ -61,7 +61,7 @@ SAMPLE_RX = {
     "date_filled": "2025-12-31T00:00:00+00:00",
     "pharmacy_name": "Walgreens",
     "prescriber_name": "Jane Smith MD",
-    "ndc_code": "00093321205",
+    "ndc_code": "00000-0000-00",
     "rx_status": "Retail Pickup",
     "directions": "",
     "import_source": "walgreens",
