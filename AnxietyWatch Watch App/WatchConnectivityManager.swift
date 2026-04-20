@@ -92,9 +92,9 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
 
     @MainActor
     private func applyIncomingData(_ data: [String: Any]) {
-        if let v = data["lastAnxiety"] as? Int { lastAnxiety = v }
-        if let v = data["hrvAvg"] as? Double { hrvAvg = v }
-        if let v = data["restingHR"] as? Double { restingHR = v }
+        if let v = data[SharedData.Key.lastAnxiety] as? Int { lastAnxiety = v }
+        if let v = data[SharedData.Key.hrvAvg] as? Double { hrvAvg = v }
+        if let v = data[SharedData.Key.restingHR] as? Double { restingHR = v }
         pendingRandomCheckIn = data[SharedData.Key.pendingRandomCheckIn] as? Bool ?? pendingRandomCheckIn
         pushToWidget()
     }
