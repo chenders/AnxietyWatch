@@ -1,4 +1,9 @@
-"""Fix health data formatting issues in health_snapshots.
+"""DEPRECATED — This migration has been preserved as Alembic migration 0002.
+
+Use `cd server && alembic upgrade head` instead of running this directly.
+
+Original description:
+Fix health data formatting issues in health_snapshots.
 
 Run manually: cd server && python -m migrations.fix_2026_04_17_health_data_formatting
 

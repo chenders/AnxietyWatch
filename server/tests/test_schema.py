@@ -1,6 +1,7 @@
 """Tests for schema changes: settings table and nullable CPAP columns."""
 
 import os
+from urllib.parse import urlparse
 
 import psycopg2
 import pytest
@@ -10,19 +11,36 @@ DATABASE_URL = os.environ.get(
     os.environ.get("DATABASE_URL", "postgresql://anxietywatch:anxietywatch@localhost:5432/anxietywatch_test"),
 )
 
+# Guard against accidentally running destructive tests on a non-test database.
+_db_name = urlparse(DATABASE_URL).path.rsplit("/", 1)[-1]
+if "test" not in _db_name:
+    raise RuntimeError(
+        f"Refusing to run destructive schema tests against '{_db_name}'. "
+        "DATABASE_URL must point to a database whose name contains 'test'."
+    )
+
+# Ensure env.py sees the resolved test URL (it reads DATABASE_URL env var
+# first). Set once at module level so the intent is explicit.
+os.environ["DATABASE_URL"] = DATABASE_URL
+
 
 @pytest.fixture(scope="session")
 def _init_db():
-    """Create tables once per test session."""
+    """Apply Alembic migrations once per test session."""
     conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = True
-    cur = conn.cursor()
-
-    schema_path = os.path.join(os.path.dirname(__file__), "..", "schema.sql")
-    with open(schema_path) as f:
-        cur.execute(f.read())
-
+    with conn.cursor() as cur:
+        cur.execute("DROP SCHEMA IF EXISTS public CASCADE")
+        cur.execute("CREATE SCHEMA public")
     conn.close()
+
+    from alembic.config import Config
+    from alembic import command
+
+    alembic_ini = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
+    cfg = Config(alembic_ini)
+    cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
+    command.upgrade(cfg, "head")
 
 
 @pytest.fixture()
