@@ -4,6 +4,10 @@
 <dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Anxiety Watch uses the camera to photograph prescription labels for automatic data entry.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Anxiety Watch reads health data to track anxiety patterns and correlate physiological signals with your journal entries.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>org.waitingforthefuture.AnxietyWatch.refresh</string>

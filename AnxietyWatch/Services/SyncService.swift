@@ -329,7 +329,7 @@ final class SyncService {
             json["since"] = ISO8601DateFormatter().string(from: since)
         }
         json["clientVersion"] = "1.0"
-        json["deviceName"] = UIDevice.current.name
+        json["deviceName"] = "iOS \(UIDevice.current.systemVersion)"
         if let demographics {
             json["demographics"] = demographics
         }

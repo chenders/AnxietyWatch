@@ -89,8 +89,8 @@ def create_app(test_config=None):
     with app.app_context():
         try:
             init_db()
-        except Exception:
-            pass  # DB may not be available yet during testing/building
+        except Exception as e:
+            app.logger.warning("Database init skipped: %s", type(e).__name__)
 
     # Make get_db available to admin blueprint
     app.get_db = get_db
