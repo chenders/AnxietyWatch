@@ -34,7 +34,7 @@ struct HeartRateTrendChart: View {
                     .symbolSize(30)
                 case .entry(let entry):
                     RuleMark(x: .value("Date", entry.timestamp, unit: .day))
-                        .foregroundStyle(anxietyColor(entry.severity).opacity(0.2))
+                        .foregroundStyle(Color.severity(entry.severity).opacity(0.2))
                         .lineStyle(StrokeStyle(lineWidth: 2))
                 }
             }
@@ -43,14 +43,6 @@ struct HeartRateTrendChart: View {
         }
     }
 
-    private func anxietyColor(_ severity: Int) -> Color {
-        switch severity {
-        case 1...3: return .green
-        case 4...6: return .yellow
-        case 7...8: return .orange
-        default: return .red
-        }
-    }
 }
 
 private enum ChartDatum: Identifiable {

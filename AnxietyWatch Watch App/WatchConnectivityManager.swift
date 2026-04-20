@@ -79,11 +79,25 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
         didReceiveApplicationContext applicationContext: [String: Any]
     ) {
         Task { @MainActor in
-            self.lastAnxiety = applicationContext["lastAnxiety"] as? Int
-            self.hrvAvg = applicationContext["hrvAvg"] as? Double
-            self.restingHR = applicationContext["restingHR"] as? Double
-            self.pendingRandomCheckIn = applicationContext["pendingRandomCheckIn"] as? Bool ?? false
-            self.pushToWidget()
+            self.applyIncomingData(applicationContext)
         }
+    }
+
+    /// Handle queued `transferUserInfo` deliveries from the phone side.
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        Task { @MainActor in
+            self.applyIncomingData(userInfo)
+        }
+    }
+
+    // MARK: - Helpers
+
+    @MainActor
+    private func applyIncomingData(_ data: [String: Any]) {
+        if let v = data["lastAnxiety"] as? Int { lastAnxiety = v }
+        if let v = data["hrvAvg"] as? Double { hrvAvg = v }
+        if let v = data["restingHR"] as? Double { restingHR = v }
+        pendingRandomCheckIn = data["pendingRandomCheckIn"] as? Bool ?? pendingRandomCheckIn
+        pushToWidget()
     }
 }

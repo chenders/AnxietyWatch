@@ -48,6 +48,18 @@ enum RandomCheckInManager {
         set { UserDefaults.standard.set(newValue, forKey: quietEndKey) }
     }
 
+    /// Convenience: active hours start = when quiet hours end (default 8 AM)
+    static var activeHoursStart: Int {
+        get { quietHoursEnd }
+        set { quietHoursEnd = newValue }
+    }
+
+    /// Convenience: active hours end = when quiet hours start (default 10 PM)
+    static var activeHoursEnd: Int {
+        get { quietHoursStart }
+        set { quietHoursStart = newValue }
+    }
+
     // MARK: - Notification Authorization
 
     static func ensureAuthorization() {
