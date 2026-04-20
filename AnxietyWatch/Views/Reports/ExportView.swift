@@ -61,7 +61,10 @@ struct ExportView: View {
         .sheet(isPresented: $showingShare) {
             ShareSheet(items: shareItems)
         }
-        .alert("Error", isPresented: .constant(errorMessage != nil)) {
+        .alert("Error", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
             Button("OK") { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
@@ -84,7 +87,7 @@ struct ExportView: View {
     private func exportJSON() {
         do {
             let data = try DataExporter.exportJSON(from: modelContext, start: startDate, end: endDate)
-            let url = tempURL("anxietyscope-export.json")
+            let url = tempURL("anxietywatch-export.json")
             try data.write(to: url)
             shareItems = [url]
             showingShare = true
@@ -127,7 +130,7 @@ struct ExportView: View {
             end: endDate
         )
 
-        let url = tempURL("anxietyscope-report.pdf")
+        let url = tempURL("anxietywatch-report.pdf")
         try? data.write(to: url)
         shareItems = [url]
         showingShare = true

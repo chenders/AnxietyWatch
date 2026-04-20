@@ -58,7 +58,10 @@ struct CPAPListView: View {
         ) { result in
             handleImport(result)
         }
-        .alert("Import", isPresented: .constant(alertMessage != nil)) {
+        .alert("Import", isPresented: Binding(
+            get: { alertMessage != nil },
+            set: { if !$0 { alertMessage = nil } }
+        )) {
             Button("OK") { alertMessage = nil }
         } message: {
             Text(alertMessage ?? "")

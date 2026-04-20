@@ -718,4 +718,37 @@ def test_sync_songs_upsert_by_genius_id(client):
     rv = client.get("/api/songs", headers=auth_header())
     songs = rv.get_json()["songs"]
     assert len(songs) == 1
-    # Verify the lyrics were updated
+    assert songs[0]["lyrics"] == "Updated lyrics"
+
+
+# ---------------------------------------------------------------------------
+# SECRET_KEY enforcement
+# ---------------------------------------------------------------------------
+
+
+def test_create_app_raises_without_secret_key(monkeypatch):
+    """create_app raises RuntimeError when SECRET_KEY is missing and TESTING is false."""
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="SECRET_KEY"):
+        create_app({"DATABASE_URL": DATABASE_URL})
+
+
+def test_create_app_uses_test_default_when_testing(monkeypatch):
+    """create_app falls back to a test-only SECRET_KEY when TESTING is True."""
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    app = create_app({"TESTING": True, "DATABASE_URL": DATABASE_URL})
+    assert app.config["SECRET_KEY"] == "test-secret-key"
+
+
+def test_create_app_honors_secret_key_from_test_config(monkeypatch):
+    """create_app honors SECRET_KEY passed via test_config when env var is unset."""
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    app = create_app({"TESTING": True, "SECRET_KEY": "custom-key", "DATABASE_URL": DATABASE_URL})
+    assert app.config["SECRET_KEY"] == "custom-key"
+
+
+def test_create_app_env_var_overrides_test_config(monkeypatch):
+    """Environment SECRET_KEY takes precedence over test_config SECRET_KEY."""
+    monkeypatch.setenv("SECRET_KEY", "env-key")
+    app = create_app({"TESTING": True, "SECRET_KEY": "config-key", "DATABASE_URL": DATABASE_URL})
+    assert app.config["SECRET_KEY"] == "env-key"

@@ -323,6 +323,8 @@ final class HealthDataCoordinator {
         sampleBuffer.append(contentsOf: samples)
 
         if sampleBuffer.count >= maxBufferSize {
+            flushTask?.cancel()
+            flushTask = nil
             flushSampleBuffer()
             return
         }
