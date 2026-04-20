@@ -13,16 +13,21 @@ DATABASE_URL = os.environ.get(
 
 @pytest.fixture(scope="session")
 def _init_db():
-    """Create tables once per test session."""
+    """Apply Alembic migrations once per test session."""
     conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = True
-    cur = conn.cursor()
-
-    schema_path = os.path.join(os.path.dirname(__file__), "..", "schema.sql")
-    with open(schema_path) as f:
-        cur.execute(f.read())
-
+    with conn.cursor() as cur:
+        cur.execute("DROP SCHEMA IF EXISTS public CASCADE")
+        cur.execute("CREATE SCHEMA public")
     conn.close()
+
+    from alembic.config import Config
+    from alembic import command
+
+    alembic_ini = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
+    cfg = Config(alembic_ini)
+    cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
+    command.upgrade(cfg, "head")
 
 
 @pytest.fixture()
