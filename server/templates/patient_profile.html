@@ -53,7 +53,7 @@
         {% endif %}
         <div style="margin-top:1rem;">
             <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Other Medications (not tracked in app)</label>
-            <textarea name="other_medications" rows="3"
+            <textarea name="other_medications" rows="5"
                       style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit; margin-top:0.25rem;"
                       placeholder="List any medications managed by other providers (e.g., PCP, other specialists)">{{ profile.other_medications or '' }}</textarea>
         </div>
@@ -63,7 +63,7 @@
     <div class="card">
         <h2>Medical History</h2>
         <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Raw Medical History</label>
-        <textarea name="medical_history_raw" rows="6" id="history-raw"
+        <textarea name="medical_history_raw" rows="10" id="history-raw"
                   style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit; margin-top:0.25rem;"
                   placeholder="Describe your medical history — diagnoses, surgeries, allergies, family history, etc.">{{ profile.medical_history_raw or '' }}</textarea>
         <div style="margin-top:0.75rem; display:flex; gap:0.5rem;">
@@ -74,7 +74,7 @@
         {% if profile.medical_history_structured %}
         <div style="margin-top:1rem;">
             <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Structured Medical History (Claude-refined)</label>
-            <textarea name="medical_history_structured" rows="8"
+            <textarea name="medical_history_structured" rows="12"
                       style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit; margin-top:0.25rem;">{{ profile.medical_history_structured or '' }}</textarea>
         </div>
         {% else %}
@@ -88,7 +88,7 @@
         <p style="font-size:0.8rem; color:#6e6e73; margin-bottom:0.5rem;">
             This summary is injected into every analysis prompt. Generate it from your profile data, then edit if needed.
         </p>
-        <textarea name="profile_summary" rows="5"
+        <textarea name="profile_summary" rows="8"
                   style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit;"
                   placeholder="Click 'Generate Summary' to create from your profile data">{{ profile.profile_summary or '' }}</textarea>
         <div style="margin-top:0.75rem;">
