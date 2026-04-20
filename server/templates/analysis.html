@@ -57,12 +57,36 @@
                         (include raw stats and data inline — default is plain English)
                     </span>
                 </div>
+                {% if active_conflict %}
+                <div style="display:flex; align-items:center; gap:0.4rem;">
+                    <input type="checkbox" name="include_conflict" id="include_conflict" checked
+                           style="width:16px; height:16px; cursor:pointer;">
+                    <label for="include_conflict" style="font-size:0.8rem; color:#444; cursor:pointer;">
+                        Include conflict analysis
+                    </label>
+                    <span style="font-size:0.7rem; color:#86868b; margin-left:0.25rem;">
+                        (uncheck to run health analysis only)
+                    </span>
+                </div>
+                {% endif %}
             </div>
-            <div style="padding-top:1rem;">
+            <div style="padding-top:1rem; display:flex; align-items:center; gap:1rem;">
                 <button type="submit" class="btn btn-primary">Run Analysis</button>
+                <div>
+                    <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Model</label><br>
+                    <select name="model" style="padding:0.4rem 0.5rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.85rem;">
+                        {% for value, label in [
+                            ('claude-opus-4-7', 'Claude Opus 4.7'),
+                            ('claude-opus-4-6', 'Claude Opus 4.6'),
+                            ('claude-opus-4-5-20250414', 'Claude Opus 4.5'),
+                        ] %}
+                        <option value="{{ value }}" {{ 'selected' if value == default_model else '' }}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
             </div>
         </div>
-        <p style="font-size:0.75rem; color:#6e6e73; margin-top:0.5rem;">Model: {{ model_name }} &middot; Sends all raw data in range to Claude API</p>
+        <p style="font-size:0.75rem; color:#6e6e73; margin-top:0.5rem;">Sends all raw data in range to Claude API</p>
     </form>
 </div>
 

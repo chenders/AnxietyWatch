@@ -1073,7 +1073,7 @@ def analysis():
         analyses=analyses,
         min_date=min_date,
         max_date=max_date,
-        model_name=MODEL,
+        default_model=MODEL,
         active_conflict=active_conflict,
     )
 
@@ -1104,6 +1104,13 @@ def analysis_run():
 
     dose_tracking_incomplete = "dose_tracking_incomplete" in request.form
     detailed_output = "detailed_output" in request.form
+    include_conflict = "include_conflict" in request.form
+    model = request.form.get("model", "claude-opus-4-7")
+
+    # Validate model against allowed list
+    allowed_models = {"claude-opus-4-7", "claude-opus-4-6", "claude-opus-4-5-20250414"}
+    if model not in allowed_models:
+        model = "claude-opus-4-7"
 
     db = get_db()
     try:
@@ -1114,6 +1121,8 @@ def analysis_run():
             database_url=database_url,
             dose_tracking_incomplete=dose_tracking_incomplete,
             detailed_output=detailed_output,
+            model=model,
+            include_conflict=include_conflict,
         )
         return redirect(url_for("admin.analysis_detail", analysis_id=analysis_id))
     except Exception:

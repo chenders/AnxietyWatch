@@ -568,6 +568,8 @@ def start_analysis(
     database_url: str | None = None,
     dose_tracking_incomplete: bool = False,
     detailed_output: bool = False,
+    model: str | None = None,
+    include_conflict: bool = True,
 ) -> int:
     """Create a pending analysis row, create jobs, and dispatch in background.
 
@@ -577,15 +579,18 @@ def start_analysis(
     if not dsn:
         raise RuntimeError("DATABASE_URL not configured")
 
+    effective_model = model or MODEL
+
     analysis_id, _, _ = _create_pending_analysis(
         db, date_from, date_to,
         dose_tracking_incomplete=dose_tracking_incomplete,
         detailed_output=detailed_output,
+        model=effective_model,
     )
 
     # Create jobs via dispatcher (inline import to avoid circular dependency)
     from job_dispatcher import create_analysis_jobs, dispatch_analysis
-    create_analysis_jobs(db, analysis_id)
+    create_analysis_jobs(db, analysis_id, include_conflict=include_conflict, model=effective_model)
 
     thread = threading.Thread(
         target=dispatch_analysis,
@@ -624,7 +629,7 @@ def run_analysis(db, date_from: date, date_to: date,
 
 
 def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_incomplete: bool = False,
-                             detailed_output: bool = False):
+                             detailed_output: bool = False, model: str | None = None):
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     data = gather_analysis_data(cur, date_from, date_to)
 
@@ -690,7 +695,7 @@ def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_i
         "INSERT INTO analyses (date_from, date_to, status, model, request_payload, "
         "dose_tracking_incomplete, created_at) "
         "VALUES (%s, %s, 'pending', %s, %s, %s, NOW()) RETURNING id",
-        (date_from, date_to, MODEL, json.dumps(request_payload), dose_tracking_incomplete),
+        (date_from, date_to, model or MODEL, json.dumps(request_payload), dose_tracking_incomplete),
     )
     analysis_id = cur.fetchone()["id"]
     db.commit()

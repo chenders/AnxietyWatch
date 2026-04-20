@@ -18,8 +18,8 @@
 
 {% if has_conflict %}
 <div class="tabs" style="margin-bottom:1rem;">
-    <a href="?tab=health" class="tab {{ 'active' if active_tab == 'health' else '' }}" style="display:inline-block; padding:0.5rem 1rem; text-decoration:none; border-bottom:2px solid {{ '#0071e3' if active_tab == 'health' else 'transparent' }}; color:{{ '#0071e3' if active_tab == 'health' else '#6e6e73' }}; font-weight:{{ '600' if active_tab == 'health' else '400' }};">Health Analysis</a>
-    <a href="?tab=conflict" class="tab {{ 'active' if active_tab == 'conflict' else '' }}" style="display:inline-block; padding:0.5rem 1rem; text-decoration:none; border-bottom:2px solid {{ '#0071e3' if active_tab == 'conflict' else 'transparent' }}; color:{{ '#0071e3' if active_tab == 'conflict' else '#6e6e73' }}; font-weight:{{ '600' if active_tab == 'conflict' else '400' }};">Conflict Analysis</a>
+    <a href="?tab=health" style="display:inline-block; padding:0.5rem 1rem; text-decoration:none; border-bottom:2px solid {{ '#0071e3' if active_tab == 'health' else 'transparent' }}; color:{{ '#0071e3' if active_tab == 'health' else '#6e6e73' }}; font-weight:{{ '600' if active_tab == 'health' else '400' }};">Health Analysis</a>
+    <a href="?tab=conflict" style="display:inline-block; padding:0.5rem 1rem; text-decoration:none; border-bottom:2px solid {{ '#0071e3' if active_tab == 'conflict' else 'transparent' }}; color:{{ '#0071e3' if active_tab == 'conflict' else '#6e6e73' }}; font-weight:{{ '600' if active_tab == 'conflict' else '400' }};">Conflict Analysis</a>
 </div>
 {% else %}
 <h2 style="margin-bottom:1rem; font-size:1rem; color:#1d1d1f;">Health Analysis</h2>
@@ -245,6 +245,36 @@
     {% endif %}
     {% elif job.status in ('pending', 'running') %}
     <p style="color:#007aff; font-size:0.85rem;">In progress…</p>
+    {% endif %}
+
+    {% if job.tokens_in %}
+    <div style="font-size:0.75rem; color:#6e6e73; margin-top:0.75rem; display:flex; gap:1.5rem;">
+        <span>{{ "{:,}".format(job.tokens_in) }} tokens in</span>
+        <span>{{ "{:,}".format(job.tokens_out) }} tokens out</span>
+        <span>{{ job.model }}</span>
+    </div>
+    {% endif %}
+
+    {% if job.request_payload or job.response_payload %}
+    <div style="margin-top:0.75rem; border-top:1px solid #e5e5e7; padding-top:0.75rem;">
+        <details>
+            <summary style="cursor:pointer; font-size:0.8rem; color:#0071e3; font-weight:500;">Show raw request &amp; response</summary>
+            <div style="margin-top:0.75rem;">
+                {% if job.request_payload %}
+                <div style="margin-bottom:0.75rem;">
+                    <span style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Request payload</span>
+                    <pre style="background:#1d1d1f; color:#a8d8a8; border-radius:6px; padding:1rem; margin-top:0.25rem; font-size:0.75rem; max-height:300px; overflow:auto; white-space:pre-wrap; word-break:break-word;">{{ job.request_payload | tojson(indent=2) if job.request_payload is mapping else job.request_payload }}</pre>
+                </div>
+                {% endif %}
+                {% if job.response_payload %}
+                <div>
+                    <span style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Response</span>
+                    <pre style="background:#1d1d1f; color:#a8d8a8; border-radius:6px; padding:1rem; margin-top:0.25rem; font-size:0.75rem; max-height:300px; overflow:auto; white-space:pre-wrap; word-break:break-word;">{{ job.response_payload | tojson(indent=2) if job.response_payload is mapping else job.response_payload }}</pre>
+                </div>
+                {% endif %}
+            </div>
+        </details>
+    </div>
     {% endif %}
 </div>
 {% endif %}
