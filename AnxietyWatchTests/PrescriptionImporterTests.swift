@@ -123,6 +123,47 @@ struct PrescriptionImporterTests {
         #expect(all.first?.directions == "Take 1 tablet by mouth daily")
     }
 
+    @Test("Nil dailyDoseCount does not fabricate run-out date")
+    func nilDailyDoseNoRunOut() throws {
+        // No estimated_run_out_date, no days_supply, no daily_dose_count —
+        // run-out should be nil rather than computed from a fabricated 1.0
+        let record: [String: Any] = [
+            "rx_number": "CRX-88888",
+            "medication_name": "Test Med 25mg",
+            "dose_mg": 25.0 as Double,
+            "quantity": 30 as Int,
+            "date_filled": "2024-06-01T00:00:00.000Z",
+            "import_source": "caprx",
+        ]
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let rx = try PrescriptionImporter.importRecord(record, into: context)
+
+        #expect(rx.dailyDoseCount == nil)
+        #expect(rx.estimatedRunOutDate == nil)
+    }
+
+    @Test("Providing dailyDoseCount computes run-out date")
+    func dailyDoseCountComputesRunOut() throws {
+        let record: [String: Any] = [
+            "rx_number": "CRX-88889",
+            "medication_name": "Test Med 25mg",
+            "dose_mg": 25.0 as Double,
+            "quantity": 30 as Int,
+            "daily_dose_count": 1.0 as Double,
+            "date_filled": "2024-06-01T00:00:00.000Z",
+            "import_source": "caprx",
+        ]
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let rx = try PrescriptionImporter.importRecord(record, into: context)
+
+        #expect(rx.dailyDoseCount == 1.0)
+        #expect(rx.estimatedRunOutDate != nil)
+    }
+
     @Test("Record missing rx_number throws")
     func missingRxNumberThrows() throws {
         let record: [String: Any] = [
