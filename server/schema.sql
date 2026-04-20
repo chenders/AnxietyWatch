@@ -1,5 +1,8 @@
 -- Anxiety Watch Sync Server — PostgreSQL Schema
--- Applied automatically on app startup via init_db()
+-- REFERENCE ONLY — Alembic migrations are the authoritative schema source.
+-- This file is read by alembic/versions/0001_baseline_schema.py.
+-- To update the schema, create a new Alembic migration:
+--   cd server && alembic revision -m "description"
 
 CREATE TABLE IF NOT EXISTS api_keys (
     id              SERIAL PRIMARY KEY,
