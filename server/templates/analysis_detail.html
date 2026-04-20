@@ -9,11 +9,9 @@
     q { font-style: italic; color: #333; quotes: "\201C" "\201D"; }
 
     @media print {
-        /* Expand all collapsed sections */
-        details { open: true; }
+        /* Expand details that are open (printAnalysis() opens insight sections before printing) */
         details[open] > summary { display: none; }
-        details > summary { display: none; }
-        details > *:not(summary) { display: block !important; }
+        details[open] > *:not(summary) { display: block !important; }
 
         /* Print-friendly code blocks */
         pre { background: #f5f5f5 !important; color: #1d1d1f !important; border: 1px solid #ddd !important; max-height: none !important; font-size: 0.65rem !important; }
@@ -39,8 +37,6 @@
         .card { page-break-inside: avoid; margin-bottom: 0.75rem; }
         h2 { page-break-after: avoid; }
 
-        /* Show tab content regardless of active state */
-        .analysis-tab-content { display: block !important; }
     }
 </style>
 {% endblock %}
@@ -217,7 +213,7 @@
 
 <!-- Raw data toggle -->
 {% if a.request_payload or a.response_payload %}
-<div style="margin-top:2rem; border-top:1px solid #e5e5e7; padding-top:1rem;">
+<div style="margin-top:2rem; border-top:1px solid #e5e5e7; padding-top:1rem;" class="no-print">
     <details>
         <summary style="cursor:pointer; font-size:0.85rem; color:#0071e3; font-weight:500;">Show raw request &amp; response</summary>
         <div style="margin-top:0.75rem;">
@@ -301,7 +297,7 @@
     {% endif %}
 
     {% if job.request_payload or job.response_payload %}
-    <div style="margin-top:0.75rem; border-top:1px solid #e5e5e7; padding-top:0.75rem;">
+    <div style="margin-top:0.75rem; border-top:1px solid #e5e5e7; padding-top:0.75rem;" class="no-print">
         <details>
             <summary style="cursor:pointer; font-size:0.8rem; color:#0071e3; font-weight:500;">Show raw request &amp; response</summary>
             <div style="margin-top:0.75rem;">
@@ -402,10 +398,11 @@
 
 <script>
 function printAnalysis() {
-    // Open all <details> elements before printing
+    // Open insight <details> before printing (skip raw payload sections)
     var details = document.querySelectorAll('details');
     var wasClosed = [];
     details.forEach(function(d) {
+        if (d.closest('.no-print')) return;
         if (!d.open) { wasClosed.push(d); d.open = true; }
     });
     window.print();
