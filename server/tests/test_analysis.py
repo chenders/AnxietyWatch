@@ -1124,3 +1124,119 @@ def test_wiring_default_timezone_when_unset(app):
         )
 
     assert "US/Pacific" in system_prompt
+
+
+def test_analysis_run_custom_model_persisted(admin_client, app, monkeypatch):
+    """POST /admin/analysis/run with model selection persists it on analyses and jobs."""
+    _insert_test_data(app)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response()
+
+    with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+        resp = admin_client.post(
+            "/admin/analysis/run",
+            data={
+                "date_from": "2026-01-10",
+                "date_to": "2026-01-12",
+                "model": "claude-opus-4-5-20250414",
+            },
+            follow_redirects=False,
+        )
+        _wait_for_analysis_threads()
+
+    assert resp.status_code == 302
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT model FROM analyses ORDER BY id DESC LIMIT 1")
+        assert cur.fetchone()["model"] == "claude-opus-4-5-20250414"
+        cur.execute("SELECT model FROM analysis_jobs ORDER BY id")
+        for job in cur.fetchall():
+            assert job["model"] == "claude-opus-4-5-20250414"
+
+
+def test_analysis_run_conflict_toggle_unchecked(admin_client, app, monkeypatch):
+    """Unchecking include_conflict suppresses conflict jobs even with active conflict."""
+    _insert_test_data(app)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    # Create active conflict
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO conflicts (description, patient_perspective, psychiatrist_perspective) "
+            "VALUES ('Test conflict', 'Patient view', 'Psychiatrist view')"
+        )
+        db.commit()
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response()
+
+    with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+        resp = admin_client.post(
+            "/admin/analysis/run",
+            data={
+                "date_from": "2026-01-10",
+                "date_to": "2026-01-12",
+                "conflict_toggle_shown": "1",
+                # include_conflict deliberately omitted → unchecked
+            },
+            follow_redirects=False,
+        )
+        _wait_for_analysis_threads()
+
+    assert resp.status_code == 302
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT job_type FROM analysis_jobs ORDER BY id")
+        job_types = [r["job_type"] for r in cur.fetchall()]
+
+    assert job_types == ["health_analysis"]
+
+
+def test_analysis_run_conflict_toggle_checked(admin_client, app, monkeypatch):
+    """Checking include_conflict creates conflict jobs when active conflict exists."""
+    _insert_test_data(app)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO conflicts (description, patient_perspective, psychiatrist_perspective) "
+            "VALUES ('Test conflict', 'Patient view', 'Psychiatrist view')"
+        )
+        db.commit()
+
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value = _mock_anthropic_response()
+
+    with patch("analysis.anthropic.Anthropic", return_value=mock_client):
+        resp = admin_client.post(
+            "/admin/analysis/run",
+            data={
+                "date_from": "2026-01-10",
+                "date_to": "2026-01-12",
+                "conflict_toggle_shown": "1",
+                "include_conflict": "on",
+            },
+            follow_redirects=False,
+        )
+        _wait_for_analysis_threads()
+
+    assert resp.status_code == 302
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT job_type FROM analysis_jobs ORDER BY id")
+        job_types = [r["job_type"] for r in cur.fetchall()]
+
+    assert len(job_types) == 6
+    assert "conflict_synthesis" in job_types

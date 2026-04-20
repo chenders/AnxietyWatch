@@ -1067,19 +1067,14 @@ def analysis():
     )
     active_conflict = cur.fetchone()
 
-    from analysis import MODEL
-    model_choices = [
-        ("claude-opus-4-7", "Claude Opus 4.7"),
-        ("claude-opus-4-6", "Claude Opus 4.6"),
-        ("claude-opus-4-5-20250414", "Claude Opus 4.5"),
-    ]
+    from analysis import MODEL, MODEL_CHOICES
     return render_template(
         "analysis.html",
         analyses=analyses,
         min_date=min_date,
         max_date=max_date,
         default_model=MODEL,
-        model_choices=model_choices,
+        model_choices=[(m[0], m[1]) for m in MODEL_CHOICES],
         active_conflict=active_conflict,
     )
 
@@ -1116,18 +1111,12 @@ def analysis_run():
     if model not in ALLOWED_MODELS:
         model = MODEL
 
-    # Checkbox is only rendered when an active conflict exists.
-    # Default to True when the checkbox wasn't present in the form.
-    if "include_conflict" in request.form:
-        include_conflict = True
+    # A hidden field "conflict_toggle_shown" is set when the checkbox was
+    # rendered.  If absent, the form didn't offer the toggle → default True.
+    if "conflict_toggle_shown" in request.form:
+        include_conflict = "include_conflict" in request.form
     else:
-        db_check = get_db()
-        cur_check = db_check.cursor()
-        cur_check.execute(
-            "SELECT 1 FROM conflicts WHERE status = 'active' LIMIT 1"
-        )
-        has_active_conflict = cur_check.fetchone() is not None
-        include_conflict = not has_active_conflict
+        include_conflict = True
 
     db = get_db()
     try:

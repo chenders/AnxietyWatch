@@ -58,6 +58,7 @@
                     </span>
                 </div>
                 {% if active_conflict %}
+                <input type="hidden" name="conflict_toggle_shown" value="1">
                 <div style="display:flex; align-items:center; gap:0.4rem;">
                     <input type="checkbox" name="include_conflict" id="include_conflict" checked
                            style="width:16px; height:16px; cursor:pointer;">

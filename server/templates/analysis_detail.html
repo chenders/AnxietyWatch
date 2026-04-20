@@ -19,8 +19,8 @@
 
 {% if has_conflict %}
 <div class="tabs" style="margin-bottom:1rem;">
-    <a href="?tab=health" style="display:inline-block; padding:0.5rem 1rem; text-decoration:none; border-bottom:2px solid {{ '#0071e3' if active_tab == 'health' else 'transparent' }}; color:{{ '#0071e3' if active_tab == 'health' else '#6e6e73' }}; font-weight:{{ '600' if active_tab == 'health' else '400' }};">Health Analysis</a>
-    <a href="?tab=conflict" style="display:inline-block; padding:0.5rem 1rem; text-decoration:none; border-bottom:2px solid {{ '#0071e3' if active_tab == 'conflict' else 'transparent' }}; color:{{ '#0071e3' if active_tab == 'conflict' else '#6e6e73' }}; font-weight:{{ '600' if active_tab == 'conflict' else '400' }};">Conflict Analysis</a>
+    <a class="tab" href="?tab=health" style="display:inline-block; padding:0.5rem 1rem; text-decoration:none; border-bottom:2px solid {{ '#0071e3' if active_tab == 'health' else 'transparent' }}; color:{{ '#0071e3' if active_tab == 'health' else '#6e6e73' }}; font-weight:{{ '600' if active_tab == 'health' else '400' }}; background:transparent;">Health Analysis</a>
+    <a class="tab" href="?tab=conflict" style="display:inline-block; padding:0.5rem 1rem; text-decoration:none; border-bottom:2px solid {{ '#0071e3' if active_tab == 'conflict' else 'transparent' }}; color:{{ '#0071e3' if active_tab == 'conflict' else '#6e6e73' }}; font-weight:{{ '600' if active_tab == 'conflict' else '400' }}; background:transparent;">Conflict Analysis</a>
 </div>
 {% else %}
 <h2 style="margin-bottom:1rem; font-size:1rem; color:#1d1d1f;">Health Analysis</h2>
