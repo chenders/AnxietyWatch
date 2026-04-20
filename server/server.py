@@ -59,12 +59,15 @@ def create_app(test_config=None):
         from alembic.config import Config
         from alembic import command
 
+        # Match get_db(): require an explicit DATABASE_URL so Alembic cannot
+        # fall back to the default sqlalchemy.url from alembic.ini.
+        dsn = app.config.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
+        if not dsn:
+            raise RuntimeError("DATABASE_URL not configured")
+
         alembic_ini = os.path.join(os.path.dirname(__file__), "alembic.ini")
         alembic_cfg = Config(alembic_ini)
-        # Use the app's DATABASE_URL, not the alembic.ini default
-        dsn = app.config.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
-        if dsn:
-            alembic_cfg.set_main_option("sqlalchemy.url", dsn)
+        alembic_cfg.set_main_option("sqlalchemy.url", dsn)
         command.upgrade(alembic_cfg, "head")
 
     @app.cli.command("init-db")

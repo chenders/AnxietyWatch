@@ -1,6 +1,7 @@
 """Tests for Alembic migration chain."""
 
 import os
+from urllib.parse import urlparse
 
 import psycopg2
 from alembic.config import Config
@@ -13,6 +14,14 @@ DATABASE_URL = os.environ.get(
         "postgresql://anxietywatch:anxietywatch@localhost:5432/anxietywatch_test",
     ),
 )
+
+# Guard against accidentally running destructive tests on a non-test database.
+_db_name = urlparse(DATABASE_URL).path.rsplit("/", 1)[-1]
+if "test" not in _db_name:
+    raise RuntimeError(
+        f"Refusing to run destructive Alembic tests against '{_db_name}'. "
+        "DATABASE_URL must point to a database whose name contains 'test'."
+    )
 
 ALEMBIC_INI = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
 
@@ -171,9 +180,9 @@ class TestFlaskInitDb:
     def setup_method(self):
         _reset_db()
 
-    def test_init_db_command_creates_tables(self):
+    def test_init_db_command_creates_tables(self, monkeypatch):
         """The Flask init-db CLI command should apply all migrations."""
-        os.environ["DATABASE_URL"] = DATABASE_URL
+        monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
         from server import create_app
         app = create_app({"TESTING": True, "DATABASE_URL": DATABASE_URL})
         runner = app.test_cli_runner()

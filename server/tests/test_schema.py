@@ -1,6 +1,7 @@
 """Tests for schema changes: settings table and nullable CPAP columns."""
 
 import os
+from urllib.parse import urlparse
 
 import psycopg2
 import pytest
@@ -9,6 +10,14 @@ DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
     os.environ.get("DATABASE_URL", "postgresql://anxietywatch:anxietywatch@localhost:5432/anxietywatch_test"),
 )
+
+# Guard against accidentally running destructive tests on a non-test database.
+_db_name = urlparse(DATABASE_URL).path.rsplit("/", 1)[-1]
+if "test" not in _db_name:
+    raise RuntimeError(
+        f"Refusing to run destructive schema tests against '{_db_name}'. "
+        "DATABASE_URL must point to a database whose name contains 'test'."
+    )
 
 
 @pytest.fixture(scope="session")
