@@ -6,6 +6,10 @@ import Testing
 @Suite(.serialized)
 struct RandomCheckInManagerTests {
 
+    /// Fixed reference point for all time-relative tests.
+    /// Using ModelFactory.referenceDate avoids flaky behavior near midnight.
+    private let now = ModelFactory.referenceDate
+
     private func clearState() {
         UserDefaults.standard.removeObject(forKey: "randomCheckIn_pending")
         UserDefaults.standard.removeObject(forKey: "randomCheckIn_enabled")
@@ -66,11 +70,11 @@ struct RandomCheckInManagerTests {
         clearState()
         let pending = RandomCheckInManager.PendingCheckIn(
             notificationId: "test-id",
-            scheduledTime: Date.now.addingTimeInterval(3600)
+            scheduledTime: now.addingTimeInterval(3600)
         )
         let data = try! JSONEncoder().encode(pending)
         UserDefaults.standard.set(data, forKey: "randomCheckIn_pending")
-        #expect(RandomCheckInManager.pendingCheckInIfDue() == false)
+        #expect(RandomCheckInManager.pendingCheckInIfDue(now: now) == false)
         clearState()
     }
 
@@ -79,11 +83,11 @@ struct RandomCheckInManagerTests {
         clearState()
         let pending = RandomCheckInManager.PendingCheckIn(
             notificationId: "test-id",
-            scheduledTime: Date.now.addingTimeInterval(-300)
+            scheduledTime: now.addingTimeInterval(-300)
         )
         let data = try! JSONEncoder().encode(pending)
         UserDefaults.standard.set(data, forKey: "randomCheckIn_pending")
-        #expect(RandomCheckInManager.pendingCheckInIfDue() == true)
+        #expect(RandomCheckInManager.pendingCheckInIfDue(now: now) == true)
         clearState()
     }
 
@@ -92,11 +96,11 @@ struct RandomCheckInManagerTests {
         clearState()
         let pending = RandomCheckInManager.PendingCheckIn(
             notificationId: "test-id",
-            scheduledTime: Date.now.addingTimeInterval(-25 * 3600)
+            scheduledTime: now.addingTimeInterval(-25 * 3600)
         )
         let data = try! JSONEncoder().encode(pending)
         UserDefaults.standard.set(data, forKey: "randomCheckIn_pending")
-        #expect(RandomCheckInManager.pendingCheckInIfDue() == false)
+        #expect(RandomCheckInManager.pendingCheckInIfDue(now: now) == false)
         clearState()
     }
 
@@ -105,11 +109,11 @@ struct RandomCheckInManagerTests {
         clearState()
         let pending = RandomCheckInManager.PendingCheckIn(
             notificationId: "test-id",
-            scheduledTime: Date.now.addingTimeInterval(-25 * 3600)
+            scheduledTime: now.addingTimeInterval(-25 * 3600)
         )
         let data = try! JSONEncoder().encode(pending)
         UserDefaults.standard.set(data, forKey: "randomCheckIn_pending")
-        RandomCheckInManager.cleanupStale()
+        RandomCheckInManager.cleanupStale(now: now)
         #expect(RandomCheckInManager.loadPending() == nil)
         clearState()
     }
@@ -119,11 +123,11 @@ struct RandomCheckInManagerTests {
         clearState()
         let pending = RandomCheckInManager.PendingCheckIn(
             notificationId: "test-id",
-            scheduledTime: Date.now.addingTimeInterval(-300)
+            scheduledTime: now.addingTimeInterval(-300)
         )
         let data = try! JSONEncoder().encode(pending)
         UserDefaults.standard.set(data, forKey: "randomCheckIn_pending")
-        RandomCheckInManager.cleanupStale()
+        RandomCheckInManager.cleanupStale(now: now)
         #expect(RandomCheckInManager.loadPending() != nil)
         clearState()
     }

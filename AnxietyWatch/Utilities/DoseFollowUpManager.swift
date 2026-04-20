@@ -73,8 +73,7 @@ enum DoseFollowUpManager {
 
     /// Returns the first pending follow-up that is due (past scheduled time)
     /// and not yet stale (within 2 hours). Call on app foreground.
-    static func pendingFollowUpIfDue() -> PendingFollowUp? {
-        let now = Date.now
+    static func pendingFollowUpIfDue(now: Date = .now) -> PendingFollowUp? {
         let pending = loadPending()
         return pending.first { followUp in
             followUp.scheduledTime <= now &&
@@ -94,8 +93,7 @@ enum DoseFollowUpManager {
     }
 
     /// Remove follow-ups older than 2 hours and their notifications. Call on app foreground.
-    static func cleanupStale() {
-        let now = Date.now
+    static func cleanupStale(now: Date = .now) {
         var pending = loadPending()
         let stale = pending.filter { now.timeIntervalSince($0.scheduledTime) >= staleThreshold }
         if !stale.isEmpty {
