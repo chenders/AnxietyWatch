@@ -1154,7 +1154,7 @@ def analysis_detail(analysis_id):
     db = get_db()
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    from analysis import get_analysis, sweep_stale_analyses
+    from analysis import get_analysis, sweep_stale_analyses, MODEL_PRICING
     sweep_stale_analyses(db)
     a = get_analysis(cur, analysis_id)
     if a is None:
@@ -1188,6 +1188,7 @@ def analysis_detail(analysis_id):
         low_insights=low,
         conflict_jobs=conflict_jobs,
         conflict_data=conflict_data,
+        model_pricing=MODEL_PRICING,
     )
 
 

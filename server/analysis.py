@@ -16,6 +16,12 @@ ALLOWED_MODELS = {
     "claude-opus-4-6",
     "claude-opus-4-5-20250414",
 }
+# Per-million-token pricing (USD) for cost estimation
+MODEL_PRICING = {
+    "claude-opus-4-7": {"input": 15.0, "output": 75.0},
+    "claude-opus-4-6": {"input": 15.0, "output": 75.0},
+    "claude-opus-4-5-20250414": {"input": 15.0, "output": 75.0},
+}
 
 
 def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:

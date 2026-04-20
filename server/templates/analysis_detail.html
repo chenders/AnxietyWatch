@@ -6,6 +6,7 @@
 {% endif %}
 {% endblock %}
 {% block content %}
+{% macro estimate_cost(tokens_in, tokens_out, model) %}{% set p = model_pricing.get(model, {}) %}{% if p and tokens_in is not none and tokens_out is not none %}${{ "%.4f"|format(tokens_in * p.input / 1000000 + tokens_out * p.output / 1000000) }}{% endif %}{% endmacro %}
 <div style="margin-bottom:1rem;">
     <a href="{{ url_for('admin.analysis') }}" style="color:#0071e3; font-size:0.85rem; text-decoration:none;">&larr; Back to Analysis</a>
 </div>
@@ -66,12 +67,13 @@
     {% endfor %}
     {% endif %}
 
-    {% if a.tokens_in %}
+    {% if a.tokens_in is not none or a.tokens_out is not none or a.model %}
     <div style="font-size:0.75rem; color:#6e6e73; margin-top:0.75rem; display:flex; gap:1.5rem;">
         <span>{{ (a.insights or [])|length }} insights</span>
-        <span>{{ "{:,}".format(a.tokens_in) }} tokens in</span>
-        <span>{{ "{:,}".format(a.tokens_out) }} tokens out</span>
-        <span>{{ a.model }}</span>
+        {% if a.tokens_in is not none %}<span>{{ "{:,}".format(a.tokens_in) }} tokens in</span>{% endif %}
+        {% if a.tokens_out is not none %}<span>{{ "{:,}".format(a.tokens_out) }} tokens out</span>{% endif %}
+        {% if a.model %}<span>{{ a.model }}</span>{% endif %}
+        {% set cost = estimate_cost(a.tokens_in, a.tokens_out, a.model) %}{% if cost|trim %}<span>{{ cost }}</span>{% endif %}
     </div>
     {% endif %}
 </div>
@@ -179,13 +181,13 @@
         <div style="margin-top:0.75rem;">
             {% if a.request_payload %}
             <div style="margin-bottom:0.75rem;">
-                <span style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Request payload{% if a.tokens_in %} ({{ "{:,}".format(a.tokens_in) }} tokens){% endif %}</span>
+                <span style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Request payload{% if a.tokens_in is not none %} ({{ "{:,}".format(a.tokens_in) }} tokens){% endif %}</span>
                 <pre style="background:#1d1d1f; color:#a8d8a8; border-radius:6px; padding:1rem; margin-top:0.25rem; font-size:0.75rem; max-height:300px; overflow:auto; white-space:pre-wrap; word-break:break-word;">{{ a.request_payload | tojson(indent=2) if a.request_payload is mapping else a.request_payload }}</pre>
             </div>
             {% endif %}
             {% if a.response_payload %}
             <div>
-                <span style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Response{% if a.tokens_out %} ({{ "{:,}".format(a.tokens_out) }} tokens){% endif %}</span>
+                <span style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Response{% if a.tokens_out is not none %} ({{ "{:,}".format(a.tokens_out) }} tokens){% endif %}</span>
                 <pre style="background:#1d1d1f; color:#a8d8a8; border-radius:6px; padding:1rem; margin-top:0.25rem; font-size:0.75rem; max-height:300px; overflow:auto; white-space:pre-wrap; word-break:break-word;">{{ a.response_payload | tojson(indent=2) if a.response_payload is mapping else a.response_payload }}</pre>
             </div>
             {% endif %}
@@ -252,6 +254,7 @@
         {% if job.tokens_in is not none %}<span>{{ "{:,}".format(job.tokens_in) }} tokens in</span>{% endif %}
         {% if job.tokens_out is not none %}<span>{{ "{:,}".format(job.tokens_out) }} tokens out</span>{% endif %}
         {% if job.model %}<span>{{ job.model }}</span>{% endif %}
+        {% set cost = estimate_cost(job.tokens_in, job.tokens_out, job.model) %}{% if cost|trim %}<span>{{ cost }}</span>{% endif %}
     </div>
     {% endif %}
 
@@ -327,6 +330,29 @@
     {% elif synthesis.status in ('pending', 'running') %}
     <p style="color:#007aff; font-size:0.85rem;">Synthesis in progress…</p>
     {% endif %}
+
+    {% if synthesis.tokens_in is not none or synthesis.tokens_out is not none or synthesis.model %}
+    <div style="font-size:0.75rem; color:#6e6e73; margin-top:0.75rem; display:flex; gap:1.5rem;">
+        {% if synthesis.tokens_in is not none %}<span>{{ "{:,}".format(synthesis.tokens_in) }} tokens in</span>{% endif %}
+        {% if synthesis.tokens_out is not none %}<span>{{ "{:,}".format(synthesis.tokens_out) }} tokens out</span>{% endif %}
+        {% if synthesis.model %}<span>{{ synthesis.model }}</span>{% endif %}
+        {% set cost = estimate_cost(synthesis.tokens_in, synthesis.tokens_out, synthesis.model) %}{% if cost|trim %}<span>{{ cost }}</span>{% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Total cost for all conflict jobs -->
+{% set ns = namespace(total_cost=0.0) %}
+{% for job in conflict_jobs %}
+{% if job.tokens_in is not none and job.tokens_out is not none and job.model %}
+{% set p = model_pricing.get(job.model, {}) %}
+{% if p %}{% set ns.total_cost = ns.total_cost + job.tokens_in * p.input / 1000000 + job.tokens_out * p.output / 1000000 %}{% endif %}
+{% endif %}
+{% endfor %}
+{% if ns.total_cost > 0 %}
+<div style="font-size:0.8rem; color:#6e6e73; margin-top:1rem; text-align:right;">
+    Total conflict analysis cost: <strong>${{ "%.4f"|format(ns.total_cost) }}</strong>
 </div>
 {% endif %}
 
