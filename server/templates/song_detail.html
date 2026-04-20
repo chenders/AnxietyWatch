@@ -38,6 +38,7 @@
 </form>
 
 <h3 style="margin-top: 2em;">Occurrences ({{ occurrences | length }})</h3>
+<div class="table-wrap">
 <table>
     <thead>
         <tr>
@@ -58,6 +59,7 @@
         {% endfor %}
     </tbody>
 </table>
+</div>
 {% if not occurrences %}
 <p style="color: #888;">No occurrences logged yet.</p>
 {% endif %}

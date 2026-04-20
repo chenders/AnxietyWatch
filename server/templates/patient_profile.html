@@ -7,7 +7,7 @@
     <!-- Demographics -->
     <div class="card">
         <h2>Demographics</h2>
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem;">
+        <div class="responsive-grid-3">
             <div>
                 <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Name</label><br>
                 <input type="text" name="name" value="{{ profile.name or '' }}" placeholder="Preferred name for reports">
@@ -40,6 +40,7 @@
     <div class="card">
         <h2>Current Medications</h2>
         {% if medications %}
+        <div class="table-wrap">
         <table>
             <thead><tr><th>Medication</th><th>Default Dose</th><th>Category</th></tr></thead>
             <tbody>
@@ -48,6 +49,7 @@
             {% endfor %}
             </tbody>
         </table>
+        </div>
         {% else %}
         <p style="color:#6e6e73; font-size:0.85rem;">No active medications tracked in AnxietyWatch.</p>
         {% endif %}

@@ -6,7 +6,7 @@
 <form method="post" action="{{ url_for('admin.psychiatrist_profile') }}">
     <div class="card">
         <h2>Psychiatrist Information</h2>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+        <div class="responsive-grid-2">
             <div>
                 <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Name</label><br>
                 <input type="text" name="name" value="{{ profile.name or '' }}" placeholder="Full name with credentials" required>
