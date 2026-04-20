@@ -7,6 +7,10 @@ import Testing
 @Suite(.serialized)
 struct DoseFollowUpManagerTests {
 
+    /// Fixed reference point for all time-relative tests.
+    /// Using ModelFactory.referenceDate avoids flaky behavior near midnight.
+    private let now = ModelFactory.referenceDate
+
     /// Clear pending follow-ups before each test.
     private func clearPending() {
         UserDefaults.standard.removeObject(forKey: "pendingDoseFollowUps")
@@ -18,7 +22,7 @@ struct DoseFollowUpManagerTests {
         pending.append(DoseFollowUpManager.PendingFollowUp(
             doseID: doseID,
             medicationName: medicationName,
-            scheduledTime: Date.now.addingTimeInterval(DoseFollowUpManager.followUpDelay)
+            scheduledTime: now.addingTimeInterval(DoseFollowUpManager.followUpDelay)
         ))
         let data = try! JSONEncoder().encode(pending)
         UserDefaults.standard.set(data, forKey: "pendingDoseFollowUps")
@@ -71,12 +75,12 @@ struct DoseFollowUpManagerTests {
         let followUp = DoseFollowUpManager.PendingFollowUp(
             doseID: UUID(),
             medicationName: "Clonazepam",
-            scheduledTime: Date.now.addingTimeInterval(1800)
+            scheduledTime: now.addingTimeInterval(1800)
         )
         let data = try! JSONEncoder().encode([followUp])
         UserDefaults.standard.set(data, forKey: "pendingDoseFollowUps")
 
-        #expect(DoseFollowUpManager.pendingFollowUpIfDue() == nil)
+        #expect(DoseFollowUpManager.pendingFollowUpIfDue(now: now) == nil)
 
         clearPending()
     }
@@ -88,12 +92,12 @@ struct DoseFollowUpManagerTests {
         let followUp = DoseFollowUpManager.PendingFollowUp(
             doseID: doseID,
             medicationName: "Adderall",
-            scheduledTime: Date.now.addingTimeInterval(-300)
+            scheduledTime: now.addingTimeInterval(-300)
         )
         let data = try! JSONEncoder().encode([followUp])
         UserDefaults.standard.set(data, forKey: "pendingDoseFollowUps")
 
-        let result = DoseFollowUpManager.pendingFollowUpIfDue()
+        let result = DoseFollowUpManager.pendingFollowUpIfDue(now: now)
         #expect(result != nil)
         #expect(result?.doseID == doseID)
 
@@ -106,17 +110,17 @@ struct DoseFollowUpManagerTests {
         let stale = DoseFollowUpManager.PendingFollowUp(
             doseID: UUID(),
             medicationName: "Old",
-            scheduledTime: Date.now.addingTimeInterval(-3 * 3600)
+            scheduledTime: now.addingTimeInterval(-3 * 3600)
         )
         let recent = DoseFollowUpManager.PendingFollowUp(
             doseID: UUID(),
             medicationName: "Recent",
-            scheduledTime: Date.now.addingTimeInterval(-300)
+            scheduledTime: now.addingTimeInterval(-300)
         )
         let data = try! JSONEncoder().encode([stale, recent])
         UserDefaults.standard.set(data, forKey: "pendingDoseFollowUps")
 
-        DoseFollowUpManager.cleanupStale()
+        DoseFollowUpManager.cleanupStale(now: now)
 
         let pending = DoseFollowUpManager.loadPending()
         #expect(pending.count == 1)

@@ -14,8 +14,9 @@ struct BarometricDownsamplingTests {
     }
 
     private func makeReadings(count: Int) -> [BarometricReading] {
-        (0..<count).map { i in
-            let date = Date.now.addingTimeInterval(Double(i) * 5.0) // 5 seconds apart
+        let base = ModelFactory.referenceDate
+        return (0..<count).map { i in
+            let date = base.addingTimeInterval(Double(i) * 5.0) // 5 seconds apart
             return BarometricReading(
                 timestamp: date,
                 pressureKPa: 101.3 + Double(i) * 0.001,
