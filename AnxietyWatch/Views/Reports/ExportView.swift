@@ -127,10 +127,14 @@ struct ExportView: View {
             end: endDate
         )
 
-        let url = tempURL("anxietyscope-report.pdf")
-        try? data.write(to: url)
-        shareItems = [url]
-        showingShare = true
+        let url = tempURL("anxietywatch-report.pdf")
+        do {
+            try data.write(to: url)
+            shareItems = [url]
+            showingShare = true
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func tempURL(_ filename: String) -> URL {

@@ -38,7 +38,7 @@ enum PrescriptionImporter {
         let estimatedRunOut = parseDate(record["estimated_run_out_date"])
 
         let quantity = record["quantity"] as? Int ?? 0
-        let dailyDose = record["daily_dose_count"] as? Double ?? 1.0
+        let dailyDose = record["daily_dose_count"] as? Double
         let daysSupply = record["days_supply"] as? Int
         let directions = record["directions"] as? String ?? ""
         let refills = record["refills_remaining"] as? Int ?? 0
@@ -46,11 +46,13 @@ enum PrescriptionImporter {
         // Compute run-out: prefer server value, then daysSupply, then quantity-based
         let computedRunOut = estimatedRunOut
             ?? daysSupplyRunOut(dateFilled: dateFilled, daysSupply: daysSupply)
-            ?? PrescriptionSupplyCalculator.estimateRunOutDate(
-                dateFilled: dateFilled,
-                quantity: quantity,
-                dailyDoseCount: dailyDose
-            )
+            ?? dailyDose.flatMap {
+                PrescriptionSupplyCalculator.estimateRunOutDate(
+                    dateFilled: dateFilled,
+                    quantity: quantity,
+                    dailyDoseCount: $0
+                )
+            }
 
         // Check for existing prescription to update (predicate-based, not full scan)
         var descriptor = FetchDescriptor<Prescription>(

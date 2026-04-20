@@ -16,6 +16,7 @@ final class CPAPSession {
     }
 
     var id: UUID
+    #Unique<CPAPSession>([\.date])
     var date: Date
     /// Apnea-Hypopnea Index — events per hour
     var ahi: Double

@@ -18,7 +18,7 @@ from walgreens_client import (
 VALID_RX = {
     "drugName": "Clonazepam 1mg Tablets",
     "fillDate": "12/31/2025",
-    "ndcNumber": "00093321205",
+    "ndcNumber": "00000-0000-00",
     "pharmacist": "Phm",
     "prescriptionType": "Retail Pickup",
     "price": "$15.49",
@@ -40,7 +40,7 @@ def test_normalize_valid_prescription():
     assert result["date_filled"] == "2025-12-31T00:00:00+00:00"
     assert result["pharmacy_name"] == "Walgreens"
     assert result["prescriber_name"] == "Jane Smith MD"
-    assert result["ndc_code"] == "00093321205"
+    assert result["ndc_code"] == "00000-0000-00"
     assert result["rx_status"] == "Retail Pickup"
     assert result["import_source"] == "walgreens"
     assert result["walgreens_rx_id"] == "9999999-00001"

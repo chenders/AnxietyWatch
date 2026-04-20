@@ -47,6 +47,7 @@ final class PharmacyCallService: NSObject, CXCallObserverDelegate {
             pharmacy: pharmacy
         )
         modelContext.insert(log)
+        try? modelContext.save()
 
         pendingCallLogId = log.id
 
@@ -82,6 +83,7 @@ final class PharmacyCallService: NSObject, CXCallObserverDelegate {
             pharmacy: pharmacy
         )
         modelContext.insert(log)
+        try? modelContext.save()
     }
 
     // MARK: - CXCallObserverDelegate
@@ -153,5 +155,6 @@ final class PharmacyCallService: NSObject, CXCallObserverDelegate {
         descriptor.fetchLimit = 1
         guard let log = try? context.fetch(descriptor).first else { return }
         apply(log)
+        try? context.save()
     }
 }
