@@ -10,13 +10,13 @@ import anthropic
 import psycopg2
 import psycopg2.extras
 
-MODEL = "claude-opus-4-7"
 # Single source of truth for model options: (id, display_label, input_$/M, output_$/M)
 MODEL_CHOICES = [
     ("claude-opus-4-7", "Claude Opus 4.7", 15.0, 75.0),
     ("claude-opus-4-6", "Claude Opus 4.6", 15.0, 75.0),
     ("claude-opus-4-5-20250414", "Claude Opus 4.5", 15.0, 75.0),
 ]
+MODEL = MODEL_CHOICES[0][0]
 ALLOWED_MODELS = {m[0] for m in MODEL_CHOICES}
 MODEL_PRICING = {m[0]: {"input": m[2], "output": m[3]} for m in MODEL_CHOICES}
 
