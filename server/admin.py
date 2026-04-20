@@ -1067,13 +1067,14 @@ def analysis():
     )
     active_conflict = cur.fetchone()
 
-    from analysis import MODEL
+    from analysis import MODEL, MODEL_CHOICES
     return render_template(
         "analysis.html",
         analyses=analyses,
         min_date=min_date,
         max_date=max_date,
-        model_name=MODEL,
+        default_model=MODEL,
+        model_choices=[(m[0], m[1]) for m in MODEL_CHOICES],
         active_conflict=active_conflict,
     )
 
@@ -1105,6 +1106,18 @@ def analysis_run():
     dose_tracking_incomplete = "dose_tracking_incomplete" in request.form
     detailed_output = "detailed_output" in request.form
 
+    from analysis import MODEL, ALLOWED_MODELS
+    model = request.form.get("model", MODEL)
+    if model not in ALLOWED_MODELS:
+        model = MODEL
+
+    # A hidden field "conflict_toggle_shown" is set when the checkbox was
+    # rendered.  If absent, the form didn't offer the toggle → default True.
+    if "conflict_toggle_shown" in request.form:
+        include_conflict = "include_conflict" in request.form
+    else:
+        include_conflict = True
+
     db = get_db()
     try:
         from analysis import start_analysis
@@ -1114,6 +1127,8 @@ def analysis_run():
             database_url=database_url,
             dose_tracking_incomplete=dose_tracking_incomplete,
             detailed_output=detailed_output,
+            model=model,
+            include_conflict=include_conflict,
         )
         return redirect(url_for("admin.analysis_detail", analysis_id=analysis_id))
     except Exception:
@@ -1128,7 +1143,7 @@ def analysis_detail(analysis_id):
     db = get_db()
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    from analysis import get_analysis, sweep_stale_analyses
+    from analysis import get_analysis, sweep_stale_analyses, MODEL_PRICING
     sweep_stale_analyses(db)
     a = get_analysis(cur, analysis_id)
     if a is None:
@@ -1162,6 +1177,7 @@ def analysis_detail(analysis_id):
         low_insights=low,
         conflict_jobs=conflict_jobs,
         conflict_data=conflict_data,
+        model_pricing=MODEL_PRICING,
     )
 
 

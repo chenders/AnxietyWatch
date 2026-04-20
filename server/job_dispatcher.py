@@ -16,27 +16,31 @@ MODEL = analysis.MODEL
 logger = logging.getLogger(__name__)
 
 
-def create_analysis_jobs(db, analysis_id):
+def create_analysis_jobs(db, analysis_id, include_conflict=True, model=None):
     """Create analysis_jobs rows for a given analysis.
 
-    Always creates a health_analysis job. If an active conflict exists,
-    also creates 4 research jobs + 1 synthesis job with correct dependencies.
+    Always creates a health_analysis job. If an active conflict exists
+    and include_conflict is True, also creates 4 research jobs + 1 synthesis
+    job with correct dependencies.
     """
+    effective_model = model or MODEL
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     # Pick the most recent active conflict for this analysis run.
     # Multiple conflicts may be active simultaneously; each run analyzes one.
-    cur.execute(
-        "SELECT id FROM conflicts WHERE status = 'active' ORDER BY created_at DESC LIMIT 1"
-    )
-    conflict_row = cur.fetchone()
-    conflict_id = conflict_row["id"] if conflict_row else None
+    conflict_id = None
+    if include_conflict:
+        cur.execute(
+            "SELECT id FROM conflicts WHERE status = 'active' ORDER BY created_at DESC LIMIT 1"
+        )
+        conflict_row = cur.fetchone()
+        conflict_id = conflict_row["id"] if conflict_row else None
 
     # 1. Health analysis job (no dependencies)
     cur.execute(
         "INSERT INTO analysis_jobs (analysis_id, job_type, depends_on, status, model) "
         "VALUES (%s, 'health_analysis', '{}', 'pending', %s) RETURNING id",
-        (analysis_id, MODEL),
+        (analysis_id, effective_model),
     )
     health_job_id = cur.fetchone()["id"]
 
@@ -49,7 +53,7 @@ def create_analysis_jobs(db, analysis_id):
                 "INSERT INTO analysis_jobs "
                 "(analysis_id, conflict_id, job_type, depends_on, status, model) "
                 "VALUES (%s, %s, %s, %s, 'pending', %s) RETURNING id",
-                (analysis_id, conflict_id, job_type, [health_job_id], MODEL),
+                (analysis_id, conflict_id, job_type, [health_job_id], effective_model),
             )
             research_job_ids.append(cur.fetchone()["id"])
 
@@ -58,7 +62,7 @@ def create_analysis_jobs(db, analysis_id):
             "INSERT INTO analysis_jobs "
             "(analysis_id, conflict_id, job_type, depends_on, status, model) "
             "VALUES (%s, %s, 'conflict_synthesis', %s, 'pending', %s)",
-            (analysis_id, conflict_id, research_job_ids, MODEL),
+            (analysis_id, conflict_id, research_job_ids, effective_model),
         )
 
     db.commit()

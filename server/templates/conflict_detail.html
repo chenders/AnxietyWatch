@@ -15,7 +15,7 @@
     <!-- Description -->
     <div class="card">
         <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Conflict Description</label>
-        <textarea name="description" rows="3" required
+        <textarea name="description" rows="5" required
                   style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit; margin-top:0.25rem;"
                   placeholder="Describe the conflict as objectively and in as good-faith a manner as possible">{{ conflict.description or '' }}</textarea>
     </div>
@@ -27,22 +27,22 @@
             <h2 style="color:#0071e3;">Your Side</h2>
             <div style="margin-bottom:0.75rem;">
                 <label style="font-size:0.75rem; color:#6e6e73;">Your perspective on the conflict</label>
-                <textarea name="patient_perspective" rows="3"
+                <textarea name="patient_perspective" rows="6"
                           style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.85rem; font-family:inherit; margin-top:0.25rem;">{{ conflict.patient_perspective or '' }}</textarea>
             </div>
             <div style="margin-bottom:0.75rem;">
                 <label style="font-size:0.75rem; color:#6e6e73;">What assumptions are you making?</label>
-                <textarea name="patient_assumptions" rows="2"
+                <textarea name="patient_assumptions" rows="4"
                           style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.85rem; font-family:inherit; margin-top:0.25rem;">{{ conflict.patient_assumptions or '' }}</textarea>
             </div>
             <div style="margin-bottom:0.75rem;">
                 <label style="font-size:0.75rem; color:#6e6e73;">How do you think this should be resolved?</label>
-                <textarea name="patient_desired_resolution" rows="2"
+                <textarea name="patient_desired_resolution" rows="4"
                           style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.85rem; font-family:inherit; margin-top:0.25rem;">{{ conflict.patient_desired_resolution or '' }}</textarea>
             </div>
             <div>
                 <label style="font-size:0.75rem; color:#6e6e73;">What do you want from your psychiatrist?</label>
-                <textarea name="patient_wants_from_other" rows="2"
+                <textarea name="patient_wants_from_other" rows="4"
                           style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.85rem; font-family:inherit; margin-top:0.25rem;">{{ conflict.patient_wants_from_other or '' }}</textarea>
             </div>
         </div>
@@ -52,22 +52,22 @@
             <h2 style="color:#af52de;">Their Side</h2>
             <div style="margin-bottom:0.75rem;">
                 <label style="font-size:0.75rem; color:#6e6e73;">Your best understanding of their perspective</label>
-                <textarea name="psychiatrist_perspective" rows="3"
+                <textarea name="psychiatrist_perspective" rows="6"
                           style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.85rem; font-family:inherit; margin-top:0.25rem;">{{ conflict.psychiatrist_perspective or '' }}</textarea>
             </div>
             <div style="margin-bottom:0.75rem;">
                 <label style="font-size:0.75rem; color:#6e6e73;">What assumptions do you think they're making?</label>
-                <textarea name="psychiatrist_assumptions" rows="2"
+                <textarea name="psychiatrist_assumptions" rows="4"
                           style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.85rem; font-family:inherit; margin-top:0.25rem;">{{ conflict.psychiatrist_assumptions or '' }}</textarea>
             </div>
             <div style="margin-bottom:0.75rem;">
                 <label style="font-size:0.75rem; color:#6e6e73;">How do you think they want to resolve it?</label>
-                <textarea name="psychiatrist_desired_resolution" rows="2"
+                <textarea name="psychiatrist_desired_resolution" rows="4"
                           style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.85rem; font-family:inherit; margin-top:0.25rem;">{{ conflict.psychiatrist_desired_resolution or '' }}</textarea>
             </div>
             <div>
                 <label style="font-size:0.75rem; color:#6e6e73;">What do you think they want from you?</label>
-                <textarea name="psychiatrist_wants_from_other" rows="2"
+                <textarea name="psychiatrist_wants_from_other" rows="4"
                           style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.85rem; font-family:inherit; margin-top:0.25rem;">{{ conflict.psychiatrist_wants_from_other or '' }}</textarea>
             </div>
         </div>
@@ -76,7 +76,7 @@
     <!-- Additional context -->
     <div class="card">
         <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">Additional Context</label>
-        <textarea name="additional_context" rows="3"
+        <textarea name="additional_context" rows="5"
                   style="width:100%; padding:0.5rem 0.75rem; border:1px solid #d2d2d7; border-radius:6px; font-size:0.9rem; font-family:inherit; margin-top:0.25rem;"
                   placeholder="Anything else relevant to understanding this conflict">{{ conflict.additional_context or '' }}</textarea>
     </div>

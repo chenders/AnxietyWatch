@@ -158,6 +158,47 @@ def test_create_jobs_with_conflict(app):
             assert j["conflict_id"] == conflict_id
 
 
+def test_include_conflict_false_suppresses_conflict_jobs(app):
+    """include_conflict=False creates only health_analysis even with an active conflict."""
+    analysis_id = _create_test_analysis(app)
+    _create_test_conflict(app)
+    with app.app_context():
+        db = app.get_db()
+        from job_dispatcher import create_analysis_jobs
+        create_analysis_jobs(db, analysis_id, include_conflict=False)
+
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "SELECT * FROM analysis_jobs WHERE analysis_id = %s ORDER BY id",
+            (analysis_id,),
+        )
+        jobs = cur.fetchall()
+
+    assert len(jobs) == 1
+    assert jobs[0]["job_type"] == "health_analysis"
+
+
+def test_custom_model_persisted_on_jobs(app):
+    """A custom model is stored on every created job."""
+    analysis_id = _create_test_analysis(app)
+    _create_test_conflict(app)
+    custom_model = "claude-opus-4-5-20250414"
+    with app.app_context():
+        db = app.get_db()
+        from job_dispatcher import create_analysis_jobs
+        create_analysis_jobs(db, analysis_id, model=custom_model)
+
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "SELECT model FROM analysis_jobs WHERE analysis_id = %s",
+            (analysis_id,),
+        )
+        jobs = cur.fetchall()
+
+    assert len(jobs) == 6  # health + 4 research + synthesis
+    assert all(j["model"] == custom_model for j in jobs)
+
+
 def test_find_ready_jobs(app):
     """find_ready_jobs returns pending jobs whose dependencies are all completed."""
     analysis_id = _create_test_analysis(app)

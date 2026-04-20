@@ -10,7 +10,15 @@ import anthropic
 import psycopg2
 import psycopg2.extras
 
-MODEL = "claude-opus-4-7"
+# Single source of truth for model options: (id, display_label, input_$/M, output_$/M)
+MODEL_CHOICES = [
+    ("claude-opus-4-7", "Claude Opus 4.7", 15.0, 75.0),
+    ("claude-opus-4-6", "Claude Opus 4.6", 15.0, 75.0),
+    ("claude-opus-4-5-20250414", "Claude Opus 4.5", 15.0, 75.0),
+]
+MODEL = MODEL_CHOICES[0][0]
+ALLOWED_MODELS = {m[0] for m in MODEL_CHOICES}
+MODEL_PRICING = {m[0]: {"input": m[2], "output": m[3]} for m in MODEL_CHOICES}
 
 
 def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
@@ -568,6 +576,8 @@ def start_analysis(
     database_url: str | None = None,
     dose_tracking_incomplete: bool = False,
     detailed_output: bool = False,
+    model: str | None = None,
+    include_conflict: bool = True,
 ) -> int:
     """Create a pending analysis row, create jobs, and dispatch in background.
 
@@ -577,15 +587,19 @@ def start_analysis(
     if not dsn:
         raise RuntimeError("DATABASE_URL not configured")
 
+    effective_model = model or MODEL
+
     analysis_id, _, _ = _create_pending_analysis(
         db, date_from, date_to,
         dose_tracking_incomplete=dose_tracking_incomplete,
         detailed_output=detailed_output,
+        model=effective_model,
+        include_conflict=include_conflict,
     )
 
     # Create jobs via dispatcher (inline import to avoid circular dependency)
     from job_dispatcher import create_analysis_jobs, dispatch_analysis
-    create_analysis_jobs(db, analysis_id)
+    create_analysis_jobs(db, analysis_id, include_conflict=include_conflict, model=effective_model)
 
     thread = threading.Thread(
         target=dispatch_analysis,
@@ -624,7 +638,8 @@ def run_analysis(db, date_from: date, date_to: date,
 
 
 def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_incomplete: bool = False,
-                             detailed_output: bool = False):
+                             detailed_output: bool = False, model: str | None = None,
+                             include_conflict: bool = True):
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     data = gather_analysis_data(cur, date_from, date_to)
 
@@ -653,15 +668,20 @@ def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_i
     cur.execute("SELECT profile_summary FROM psychiatrist_profile LIMIT 1")
     psych_row = cur.fetchone()
 
-    cur.execute(
-        "SELECT description FROM conflicts WHERE status = 'active' "
-        "ORDER BY created_at DESC LIMIT 1"
-    )
-    conflict_row = cur.fetchone()
+    # Only include conflict context in the health prompt when conflict
+    # analysis is also being run; otherwise the prompt would reference
+    # a "separate conflict analysis" that won't actually happen.
+    active_conflict = None
+    if include_conflict:
+        cur.execute(
+            "SELECT description FROM conflicts WHERE status = 'active' "
+            "ORDER BY created_at DESC LIMIT 1"
+        )
+        conflict_row = cur.fetchone()
+        active_conflict = conflict_row.get("description") if conflict_row else None
 
     patient_summary = patient_row.get("profile_summary") if patient_row else None
     psychiatrist_summary = psych_row.get("profile_summary") if psych_row else None
-    active_conflict = conflict_row.get("description") if conflict_row else None
 
     patient_context = None
     if patient_summary or psychiatrist_summary or active_conflict:
@@ -690,7 +710,7 @@ def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_i
         "INSERT INTO analyses (date_from, date_to, status, model, request_payload, "
         "dose_tracking_incomplete, created_at) "
         "VALUES (%s, %s, 'pending', %s, %s, %s, NOW()) RETURNING id",
-        (date_from, date_to, MODEL, json.dumps(request_payload), dose_tracking_incomplete),
+        (date_from, date_to, model or MODEL, json.dumps(request_payload), dose_tracking_incomplete),
     )
     analysis_id = cur.fetchone()["id"]
     db.commit()
