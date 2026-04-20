@@ -18,7 +18,7 @@
 <div class="card">
     <h2>New Analysis</h2>
     <form method="post" action="{{ url_for('admin.analysis_run') }}">
-        <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+        <div class="responsive-flex">
             <div>
                 <label style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase;">From</label><br>
                 <input type="date" name="date_from" value="{{ min_date or '' }}"

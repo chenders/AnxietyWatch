@@ -35,9 +35,11 @@
     <h2 style="color: #ff3b30;">Clear Prescription History</h2>
     <p style="color: #6e6e73;">Delete imported prescriptions so you can re-import fresh from CapRx.</p>
     <form method="post" action="{{ url_for('admin.clear_prescriptions') }}">
-        <button type="submit" name="source" value="all" class="btn" style="background:#ff3b30;color:white;" onclick="return confirm('Delete ALL prescriptions? This cannot be undone.');">Clear All Prescriptions</button>
-        <button type="submit" name="source" value="walgreens" class="btn" style="background:#ff9500;color:white;margin-left:0.5rem;" onclick="return confirm('Delete Walgreens prescriptions only?');">Clear Walgreens Only</button>
-        <button type="submit" name="source" value="caprx" class="btn" style="background:#ff9500;color:white;margin-left:0.5rem;" onclick="return confirm('Delete CapRx prescriptions only?');">Clear CapRx Only</button>
+        <div class="btn-row">
+            <button type="submit" name="source" value="all" class="btn" style="background:#ff3b30;color:white;" onclick="return confirm('Delete ALL prescriptions? This cannot be undone.');">Clear All Prescriptions</button>
+            <button type="submit" name="source" value="walgreens" class="btn" style="background:#ff9500;color:white;" onclick="return confirm('Delete Walgreens prescriptions only?');">Clear Walgreens Only</button>
+            <button type="submit" name="source" value="caprx" class="btn" style="background:#ff9500;color:white;" onclick="return confirm('Delete CapRx prescriptions only?');">Clear CapRx Only</button>
+        </div>
     </form>
 </div>
 {% endblock %}

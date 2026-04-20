@@ -201,7 +201,7 @@
 <!-- Job status overview -->
 <div class="card">
     <h2>Conflict Analysis Jobs</h2>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.85rem;">
+    <div class="responsive-grid-2" style="gap:0.5rem; font-size:0.85rem;">
     {% for job in conflict_jobs %}
     <div style="display:flex; align-items:center; gap:0.5rem; padding:0.4rem;">
         <span style="background:{{ '#34c759' if job.status == 'completed' else '#ff3b30' if job.status == 'failed' else '#ff9500' if job.status == 'running' else '#d2d2d7' }}; color:{{ '#fff' if job.status in ('completed', 'failed', 'running') else '#1d1d1f' }}; padding:0.1rem 0.4rem; border-radius:4px; font-size:0.7rem; min-width:65px; text-align:center;">{{ job.status }}</span>
