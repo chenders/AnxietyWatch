@@ -2,6 +2,9 @@ import SwiftUI
 import WidgetKit
 
 // MARK: - Shared Constants
+// NOTE: This duplicates the shared app group and the subset of keys this widget reads from
+// "AnxietyWatch Watch App/SharedData.swift". Keep overlapping keys in sync, but the two enums
+// are intentionally not identical.
 
 enum SharedData {
     static let appGroup = "group.org.waitingforthefuture.AnxietyWatch.watch"
