@@ -718,4 +718,4 @@ def test_sync_songs_upsert_by_genius_id(client):
     rv = client.get("/api/songs", headers=auth_header())
     songs = rv.get_json()["songs"]
     assert len(songs) == 1
-    # Verify the lyrics were updated
+    assert songs[0]["lyrics"] == "Updated lyrics"

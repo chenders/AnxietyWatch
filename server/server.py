@@ -23,11 +23,20 @@ from genius import search_songs, fetch_song_metadata, scrape_lyrics, fetch_lyric
 
 def create_app(test_config=None):
     app = Flask(__name__)
-    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key")
     app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
 
     if test_config:
         app.config.update(test_config)
+
+    # Require SECRET_KEY from the environment in production.
+    # Tests may rely on the env var set in CI, or fall back to a test-only default.
+    secret_key = os.environ.get("SECRET_KEY")
+    if secret_key:
+        app.config["SECRET_KEY"] = secret_key
+    elif app.config.get("TESTING"):
+        app.config["SECRET_KEY"] = "test-secret-key"
+    else:
+        raise RuntimeError("SECRET_KEY environment variable is required")
 
     # Register admin blueprint
     from admin import admin_bp
