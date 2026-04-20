@@ -82,7 +82,7 @@
     </div>
 
     <!-- Actions -->
-    <div class="btn-row" style="align-items:center;">
+    <div class="btn-row">
         <button type="submit" class="btn btn-primary">{{ 'Create Conflict' if is_new else 'Save' }}</button>
         {% if not is_new %}
             {% if conflict.status == 'active' %}
