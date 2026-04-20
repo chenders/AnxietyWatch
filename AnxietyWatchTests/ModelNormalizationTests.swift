@@ -7,12 +7,15 @@ import Testing
 /// Tests that model date normalization behaves consistently across all types.
 struct ModelNormalizationTests {
 
+    /// Fixed reference date to avoid flaky behavior near midnight.
+    private let referenceDate = ModelFactory.referenceDate
+
     // MARK: - HealthSnapshot
 
     @Test("HealthSnapshot normalizes date to midnight")
     func healthSnapshotMidnight() {
         let afternoon = Calendar.current.date(
-            bySettingHour: 14, minute: 30, second: 45, of: .now
+            bySettingHour: 14, minute: 30, second: 45, of: referenceDate
         )!
         let snapshot = HealthSnapshot(date: afternoon)
 
@@ -47,7 +50,7 @@ struct ModelNormalizationTests {
     @Test("CPAPSession normalizes date to midnight")
     func cpapSessionMidnight() {
         let morning = Calendar.current.date(
-            bySettingHour: 9, minute: 15, second: 0, of: .now
+            bySettingHour: 9, minute: 15, second: 0, of: referenceDate
         )!
         let session = CPAPSession(
             date: morning,
@@ -73,10 +76,9 @@ struct ModelNormalizationTests {
 
     @Test("CPAPSession and HealthSnapshot for same moment produce equal dates")
     func crossModelDateEquality() {
-        let now = Date.now
-        let snapshot = HealthSnapshot(date: now)
+        let snapshot = HealthSnapshot(date: referenceDate)
         let session = CPAPSession(
-            date: now,
+            date: referenceDate,
             ahi: 2.0,
             totalUsageMinutes: 360,
             leakRate95th: 8.0,
@@ -99,7 +101,7 @@ struct ModelNormalizationTests {
     func anxietyEntryExactTimestamp() {
         let calendar = Calendar.current
         let specificTime = calendar.date(
-            bySettingHour: 14, minute: 32, second: 17, of: .now
+            bySettingHour: 14, minute: 32, second: 17, of: referenceDate
         )!
         let entry = AnxietyEntry(timestamp: specificTime, severity: 5)
 
@@ -108,7 +110,7 @@ struct ModelNormalizationTests {
 
     @Test("BarometricReading preserves exact timestamp")
     func barometricReadingExactTimestamp() {
-        let specificTime = Date.now
+        let specificTime = referenceDate
         let reading = BarometricReading(
             timestamp: specificTime,
             pressureKPa: 101.3,
@@ -123,8 +125,8 @@ struct ModelNormalizationTests {
     @Test("Two HealthSnapshots for same calendar day have same date value")
     func uniqueConstraintAlignment() {
         let calendar = Calendar.current
-        let morning = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: .now)!
-        let evening = calendar.date(bySettingHour: 20, minute: 0, second: 0, of: .now)!
+        let morning = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: referenceDate)!
+        let evening = calendar.date(bySettingHour: 20, minute: 0, second: 0, of: referenceDate)!
 
         let snapshot1 = HealthSnapshot(date: morning)
         let snapshot2 = HealthSnapshot(date: evening)

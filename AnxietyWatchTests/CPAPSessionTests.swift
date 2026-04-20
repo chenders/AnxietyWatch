@@ -8,13 +8,16 @@ import Testing
 /// matching HealthSnapshot behavior for consistent filtering.
 struct CPAPSessionTests {
 
+    /// Fixed reference date to avoid flaky behavior near midnight.
+    private let referenceDate = ModelFactory.referenceDate
+
     // MARK: - Date normalization
 
     @Test("CPAPSession date is normalized to start of day")
     func dateNormalizedToMidnight() {
         // Create a session with a mid-afternoon timestamp
         let afternoon = Calendar.current.date(
-            bySettingHour: 15, minute: 30, second: 0, of: .now
+            bySettingHour: 15, minute: 30, second: 0, of: referenceDate
         )!
         let session = CPAPSession(
             date: afternoon,
@@ -38,9 +41,8 @@ struct CPAPSessionTests {
 
     @Test("CPAPSession and HealthSnapshot for same day have matching dates")
     func cpapAndSnapshotDatesMatch() {
-        let now = Date.now
         let session = CPAPSession(
-            date: now,
+            date: referenceDate,
             ahi: 2.0,
             totalUsageMinutes: 360,
             leakRate95th: 8.0,
@@ -52,14 +54,14 @@ struct CPAPSessionTests {
             hypopneaEvents: 4,
             importSource: "csv"
         )
-        let snapshot = HealthSnapshot(date: now)
+        let snapshot = HealthSnapshot(date: referenceDate)
 
         #expect(session.date == snapshot.date)
     }
 
     @Test("CPAPSession date alignment with TrendsView filter")
     func cpapFilterAlignment() {
-        let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: .now)!
+        let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: referenceDate)!
         let session = CPAPSession(
             date: sevenDaysAgo,
             ahi: 4.0,

@@ -1,39 +1,52 @@
 """Tests for the Walgreens prescription sync script."""
 
 import os
+from urllib.parse import urlparse
+
 import pytest
 import psycopg2
 from walgreens_sync import upsert_prescriptions, should_run_now
 
+DATABASE_URL = os.environ.get(
+    "TEST_DATABASE_URL",
+    os.environ.get("DATABASE_URL", "postgresql://anxietywatch:anxietywatch@localhost:5432/anxietywatch_test"),
+)
+
+# Guard against accidentally running destructive tests on a non-test database.
+_db_name = urlparse(DATABASE_URL).path.rsplit("/", 1)[-1]
+if "test" not in _db_name:
+    raise RuntimeError(
+        f"Refusing to run destructive schema tests against '{_db_name}'. "
+        "DATABASE_URL must point to a database whose name contains 'test'."
+    )
+
+# Ensure env.py sees the resolved test URL.
+os.environ["DATABASE_URL"] = DATABASE_URL
+
 
 @pytest.fixture(scope="session")
 def _init_db():
-    """Create tables once per test session."""
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        pytest.skip("DATABASE_URL not set")
-    conn = psycopg2.connect(dsn)
+    """Apply Alembic migrations once per test session."""
+    conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = True
-    cur = conn.cursor()
-    schema_path = os.path.join(os.path.dirname(__file__), "..", "schema.sql")
-    with open(schema_path) as f:
-        cur.execute(f.read())
-    # Run migrations for new columns
-    cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS prescriber_name TEXT NOT NULL DEFAULT ''")
-    cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS ndc_code TEXT NOT NULL DEFAULT ''")
-    cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS rx_status TEXT NOT NULL DEFAULT ''")
-    cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS last_fill_date TIMESTAMPTZ")
-    cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS import_source TEXT NOT NULL DEFAULT 'manual'")
-    cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS walgreens_rx_id TEXT")
-    cur.execute("ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS directions TEXT NOT NULL DEFAULT ''")
+    with conn.cursor() as cur:
+        cur.execute("DROP SCHEMA IF EXISTS public CASCADE")
+        cur.execute("CREATE SCHEMA public")
     conn.close()
+
+    from alembic.config import Config
+    from alembic import command
+
+    alembic_ini = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
+    cfg = Config(alembic_ini)
+    cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
+    command.upgrade(cfg, "head")
 
 
 @pytest.fixture
 def db(_init_db):
     """Connect to test database (schema guaranteed initialized)."""
-    dsn = os.environ.get("DATABASE_URL")
-    conn = psycopg2.connect(dsn)
+    conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = False
     yield conn
     conn.rollback()
