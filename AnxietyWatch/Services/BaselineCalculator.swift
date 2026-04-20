@@ -17,7 +17,7 @@ enum BaselineCalculator {
         windowDays: Int = Constants.baselineWindowDays,
         anchorDate: Date = .now
     ) -> BaselineResult? {
-        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate)!
+        guard let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate) else { return nil }
         let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
@@ -32,7 +32,7 @@ enum BaselineCalculator {
         windowDays: Int = Constants.baselineWindowDays,
         anchorDate: Date = .now
     ) -> BaselineResult? {
-        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate)!
+        guard let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate) else { return nil }
         let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
@@ -47,7 +47,7 @@ enum BaselineCalculator {
         windowDays: Int = Constants.baselineWindowDays,
         anchorDate: Date = .now
     ) -> BaselineResult? {
-        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate)!
+        guard let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate) else { return nil }
         let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
@@ -62,7 +62,7 @@ enum BaselineCalculator {
         windowDays: Int = Constants.baselineWindowDays,
         anchorDate: Date = .now
     ) -> BaselineResult? {
-        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate)!
+        guard let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate) else { return nil }
         let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
@@ -77,7 +77,7 @@ enum BaselineCalculator {
         windowDays: Int = Constants.baselineWindowDays,
         anchorDate: Date = .now
     ) -> BaselineResult? {
-        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate)!
+        guard let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate) else { return nil }
         let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
@@ -92,7 +92,7 @@ enum BaselineCalculator {
         windowDays: Int = Constants.baselineWindowDays,
         anchorDate: Date = .now
     ) -> BaselineResult? {
-        let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate)!
+        guard let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate) else { return nil }
         let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }
@@ -108,7 +108,7 @@ enum BaselineCalculator {
         keyPath: KeyPath<HealthSnapshot, Double?>,
         anchorDate: Date = .now
     ) -> Double? {
-        let daysAgo = Calendar.current.date(byAdding: .day, value: -days, to: anchorDate)!
+        guard let daysAgo = Calendar.current.date(byAdding: .day, value: -days, to: anchorDate) else { return nil }
         let cutoff = Calendar.current.startOfDay(for: daysAgo)
         let values = snapshots
             .filter { $0.date >= cutoff }

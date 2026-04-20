@@ -56,7 +56,9 @@ final class HealthDataCoordinator {
             Log.health.error("Failed to query oldest sample date: \(error, privacy: .public)")
             oldestDate = nil
         }
-        let startDate = oldestDate ?? calendar.date(byAdding: .day, value: -90, to: .now)!
+        let startDate = oldestDate
+            ?? calendar.date(byAdding: .day, value: -90, to: .now)
+            ?? Date(timeIntervalSinceNow: -90 * 86400)
         let totalDays = max(1, (calendar.dateComponents([.day], from: startDate, to: .now).day ?? 90) + 1)
 
         isBackfilling = true
@@ -75,7 +77,7 @@ final class HealthDataCoordinator {
                 isBackfilling = false
                 return
             }
-            let date = calendar.date(byAdding: .day, value: offset, to: startDate)!
+            guard let date = calendar.date(byAdding: .day, value: offset, to: startDate) else { continue }
             do {
                 try await aggregator.aggregateDay(date)
             } catch is CancellationError {

@@ -43,24 +43,22 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
         }
     }
 
-    private static let appGroup = "group.org.waitingforthefuture.AnxietyWatch.watch"
-
     private func loadContext() {
         let ctx = WCSession.default.receivedApplicationContext
-        lastAnxiety = ctx["lastAnxiety"] as? Int
-        hrvAvg = ctx["hrvAvg"] as? Double
-        restingHR = ctx["restingHR"] as? Double
+        lastAnxiety = ctx[SharedData.Key.lastAnxiety] as? Int
+        hrvAvg = ctx[SharedData.Key.hrvAvg] as? Double
+        restingHR = ctx[SharedData.Key.restingHR] as? Double
         pendingRandomCheckIn = ctx["pendingRandomCheckIn"] as? Bool ?? false
         pushToWidget()
     }
 
     /// Write stats to shared UserDefaults so the widget extension can read them.
     private func pushToWidget() {
-        guard let defaults = UserDefaults(suiteName: Self.appGroup) else { return }
-        if let v = lastAnxiety { defaults.set(v, forKey: "lastAnxiety") }
-        if let v = hrvAvg { defaults.set(v, forKey: "hrvAvg") }
-        if let v = restingHR { defaults.set(v, forKey: "restingHR") }
-        defaults.set(Date().timeIntervalSince1970, forKey: "lastUpdate")
+        guard let defaults = SharedData.shared else { return }
+        if let v = lastAnxiety { defaults.set(v, forKey: SharedData.Key.lastAnxiety) }
+        if let v = hrvAvg { defaults.set(v, forKey: SharedData.Key.hrvAvg) }
+        if let v = restingHR { defaults.set(v, forKey: SharedData.Key.restingHR) }
+        defaults.set(Date().timeIntervalSince1970, forKey: SharedData.Key.lastUpdate)
         WidgetCenter.shared.reloadAllTimelines()
     }
 

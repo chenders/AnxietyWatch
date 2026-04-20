@@ -81,7 +81,7 @@ See `REQUIREMENTS.md` for full specification, data model, and build plan.
 ## Tech Stack
 
 - **Language**: Swift 5.9+
-- **UI**: SwiftUI (iOS 17+, watchOS 10+)
+- **UI**: SwiftUI (iOS 18+, watchOS 11+)
 - **Persistence**: SwiftData (not Core Data)
 - **Charts**: Swift Charts framework
 - **Health data**: HealthKit framework

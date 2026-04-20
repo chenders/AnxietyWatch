@@ -41,5 +41,12 @@ server/__pycache__/
 AnxietyWatch/Utilities/BuildVersion.swift
 
 # Scratch screenshots / images not intended for the repo (root level only)
-/modal.png
-/watch.png
+/*.png
+
+# Scratch / artifact directories (local-only data, not for the repo)
+/.remember/
+/cpap/
+/oscar/
+/psych_research
+/docs/plans/expert-review-agent-specific/
+/docs/superpowers/plans/

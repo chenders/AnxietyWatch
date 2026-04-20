@@ -11,10 +11,10 @@ This app started as a personal tool and is now open-source. It is not a commerci
 ## Target Devices & Platform
 
 - **iPhone**: Primary interface for journaling, medication logging, data review, and reports
-- **Apple Watch Series 8** (GPS + Cellular, watchOS 10+): Companion app for quick journal entries, real-time HRV display, and complication for current anxiety-relevant metrics
-- **iOS 17+ / watchOS 10+**: Minimum deployment targets (enables SwiftData, latest HealthKit APIs)
+- **Apple Watch Series 8** (GPS + Cellular, watchOS 11+): Companion app for quick journal entries, real-time HRV display, and complication for current anxiety-relevant metrics
+- **iOS 18+ / watchOS 11+**: Minimum deployment targets (enables SwiftData, latest HealthKit APIs)
 - **Swift / SwiftUI**: Primary language and UI framework
-- **SwiftData**: Local persistence (preferred over Core Data for new projects targeting iOS 17+)
+- **SwiftData**: Local persistence (preferred over Core Data for new projects targeting iOS 18+)
 
 ---
 
@@ -182,7 +182,7 @@ HealthSnapshot
 ### Key Architectural Decisions
 
 1. **HealthKitManager as a Swift actor** — thread-safe, single point of authorization and queries. All HealthKit reads go through this.
-2. **SwiftData for local persistence** — simpler than Core Data for iOS 17+ targets. Journal entries, medication logs, CPAP data, and daily health snapshots.
+2. **SwiftData for local persistence** — simpler than Core Data for iOS 18+ targets. Journal entries, medication logs, CPAP data, and daily health snapshots.
 3. **Daily HealthSnapshot aggregation** — a background task that runs daily (or on app foreground) to pull the last 24h of HealthKit data into a local summary row. This avoids hammering HealthKit for trend queries.
 4. **CPAP data as a separate import flow** — not HealthKit. Either SD card file import via Files app / share sheet, or background fetch from ResMed cloud.
 5. **Barometric data captured in-app** — Core Motion's `CMAltimeter` gives relative pressure. Store readings periodically when app is active or via background tasks.

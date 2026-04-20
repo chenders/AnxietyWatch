@@ -2,6 +2,7 @@ import SwiftUI
 import WidgetKit
 
 // MARK: - Shared Constants
+// NOTE: This enum is duplicated in "AnxietyWatch Watch App/SharedData.swift" — keep both in sync.
 
 enum SharedData {
     static let appGroup = "group.org.waitingforthefuture.AnxietyWatch.watch"
