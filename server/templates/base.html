@@ -98,6 +98,17 @@
             .stat .value { font-size: 1.25rem; }
             h1 { font-size: 1.1rem; }
         }
+
+        /* Print styles */
+        @media print {
+            body { background: #fff; }
+            nav { display: none !important; }
+            .container { max-width: 100%; padding: 0; margin: 0; }
+            .card { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }
+            .flash { display: none; }
+            .btn, .btn-primary, .btn-danger, .btn-sm { display: none !important; }
+            .no-print { display: none !important; }
+        }
     </style>
     {% block head %}{% endblock %}
 </head>
