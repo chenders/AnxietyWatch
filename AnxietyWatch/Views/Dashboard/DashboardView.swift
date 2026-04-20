@@ -336,7 +336,7 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - Activity (Sleep, Steps, Calories, Exercise)
+    // MARK: - Activity (Steps, Calories, Exercise)
 
     @ViewBuilder
     private var activityCards: some View {

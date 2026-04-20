@@ -230,6 +230,7 @@ struct AddJournalEntryView: View {
             occurrence.song = song
             occurrence.anxietyEntry = entry
             modelContext.insert(occurrence)
+            song.updatedAt = Date()
         }
 
         dismiss()
