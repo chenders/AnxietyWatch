@@ -741,7 +741,14 @@ def test_create_app_uses_test_default_when_testing(monkeypatch):
 
 
 def test_create_app_honors_secret_key_from_test_config(monkeypatch):
-    """create_app honors SECRET_KEY passed via test_config."""
+    """create_app honors SECRET_KEY passed via test_config when env var is unset."""
     monkeypatch.delenv("SECRET_KEY", raising=False)
     app = create_app({"TESTING": True, "SECRET_KEY": "custom-key", "DATABASE_URL": DATABASE_URL})
     assert app.config["SECRET_KEY"] == "custom-key"
+
+
+def test_create_app_env_var_overrides_test_config(monkeypatch):
+    """Environment SECRET_KEY takes precedence over test_config SECRET_KEY."""
+    monkeypatch.setenv("SECRET_KEY", "env-key")
+    app = create_app({"TESTING": True, "SECRET_KEY": "config-key", "DATABASE_URL": DATABASE_URL})
+    assert app.config["SECRET_KEY"] == "env-key"
