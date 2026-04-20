@@ -124,7 +124,8 @@ actor SensorCaptureSession {
     }
 
     func handleExtendedSessionExpiring() {
-        // Chain: start new session before old one expires
+        // Invalidate current session before starting the replacement
+        extendedSession?.invalidate()
         startExtendedSession()
         log.debug("Extended session chained")
     }

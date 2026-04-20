@@ -72,9 +72,9 @@ enum RawAccelerometerBuffer {
         let headerSize = MemoryLayout<UInt32>.size + MemoryLayout<Double>.size + MemoryLayout<Float>.size
         guard data.count >= headerSize else { return nil }
 
-        let sampleCount = data.withUnsafeBytes { $0.load(as: UInt32.self) }
-        let timestamp = data.advanced(by: 4).withUnsafeBytes { $0.load(as: Double.self) }
-        let sampleRate = data.advanced(by: 12).withUnsafeBytes { $0.load(as: Float.self) }
+        let sampleCount = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
+        let timestamp = data.advanced(by: 4).withUnsafeBytes { $0.loadUnaligned(as: Double.self) }
+        let sampleRate = data.advanced(by: 12).withUnsafeBytes { $0.loadUnaligned(as: Float.self) }
 
         let expectedBodySize = Int(sampleCount) * 6 // 3 axes × 2 bytes
         guard data.count >= headerSize + expectedBodySize else { return nil }

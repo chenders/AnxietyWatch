@@ -39,15 +39,23 @@ struct AnxietyWatchApp: App {
     private func startSensorCapture() async {
         do {
             try await SensorCaptureSession.shared.start(modelContainer: sharedModelContainer)
+        } catch {
+            // Sensor capture is non-critical — app continues without it
+            return
+        }
 
-            // Periodic flush: save pending sensor data every 60 seconds
-            while !Task.isCancelled {
+        // Periodic flush: save pending sensor data every 60 seconds
+        while !Task.isCancelled {
+            do {
                 try await Task.sleep(for: .seconds(60))
                 let context = ModelContext(sharedModelContainer)
                 try await SensorCaptureSession.shared.flushPending(to: context)
+                connectivity.transferSensorData(modelContainer: sharedModelContainer)
+            } catch is CancellationError {
+                break
+            } catch {
+                // Transient flush failure — continue; next iteration will retry
             }
-        } catch {
-            // Sensor capture is non-critical — app continues without it
         }
     }
 }
