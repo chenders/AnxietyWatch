@@ -164,3 +164,24 @@ class TestStampExistingDatabase:
         tables = _table_names()
         assert "analyses" in tables
         assert "songs" in tables
+
+
+class TestFlaskInitDb:
+    """Test that the Flask init-db command uses Alembic."""
+
+    def setup_method(self):
+        _reset_db()
+
+    def test_init_db_command_creates_tables(self):
+        """The Flask init-db CLI command should apply all migrations."""
+        os.environ["DATABASE_URL"] = DATABASE_URL
+        from server import create_app
+        app = create_app({"TESTING": True, "DATABASE_URL": DATABASE_URL})
+        runner = app.test_cli_runner()
+        result = runner.invoke(args=["init-db"])
+        assert result.exit_code == 0
+        assert "Database initialized" in result.output
+
+        tables = _table_names()
+        assert "analyses" in tables
+        assert "songs" in tables
