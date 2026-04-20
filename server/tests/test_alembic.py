@@ -25,13 +25,16 @@ if "test" not in _db_name:
 
 ALEMBIC_INI = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
 
+# Ensure env.py sees the resolved test URL (it reads DATABASE_URL env var
+# first). Set once at module level so the intent is explicit, not hidden
+# in a helper function.
+os.environ["DATABASE_URL"] = DATABASE_URL
+
 
 def _alembic_cfg():
     """Build an Alembic config pointing at the test database."""
     cfg = Config(ALEMBIC_INI)
     cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
-    # Ensure env.py sees the same URL (it reads DATABASE_URL env var first)
-    os.environ["DATABASE_URL"] = DATABASE_URL
     return cfg
 
 
