@@ -1,7 +1,7 @@
 import Foundation
 
 /// Shared constants for the watch app group used by both the Watch App and Widget Extension.
-/// This file is duplicated in the Widget target — keep both in sync.
+/// This file is duplicated in the Widget target; keep the shared constants aligned where both targets use them.
 enum SharedData {
     static let appGroup = "group.org.waitingforthefuture.AnxietyWatch.watch"
 
