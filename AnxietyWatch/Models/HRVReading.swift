@@ -15,10 +15,10 @@ final class HRVReading {
     var lfHfRatio: Double   // Sympathovagal balance
     var sensorSessionID: UUID?
 
-    init(timestamp: Date, rmssd: Double, sdnn: Double, pnn50: Double,
+    init(id: UUID = UUID(), timestamp: Date, rmssd: Double, sdnn: Double, pnn50: Double,
          lfPower: Double, hfPower: Double, lfHfRatio: Double,
          sensorSessionID: UUID? = nil) {
-        self.id = UUID()
+        self.id = id
         self.timestamp = timestamp
         self.rmssd = rmssd
         self.sdnn = sdnn

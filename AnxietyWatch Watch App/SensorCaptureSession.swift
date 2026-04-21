@@ -70,7 +70,8 @@ actor SensorCaptureSession {
 
         // Record session in SwiftData
         let context = ModelContext(modelContainer)
-        let batteryLevel = Int(WKInterfaceDevice.current().batteryLevel * 100)
+        let rawBattery = WKInterfaceDevice.current().batteryLevel
+        let batteryLevel = rawBattery >= 0 ? Int(rawBattery * 100) : 0
         let sessionModel = SensorSession(startTime: .now, batteryAtStart: batteryLevel)
         context.insert(sessionModel)
         try context.save()
@@ -97,7 +98,8 @@ actor SensorCaptureSession {
             )
             if let sessionModel = try? context.fetch(descriptor).first {
                 sessionModel.endTime = .now
-                sessionModel.batteryAtEnd = Int(WKInterfaceDevice.current().batteryLevel * 100)
+                let rawEnd = WKInterfaceDevice.current().batteryLevel
+                sessionModel.batteryAtEnd = rawEnd >= 0 ? Int(rawEnd * 100) : 0
                 try? context.save()
             }
         }

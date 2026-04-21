@@ -1,11 +1,12 @@
 import Foundation
-import os
+import os.log
 import SwiftData
 import WatchConnectivity
 
 /// iPhone-side WatchConnectivity. Receives anxiety entries from Watch, sends stats back.
 final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
     static let shared = PhoneConnectivityManager()
+    private let log = Logger(subsystem: "AnxietyWatch", category: "PhoneConnectivity")
 
     // Set once during app launch — accessed from nonisolated delegate callbacks
     nonisolated(unsafe) var modelContainer: ModelContainer?
@@ -85,6 +86,8 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
 
         guard let container = modelContainer else { return }
 
+        defer { try? FileManager.default.removeItem(at: file.fileURL) }
+
         do {
             let data = try Data(contentsOf: file.fileURL)
             let payload = try JSONDecoder().decode(SensorTransferPayload.self, from: data)
@@ -92,6 +95,7 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
 
             for dto in payload.spectrograms {
                 let spec = AccelSpectrogram(
+                    id: dto.id,
                     timestamp: dto.timestamp,
                     tremorBandPower: dto.tremorBandPower,
                     breathingBandPower: dto.breathingBandPower,
@@ -104,6 +108,7 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
 
             for dto in payload.breathingRates {
                 let rate = DerivedBreathingRate(
+                    id: dto.id,
                     timestamp: dto.timestamp,
                     breathsPerMinute: dto.breathsPerMinute,
                     confidence: dto.confidence,
@@ -115,6 +120,7 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
 
             for dto in payload.hrvReadings {
                 let reading = HRVReading(
+                    id: dto.id,
                     timestamp: dto.timestamp,
                     rmssd: dto.rmssd, sdnn: dto.sdnn, pnn50: dto.pnn50,
                     lfPower: dto.lfPower, hfPower: dto.hfPower, lfHfRatio: dto.lfHfRatio,
@@ -125,7 +131,7 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
 
             try context.save()
         } catch {
-            // Log error but don't crash — sensor sync is non-critical
+            log.error("Sensor data receive failed: \(error, privacy: .public)")
         }
     }
 

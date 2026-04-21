@@ -342,9 +342,12 @@ actor HealthKitManager: HealthKitDataSource {
         for sample in series {
             let intervals: [Double] = try await withCheckedThrowingContinuation { continuation in
                 var beats = [Double]()
+                var resumed = false
                 let query = HKHeartbeatSeriesQuery(heartbeatSeries: sample) { _, timeSinceStart, precededByGap, done, error in
+                    guard !resumed else { return }
                     if let error {
-                        if done { continuation.resume(throwing: error) }
+                        resumed = true
+                        continuation.resume(throwing: error)
                         return
                     }
                     // Skip beats preceded by a gap (unreliable interval)
@@ -352,6 +355,7 @@ actor HealthKitManager: HealthKitDataSource {
                         beats.append(timeSinceStart)
                     }
                     if done {
+                        resumed = true
                         // Convert beat timestamps to RR intervals in ms
                         let rr = zip(beats.dropFirst(), beats).map { ($0 - $1) * 1000.0 }
                         continuation.resume(returning: rr)

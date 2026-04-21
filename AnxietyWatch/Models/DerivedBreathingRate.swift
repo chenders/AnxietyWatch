@@ -12,9 +12,9 @@ final class DerivedBreathingRate {
     var source: String              // "accelerometer" or "healthkit_sleep"
     var sensorSessionID: UUID?
 
-    init(timestamp: Date, breathsPerMinute: Double, confidence: Double,
+    init(id: UUID = UUID(), timestamp: Date, breathsPerMinute: Double, confidence: Double,
          source: String, sensorSessionID: UUID? = nil) {
-        self.id = UUID()
+        self.id = id
         self.timestamp = timestamp
         self.breathsPerMinute = breathsPerMinute
         self.confidence = confidence

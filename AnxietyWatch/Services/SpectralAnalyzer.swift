@@ -50,13 +50,27 @@ enum SpectralAnalyzer {
         var split = DSPSplitComplex(realp: &realp, imagp: &imagp)
         vDSP_fft_zrip(fftSetup, &split, 1, log2n, FFTDirection(kFFTDirection_Forward))
 
+        // vDSP_fft_zrip packs DC into realp[0] and Nyquist into imagp[0].
+        // Unpack them before computing magnitudes so bin 0 is pure DC power.
+        let dcComponent = split.realp[0]
+        let nyquistComponent = split.imagp[0]
+        split.realp[0] = dcComponent
+        split.imagp[0] = 0
+
         // Magnitude squared of each frequency bin
         var magnitudes = [Float](repeating: 0, count: halfN)
         vDSP_zvmags(&split, 1, &magnitudes, 1, vDSP_Length(halfN))
 
-        // Normalize: 2/N² gives one-sided PSD
+        // DC and Nyquist are real-only — they appear once in the one-sided spectrum
+        // so they get 1/N² normalization (not 2/N²).
+        let dcNyquistScale = 1.0 / Float(n * n)
+        magnitudes[0] = dcComponent * dcComponent * dcNyquistScale
+
+        // Normalize remaining bins: 2/N² gives one-sided PSD
         var scale = 2.0 / Float(n * n)
         vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(halfN))
+        // Restore DC bin (was overwritten by vDSP_vsmul)
+        magnitudes[0] = dcComponent * dcComponent * dcNyquistScale
 
         // Frequency axis: bin k corresponds to k * (sampleRate / N) Hz
         let freqResolution = sampleRate / Float(n)

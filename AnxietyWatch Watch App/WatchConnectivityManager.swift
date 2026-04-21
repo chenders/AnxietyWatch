@@ -85,8 +85,17 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
             )
             let data = try JSONEncoder().encode(payload)
 
+            // Clean up any leftover temp files from completed transfers
+            let tempDir = FileManager.default.temporaryDirectory
+            if let contents = try? FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil) {
+                let activeTransferURLs = Set(WCSession.default.outstandingFileTransfers.map(\.file.fileURL))
+                for url in contents where url.lastPathComponent.hasPrefix("sensor_") && !activeTransferURLs.contains(url) {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }
+
             // Write to temp file and transfer
-            let tempURL = FileManager.default.temporaryDirectory
+            let tempURL = tempDir
                 .appendingPathComponent("sensor_\(Int(Date.now.timeIntervalSinceReferenceDate)).json")
             try data.write(to: tempURL)
             WCSession.default.transferFile(tempURL, metadata: ["type": "sensorData"])

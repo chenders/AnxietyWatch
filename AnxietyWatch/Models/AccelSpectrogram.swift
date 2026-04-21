@@ -13,10 +13,10 @@ final class AccelSpectrogram {
     var activityLevel: Double       // Overall RMS acceleration (g)
     var sensorSessionID: UUID?
 
-    init(timestamp: Date, tremorBandPower: Double, breathingBandPower: Double,
+    init(id: UUID = UUID(), timestamp: Date, tremorBandPower: Double, breathingBandPower: Double,
          fidgetBandPower: Double, activityLevel: Double,
          sensorSessionID: UUID? = nil) {
-        self.id = UUID()
+        self.id = id
         self.timestamp = timestamp
         self.tremorBandPower = tremorBandPower
         self.breathingBandPower = breathingBandPower
