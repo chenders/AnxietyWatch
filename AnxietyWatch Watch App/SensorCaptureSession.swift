@@ -58,7 +58,16 @@ actor SensorCaptureSession {
         self.delegateHandler = handler
 
         session.startActivity(with: .now)
-        try await liveBuilder.beginCollection(at: .now)
+        do {
+            try await liveBuilder.beginCollection(at: .now)
+        } catch {
+            // Clean up the already-started workout session
+            session.end()
+            self.workoutSession = nil
+            self.builder = nil
+            self.delegateHandler = nil
+            throw error
+        }
 
         // Start accelerometer stream
         if CMBatchedSensorManager.isAccelerometerSupported {
@@ -87,6 +96,9 @@ actor SensorCaptureSession {
 
         accelTask?.cancel()
         accelTask = nil
+        if let builder {
+            builder.discardWorkout()
+        }
         workoutSession?.end()
         extendedSession?.invalidate()
 

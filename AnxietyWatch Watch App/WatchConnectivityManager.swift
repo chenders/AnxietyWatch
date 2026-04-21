@@ -96,7 +96,7 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
 
             // Write to temp file and transfer
             let tempURL = tempDir
-                .appendingPathComponent("sensor_\(Int(Date.now.timeIntervalSinceReferenceDate)).json")
+                .appendingPathComponent("sensor_\(UUID().uuidString).json")
             try data.write(to: tempURL)
             WCSession.default.transferFile(tempURL, metadata: ["type": "sensorData"])
 
