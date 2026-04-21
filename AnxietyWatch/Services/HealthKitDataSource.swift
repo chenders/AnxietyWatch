@@ -26,6 +26,8 @@ protocol HealthKitDataSource: Sendable {
     func querySleepAnalysis(start: Date, end: Date) async throws -> SleepData
     func queryClinicalLabResults(since startDate: Date?) async throws -> [HKClinicalRecord]
     func oldestSampleDate() async throws -> Date?
+    /// Extract RR intervals (ms) from heartbeat series samples in the given range.
+    func queryHeartbeatSeries(start: Date, end: Date) async throws -> [Double]
     func startObserving(onUpdate: @Sendable @escaping () -> Void) async
     func startAnchoredQueries(
         onNewSamples: @Sendable @escaping ([(type: String, value: Double, timestamp: Date, source: String?)]) -> Void

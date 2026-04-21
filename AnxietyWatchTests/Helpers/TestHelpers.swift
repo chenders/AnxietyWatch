@@ -24,6 +24,10 @@ enum TestHelpers {
             PhysiologicalCorrelation.self,
             Song.self,
             SongOccurrence.self,
+            SensorSession.self,
+            HRVReading.self,
+            AccelSpectrogram.self,
+            DerivedBreathingRate.self,
         ])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [config])

@@ -89,6 +89,20 @@
 			);
 			target = 833535F82F6D0B3D00B45286 /* AnxietyWatch */;
 		};
+		83CC00012F6E200000B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatch Watch App" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Models/AccelSpectrogram.swift,
+				Models/DerivedBreathingRate.swift,
+				Models/HRVReading.swift,
+				Models/SensorSession.swift,
+				Models/SensorTransferPayload.swift,
+				Services/AccelerometerProcessor.swift,
+				Services/HRVCalculator.swift,
+				Services/SpectralAnalyzer.swift,
+			);
+			target = 8335360C2F6D0BFF00B45286 /* AnxietyWatch Watch App */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -96,6 +110,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				83AA00012F6D0B3D00B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatch" target */,
+				83CC00012F6E200000B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatch Watch App" target */,
 			);
 			path = AnxietyWatch;
 			sourceTree = "<group>";
