@@ -5,6 +5,8 @@ import SwiftData
 /// Per-minute breathing rate derived from accelerometer wrist motion.
 @Model
 final class DerivedBreathingRate {
+    #Unique<DerivedBreathingRate>([\.id])
+
     var id: UUID
     var timestamp: Date
     var breathsPerMinute: Double

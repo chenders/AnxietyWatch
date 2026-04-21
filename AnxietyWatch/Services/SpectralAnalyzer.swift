@@ -51,10 +51,9 @@ enum SpectralAnalyzer {
         vDSP_fft_zrip(fftSetup, &split, 1, log2n, FFTDirection(kFFTDirection_Forward))
 
         // vDSP_fft_zrip packs DC into realp[0] and Nyquist into imagp[0].
-        // Unpack them before computing magnitudes so bin 0 is pure DC power.
+        // Unpack before computing magnitudes so bin 0 is pure DC power.
+        // Nyquist bin (sampleRate/2) is discarded — above all analysis bands.
         let dcComponent = split.realp[0]
-        let nyquistComponent = split.imagp[0]
-        split.realp[0] = dcComponent
         split.imagp[0] = 0
 
         // Magnitude squared of each frequency bin

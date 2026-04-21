@@ -5,6 +5,8 @@ import SwiftData
 /// 10-second FFT spectral bin from accelerometer magnitude signal.
 @Model
 final class AccelSpectrogram {
+    #Unique<AccelSpectrogram>([\.id])
+
     var id: UUID
     var timestamp: Date             // Start of 10-second window
     var tremorBandPower: Double     // 4–12 Hz spectral power

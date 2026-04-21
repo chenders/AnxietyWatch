@@ -72,9 +72,12 @@ enum RawAccelerometerBuffer {
         let headerSize = MemoryLayout<UInt32>.size + MemoryLayout<Double>.size + MemoryLayout<Float>.size
         guard data.count >= headerSize else { return nil }
 
-        let sampleCount = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
-        let timestamp = data.advanced(by: 4).withUnsafeBytes { $0.loadUnaligned(as: Double.self) }
-        let sampleRate = data.advanced(by: 12).withUnsafeBytes { $0.loadUnaligned(as: Float.self) }
+        let (sampleCount, timestamp, sampleRate): (UInt32, Double, Float) = data.withUnsafeBytes { ptr in
+            let count = ptr.loadUnaligned(fromByteOffset: 0, as: UInt32.self)
+            let ts = ptr.loadUnaligned(fromByteOffset: 4, as: Double.self)
+            let rate = ptr.loadUnaligned(fromByteOffset: 12, as: Float.self)
+            return (count, ts, rate)
+        }
 
         let expectedBodySize = Int(sampleCount) * 6 // 3 axes × 2 bytes
         guard data.count >= headerSize + expectedBodySize else { return nil }
@@ -86,8 +89,7 @@ enum RawAccelerometerBuffer {
         y.reserveCapacity(Int(sampleCount))
         z.reserveCapacity(Int(sampleCount))
 
-        let bodyData = data.advanced(by: headerSize)
-        bodyData.withUnsafeBytes { ptr in
+        data[headerSize...].withUnsafeBytes { ptr in
             let int16Ptr = ptr.bindMemory(to: Int16.self)
             for i in 0..<Int(sampleCount) {
                 x.append(Float(int16Ptr[i * 3]) / quantizationScale)

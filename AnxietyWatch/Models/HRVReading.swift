@@ -5,6 +5,8 @@ import SwiftData
 /// Per-minute full-spectrum HRV computed from beat-to-beat RR intervals.
 @Model
 final class HRVReading {
+    #Unique<HRVReading>([\.id])
+
     var id: UUID
     var timestamp: Date
     var rmssd: Double       // Root mean square of successive differences (ms)

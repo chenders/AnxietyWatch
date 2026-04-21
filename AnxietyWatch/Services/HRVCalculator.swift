@@ -53,8 +53,8 @@ enum HRVCalculator {
         let totalPower: Double  // LF + HF
     }
 
-    /// Compute frequency-domain HRV via Welch's method.
-    /// Resamples irregular RR intervals to 4Hz, applies FFT, integrates LF/HF bands.
+    /// Compute frequency-domain HRV via single-periodogram FFT.
+    /// Resamples irregular RR intervals to 4Hz, detrends, applies FFT, integrates LF/HF bands.
     /// Requires >= 30 RR intervals for meaningful spectral analysis.
     static func frequencyDomain(rrIntervals: [Double]) -> FrequencyDomainResult? {
         guard rrIntervals.count >= 30 else { return nil }
