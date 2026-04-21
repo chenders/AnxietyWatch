@@ -101,6 +101,36 @@ enum BaselineCalculator {
         return baseline(from: values)
     }
 
+    /// Compute tremor band power baseline from daily averages.
+    static func tremorBaseline(
+        from snapshots: [HealthSnapshot],
+        windowDays: Int = Constants.baselineWindowDays,
+        anchorDate: Date = .now
+    ) -> BaselineResult? {
+        guard let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate) else { return nil }
+        let cutoff = Calendar.current.startOfDay(for: daysAgo)
+        let values = snapshots
+            .filter { $0.date >= cutoff }
+            .compactMap(\.tremorBandPowerAvg)
+
+        return baseline(from: values)
+    }
+
+    /// Compute breathing rate baseline from daily averages.
+    static func breathingRateBaseline(
+        from snapshots: [HealthSnapshot],
+        windowDays: Int = Constants.baselineWindowDays,
+        anchorDate: Date = .now
+    ) -> BaselineResult? {
+        guard let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate) else { return nil }
+        let cutoff = Calendar.current.startOfDay(for: daysAgo)
+        let values = snapshots
+            .filter { $0.date >= cutoff }
+            .compactMap(\.breathingRateAvg)
+
+        return baseline(from: values)
+    }
+
     /// Average of the most recent N days for a given metric.
     static func recentAverage(
         from snapshots: [HealthSnapshot],

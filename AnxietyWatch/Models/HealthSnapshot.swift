@@ -77,6 +77,12 @@ final class HealthSnapshot {
     var barometricPressureAvgKPa: Double?
     var barometricPressureChangeKPa: Double?
 
+    // Sensor-derived (from Ultra 3 sensor capture session)
+    var nocturnalHRDip: Double?         // 1 - (sleepHR / wakingHR); <0.1 = impaired
+    var tremorBandPowerAvg: Double?     // Daily avg 4–12Hz spectral power
+    var breathingRateAvg: Double?       // Daily avg breaths/min from accelerometer
+    var fidgetIndexAvg: Double?         // Daily avg 0.5–4Hz spectral power
+
     init(date: Date) {
         self.id = UUID()
         // Normalize to start of day so the unique constraint works on calendar days

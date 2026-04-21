@@ -220,6 +220,52 @@ struct SnapshotAggregator {
             snapshot.barometricPressureChangeKPa = nil
         }
 
+        // Stitch sensor-derived metrics (from watch sensor capture session)
+        let spectrogramDescriptor = FetchDescriptor<AccelSpectrogram>(
+            predicate: #Predicate { $0.timestamp >= start && $0.timestamp < end }
+        )
+        let spectrograms = try modelContext.fetch(spectrogramDescriptor)
+        if !spectrograms.isEmpty {
+            let tremorValues = spectrograms.map(\.tremorBandPower)
+            snapshot.tremorBandPowerAvg = tremorValues.reduce(0, +) / Double(tremorValues.count)
+            let fidgetValues = spectrograms.map(\.fidgetBandPower)
+            snapshot.fidgetIndexAvg = fidgetValues.reduce(0, +) / Double(fidgetValues.count)
+        } else {
+            snapshot.tremorBandPowerAvg = nil
+            snapshot.fidgetIndexAvg = nil
+        }
+
+        let breathingDescriptor = FetchDescriptor<DerivedBreathingRate>(
+            predicate: #Predicate { $0.timestamp >= start && $0.timestamp < end }
+        )
+        let breathingRates = try modelContext.fetch(breathingDescriptor)
+        if !breathingRates.isEmpty {
+            let values = breathingRates.map(\.breathsPerMinute)
+            snapshot.breathingRateAvg = values.reduce(0, +) / Double(values.count)
+        } else {
+            snapshot.breathingRateAvg = nil
+        }
+
+        // Nocturnal HR dip: midnight–6am HR vs 9am–9pm HR
+        if let sixAM = calendar.date(byAdding: .hour, value: 6, to: start),
+           let nineAM = calendar.date(byAdding: .hour, value: 9, to: start),
+           let ninePM = calendar.date(byAdding: .hour, value: 21, to: start) {
+            async let nightHR = healthKit.averageQuantity(
+                .heartRate, unit: .count().unitDivided(by: .minute()),
+                start: start, end: sixAM)
+            async let dayHR = healthKit.averageQuantity(
+                .heartRate, unit: .count().unitDivided(by: .minute()),
+                start: nineAM, end: ninePM)
+
+            if let nightVal = try await nightHR,
+               let dayVal = try await dayHR,
+               dayVal > 0 {
+                snapshot.nocturnalHRDip = 1.0 - (nightVal / dayVal)
+            } else {
+                snapshot.nocturnalHRDip = nil
+            }
+        }
+
         try modelContext.save()
     }
 }

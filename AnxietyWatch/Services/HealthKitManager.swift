@@ -309,6 +309,68 @@ actor HealthKitManager: HealthKitDataSource {
         return sample?.startDate
     }
 
+    // MARK: - Heartbeat Series (RR Intervals)
+
+    /// Query heartbeat series samples in the given range and extract RR intervals.
+    /// Returns RR intervals in milliseconds, computed from successive beat timestamps.
+    /// Gaps between series samples are excluded (no artificial long intervals).
+    func queryHeartbeatSeries(start: Date, end: Date) async throws -> [Double] {
+        guard isAvailable else { return [] }
+        let type = HKSeriesType.heartbeat()
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
+
+        let series: [HKHeartbeatSeriesSample] = try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+            ) { _, results, error in
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: [])
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: (results as? [HKHeartbeatSeriesSample]) ?? [])
+                }
+            }
+            healthStore.execute(query)
+        }
+
+        var allIntervals = [Double]()
+
+        for sample in series {
+            let intervals: [Double] = try await withCheckedThrowingContinuation { continuation in
+                var beats = [(time: Double, gapBefore: Bool)]()
+                var resumed = false
+                let query = HKHeartbeatSeriesQuery(heartbeatSeries: sample) { _, timeSinceStart, precededByGap, done, error in
+                    guard !resumed else { return }
+                    if let error {
+                        resumed = true
+                        continuation.resume(throwing: error)
+                        return
+                    }
+                    beats.append((timeSinceStart, precededByGap))
+                    if done {
+                        resumed = true
+                        // Only compute RR intervals between consecutive beats where
+                        // the second beat is NOT preceded by a gap. This avoids
+                        // producing artificially long intervals that span gaps.
+                        var rr = [Double]()
+                        for i in 1..<beats.count where !beats[i].gapBefore {
+                            rr.append((beats[i].time - beats[i - 1].time) * 1000.0)
+                        }
+                        continuation.resume(returning: rr)
+                    }
+                }
+                healthStore.execute(query)
+            }
+            allIntervals.append(contentsOf: intervals)
+        }
+
+        return allIntervals
+    }
+
     // MARK: - Observer Queries
 
     /// Sleep analysis stays on HKObserverQuery since it's a category type.
