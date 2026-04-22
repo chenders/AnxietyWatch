@@ -104,6 +104,9 @@ struct JournalEntryDetailView: View {
                 applySongChanges()
             }
         }
+        .onDisappear {
+            if isEditing { applySongChanges() }
+        }
         .sheet(isPresented: $showingSongSearch) {
             SongSearchSheet(mode: .picker($selectedSong))
         }
@@ -262,24 +265,6 @@ struct JournalEntryDetailView: View {
 
     /// Sync the song relationship when exiting edit mode.
     private func applySongChanges() {
-        let currentSong = linkedSong
-
-        if selectedSong?.id == currentSong?.id { return }
-
-        // Remove existing occurrence
-        if let occurrences = entry.songOccurrences {
-            for occ in occurrences {
-                modelContext.delete(occ)
-            }
-        }
-
-        // Add new occurrence if a song is selected
-        if let song = selectedSong {
-            let occurrence = SongOccurrence(timestamp: entry.timestamp, source: "journal")
-            occurrence.song = song
-            occurrence.anxietyEntry = entry
-            modelContext.insert(occurrence)
-            song.updatedAt = Date()
-        }
+        SongLinkHelper.applySongChange(to: entry, selectedSong: selectedSong, in: modelContext)
     }
 }
