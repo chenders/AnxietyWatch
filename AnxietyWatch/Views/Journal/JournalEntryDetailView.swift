@@ -188,6 +188,7 @@ struct JournalEntryDetailView: View {
                         .background(Color.accentColor.opacity(0.15), in: Capsule())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Remove tag \(tag)")
                 }
             }
         }
