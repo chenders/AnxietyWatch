@@ -223,6 +223,7 @@ struct JournalEntryDetailView: View {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Remove linked song")
             }
         } else {
             Button {
