@@ -172,6 +172,34 @@ struct SongLinkHelperTests {
         #expect(entry.songOccurrences?.count == 1)
     }
 
+    @Test("Same song but edited timestamp syncs occurrence")
+    func sameSongSyncsTimestamp() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let originalDate = Date(timeIntervalSince1970: 1_000_000)
+        let entry = ModelFactory.anxietyEntry(timestamp: originalDate)
+        let song = ModelFactory.song()
+        context.insert(entry)
+        context.insert(song)
+
+        let occ = ModelFactory.songOccurrence(timestamp: originalDate, source: "journal")
+        occ.song = song
+        occ.anxietyEntry = entry
+        context.insert(occ)
+        try context.save()
+
+        // Simulate user editing the entry's timestamp
+        let newDate = Date(timeIntervalSince1970: 2_000_000)
+        entry.timestamp = newDate
+
+        let changed = SongLinkHelper.applySongChange(to: entry, selectedSong: song, in: context)
+        try context.save()
+
+        #expect(changed)
+        #expect(entry.songOccurrences?.first?.timestamp == newDate)
+    }
+
     @Test("No change when both nil")
     func noChangeWhenBothNil() throws {
         let container = try TestHelpers.makeFullContainer()
