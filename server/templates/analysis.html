@@ -94,7 +94,7 @@
 <div class="card" style="cursor:pointer; border-left:3px solid {{ '#34c759' if a.trend_direction == 'improving' else '#ff9500' if a.trend_direction == 'worsening' else '#007aff' if a.trend_direction == 'stable' else '#af52de' }};">
     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
         <div>
-            <span style="font-weight:600; font-size:0.95rem;">{{ a.date_from }} &ndash; {{ a.date_to }}</span>
+            <span style="font-weight:600; font-size:1rem;">{{ a.date_from }} &ndash; {{ a.date_to }}</span>
             {% if a.trend_direction %}
             <span style="background:{{ '#e8f5e9' if a.trend_direction == 'improving' else '#fff3e0' if a.trend_direction == 'worsening' else '#e3f2fd' if a.trend_direction == 'stable' else '#f3e5f5' }}; color:{{ '#2e7d32' if a.trend_direction == 'improving' else '#e65100' if a.trend_direction == 'worsening' else '#1565c0' if a.trend_direction == 'stable' else '#7b1fa2' }}; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.7rem; margin-left:0.5rem;">{{ a.trend_direction }}</span>
             {% endif %}
@@ -110,11 +110,11 @@
     {% elif a.status in ('pending', 'running') %}
     <p style="color:#007aff; font-size:0.85rem;">Running… (status: {{ a.status }})</p>
     {% elif a.summary %}
-    <p style="font-size:0.85rem; color:#444; margin-bottom:0.75rem; line-height:1.5; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;">{{ a.summary }}</p>
+    <p style="font-size:0.9rem; color:#444; margin-bottom:0.75rem; line-height:1.5; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;">{{ a.summary }}</p>
     {% endif %}
 
     {% if a.insights %}
-    <div style="display:flex; flex-direction:column; gap:0.35rem; font-size:0.8rem;">
+    <div style="display:flex; flex-direction:column; gap:0.35rem; font-size:0.85rem;">
         {% for insight in a.insights[:3] %}
         <div style="display:flex; align-items:center; gap:0.5rem;">
             <span style="background:{{ '#ff3b30' if insight.severity == 'high' else '#ff9500' if insight.severity == 'medium' else '#007aff' }}; color:#fff; padding:0.1rem 0.4rem; border-radius:4px; font-size:0.65rem; min-width:40px; text-align:center;">{{ insight.severity|upper }}</span>

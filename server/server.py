@@ -3,12 +3,14 @@
 import hashlib
 import json
 import os
+import re
 from datetime import date, datetime, timezone
 from functools import wraps
 
 import psycopg2
 import psycopg2.extras
 from flask import Flask, g, jsonify, request
+from markupsafe import Markup, escape
 
 from correlations import (
     compute_correlations, store_correlations, get_correlations,
@@ -41,6 +43,29 @@ def create_app(test_config=None):
     # Register admin blueprint
     from admin import admin_bp
     app.register_blueprint(admin_bp)
+
+    # -----------------------------------------------------------------------
+    # Jinja2 template filters for Claude API text formatting
+    # -----------------------------------------------------------------------
+
+    @app.template_filter("format_analysis")
+    def format_analysis_filter(text):
+        """Convert markdown bold and <cite> tags to HTML in analysis text.
+
+        Escapes HTML first for safety, then applies formatting conversions.
+        """
+        if not text:
+            return text
+        s = str(escape(text))
+        # Markdown bold: **text** → <strong>text</strong>
+        s = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', s)
+        # <cite index="...">text</cite> (already escaped to &lt;cite ...&gt;)
+        s = re.sub(
+            r'&lt;cite.*?&gt;(.+?)&lt;/cite&gt;',
+            r'<q>\1</q>',
+            s,
+        )
+        return Markup(s)
 
     # ---------------------------------------------------------------------------
     # Database helpers

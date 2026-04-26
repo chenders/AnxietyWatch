@@ -4,11 +4,49 @@
 {% if a.status in ('pending', 'running') %}
 <meta http-equiv="refresh" content="5">
 {% endif %}
+<style>
+    /* Citation styling for Claude web search <cite> tag content */
+    q { font-style: italic; color: #333; quotes: "\201C" "\201D"; }
+
+    @media print {
+        /* Expand details that are open (printAnalysis() opens insight sections before printing) */
+        details[open] > summary { display: none; }
+        details[open] > *:not(summary) { display: block !important; }
+
+        /* Print-friendly code blocks */
+        pre { background: #f5f5f5 !important; color: #1d1d1f !important; border: 1px solid #ddd !important; max-height: none !important; font-size: 0.65rem !important; }
+
+        /* Hide interactive elements */
+        .print-btn { display: none !important; }
+        .quick-range { display: none !important; }
+        .tabs { display: none !important; }
+
+        /* Ensure severity badges print with background */
+        span[style*="background:#ff3b30"],
+        span[style*="background:#ff9500"],
+        span[style*="background:#007aff"],
+        span[style*="background:#34c759"] { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+        /* Confidence and trend badges */
+        span[style*="border-radius:10px"] { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+        /* Status card left border */
+        .card[style*="border-left"] { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+        /* Page layout */
+        .card { page-break-inside: avoid; margin-bottom: 0.75rem; }
+        h2 { page-break-after: avoid; }
+
+    }
+</style>
 {% endblock %}
 {% block content %}
 {% macro estimate_cost(tokens_in, tokens_out, model) %}{% set p = model_pricing.get(model, {}) %}{% if p and tokens_in is not none and tokens_out is not none %}${{ "%.4f"|format(tokens_in * p.input / 1000000 + tokens_out * p.output / 1000000) }}{% endif %}{% endmacro %}
-<div style="margin-bottom:1rem;">
+<div style="margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center;">
     <a href="{{ url_for('admin.analysis') }}" style="color:#0071e3; font-size:0.85rem; text-decoration:none;">&larr; Back to Analysis</a>
+    {% if a.status == 'completed' %}
+    <button class="btn btn-sm print-btn" onclick="printAnalysis()" style="background:#f5f5f7; color:#1d1d1f; border:1px solid #d2d2d7;">&#x1F5B6; Print / Save PDF</button>
+    {% endif %}
 </div>
 
 {% set has_conflict = conflict_jobs|length > 0 %}
@@ -63,7 +101,7 @@
     </div>
     {% elif a.summary %}
     {% for para in a.summary.split('\n\n') %}
-    <p style="font-size:0.9rem; color:#333; line-height:1.6; margin-bottom:0.5rem;">{{ para }}</p>
+    <p style="font-size:1rem; color:#333; line-height:1.6; margin-bottom:0.5rem;">{{ para|format_analysis }}</p>
     {% endfor %}
     {% endif %}
 
@@ -83,11 +121,11 @@
 {% macro render_insight(insight) %}
 <div class="card">
     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
-        <span style="font-weight:600; font-size:0.95rem;">{{ insight.title }}</span>
+        <span style="font-weight:600; font-size:1rem;">{{ insight.title }}</span>
         <span style="background:#e8f0fe; color:#0071e3; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.75rem; white-space:nowrap;" title="confidence: {{ insight.confidence|float(0) }}">{{ confidence_label(insight.confidence) }}</span>
     </div>
-    <span style="font-size:0.7rem; color:#6e6e73; text-transform:uppercase; letter-spacing:0.05em;">{{ insight.category }}</span>
-    <p style="font-size:0.85rem; color:#444; line-height:1.6; margin-top:0.5rem;">{{ insight.detail }}</p>
+    <span style="font-size:0.75rem; color:#6e6e73; text-transform:uppercase; letter-spacing:0.05em;">{{ insight.category }}</span>
+    <p style="font-size:0.95rem; color:#444; line-height:1.6; margin-top:0.5rem;">{{ insight.detail|format_analysis }}</p>
     {% if insight.supporting_data or insight.confidence_explanation %}
     <details style="margin-top:0.75rem;">
         <summary style="cursor:pointer; font-size:0.8rem; color:#0071e3; font-weight:500;">Show details</summary>
@@ -104,7 +142,7 @@
         {% endif %}
         {% if insight.confidence_explanation %}
         <p style="font-size:0.8rem; color:#6e6e73; margin-top:0.5rem; line-height:1.5;">
-            <strong>Confidence:</strong> {{ insight.confidence_explanation }}
+            <strong>Confidence:</strong> {{ insight.confidence_explanation|format_analysis }}
         </p>
         {% endif %}
     </details>
@@ -133,7 +171,7 @@
 <details style="margin-bottom:0.75rem;">
     <summary class="card" style="cursor:pointer; list-style:none; margin-bottom:0;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-weight:500; font-size:0.9rem;">{{ insight.title }}</span>
+            <span style="font-weight:500; font-size:1rem;">{{ insight.title }}</span>
             <div style="display:flex; align-items:center; gap:0.75rem;">
                 <span style="color:#0071e3; font-size:0.75rem;">{{ confidence_label(insight.confidence) }}</span>
                 <span style="color:#6e6e73; font-size:0.8rem;">&#9654;</span>
@@ -155,7 +193,7 @@
 <details style="margin-bottom:0.75rem;">
     <summary class="card" style="cursor:pointer; list-style:none; margin-bottom:0;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-weight:500; font-size:0.9rem;">{{ insight.title }}</span>
+            <span style="font-weight:500; font-size:1rem;">{{ insight.title }}</span>
             <div style="display:flex; align-items:center; gap:0.75rem;">
                 <span style="color:#0071e3; font-size:0.75rem;">{{ confidence_label(insight.confidence) }}</span>
                 <span style="color:#6e6e73; font-size:0.8rem;">&#9654;</span>
@@ -175,7 +213,7 @@
 
 <!-- Raw data toggle -->
 {% if a.request_payload or a.response_payload %}
-<div style="margin-top:2rem; border-top:1px solid #e5e5e7; padding-top:1rem;">
+<div style="margin-top:2rem; border-top:1px solid #e5e5e7; padding-top:1rem;" class="no-print">
     <details>
         <summary style="cursor:pointer; font-size:0.85rem; color:#0071e3; font-weight:500;">Show raw request &amp; response</summary>
         <div style="margin-top:0.75rem;">
@@ -224,12 +262,12 @@
     {% for f in findings %}
     <div style="border-bottom:1px solid #e5e5e7; padding:0.75rem 0; {% if loop.last %}border-bottom:none;{% endif %}">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
-            <strong style="font-size:0.9rem;">{{ f.claim }}</strong>
+            <strong style="font-size:1rem;">{{ f.claim }}</strong>
             {% if f.confidence is defined %}
             <span style="background:#e8f0fe; color:#0071e3; padding:0.15rem 0.5rem; border-radius:10px; font-size:0.75rem; white-space:nowrap;">{{ "%.0f"|format((f.confidence|default(0)|float) * 100) }}%</span>
             {% endif %}
         </div>
-        <p style="font-size:0.85rem; color:#444; line-height:1.5;">{{ f.assessment }}</p>
+        <p style="font-size:0.95rem; color:#444; line-height:1.5;">{{ f.assessment|format_analysis }}</p>
         {% if f.sources %}
         <div style="margin-top:0.5rem; font-size:0.75rem; color:#6e6e73;">
             {% for s in f.sources %}
@@ -238,7 +276,7 @@
         </div>
         {% endif %}
         {% if f.confidence_explanation %}
-        <p style="font-size:0.75rem; color:#6e6e73; margin-top:0.25rem;">{{ f.confidence_explanation }}</p>
+        <p style="font-size:0.75rem; color:#6e6e73; margin-top:0.25rem;">{{ f.confidence_explanation|format_analysis }}</p>
         {% endif %}
     </div>
     {% endfor %}
@@ -259,7 +297,7 @@
     {% endif %}
 
     {% if job.request_payload or job.response_payload %}
-    <div style="margin-top:0.75rem; border-top:1px solid #e5e5e7; padding-top:0.75rem;">
+    <div style="margin-top:0.75rem; border-top:1px solid #e5e5e7; padding-top:0.75rem;" class="no-print">
         <details>
             <summary style="cursor:pointer; font-size:0.8rem; color:#0071e3; font-weight:500;">Show raw request &amp; response</summary>
             <div style="margin-top:0.75rem;">
@@ -300,12 +338,12 @@
     {% elif synthesis.status == 'completed' and synthesis.result %}
     {% set r = synthesis.result %}
     {% if r.summary %}
-    <p style="font-size:0.9rem; line-height:1.6; margin-bottom:1rem;">{{ r.summary }}</p>
+    <p style="font-size:1rem; line-height:1.6; margin-bottom:1rem;">{{ r.summary|format_analysis }}</p>
     {% endif %}
 
     {% if r.areas_of_agreement %}
     <h3 style="font-size:0.9rem; margin-bottom:0.5rem;">Areas of Agreement</h3>
-    <ul style="font-size:0.85rem; padding-left:1.5rem; margin-bottom:1rem;">
+    <ul style="font-size:0.95rem; padding-left:1.5rem; margin-bottom:1rem;">
     {% for area in r.areas_of_agreement %}
     <li>{{ area }}</li>
     {% endfor %}
@@ -316,8 +354,8 @@
     <h3 style="font-size:0.9rem; margin-bottom:0.5rem;">Suggested Paths Forward</h3>
     {% for path in r.suggested_paths_forward %}
     <div style="border-left:3px solid #34c759; padding-left:0.75rem; margin-bottom:0.75rem;">
-        <p style="font-size:0.85rem; font-weight:500;">{{ path.approach }}</p>
-        <p style="font-size:0.8rem; color:#444;">{{ path.evidence_basis }}</p>
+        <p style="font-size:0.95rem; font-weight:500;">{{ path.approach }}</p>
+        <p style="font-size:0.9rem; color:#444;">{{ path.evidence_basis }}</p>
     </div>
     {% endfor %}
     {% endif %}
@@ -357,4 +395,19 @@
 {% endif %}
 
 {% endif %} {# end conflict tab #}
+
+<script>
+function printAnalysis() {
+    // Open insight <details> before printing (skip raw payload sections)
+    var details = document.querySelectorAll('details');
+    var wasClosed = [];
+    details.forEach(function(d) {
+        if (d.closest('.no-print')) return;
+        if (!d.open) { wasClosed.push(d); d.open = true; }
+    });
+    window.print();
+    // Restore collapsed state after print dialog closes
+    wasClosed.forEach(function(d) { d.open = false; });
+}
+</script>
 {% endblock %}

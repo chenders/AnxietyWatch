@@ -752,3 +752,50 @@ def test_create_app_env_var_overrides_test_config(monkeypatch):
     monkeypatch.setenv("SECRET_KEY", "env-key")
     app = create_app({"TESTING": True, "SECRET_KEY": "config-key", "DATABASE_URL": DATABASE_URL})
     assert app.config["SECRET_KEY"] == "env-key"
+
+
+# ---------------------------------------------------------------------------
+# format_analysis template filter
+# ---------------------------------------------------------------------------
+
+
+class TestFormatAnalysisFilter:
+    """Tests for the format_analysis Jinja2 template filter."""
+
+    def test_plain_text_unchanged(self, app):
+        with app.app_context():
+            f = app.jinja_env.filters["format_analysis"]
+            assert str(f("Hello world")) == "Hello world"
+
+    def test_markdown_bold_converted(self, app):
+        with app.app_context():
+            f = app.jinja_env.filters["format_analysis"]
+            result = str(f("**Anxiety trajectory.** The data shows..."))
+            assert "<strong>Anxiety trajectory.</strong>" in result
+            assert "**" not in result
+
+    def test_cite_tags_converted_to_quotes(self, app):
+        with app.app_context():
+            f = app.jinja_env.filters["format_analysis"]
+            text = ('The guideline states: <cite index="11-21">'
+                    'Physical dependence is distinct from SUD.</cite> This matters.')
+            result = str(f(text))
+            assert "<q>Physical dependence is distinct from SUD.</q>" in result
+            assert "&lt;cite" not in result
+
+    def test_html_escaped(self, app):
+        with app.app_context():
+            f = app.jinja_env.filters["format_analysis"]
+            result = str(f("<script>alert('xss')</script>"))
+            assert "<script>" not in result
+            assert "&lt;script&gt;" in result
+
+    def test_none_passthrough(self, app):
+        with app.app_context():
+            f = app.jinja_env.filters["format_analysis"]
+            assert f(None) is None
+
+    def test_empty_string_passthrough(self, app):
+        with app.app_context():
+            f = app.jinja_env.filters["format_analysis"]
+            assert f("") == ""
