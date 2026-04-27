@@ -290,6 +290,62 @@ struct CPAPImporterTests {
         #expect(result.dateRange?.upperBound == expectedMax)
     }
 
+    // MARK: - Suspicious date detection (CPAP clock-reset symptom)
+
+    @Test("Flags sessions dated before earliestPlausibleDate as suspicious")
+    func flagsSuspiciousDates() throws {
+        // 2009-01-15 mimics an AirSense epoch-reset session; 2026-03-21 is normal.
+        let csv = """
+        date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea
+        2009-01-15,2.5,420,18.3,6.0,12.0,9.5,3,1,2
+        2026-03-21,1.8,390,15.1,6.0,11.5,9.2,2,0,1
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let result = try CPAPImporter.importCSV(from: url, into: context)
+        #expect(result.inserted == 2) // both rows still imported
+        #expect(result.suspiciousDateCount == 1)
+    }
+
+    @Test("Suspicious count is zero for plausible recent dates")
+    func noSuspiciousDatesForRecentImport() throws {
+        let csv = """
+        date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea
+        2026-03-20,2.5,420,18.3,6.0,12.0,9.5,3,1,2
+        2026-03-21,1.8,390,15.1,6.0,11.5,9.2,2,0,1
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let result = try CPAPImporter.importCSV(from: url, into: context)
+        #expect(result.suspiciousDateCount == 0)
+    }
+
+    @Test("OSCAR import flags suspicious dates")
+    func oscarFlagsSuspiciousDates() throws {
+        // The existing OSCAR fixture used 2007-12-31 — that's exactly the clock-reset case.
+        let csv = """
+        Date,Session Count,Start,End,Total Time,AHI,CA Count,A Count,OA Count,H Count,UA Count,VS Count,VS2 Count,RE Count,FL Count,SA Count,NR Count,EP Count,LF Count,UF1 Count,UF2 Count,PP Count,Median Pressure,Median Pressure Set,Median IPAP,Median IPAP Set,Median EPAP,Median EPAP Set,Median Flow Limit.,95% Pressure,95% Pressure Set,95% IPAP,95% IPAP Set,95% EPAP,95% EPAP Set,95% Flow Limit.,99.5% Pressure,99.5% Pressure Set,99.5% IPAP,99.5% IPAP Set,99.5% EPAP,99.5% EPAP Set,99.5% Flow Limit.
+        2009-02-14,1,2009-02-14T22:00:00,2009-02-15T05:30:00,07:30:00,1.5,2,0,5,3,0,0,0,0,0,0,0,0,0,0,0,0,10.0,0,0,0,10.0,0,0,12.0,0,0,0,12.0,0,0,14.0,0,0,0,14.0,0,0
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let result = try CPAPImporter.importCSV(from: url, into: context)
+        #expect(result.inserted == 1)
+        #expect(result.suspiciousDateCount == 1)
+    }
+
     @Test("Mixed insert and update when pre-existing session overlaps")
     func mixedInsertAndUpdate() throws {
         let container = try TestHelpers.makeFullContainer()
