@@ -108,6 +108,13 @@ struct CPAPListView: View {
                 } else {
                     alertMessage = "Imported \(result.inserted) new, updated \(result.updated) existing (\(result.total) total)."
                 }
+                if result.suspiciousDateCount > 0 {
+                    let n = result.suspiciousDateCount
+                    let warning = "\n\nNote: \(n) session\(n == 1 ? "" : "s") "
+                        + "ha\(n == 1 ? "s" : "ve") an implausibly old date and may indicate your CPAP machine's "
+                        + "internal clock has reset. Check the date/time setting on the device."
+                    alertMessage = (alertMessage ?? "") + warning
+                }
                 // Backfill snapshots for imported date range
                 if let dateRange = result.dateRange {
                     Task { @MainActor in

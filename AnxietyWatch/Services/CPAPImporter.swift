@@ -11,8 +11,23 @@ enum CPAPImporter {
         let inserted: Int
         let updated: Int
         let dateRange: ClosedRange<Date>?
+        /// Sessions whose date predates `earliestPlausibleDate`, suggesting the CPAP machine's
+        /// internal clock had reset to its epoch (~Jan 2009 on AirSense firmware).
+        let suspiciousDateCount: Int
         var total: Int { inserted + updated }
     }
+
+    /// Sessions older than this are treated as a likely CPAP-clock-reset symptom rather than real data.
+    /// AirSense machines fall back to ~Jan 2009 when their internal clock loses state; the AnxietyWatch
+    /// project itself didn't exist before 2025, so anything earlier than this can't be a legitimate
+    /// session for a current user.
+    static let earliestPlausibleDate: Date = {
+        var components = DateComponents()
+        components.year = 2015
+        components.month = 1
+        components.day = 1
+        return Calendar.current.date(from: components) ?? .distantPast
+    }()
 
     enum ImportError: Error, LocalizedError {
         case invalidFormat
@@ -120,6 +135,7 @@ enum CPAPImporter {
         var existingByDate = try prefetchSessions(in: context)
         var inserted = 0
         var updated = 0
+        var suspiciousDates = 0
         var minDate: Date?
         var maxDate: Date?
 
@@ -141,6 +157,7 @@ enum CPAPImporter {
             else { continue }
 
             let normalized = Calendar.current.startOfDay(for: date)
+            if normalized < Self.earliestPlausibleDate { suspiciousDates += 1 }
             if minDate == nil || normalized < minDate! { minDate = normalized }
             if maxDate == nil || normalized > maxDate! { maxDate = normalized }
 
@@ -179,7 +196,12 @@ enum CPAPImporter {
         } else {
             nil
         }
-        return ImportResult(inserted: inserted, updated: updated, dateRange: dateRange)
+        return ImportResult(
+            inserted: inserted,
+            updated: updated,
+            dateRange: dateRange,
+            suspiciousDateCount: suspiciousDates
+        )
     }
 
     // MARK: - OSCAR Summary Format Parser
@@ -196,6 +218,7 @@ enum CPAPImporter {
         var existingByDate = try prefetchSessions(in: context)
         var inserted = 0
         var updated = 0
+        var suspiciousDates = 0
         var minDate: Date?
         var maxDate: Date?
 
@@ -217,6 +240,7 @@ enum CPAPImporter {
             guard usageMinutes > 0 else { continue }
 
             let normalized = Calendar.current.startOfDay(for: date)
+            if normalized < Self.earliestPlausibleDate { suspiciousDates += 1 }
             if minDate == nil || normalized < minDate! { minDate = normalized }
             if maxDate == nil || normalized > maxDate! { maxDate = normalized }
 
@@ -257,7 +281,12 @@ enum CPAPImporter {
         } else {
             nil
         }
-        return ImportResult(inserted: inserted, updated: updated, dateRange: dateRange)
+        return ImportResult(
+            inserted: inserted,
+            updated: updated,
+            dateRange: dateRange,
+            suspiciousDateCount: suspiciousDates
+        )
     }
 
     /// Parse "HH:MM:SS" to total minutes (truncating seconds).
