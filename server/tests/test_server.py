@@ -279,6 +279,187 @@ def test_sync_health_snapshot_cpap_barometric_null(client, app):
     assert row["barometric_pressure_change_kpa"] is None
 
 
+def test_sync_health_snapshot_overnight_clinical_stats(client, app):
+    """The seven new overnight clinical stat fields round-trip through sync."""
+    payload = {
+        "healthSnapshots": [
+            {
+                "date": "2025-03-22",
+                "hrvAvg": 45.0,
+                "spo2NadirOvernight": 87.0,
+                "spo2TimeBelow90Min": 12,
+                "spo2DesatsCount": 4,
+                "glucoseStdDev": 22.0,
+                "glucoseCV": 18.5,
+                "glucoseMin": 80.0,
+                "glucoseMax": 165.0,
+            },
+        ],
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+    assert resp.get_json()["counts"]["health_snapshots"] == 1
+
+    resp = client.get("/api/data/healthSnapshots", headers=auth_header())
+    rows = resp.get_json()["healthSnapshots"]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["spo2_nadir_overnight"] == 87.0
+    assert row["spo2_time_below_90_min"] == 12
+    assert row["spo2_desats_count"] == 4
+    assert row["glucose_std_dev"] == 22.0
+    assert row["glucose_cv"] == 18.5
+    assert row["glucose_min"] == 80.0
+    assert row["glucose_max"] == 165.0
+
+
+def test_sync_health_snapshot_overnight_stats_null(client, app):
+    """Overnight clinical stat fields default to null when omitted."""
+    payload = {
+        "healthSnapshots": [
+            {"date": "2025-03-23", "hrvAvg": 55.0},
+        ],
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    resp = client.get("/api/data/healthSnapshots", headers=auth_header())
+    row = resp.get_json()["healthSnapshots"][0]
+    for field in (
+        "spo2_nadir_overnight",
+        "spo2_time_below_90_min",
+        "spo2_desats_count",
+        "glucose_std_dev",
+        "glucose_cv",
+        "glucose_min",
+        "glucose_max",
+    ):
+        assert row[field] is None, f"{field} should be null when omitted"
+
+
+def test_sync_health_snapshot_overnight_stats_older_client_does_not_wipe(client, app):
+    """A v1 (or no-version) sync that omits the new keys must not overwrite
+    previously-synced values with NULL. The seven overnight stat columns
+    use COALESCE under the v1 path so missing keys are preserved.
+    """
+    # First sync: modern client (v2) with full overnight stats
+    full_payload = {
+        "syncSchemaVersion": 2,
+        "healthSnapshots": [
+            {
+                "date": "2025-03-25",
+                "spo2NadirOvernight": 87.0,
+                "spo2TimeBelow90Min": 12,
+                "spo2DesatsCount": 4,
+                "glucoseStdDev": 22.0,
+                "glucoseCV": 18.5,
+                "glucoseMin": 80.0,
+                "glucoseMax": 165.0,
+            },
+        ],
+    }
+    resp = client.post("/api/sync", json=full_payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    # Second sync: older client (no syncSchemaVersion key — defaults to v1)
+    # that doesn't know about the new fields. Triggers ON CONFLICT DO UPDATE.
+    older_payload = {
+        "healthSnapshots": [
+            {"date": "2025-03-25", "hrvAvg": 50.0},
+        ],
+    }
+    resp = client.post("/api/sync", json=older_payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    # The seven overnight stat fields are preserved (COALESCE protected),
+    # but hrvAvg was updated normally.
+    resp = client.get("/api/data/healthSnapshots", headers=auth_header())
+    row = next(r for r in resp.get_json()["healthSnapshots"] if r["date"] == "2025-03-25")
+    assert row["hrv_avg"] == 50.0
+    assert row["spo2_nadir_overnight"] == 87.0
+    assert row["spo2_time_below_90_min"] == 12
+    assert row["spo2_desats_count"] == 4
+    assert row["glucose_std_dev"] == 22.0
+    assert row["glucose_cv"] == 18.5
+    assert row["glucose_min"] == 80.0
+    assert row["glucose_max"] == 165.0
+
+
+def test_sync_health_snapshot_overnight_stats_v2_client_can_clear(client, app):
+    """A v2 client that re-aggregates a snapshot to nil (e.g., HealthKit data
+    deleted, threshold not met) sends the keys missing — Codable's
+    encodeIfPresent omits nil-valued optionals. v2 semantics treat that as
+    an intentional clear, so the columns go to NULL on conflict.
+    """
+    # Initial v2 sync with values populated
+    initial = {
+        "syncSchemaVersion": 2,
+        "healthSnapshots": [
+            {
+                "date": "2025-03-26",
+                "spo2NadirOvernight": 90.0,
+                "glucoseCV": 20.0,
+                "glucoseMin": 85.0,
+                "glucoseMax": 140.0,
+            },
+        ],
+    }
+    resp = client.post("/api/sync", json=initial, headers=auth_header())
+    assert resp.status_code == 200
+
+    # Re-sync at v2 with the keys omitted (modern client's recompute → nil)
+    cleared = {
+        "syncSchemaVersion": 2,
+        "healthSnapshots": [
+            {"date": "2025-03-26", "hrvAvg": 60.0},
+        ],
+    }
+    resp = client.post("/api/sync", json=cleared, headers=auth_header())
+    assert resp.status_code == 200
+
+    resp = client.get("/api/data/healthSnapshots", headers=auth_header())
+    row = next(r for r in resp.get_json()["healthSnapshots"] if r["date"] == "2025-03-26")
+    assert row["hrv_avg"] == 60.0
+    assert row["spo2_nadir_overnight"] is None
+    assert row["glucose_cv"] is None
+    assert row["glucose_min"] is None
+    assert row["glucose_max"] is None
+
+
+def test_sync_health_snapshot_overnight_stats_upsert(client, app):
+    """The new fields update on conflict when both old and new are non-null."""
+    initial = {
+        "healthSnapshots": [
+            {
+                "date": "2025-03-24",
+                "spo2NadirOvernight": 92.0,
+                "glucoseCV": 14.0,
+            },
+        ],
+    }
+    resp = client.post("/api/sync", json=initial, headers=auth_header())
+    assert resp.status_code == 200
+
+    updated = {
+        "healthSnapshots": [
+            {
+                "date": "2025-03-24",
+                "spo2NadirOvernight": 85.0,
+                "glucoseCV": 28.0,
+            },
+        ],
+    }
+    resp = client.post("/api/sync", json=updated, headers=auth_header())
+    assert resp.status_code == 200
+
+    resp = client.get("/api/data/healthSnapshots", headers=auth_header())
+    rows = resp.get_json()["healthSnapshots"]
+    same_day = [r for r in rows if r["date"] == "2025-03-24"]
+    assert len(same_day) == 1
+    assert same_day[0]["spo2_nadir_overnight"] == 85.0
+    assert same_day[0]["glucose_cv"] == 28.0
+
+
 def test_sync_invalid_json(client):
     resp = client.post(
         "/api/sync",

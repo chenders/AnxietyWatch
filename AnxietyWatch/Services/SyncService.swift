@@ -316,9 +316,13 @@ final class SyncService {
         try? modelContext.save()
     }
 
-    // MARK: - Private
+    // MARK: - Payload construction (internal for testing)
 
-    private func buildPayload(from context: ModelContext, demographics: [String: String]? = nil) throws -> Data {
+    /// Internal (not private) so SyncServiceTests can verify the wrapper
+    /// metadata without invoking a real network sync. The payload is the
+    /// authoritative source of `syncSchemaVersion` for the server's
+    /// per-version semantics, so it deserves direct test coverage.
+    func buildPayload(from context: ModelContext, demographics: [String: String]? = nil) throws -> Data {
         let since = lastSyncDate
 
         // Reuse DataExporter's JSON format — the server gets the same schema as file exports
@@ -333,6 +337,15 @@ final class SyncService {
             json["since"] = ISO8601DateFormatter().string(from: since)
         }
         json["clientVersion"] = "1.0"
+        // syncSchemaVersion 2 means the seven overnight clinical stats fields
+        // (spo2NadirOvernight, spo2TimeBelow90Min, spo2DesatsCount, glucose
+        // StdDev/CV/Min/Max) are part of the payload schema. Even if a given
+        // snapshot's value is nil (omitted by Codable's encodeIfPresent), the
+        // server should treat the missing key as an intentional null on v2+
+        // clients so a recomputed-to-nil value can clear the database.
+        // Older clients (no version flag) are treated as v1 — missing keys
+        // are preserved via COALESCE.
+        json["syncSchemaVersion"] = 2
         json["deviceName"] = "iOS \(UIDevice.current.systemVersion)"
         if let demographics {
             json["demographics"] = demographics

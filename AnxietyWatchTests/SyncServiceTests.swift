@@ -343,4 +343,49 @@ struct SyncServiceTests {
         #expect(all.count == 0)
     }
 
+    // MARK: - Payload metadata
+
+    @Test("buildPayload includes syncSchemaVersion=2 in the wrapper metadata")
+    @MainActor
+    func payloadIncludesSchemaVersion() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        // SyncService reads lastSyncDate from UserDefaults at init; clearing
+        // it isolates this test from prior runs / dev state that could flip
+        // syncType to "incremental".
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(json != nil)
+        // The schema version is what tells the server to interpret missing
+        // overnight clinical stat keys as intentional nils (clear-on-conflict)
+        // vs. an older client that doesn't know the schema (preserve via COALESCE).
+        // A regression that drops or downgrades this key would silently break
+        // server-side clearing for the seven new fields.
+        #expect((json?["syncSchemaVersion"] as? Int) == 2)
+    }
+
+    @Test("buildPayload includes the standard wrapper metadata")
+    @MainActor
+    func payloadIncludesWrapperMetadata() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        // syncType depends on whether lastSyncDate is set — clear it to
+        // make the "full" assertion deterministic regardless of prior state.
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(json?["syncType"] as? String == "full")
+        #expect(json?["clientVersion"] as? String == "1.0")
+        #expect((json?["deviceName"] as? String)?.hasPrefix("iOS ") == true)
+    }
+
 }

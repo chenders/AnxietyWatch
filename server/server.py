@@ -173,12 +173,23 @@ def create_app(test_config=None):
         counts = {}
 
         try:
+            # Schema version flag — distinguishes "modern client sent
+            # explicit nil" from "older client doesn't know about a field"
+            # for fields that Swift Codable omits when nil. v >= 2 means the
+            # client knows about the seven overnight clinical stats columns.
+            try:
+                schema_version = int(data.get("syncSchemaVersion", 1) or 1)
+            except (TypeError, ValueError):
+                schema_version = 1
+
             counts["anxiety_entries"] = _upsert_anxiety_entries(cur, data.get("anxietyEntries", []))
             counts["medication_definitions"] = _upsert_medication_definitions(
                 cur, data.get("medicationDefinitions", []))
             counts["medication_doses"] = _upsert_medication_doses(cur, data.get("medicationDoses", []))
             counts["cpap_sessions"] = _upsert_cpap_sessions(cur, data.get("cpapSessions", []))
-            counts["health_snapshots"] = _upsert_health_snapshots(cur, data.get("healthSnapshots", []))
+            counts["health_snapshots"] = _upsert_health_snapshots(
+                cur, data.get("healthSnapshots", []), schema_version=schema_version,
+            )
             counts["barometric_readings"] = _upsert_barometric_readings(cur, data.get("barometricReadings", []))
             counts["pharmacies"] = _upsert_pharmacies(cur, data.get("pharmacies", []))
             counts["prescriptions"] = _upsert_prescriptions(cur, data.get("prescriptions", []))
@@ -317,19 +328,54 @@ def create_app(test_config=None):
             )
         return len(sessions)
 
-    def _upsert_health_snapshots(cur, snapshots):
+    # Names of the seven overnight clinical stats columns added in this PR.
+    # Used to build the per-version ON CONFLICT clause below — Codable
+    # `encodeIfPresent` makes "intentional nil" indistinguishable from "older
+    # client doesn't know" at the JSON level, so we use a syncSchemaVersion
+    # flag in the payload to disambiguate at the server boundary.
+    _OVERNIGHT_STATS_COLUMNS = (
+        "spo2_nadir_overnight",
+        "spo2_time_below_90_min",
+        "spo2_desats_count",
+        "glucose_std_dev",
+        "glucose_cv",
+        "glucose_min",
+        "glucose_max",
+    )
+
+    def _overnight_stats_update_clause(schema_version):
+        """Return the SET fragment for the seven overnight stat columns.
+
+        v >= 2: client knows the schema; missing key in payload is an
+        intentional nil clear, so use EXCLUDED unconditionally.
+        v == 1 (or absent): client may simply not know about these fields,
+        so preserve any previously-synced non-null value via COALESCE.
+        """
+        if schema_version >= 2:
+            return ",\n                       ".join(
+                f"{col} = EXCLUDED.{col}" for col in _OVERNIGHT_STATS_COLUMNS
+            )
+        return ",\n                       ".join(
+            f"{col} = COALESCE(EXCLUDED.{col}, health_snapshots.{col})"
+            for col in _OVERNIGHT_STATS_COLUMNS
+        )
+
+    def _upsert_health_snapshots(cur, snapshots, schema_version=1):
+        overnight_clause = _overnight_stats_update_clause(schema_version)
         for s in snapshots:
             cur.execute(
-                """INSERT INTO health_snapshots (
+                f"""INSERT INTO health_snapshots (
                        date, hrv_avg, hrv_min, resting_hr,
                        sleep_duration_min, sleep_deep_min, sleep_rem_min, sleep_core_min, sleep_awake_min,
                        skin_temp_deviation, skin_temp_wrist, respiratory_rate, spo2_avg,
+                       spo2_nadir_overnight, spo2_time_below_90_min, spo2_desats_count,
                        steps, active_calories, exercise_minutes,
                        environmental_sound_avg, bp_systolic, bp_diastolic, blood_glucose_avg,
+                       glucose_std_dev, glucose_cv, glucose_min, glucose_max,
                        cpap_ahi, cpap_usage_minutes,
                        barometric_pressure_avg_kpa, barometric_pressure_change_kpa)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (date) DO UPDATE SET
                        hrv_avg = EXCLUDED.hrv_avg,
                        hrv_min = EXCLUDED.hrv_min,
@@ -343,6 +389,7 @@ def create_app(test_config=None):
                        skin_temp_wrist = EXCLUDED.skin_temp_wrist,
                        respiratory_rate = EXCLUDED.respiratory_rate,
                        spo2_avg = EXCLUDED.spo2_avg,
+                       {overnight_clause},
                        steps = EXCLUDED.steps,
                        active_calories = EXCLUDED.active_calories,
                        exercise_minutes = EXCLUDED.exercise_minutes,
@@ -359,9 +406,12 @@ def create_app(test_config=None):
                     s.get("sleepDurationMin"), s.get("sleepDeepMin"), s.get("sleepREMMin"),
                     s.get("sleepCoreMin"), s.get("sleepAwakeMin"),
                     s.get("skinTempDeviation"), s.get("skinTempWrist"), s.get("respiratoryRate"), s.get("spo2Avg"),
+                    s.get("spo2NadirOvernight"), s.get("spo2TimeBelow90Min"), s.get("spo2DesatsCount"),
                     s.get("steps"), s.get("activeCalories"), s.get("exerciseMinutes"),
                     s.get("environmentalSoundAvg"), s.get("bpSystolic"), s.get("bpDiastolic"),
                     s.get("bloodGlucoseAvg"),
+                    s.get("glucoseStdDev"), s.get("glucoseCV"),
+                    s.get("glucoseMin"), s.get("glucoseMax"),
                     s.get("cpapAHI"), s.get("cpapUsageMinutes"),
                     s.get("barometricPressureAvgKPa"), s.get("barometricPressureChangeKPa"),
                 ),
