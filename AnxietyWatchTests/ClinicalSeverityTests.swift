@@ -4,6 +4,18 @@ import Testing
 @testable import AnxietyWatch
 
 struct ClinicalSeverityTests {
+    @Test("AHI severity boundaries")
+    func ahiBoundaries() {
+        #expect(ClinicalSeverity.ahiSeverity(0) == .normal)
+        #expect(ClinicalSeverity.ahiSeverity(4.99) == .normal)
+        #expect(ClinicalSeverity.ahiSeverity(5.0) == .mild)
+        #expect(ClinicalSeverity.ahiSeverity(14.99) == .mild)
+        #expect(ClinicalSeverity.ahiSeverity(15.0) == .moderate)
+        #expect(ClinicalSeverity.ahiSeverity(29.99) == .moderate)
+        #expect(ClinicalSeverity.ahiSeverity(30.0) == .severe)
+        #expect(ClinicalSeverity.ahiSeverity(99.0) == .severe)
+    }
+
     @Test("SpO2 nadir severity boundaries")
     func spo2NadirBoundaries() {
         #expect(ClinicalSeverity.spo2NadirSeverity(95.0) == .normal)

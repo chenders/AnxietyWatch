@@ -18,6 +18,19 @@ enum ClinicalSeverity {
         }
     }
 
+    /// CPAP AHI (events/hr) — AASM bands: <5 normal · 5–<15 mild · 15–<30
+    /// moderate · ≥30 severe. Single source of truth for the AHI color
+    /// ladder used by CPAPDetailView, CPAPListView, and the
+    /// SleepRespiratoryTrendChart's bar coloring.
+    static func ahiSeverity(_ ahi: Double) -> Severity {
+        switch ahi {
+        case ..<5: return .normal
+        case 5..<15: return .mild
+        case 15..<30: return .moderate
+        default: return .severe
+        }
+    }
+
     /// SpO₂ nadir overnight (%): ≥95 normal · 90–94 mild · 85–89 moderate · <85 severe.
     static func spo2NadirSeverity(_ percent: Double) -> Severity {
         switch percent {

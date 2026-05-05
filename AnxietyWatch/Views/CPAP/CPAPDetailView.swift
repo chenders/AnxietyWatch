@@ -138,11 +138,6 @@ struct CPAPDetailView: View {
     }
 
     private var ahiColor: Color {
-        switch session.ahi {
-        case ..<5: return .green
-        case 5..<15: return .yellow
-        case 15..<30: return .orange
-        default: return .red
-        }
+        ClinicalSeverity.ahiSeverity(session.ahi).color
     }
 }

@@ -210,11 +210,6 @@ struct SleepRespiratoryTrendChart: View {
     }
 
     private func ahiColor(_ ahi: Double) -> Color {
-        switch ahi {
-        case ..<5: return .green
-        case 5..<15: return .yellow
-        case 15..<30: return .orange
-        default: return .red
-        }
+        ClinicalSeverity.ahiSeverity(ahi).color
     }
 }

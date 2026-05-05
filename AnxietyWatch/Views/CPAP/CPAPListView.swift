@@ -180,14 +180,8 @@ struct CPAPSessionRow: View {
         return "\(h)h \(m)m"
     }
 
-    /// AHI clinical severity: <5 normal, 5-15 mild, 15-30 moderate, >30 severe
     private var ahiColor: Color {
-        switch session.ahi {
-        case ..<5: return .green
-        case 5..<15: return .yellow
-        case 15..<30: return .orange
-        default: return .red
-        }
+        ClinicalSeverity.ahiSeverity(session.ahi).color
     }
 }
 
