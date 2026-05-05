@@ -76,14 +76,19 @@ enum DataExporter {
         // Health snapshots
         csv = "date,hrv_avg,hrv_min,resting_hr,sleep_total_min,sleep_deep_min,sleep_rem_min,"
         csv += "sleep_core_min,sleep_awake_min,skin_temp_dev,skin_temp_wrist,resp_rate,spo2_avg,"
-        csv += "steps,active_cal,exercise_min,env_sound_avg,bp_sys,bp_dia,glucose_avg\n"
+        csv += "spo2_nadir,spo2_t90_min,spo2_desats,"
+        csv += "steps,active_cal,exercise_min,env_sound_avg,bp_sys,bp_dia,glucose_avg,"
+        csv += "glucose_sd,glucose_cv,glucose_min,glucose_max\n"
         for h in bundle.healthSnapshots {
             csv += "\(h.date),\(opt(h.hrvAvg)),\(opt(h.hrvMin)),\(opt(h.restingHR)),"
             csv += "\(opt(h.sleepDurationMin)),\(opt(h.sleepDeepMin)),\(opt(h.sleepREMMin)),"
             csv += "\(opt(h.sleepCoreMin)),\(opt(h.sleepAwakeMin)),\(opt(h.skinTempDeviation)),\(opt(h.skinTempWrist)),"
-            csv += "\(opt(h.respiratoryRate)),\(opt(h.spo2Avg)),\(opt(h.steps)),"
+            csv += "\(opt(h.respiratoryRate)),\(opt(h.spo2Avg)),"
+            csv += "\(opt(h.spo2NadirOvernight)),\(opt(h.spo2TimeBelow90Min)),\(opt(h.spo2DesatsCount)),"
+            csv += "\(opt(h.steps)),"
             csv += "\(opt(h.activeCalories)),\(opt(h.exerciseMinutes)),\(opt(h.environmentalSoundAvg)),"
-            csv += "\(opt(h.bpSystolic)),\(opt(h.bpDiastolic)),\(opt(h.bloodGlucoseAvg))\n"
+            csv += "\(opt(h.bpSystolic)),\(opt(h.bpDiastolic)),\(opt(h.bloodGlucoseAvg)),"
+            csv += "\(opt(h.glucoseStdDev)),\(opt(h.glucoseCV)),\(opt(h.glucoseMin)),\(opt(h.glucoseMax))\n"
         }
         files.append(("health_snapshots.csv", Data(csv.utf8)))
 
@@ -198,11 +203,18 @@ enum DataExporter {
                                   sleepAwakeMin: h.sleepAwakeMin, skinTempDeviation: h.skinTempDeviation,
                                   skinTempWrist: h.skinTempWrist,
                                   respiratoryRate: h.respiratoryRate, spo2Avg: h.spo2Avg,
+                                  spo2NadirOvernight: h.spo2NadirOvernight,
+                                  spo2TimeBelow90Min: h.spo2TimeBelow90Min,
+                                  spo2DesatsCount: h.spo2DesatsCount,
                                   steps: h.steps, activeCalories: h.activeCalories,
                                   exerciseMinutes: h.exerciseMinutes,
                                   environmentalSoundAvg: h.environmentalSoundAvg,
                                   bpSystolic: h.bpSystolic, bpDiastolic: h.bpDiastolic,
                                   bloodGlucoseAvg: h.bloodGlucoseAvg,
+                                  glucoseStdDev: h.glucoseStdDev,
+                                  glucoseCV: h.glucoseCV,
+                                  glucoseMin: h.glucoseMin,
+                                  glucoseMax: h.glucoseMax,
                                   cpapAHI: h.cpapAHI, cpapUsageMinutes: h.cpapUsageMinutes,
                                   barometricPressureAvgKPa: h.barometricPressureAvgKPa,
                                   barometricPressureChangeKPa: h.barometricPressureChangeKPa)
@@ -304,10 +316,14 @@ enum DataExporter {
         let sleepDurationMin: Int?; let sleepDeepMin: Int?; let sleepREMMin: Int?
         let sleepCoreMin: Int?; let sleepAwakeMin: Int?; let skinTempDeviation: Double?
         let skinTempWrist: Double?
-        let respiratoryRate: Double?; let spo2Avg: Double?; let steps: Int?
+        let respiratoryRate: Double?; let spo2Avg: Double?
+        let spo2NadirOvernight: Double?; let spo2TimeBelow90Min: Int?; let spo2DesatsCount: Int?
+        let steps: Int?
         let activeCalories: Double?; let exerciseMinutes: Int?
         let environmentalSoundAvg: Double?; let bpSystolic: Double?
         let bpDiastolic: Double?; let bloodGlucoseAvg: Double?
+        let glucoseStdDev: Double?; let glucoseCV: Double?
+        let glucoseMin: Double?; let glucoseMax: Double?
         let cpapAHI: Double?; let cpapUsageMinutes: Int?
         let barometricPressureAvgKPa: Double?; let barometricPressureChangeKPa: Double?
     }

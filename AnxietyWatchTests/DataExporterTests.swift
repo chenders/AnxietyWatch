@@ -118,6 +118,91 @@ struct DataExporterTests {
         }
     }
 
+    @Test("CSV health snapshot header includes derived clinical stat columns")
+    func csvHealthSnapshotDerivedColumns() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let files = try DataExporter.exportCSV(from: context)
+        let healthCSV = files.first(where: { $0.0 == "health_snapshots.csv" })!.1
+        let header = String(data: healthCSV, encoding: .utf8)!
+            .components(separatedBy: "\n").first!
+
+        let expected = [
+            "spo2_nadir", "spo2_t90_min", "spo2_desats",
+            "glucose_sd", "glucose_cv", "glucose_min", "glucose_max",
+        ]
+        for col in expected {
+            #expect(header.contains(col), "Header missing column: \(col)")
+        }
+    }
+
+    @Test("CSV health snapshot row encodes derived clinical stat values")
+    func csvHealthSnapshotDerivedRow() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let snapshot = HealthSnapshot(date: Date(timeIntervalSince1970: 1_711_300_000))
+        snapshot.spo2NadirOvernight = 87.5
+        snapshot.spo2TimeBelow90Min = 12
+        snapshot.spo2DesatsCount = 4
+        snapshot.glucoseStdDev = 22.0
+        snapshot.glucoseCV = 18.5
+        snapshot.glucoseMin = 80
+        snapshot.glucoseMax = 165
+        context.insert(snapshot)
+        try context.save()
+
+        let files = try DataExporter.exportCSV(from: context)
+        let healthCSV = files.first(where: { $0.0 == "health_snapshots.csv" })!.1
+        let csv = String(data: healthCSV, encoding: .utf8)!
+        let lines = csv.components(separatedBy: "\n").filter { !$0.isEmpty }
+        #expect(lines.count == 2)
+
+        // Position-based assertions: parse header and row by column index so
+        // dropping or reordering a column fails the test (substring matching
+        // would let "4" match almost any row that contains a 4 anywhere).
+        let headerCols = lines[0].components(separatedBy: ",")
+        let rowCols = lines[1].components(separatedBy: ",")
+        #expect(headerCols.count == rowCols.count)
+        let valueOf: (String) -> String? = { col in
+            headerCols.firstIndex(of: col).map { rowCols[$0] }
+        }
+        #expect(valueOf("spo2_nadir") == "87.5")
+        #expect(valueOf("spo2_t90_min") == "12")
+        #expect(valueOf("spo2_desats") == "4")
+        #expect(valueOf("glucose_sd") == "22.0")
+        #expect(valueOf("glucose_cv") == "18.5")
+        #expect(valueOf("glucose_min") == "80.0")
+        #expect(valueOf("glucose_max") == "165.0")
+    }
+
+    @Test("JSON health snapshot DTO encodes derived clinical stats")
+    func jsonHealthSnapshotDerivedFields() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let snapshot = HealthSnapshot(date: Date(timeIntervalSince1970: 1_711_300_000))
+        snapshot.spo2NadirOvernight = 87.5
+        snapshot.spo2TimeBelow90Min = 12
+        snapshot.spo2DesatsCount = 4
+        snapshot.glucoseStdDev = 22.0
+        snapshot.glucoseCV = 18.5
+        snapshot.glucoseMin = 80
+        snapshot.glucoseMax = 165
+        context.insert(snapshot)
+        try context.save()
+
+        let data = try DataExporter.exportJSON(from: context)
+        let bundle = try JSONDecoder().decode(DataExporter.ExportBundle.self, from: data)
+        let dto = bundle.healthSnapshots.first!
+        #expect(dto.spo2NadirOvernight == 87.5)
+        #expect(dto.spo2TimeBelow90Min == 12)
+        #expect(dto.spo2DesatsCount == 4)
+        #expect(dto.glucoseStdDev == 22.0)
+        #expect(dto.glucoseCV == 18.5)
+        #expect(dto.glucoseMin == 80)
+        #expect(dto.glucoseMax == 165)
+    }
+
     @Test("CSV anxiety entries contain data row")
     func csvAnxietyData() throws {
         let container = try TestHelpers.makeFullContainer()

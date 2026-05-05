@@ -8,6 +8,45 @@ struct SnapshotAggregator {
     let healthKit: any HealthKitDataSource
     let modelContext: ModelContext
 
+    /// Minimum SpO₂ sample count to compute T90 / desat stats. Below this we
+    /// treat the data as spot-reading only (e.g., Apple Watch periodic checks)
+    /// and emit nil rather than a misleading "good night" zero.
+    static let minSamplesForOvernightStats = 30
+    /// Minimum total *monitored* duration (seconds) for overnight SpO₂ stats —
+    /// the sum of each sample's own duration, not the wall-clock span between
+    /// first and last. 30 one-second samples scattered across half an hour
+    /// would clear a span-based gate but only represent 30 seconds of actual
+    /// monitoring; this gate excludes them.
+    static let minMonitoredDurationForOvernightStats: TimeInterval = 300  // 5 minutes
+    /// Minimum glucose sample count to compute SD / CV. Below this we emit nil
+    /// (one or two finger-sticks aren't a variability measurement). Min/max
+    /// are still emitted because a single reading is a meaningful extreme.
+    static let minSamplesForGlucoseVariability = 4
+    /// Minimum reading-spread (seconds) for glucose variability — `last.start`
+    /// minus `first.start`. Glucose samples are typically point-in-time so
+    /// "monitored duration" is meaningless; what matters is that the readings
+    /// are spread across the day rather than clustered around one meal.
+    static let minSpreadForGlucoseVariability: TimeInterval = 3600  // 1 hour
+
+    /// Sum of each sample's own duration after collapsing overlaps. Use for
+    /// sources where the question is "how much continuous monitoring data do
+    /// we have?" — e.g., SpO₂ where 30 samples × 1s gives 30 seconds,
+    /// regardless of how they're scattered in time. Overlaps are deduped via
+    /// `Statistics.collapseOverlaps` so two sources recording the same 3
+    /// minutes contribute 3 minutes of coverage, not 6.
+    private static func totalMonitoredDuration(_ samples: [QuantitySample]) -> TimeInterval {
+        Statistics.collapseOverlaps(samples)
+            .reduce(0.0) { $0 + max(0, $1.end.timeIntervalSince($1.start)) }
+    }
+
+    /// Span between the first and last sample's start times. Use for sources
+    /// where the question is "how spread out across the day are the readings?"
+    /// — e.g., glucose where samples are point-in-time and duration is moot.
+    private static func sampleStartSpread(_ samples: [QuantitySample]) -> TimeInterval {
+        guard let first = samples.first, let last = samples.last else { return 0 }
+        return max(0, last.start.timeIntervalSince(first.start))
+    }
+
     func aggregateDay(_ date: Date) async throws {
         let calendar = Calendar.current
         let start = calendar.startOfDay(for: date)
@@ -54,6 +93,12 @@ struct SnapshotAggregator {
         async let spo2 = healthKit.averageQuantity(
             .oxygenSaturation, unit: .percent(),
             start: overnightStart, end: overnightEnd)
+        async let spo2Nadir = healthKit.minimumQuantity(
+            .oxygenSaturation, unit: .percent(),
+            start: overnightStart, end: overnightEnd)
+        async let spo2Samples = healthKit.quantitySamples(
+            .oxygenSaturation, unit: .percent(),
+            start: overnightStart, end: overnightEnd)
         async let steps = healthKit.cumulativeQuantity(
             .stepCount, unit: .count(), start: start, end: end)
         async let calories = healthKit.cumulativeQuantity(
@@ -64,7 +109,13 @@ struct SnapshotAggregator {
             .environmentalAudioExposure, unit: .decibelAWeightedSoundPressureLevel(),
             start: start, end: end)
         async let bp = healthKit.averageBloodPressure(start: start, end: end)
-        async let glucose = healthKit.averageQuantity(
+        // Glucose avg is derived locally from glucoseSamples below so it
+        // shares the same .strictStartDate predicate as min/max/CV. Mixing
+        // averageQuantity (overlap predicate) with quantitySamples-derived
+        // stats lets a midnight-straddling sample contribute to the average
+        // on both adjacent days but the range only on one — visually
+        // breaks the chart when avg lands outside the day's min/max band.
+        async let glucoseSamples = healthKit.quantitySamples(
             .bloodGlucose,
             unit: .gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci)),
             start: start, end: end)
@@ -137,6 +188,33 @@ struct SnapshotAggregator {
             snapshot.spo2Avg = nil
         }
 
+        if let nadir = try await spo2Nadir {
+            snapshot.spo2NadirOvernight = nadir * 100
+        } else {
+            snapshot.spo2NadirOvernight = nil
+        }
+
+        // T90 + rough desat count from raw overnight samples.
+        // HealthKit stores SpO2 as a fraction 0–1; threshold 0.90 = 90%, 0.04 drop = 4% absolute.
+        // Require BOTH enough samples AND enough total monitored duration.
+        // Count alone catches Apple Watch spot reads (a few per night), but
+        // a brief 30-sample 1 Hz burst, or 30 one-second samples scattered
+        // across half an hour, would still clear a span-based gate. Summing
+        // each sample's own duration captures what we actually care about:
+        // how much continuous monitoring data exists.
+        let spo2SamplesResolved = try await spo2Samples
+        let spo2Monitored = Self.totalMonitoredDuration(spo2SamplesResolved)
+        if spo2SamplesResolved.count >= Self.minSamplesForOvernightStats,
+           spo2Monitored >= Self.minMonitoredDurationForOvernightStats {
+            snapshot.spo2TimeBelow90Min = Statistics.timeBelowThresholdMinutes(
+                spo2SamplesResolved, threshold: 0.90)
+            snapshot.spo2DesatsCount = Statistics.countDesatEvents(
+                spo2SamplesResolved, dropThreshold: 0.04, recoveryThreshold: 0.02)
+        } else {
+            snapshot.spo2TimeBelow90Min = nil
+            snapshot.spo2DesatsCount = nil
+        }
+
         if let s = try await steps { snapshot.steps = Int(s) }
         snapshot.activeCalories = try await calories
         if let e = try await exercise { snapshot.exerciseMinutes = Int(e) }
@@ -149,7 +227,29 @@ struct SnapshotAggregator {
             snapshot.bpSystolic = nil
             snapshot.bpDiastolic = nil
         }
-        snapshot.bloodGlucoseAvg = try await glucose
+        let glucoseSamplesResolved = try await glucoseSamples
+        let glucoseValues = glucoseSamplesResolved.map(\.value)
+        // Avg is derived from the same sample set as min/max/CV so the
+        // four glucose fields all share boundary semantics.
+        snapshot.bloodGlucoseAvg = glucoseValues.isEmpty
+            ? nil
+            : glucoseValues.reduce(0, +) / Double(glucoseValues.count)
+        // Min/max are meaningful with even a single reading; SD/CV require
+        // both enough samples AND enough time-of-day spread to be a real
+        // variability measurement. Four readings clustered around one meal
+        // would otherwise export trivially low CV that reads as "stable"
+        // instead of "insufficient daily coverage".
+        snapshot.glucoseMin = glucoseValues.min()
+        snapshot.glucoseMax = glucoseValues.max()
+        let glucoseSpread = Self.sampleStartSpread(glucoseSamplesResolved)
+        if glucoseValues.count >= Self.minSamplesForGlucoseVariability,
+           glucoseSpread >= Self.minSpreadForGlucoseVariability {
+            snapshot.glucoseStdDev = Statistics.stdDev(glucoseValues)
+            snapshot.glucoseCV = Statistics.coefficientOfVariation(glucoseValues)
+        } else {
+            snapshot.glucoseStdDev = nil
+            snapshot.glucoseCV = nil
+        }
 
         if let v = try await vo2, v.date >= start && v.date < end {
             snapshot.vo2Max = v.value

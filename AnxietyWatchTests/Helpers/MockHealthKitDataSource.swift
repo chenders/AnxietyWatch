@@ -66,6 +66,14 @@ actor MockHealthKitDataSource: HealthKitDataSource {
         heartbeatSeriesResult
     }
 
+    var quantitySamplesResults: [HKQuantityTypeIdentifier: [QuantitySample]] = [:]
+
+    func quantitySamples(_ identifier: HKQuantityTypeIdentifier, unit: HKUnit,
+                         start: Date, end: Date) async throws -> [QuantitySample] {
+        queriedIdentifiers.append(identifier)
+        return quantitySamplesResults[identifier] ?? []
+    }
+
     // Convenience setters
     func setAverage(_ id: HKQuantityTypeIdentifier, value: Double) {
         averageResults[id] = value
@@ -87,5 +95,8 @@ actor MockHealthKitDataSource: HealthKitDataSource {
     }
     func setHeartbeatSeries(_ intervals: [Double]) {
         heartbeatSeriesResult = intervals
+    }
+    func setQuantitySamples(_ id: HKQuantityTypeIdentifier, _ samples: [QuantitySample]) {
+        quantitySamplesResults[id] = samples
     }
 }

@@ -30,6 +30,13 @@ final class HealthSnapshot {
     var skinTempWrist: Double?
     var respiratoryRate: Double?
     var spo2Avg: Double?
+    /// Lowest SpO2 (%) during overnight window — single most clinically interesting value.
+    var spo2NadirOvernight: Double?
+    /// Minutes spent below 90% during overnight window (T90 — hypoxic burden).
+    var spo2TimeBelow90Min: Int?
+    /// Rough ODI-style desaturation event count overnight. Not clinical-grade ODI4 —
+    /// manufacturer-app reports remain authoritative; this is for trending only.
+    var spo2DesatsCount: Int?
 
     // Activity
     var steps: Int?
@@ -45,6 +52,14 @@ final class HealthSnapshot {
 
     // Blood glucose (if available, mg/dL)
     var bloodGlucoseAvg: Double?
+    /// Glucose standard deviation (mg/dL) — variability magnitude.
+    var glucoseStdDev: Double?
+    /// Coefficient of variation (%) — normalized glycemic variability; clinical target <36%.
+    var glucoseCV: Double?
+    /// Lowest reading of the day (mg/dL).
+    var glucoseMin: Double?
+    /// Highest reading of the day (mg/dL).
+    var glucoseMax: Double?
 
     // Cardiorespiratory fitness
     var vo2Max: Double?

@@ -1,4 +1,5 @@
 import Foundation
+import PDFKit
 import Testing
 
 @testable import AnxietyWatch
@@ -324,5 +325,47 @@ struct ReportGeneratorTests {
             end: end
         )
         #expect(!data.isEmpty)
+    }
+
+    @Test("Report includes overnight respiratory and glucose section with both halves")
+    func reportIncludesOvernightSection() throws {
+        let cal = Calendar.current
+        let date = cal.date(from: DateComponents(year: 2026, month: 6, day: 15))!
+        let snapshot = HealthSnapshot(date: date)
+        snapshot.spo2NadirOvernight = 87.0
+        snapshot.spo2TimeBelow90Min = 12
+        snapshot.spo2DesatsCount = 4
+        snapshot.glucoseMin = 80
+        snapshot.glucoseMax = 165
+        snapshot.glucoseCV = 18.5
+
+        let pdfData = ReportGenerator.generatePDF(
+            entries: [], doses: [], definitions: [],
+            snapshots: [snapshot], cpapSessions: [],
+            start: date, end: cal.date(byAdding: .day, value: 1, to: date)!
+        )
+
+        // UIGraphicsPDFRenderer compresses content streams with FlateDecode,
+        // so a raw byte scan can't find the drawn text. Use PDFKit to extract
+        // the rendered text from each page.
+        let doc = try #require(PDFDocument(data: pdfData))
+        var raw = ""
+        for i in 0..<doc.pageCount {
+            if let page = doc.page(at: i), let s = page.string {
+                raw += s
+            }
+        }
+        #expect(raw.contains("Overnight Respiratory"))
+        // SpO₂ half: each metric appears in its labeled context.
+        #expect(raw.contains("87"))    // nadir
+        #expect(raw.contains("T90"))   // T90 label
+        #expect(raw.contains("desats")) // desats label
+        // Glucose half — ensure the report doesn't silently stop rendering it.
+        // Loose digit checks (the en-dash in "80–165" and rounding of 18.5
+        // are both fragile across PDFKit text extraction).
+        #expect(raw.contains("Glucose"))
+        #expect(raw.contains("80"))
+        #expect(raw.contains("165"))
+        #expect(raw.contains("CV"))
     }
 }

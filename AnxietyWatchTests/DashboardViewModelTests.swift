@@ -277,4 +277,40 @@ struct DashboardViewModelTests {
         let label = vm.freshnessLabel(recent, now: referenceDate)
         #expect(label != "last night")
     }
+
+    @Test("nightFreshnessLabel returns 'Last night' for same-day snapshots")
+    func nightFreshnessSameDay() {
+        let label = DashboardViewModel.nightFreshnessLabel(
+            for: referenceDate, now: referenceDate
+        )
+        #expect(label == "Last night")
+    }
+
+    @Test("nightFreshnessLabel offsets by one for older snapshots")
+    func nightFreshnessOlderSnapshots() {
+        let cal = Calendar.current
+        // Snapshot from yesterday → should read "2 nights ago"
+        let yesterday = cal.date(byAdding: .day, value: -1, to: referenceDate)!
+        #expect(DashboardViewModel.nightFreshnessLabel(
+            for: yesterday, now: referenceDate
+        ) == "2 nights ago")
+
+        // Snapshot from 3 days ago → "4 nights ago"
+        let threeDaysAgo = cal.date(byAdding: .day, value: -3, to: referenceDate)!
+        #expect(DashboardViewModel.nightFreshnessLabel(
+            for: threeDaysAgo, now: referenceDate
+        ) == "4 nights ago")
+    }
+
+    @Test("nightFreshnessLabel handles future-dated snapshot as 'Last night'")
+    func nightFreshnessFutureClamps() {
+        // A snapshot stamped in the future (clock skew, debug seeding) should
+        // not read as a negative-days label; collapse to "Last night".
+        let cal = Calendar.current
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: referenceDate)!
+        #expect(DashboardViewModel.nightFreshnessLabel(
+            for: tomorrow, now: referenceDate
+        ) == "Last night")
+    }
+
 }

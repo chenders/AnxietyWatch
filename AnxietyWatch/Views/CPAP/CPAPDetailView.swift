@@ -49,6 +49,56 @@ struct CPAPDetailView: View {
                 LabeledContent("Max", value: String(format: "%.1f", session.pressureMax))
             }
 
+            if let snap = daySnapshot,
+               snap.spo2NadirOvernight != nil
+                || snap.spo2TimeBelow90Min != nil
+                || snap.spo2DesatsCount != nil {
+                Section("Overnight SpO\u{2082}") {
+                    if let nadir = snap.spo2NadirOvernight {
+                        HStack {
+                            Text("Nadir")
+                            Spacer()
+                            Text(String(format: "%.0f%%", nadir))
+                                .foregroundStyle(ClinicalSeverity.spo2NadirSeverity(nadir).color)
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    if let t90 = snap.spo2TimeBelow90Min {
+                        HStack {
+                            Text("Time <90% (T90)")
+                            Spacer()
+                            Text("\(t90) min")
+                                .foregroundStyle(ClinicalSeverity.t90Severity(t90).color)
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    if let desats = snap.spo2DesatsCount {
+                        HStack {
+                            Text("Desats")
+                            Spacer()
+                            Text("\(desats)")
+                                .foregroundStyle(ClinicalSeverity.desatCountSeverity(desats).color)
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    if let nadir = snap.spo2NadirOvernight,
+                       let baseline = BaselineCalculator.spo2NadirBaseline(
+                            from: snapshots,
+                            anchorDate: session.date
+                       ) {
+                        HStack {
+                            Text("vs. 30-day avg")
+                            Spacer()
+                            Text(String(format: "nadir %.0f%%", baseline.mean))
+                                .foregroundStyle(.secondary)
+                            Text(comparisonLabel(nadir: nadir, mean: baseline.mean))
+                                .font(.caption)
+                                .foregroundStyle(nadir < baseline.lowerBound ? .red : .secondary)
+                        }
+                    }
+                }
+            }
+
             if daySnapshot != nil || !dayEntries.isEmpty {
                 Section("That Day's Context") {
                     if let snap = daySnapshot {
@@ -79,6 +129,12 @@ struct CPAPDetailView: View {
         let h = session.totalUsageMinutes / 60
         let m = session.totalUsageMinutes % 60
         return "\(h)h \(m)m"
+    }
+
+    private func comparisonLabel(nadir: Double, mean: Double) -> String {
+        if nadir < mean { return "(lower)" }
+        if nadir > mean { return "(higher)" }
+        return "(equal)"
     }
 
     private var ahiColor: Color {

@@ -150,7 +150,14 @@ struct TrendsView: View {
                         HeartRateTrendChart(snapshots: snapshots, entries: entries, dateRange: dateRange)
                         SleepTrendChart(snapshots: snapshots, dateRange: dateRange)
                         ActivityTrendChart(snapshots: snapshots, dateRange: dateRange)
-                        CPAPTrendChart(sessions: cpapSessions, allSnapshots: allSnapshots, entries: entries, dateRange: dateRange)
+                        SleepRespiratoryTrendChart(
+                            sessions: cpapSessions,
+                            snapshots: snapshots,
+                            allSnapshots: allSnapshots,
+                            entries: entries,
+                            dateRange: dateRange
+                        )
+                        GlucoseTrendChart(snapshots: snapshots, entries: entries, dateRange: dateRange)
                         BarometricTrendChart(readings: barometricReadings, entries: entries, allSnapshots: allSnapshots, dateRange: dateRange)
 
                         // Insights link

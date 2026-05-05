@@ -6,7 +6,15 @@ enum MetricVisualization {
     case progressBar(current: Double, goal: Double, color: Color)
     case recentBars(values: [Double], color: Color)
     case sleepStages(deep: Int, rem: Int, core: Int, awake: Int)
+    case miniGrid(items: [MiniGridItem])
     case none
+}
+
+/// One labelled value cell in a 2×2 mini-grid for compact secondary metrics.
+struct MiniGridItem: Sendable {
+    let label: String
+    let value: String
+    let color: Color
 }
 
 /// Side-by-side metric card: value stack on the left, visualization on the right.
@@ -78,6 +86,26 @@ struct LiveMetricCard: View {
             RecentBarsView(values: values, color: barColor)
         case .sleepStages(let deep, let rem, let core, let awake):
             SleepStagesView(deep: deep, rem: rem, core: core, awake: awake)
+        case .miniGrid(let items):
+            // 2×2 grid in the same 50pt slot used by the sparkline. Each cell
+            // is a label + value stack; lineLimit + minimumScaleFactor keep
+            // larger Dynamic Type sizes from clipping the bottom row.
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)], spacing: 2) {
+                ForEach(items.indices, id: \.self) { i in
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(items[i].label)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        Text(items[i].value)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(items[i].color)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                }
+            }
         case .none:
             EmptyView()
         }

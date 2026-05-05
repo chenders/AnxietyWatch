@@ -86,6 +86,43 @@ enum BaselineCalculator {
         return baseline(from: values)
     }
 
+    /// Compute SpO₂ nadir baseline from overnight snapshots.
+    /// Window is the trailing N days *ending at* `anchorDate` — older
+    /// snapshots and snapshots strictly after the anchor are both excluded.
+    /// (Without the upper bound, viewing an older session would mix in
+    /// snapshots from after that date and skew the comparison.)
+    static func spo2NadirBaseline(
+        from snapshots: [HealthSnapshot],
+        windowDays: Int = Constants.baselineWindowDays,
+        anchorDate: Date = .now
+    ) -> BaselineResult? {
+        guard let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate) else { return nil }
+        let cutoff = Calendar.current.startOfDay(for: daysAgo)
+        let upper = Calendar.current.startOfDay(for: anchorDate)
+        let values = snapshots
+            .filter { $0.date >= cutoff && $0.date <= upper }
+            .compactMap(\.spo2NadirOvernight)
+
+        return baseline(from: values)
+    }
+
+    /// Compute T90 (minutes <90% SpO₂) baseline from overnight snapshots.
+    /// Window is the trailing N days *ending at* `anchorDate`.
+    static func t90Baseline(
+        from snapshots: [HealthSnapshot],
+        windowDays: Int = Constants.baselineWindowDays,
+        anchorDate: Date = .now
+    ) -> BaselineResult? {
+        guard let daysAgo = Calendar.current.date(byAdding: .day, value: -windowDays, to: anchorDate) else { return nil }
+        let cutoff = Calendar.current.startOfDay(for: daysAgo)
+        let upper = Calendar.current.startOfDay(for: anchorDate)
+        let values = snapshots
+            .filter { $0.date >= cutoff && $0.date <= upper }
+            .compactMap { $0.spo2TimeBelow90Min.map(Double.init) }
+
+        return baseline(from: values)
+    }
+
     /// Compute barometric pressure baseline.
     static func barometricPressureBaseline(
         from snapshots: [HealthSnapshot],

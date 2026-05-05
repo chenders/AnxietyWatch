@@ -143,6 +143,10 @@ actor HealthKitManager: HealthKitDataSource {
     }
 
     /// Minimum of a discrete quantity type over a date range.
+    /// Uses `.strictStartDate` to match `quantitySamples` so derived stats
+    /// (nadir vs. T90/desats) agree at window boundaries — without this, a
+    /// nadir sample straddling noon would be returned for both adjacent
+    /// overnight windows while T90/desats are not.
     func minimumQuantity(
         _ identifier: HKQuantityTypeIdentifier,
         unit: HKUnit,
@@ -151,7 +155,9 @@ actor HealthKitManager: HealthKitDataSource {
     ) async throws -> Double? {
         guard isAvailable else { return nil }
         let type = HKQuantityType(identifier)
-        let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
+        let predicate = HKQuery.predicateForSamples(
+            withStart: start, end: end, options: .strictStartDate
+        )
 
         let statistics: HKStatistics? = try await withCheckedThrowingContinuation { continuation in
             let query = HKStatisticsQuery(
@@ -230,6 +236,58 @@ actor HealthKitManager: HealthKitDataSource {
 
         guard let sample else { return nil }
         return (sample.endDate, sample.quantity.doubleValue(for: unit))
+    }
+
+    /// Raw quantity samples in the given range, sorted by start date.
+    /// Uses `.strictStartDate` so a sample is owned by exactly one window:
+    /// without this, HealthKit's default overlap predicate would return a
+    /// sample straddling the boundary (e.g., a 5-min SpO₂ sample crossing
+    /// midnight) for both adjacent days, double-counting the value in
+    /// min/max/SD/CV and the duration in T90/desats.
+    func quantitySamples(
+        _ identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        start: Date,
+        end: Date
+    ) async throws -> [QuantitySample] {
+        guard isAvailable else { return [] }
+        let type = HKQuantityType(identifier)
+        let predicate = HKQuery.predicateForSamples(
+            withStart: start, end: end, options: .strictStartDate
+        )
+
+        let samples: [HKQuantitySample] = try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+            ) { _, results, error in
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: [])
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: (results as? [HKQuantitySample]) ?? [])
+                }
+            }
+            healthStore.execute(query)
+        }
+
+        // Clip each sample's end to the window end. `.strictStartDate` only
+        // filters by start time; a sample whose end runs past the window
+        // boundary would otherwise be counted at full duration in this
+        // window even though the post-boundary portion belongs to the next
+        // window's snapshot. (T90 and desat duration math care about this;
+        // single-value reads do not.)
+        return samples.map {
+            let clippedEnd = min($0.endDate, end)
+            return QuantitySample(
+                start: $0.startDate,
+                end: clippedEnd,
+                value: $0.quantity.doubleValue(for: unit)
+            )
+        }
     }
 
     // MARK: - Blood Pressure (Correlation)

@@ -176,6 +176,198 @@ struct SnapshotAggregatorMockTests {
         try await aggregator.aggregateDay(referenceDate)
         let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
         #expect(s.spo2Avg == nil)
+        #expect(s.spo2NadirOvernight == nil)
+        #expect(s.spo2TimeBelow90Min == nil)
+        #expect(s.spo2DesatsCount == nil)
+    }
+
+    @Test("SpO2 overnight nadir is scaled to percentage")
+    func spo2NadirScaled() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        await mock.setMinimum(.oxygenSaturation, value: 0.85)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.spo2NadirOvernight != nil)
+        #expect(abs(s.spo2NadirOvernight! - 85.0) < 0.01)
+    }
+
+    @Test("SpO2 T90 aggregates from overnight samples")
+    func spo2T90Aggregated() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        let base = referenceDate
+        // 60 contiguous 5-second samples (= 5 minutes total). First 24 samples
+        // (= 120s = 2 min) below 0.90, rest above. Total >= the aggregator's
+        // 30-sample minimum so T90 is computed.
+        let belowCount = 24
+        let totalCount = 60
+        let samples = (0..<totalCount).map { i in
+            QuantitySample(
+                start: base.addingTimeInterval(Double(i) * 5),
+                end: base.addingTimeInterval(Double(i + 1) * 5),
+                value: i < belowCount ? 0.85 : 0.95
+            )
+        }
+        await mock.setQuantitySamples(.oxygenSaturation, samples)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.spo2TimeBelow90Min == 2)
+    }
+
+    @Test("SpO2 desat count aggregates two events from overnight samples")
+    func spo2DesatsAggregated() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        let base = referenceDate
+        // 5 baseline readings, drop, recover, drop, recover, then padded to
+        // 60 baseline 0.97s — total 60 samples × 5s = 300s span, clearing
+        // both the 30-sample minimum and the 5-min duration minimum.
+        let values: [Double] = Array(repeating: 0.97, count: 5)
+            + [0.92, 0.93, 0.96, 0.97]
+            + [0.91, 0.93, 0.97]
+            + Array(repeating: 0.97, count: 48)
+        let samples = values.enumerated().map { i, v in
+            QuantitySample(
+                start: base.addingTimeInterval(Double(i) * 5),
+                end: base.addingTimeInterval(Double(i + 1) * 5),
+                value: v
+            )
+        }
+        await mock.setQuantitySamples(.oxygenSaturation, samples)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.spo2DesatsCount == 2)
+    }
+
+    @Test("SpO2 T90 / desats are nil when samples cover too little time")
+    func spo2OvernightStatsNilForBriefBurst() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        let base = referenceDate
+        // 60 contiguous 1-second samples — clears the 30-sample count
+        // threshold but only spans 60s, well below the 5-min duration
+        // threshold. Represents a brief monitor burst, not overnight coverage.
+        let samples = (0..<60).map { i in
+            QuantitySample(
+                start: base.addingTimeInterval(Double(i)),
+                end: base.addingTimeInterval(Double(i + 1)),
+                value: 0.85
+            )
+        }
+        await mock.setQuantitySamples(.oxygenSaturation, samples)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.spo2TimeBelow90Min == nil)
+        #expect(s.spo2DesatsCount == nil)
+    }
+
+    @Test("SpO2 stats nil when overlapping samples sum to insufficient unique coverage")
+    func spo2OvernightStatsNilForDoubleCountedOverlap() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        let base = referenceDate
+        // Two SpO₂ sources both recording the same 175-second interval (35
+        // contiguous 5-second samples, ×2 sources = 70 raw samples). Naive
+        // sum would give 350s of "monitoring" (passes 5-min gate); the
+        // collapseOverlaps-aware aggregator correctly counts 175s of unique
+        // coverage and emits nil.
+        var samples: [QuantitySample] = []
+        for i in 0..<35 {
+            let start = base.addingTimeInterval(Double(i) * 5)
+            let end = base.addingTimeInterval(Double(i + 1) * 5)
+            samples.append(QuantitySample(start: start, end: end, value: 0.85))
+            samples.append(QuantitySample(start: start, end: end, value: 0.86))
+        }
+        await mock.setQuantitySamples(.oxygenSaturation, samples)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.spo2TimeBelow90Min == nil)
+        #expect(s.spo2DesatsCount == nil)
+    }
+
+    @Test("SpO2 stats nil when one-second readings are scattered across a wider span")
+    func spo2OvernightStatsNilForScatteredOneSecondReadings() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        let base = referenceDate
+        // 30 one-second samples spaced 1 minute apart — span 29 minutes,
+        // but only 30 seconds of actual monitoring. A span-based gate would
+        // pass them; the total-monitored-duration gate correctly excludes.
+        let samples = (0..<30).map { i in
+            QuantitySample(
+                start: base.addingTimeInterval(Double(i) * 60),
+                end: base.addingTimeInterval(Double(i) * 60 + 1),
+                value: 0.85
+            )
+        }
+        await mock.setQuantitySamples(.oxygenSaturation, samples)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.spo2TimeBelow90Min == nil)
+        #expect(s.spo2DesatsCount == nil)
+    }
+
+    @Test("Glucose SD/CV are nil when readings are clustered in a short window")
+    func glucoseVariabilityNilForClusteredReadings() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        let base = referenceDate
+        // 5 readings within a 30-minute window (e.g., a meal-time CGM cluster)
+        // — clears the 4-sample count threshold but fails the 1-hour duration
+        // threshold so SD/CV stay nil. Min/max are still emitted.
+        let values: [Double] = [110, 130, 145, 160, 150]
+        let samples = values.enumerated().map { i, v in
+            QuantitySample(
+                start: base.addingTimeInterval(Double(i) * 300),  // 5-min spacing
+                end: base.addingTimeInterval(Double(i) * 300 + 60),
+                value: v
+            )
+        }
+        await mock.setQuantitySamples(.bloodGlucose, samples)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.glucoseMin == 110)
+        #expect(s.glucoseMax == 160)
+        #expect(s.glucoseStdDev == nil)
+        #expect(s.glucoseCV == nil)
+    }
+
+    @Test("SpO2 T90 / desats are nil when sample count is below continuous-monitoring threshold")
+    func spo2OvernightStatsNilForSparseSamples() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        let base = referenceDate
+        // 3 spot readings (typical Apple Watch output for a night) — well
+        // below the aggregator's 30-sample minimum so the stats should not
+        // be computed. Otherwise the day would export a misleading 0-min
+        // T90 / 0-desats "good night".
+        let samples = [
+            QuantitySample(start: base, end: base.addingTimeInterval(60), value: 0.85),
+            QuantitySample(start: base.addingTimeInterval(60), end: base.addingTimeInterval(120), value: 0.95),
+            QuantitySample(start: base.addingTimeInterval(120), end: base.addingTimeInterval(180), value: 0.88),
+        ]
+        await mock.setQuantitySamples(.oxygenSaturation, samples)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.spo2TimeBelow90Min == nil)
+        #expect(s.spo2DesatsCount == nil)
     }
 
     @Test("Skin temp wrist stores raw absolute temperature")
@@ -231,6 +423,70 @@ struct SnapshotAggregatorMockTests {
         #expect(today.skinTempWrist == 35.8)
         #expect(today.skinTempDeviation != nil)
         #expect(abs(today.skinTempDeviation! - 0.8) < 0.01)
+    }
+
+    @Test("Glucose variability stats aggregate from samples")
+    func glucoseVariability() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        let base = referenceDate
+        // [80, 100, 120, 140, 160] — mean=120, SD≈28.28, CV≈23.57%.
+        // 5 samples spaced 1 hour apart so the span (4h+) clears the 1-hour
+        // minimum-coverage threshold.
+        let values: [Double] = [80, 100, 120, 140, 160]
+        let samples = values.enumerated().map { i, v in
+            QuantitySample(
+                start: base.addingTimeInterval(Double(i) * 3600),
+                end: base.addingTimeInterval(Double(i) * 3600 + 60),
+                value: v
+            )
+        }
+        await mock.setQuantitySamples(.bloodGlucose, samples)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.glucoseMin == 80)
+        #expect(s.glucoseMax == 160)
+        #expect(abs(s.glucoseStdDev! - 28.28) < 0.1)
+        #expect(abs(s.glucoseCV! - 23.57) < 0.1)
+    }
+
+    @Test("Glucose variability nil when no samples")
+    func glucoseVariabilityEmpty() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.glucoseMin == nil)
+        #expect(s.glucoseMax == nil)
+        #expect(s.glucoseStdDev == nil)
+        #expect(s.glucoseCV == nil)
+    }
+
+    @Test("Glucose SD/CV are nil for sparse sampling but min/max remain")
+    func glucoseVariabilityNilWithSparseSampling() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        let base = referenceDate
+        // 2 finger-stick readings (below the 4-sample minimum for variability
+        // stats). Min/max are still emitted because a single reading is a
+        // meaningful extreme; CV/SD would be misleading on this little data.
+        let samples = [
+            QuantitySample(start: base, end: base.addingTimeInterval(60), value: 95),
+            QuantitySample(start: base.addingTimeInterval(3600), end: base.addingTimeInterval(3660), value: 140),
+        ]
+        await mock.setQuantitySamples(.bloodGlucose, samples)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+        let s = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
+        #expect(s.glucoseMin == 95)
+        #expect(s.glucoseMax == 140)
+        #expect(s.glucoseStdDev == nil)
+        #expect(s.glucoseCV == nil)
     }
 
     @Test("Aggregating same day twice updates existing snapshot")

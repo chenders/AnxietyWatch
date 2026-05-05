@@ -187,10 +187,27 @@ struct DashboardView: View {
     @ViewBuilder
     private var healthSection: some View {
         vitalsCards
+        lastNightSection
         activityCards
         sleepCard
         audioCards
         bloodPressureAndGlucoseCards
+    }
+
+    @ViewBuilder
+    private var lastNightSection: some View {
+        // Scan the already-loaded recentSnapshots @Query rather than issuing a
+        // fresh SwiftData fetch on every body recompute. The list is sorted
+        // descending by date so .first(where:) returns the most recent
+        // overnight-stat-bearing snapshot in O(n) over the in-memory window.
+        if let snapshot = recentSnapshots.first(where: {
+            $0.spo2NadirOvernight != nil
+                || $0.spo2TimeBelow90Min != nil
+                || $0.spo2DesatsCount != nil
+        }) {
+            LastNightCard(snapshot: snapshot)
+                .padding(.horizontal)
+        }
     }
 
     // MARK: - Vitals (HR, HRV, Resting HR, SpO2, RR, VO2 Max, Walking HR, Steadiness, AFib)
@@ -470,7 +487,43 @@ struct DashboardView: View {
         // Blood Glucose
         let bgType = HKQuantityTypeIdentifier.bloodGlucose.rawValue
         if let latest = vm.latestSample(for: bgType) {
-            let todayCount = vm.todaySamples(for: bgType).count
+            // Only adopt the mini-grid when the stat-bearing snapshot is for
+            // today; otherwise the tile would mix today's live reading with
+            // yesterday's min/max/CV. Stale-snapshot days fall through to the
+            // existing sparkline-or-none behavior. Uses the in-memory
+            // recentSnapshots @Query (sorted desc) instead of a per-body
+            // SwiftData fetch.
+            let glucoseSnapshot = recentSnapshots.first {
+                $0.glucoseStdDev != nil
+                    || $0.glucoseCV != nil
+                    || $0.glucoseMin != nil
+                    || $0.glucoseMax != nil
+            }
+            let viz: MetricVisualization = {
+                if let g = glucoseSnapshot, Calendar.current.isDateInToday(g.date) {
+                    var items: [MiniGridItem] = []
+                    if let sd = g.glucoseStdDev {
+                        items.append(MiniGridItem(label: "SD", value: String(format: "%.0f", sd), color: .secondary))
+                    }
+                    if let cv = g.glucoseCV {
+                        items.append(MiniGridItem(label: "CV", value: String(format: "%.0f%%", cv),
+                                                  color: ClinicalSeverity.glucoseCVSeverity(cv).color))
+                    }
+                    if let mn = g.glucoseMin {
+                        items.append(MiniGridItem(label: "Min", value: String(format: "%.0f", mn),
+                                                  color: ClinicalSeverity.glucoseValueSeverity(mn).color))
+                    }
+                    if let mx = g.glucoseMax {
+                        items.append(MiniGridItem(label: "Max", value: String(format: "%.0f", mx),
+                                                  color: ClinicalSeverity.glucoseValueSeverity(mx).color))
+                    }
+                    if !items.isEmpty { return .miniGrid(items: items) }
+                }
+                let todayCount = vm.todaySamples(for: bgType).count
+                return todayCount >= 3
+                    ? .sparkline(segments: vm.sparklineSegments(for: bgType), color: .purple)
+                    : .none
+            }()
             LiveMetricCard(
                 title: "Blood Glucose",
                 value: String(format: "%.0f", latest.value),
@@ -478,9 +531,7 @@ struct DashboardView: View {
                 trend: vm.trend(for: bgType),
                 freshness: vm.freshnessLabel(latest.timestamp),
                 color: .purple,
-                visualization: todayCount >= 3
-                    ? .sparkline(segments: vm.sparklineSegments(for: bgType), color: .purple)
-                    : .none
+                visualization: viz
             )
         }
     }

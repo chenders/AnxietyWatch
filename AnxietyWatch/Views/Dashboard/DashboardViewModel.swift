@@ -142,6 +142,22 @@ final class DashboardViewModel {
         return (snapshot, isToday)
     }
 
+    /// Format a freshness label for an overnight snapshot.
+    /// `snapshot.date` represents the morning the overnight window ended (per
+    /// SnapshotAggregator's noon-to-noon range), so day-diff = N corresponds
+    /// to "(N+1) nights ago" colloquially. A same-day snapshot reads "Last
+    /// night"; older snapshots roll forward.
+    static func nightFreshnessLabel(for snapshotDate: Date, now: Date = .now) -> String {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: now)
+        let snapDay = cal.startOfDay(for: snapshotDate)
+        let days = cal.dateComponents([.day], from: snapDay, to: today).day ?? 0
+        switch days {
+        case ...0: return "Last night"
+        default: return "\(days + 1) nights ago"
+        }
+    }
+
     /// Latest lab result per unique test from last 7 days (max 4 for dashboard).
     func latestLabResultPerTest(from labResults: [ClinicalLabResult], now: Date = .now) -> [ClinicalLabResult] {
         let calendar = Calendar.current

@@ -273,4 +273,51 @@ struct BaselineCalculatorTests {
         let expectedStdDev = (126.0 / 13.0).squareRoot()
         #expect(abs(result.standardDeviation - expectedStdDev) < 0.01)
     }
+
+    @Test("spo2NadirBaseline computes mean and stddev from snapshots")
+    func spo2NadirBaselineBasic() {
+        let cal = Calendar.current
+        let anchor = cal.date(from: DateComponents(year: 2026, month: 6, day: 15))!
+        var snapshots: [HealthSnapshot] = []
+        // 14 nights with nadir values 86,87,88,...99 — mean=92.5
+        for i in 0..<14 {
+            let date = cal.date(byAdding: .day, value: -i - 1, to: anchor)!
+            let s = HealthSnapshot(date: date)
+            s.spo2NadirOvernight = Double(86 + i)
+            snapshots.append(s)
+        }
+        let baseline = BaselineCalculator.spo2NadirBaseline(from: snapshots, anchorDate: anchor)
+        #expect(baseline != nil)
+        #expect(abs(baseline!.mean - 92.5) < 0.01)
+    }
+
+    @Test("spo2NadirBaseline returns nil when fewer than 14 samples")
+    func spo2NadirBaselineInsufficient() {
+        let cal = Calendar.current
+        let anchor = cal.date(from: DateComponents(year: 2026, month: 6, day: 15))!
+        var snapshots: [HealthSnapshot] = []
+        for i in 0..<10 {
+            let date = cal.date(byAdding: .day, value: -i - 1, to: anchor)!
+            let s = HealthSnapshot(date: date)
+            s.spo2NadirOvernight = 90.0
+            snapshots.append(s)
+        }
+        #expect(BaselineCalculator.spo2NadirBaseline(from: snapshots, anchorDate: anchor) == nil)
+    }
+
+    @Test("t90Baseline computes mean from snapshot int values")
+    func t90BaselineBasic() {
+        let cal = Calendar.current
+        let anchor = cal.date(from: DateComponents(year: 2026, month: 6, day: 15))!
+        var snapshots: [HealthSnapshot] = []
+        for i in 0..<14 {
+            let date = cal.date(byAdding: .day, value: -i - 1, to: anchor)!
+            let s = HealthSnapshot(date: date)
+            s.spo2TimeBelow90Min = 5  // constant 5 min/night
+            snapshots.append(s)
+        }
+        let baseline = BaselineCalculator.t90Baseline(from: snapshots, anchorDate: anchor)
+        #expect(baseline != nil)
+        #expect(abs(baseline!.mean - 5.0) < 0.01)
+    }
 }

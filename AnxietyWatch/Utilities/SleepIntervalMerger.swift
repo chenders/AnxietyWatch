@@ -21,8 +21,13 @@ enum SleepIntervalMerger {
             }
         }
 
-        return merged.reduce(0) { total, interval in
-            total + Int(interval.1.timeIntervalSince(interval.0) / 60)
+        // Sum seconds across all merged intervals first, then convert once.
+        // Per-interval Int truncation would undercount fragmented short
+        // intervals (two 40-second runs would each truncate to 0 minutes
+        // even though their total is 80 seconds).
+        let totalSeconds = merged.reduce(0.0) { total, interval in
+            total + interval.1.timeIntervalSince(interval.0)
         }
+        return Int(totalSeconds / 60)
     }
 }

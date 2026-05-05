@@ -22,6 +22,8 @@ protocol HealthKitDataSource: Sendable {
                             start: Date, end: Date) async throws -> Double?
     func mostRecentQuantity(_ identifier: HKQuantityTypeIdentifier,
                             unit: HKUnit) async throws -> (date: Date, value: Double)?
+    func quantitySamples(_ identifier: HKQuantityTypeIdentifier, unit: HKUnit,
+                         start: Date, end: Date) async throws -> [QuantitySample]
     func averageBloodPressure(start: Date, end: Date) async throws -> (systolic: Double, diastolic: Double)?
     func querySleepAnalysis(start: Date, end: Date) async throws -> SleepData
     func queryClinicalLabResults(since startDate: Date?) async throws -> [HKClinicalRecord]
