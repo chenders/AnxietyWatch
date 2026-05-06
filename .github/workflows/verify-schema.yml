@@ -1,0 +1,31 @@
+name: Verify Server Schema
+
+# Manual workflow_dispatch only. No untrusted inputs are used in any step
+# (all commands operate on hardcoded literals); safe by construction.
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: anxietywatch
+    timeout-minutes: 5
+    steps:
+      - name: Alembic current revision
+        working-directory: /opt/anxietywatch
+        run: docker compose exec -T anxietywatch-app alembic current
+
+      - name: Tables present
+        working-directory: /opt/anxietywatch
+        run: docker compose exec -T anxietywatch-db psql -U anxietywatch -d anxietywatch -c "\dt"
+
+      - name: quantity_health_samples columns
+        working-directory: /opt/anxietywatch
+        run: docker compose exec -T anxietywatch-db psql -U anxietywatch -d anxietywatch -c "\d quantity_health_samples"
+
+      - name: sleep_stage_events columns
+        working-directory: /opt/anxietywatch
+        run: docker compose exec -T anxietywatch-db psql -U anxietywatch -d anxietywatch -c "\d sleep_stage_events"
+
+      - name: health_snapshots data_quality column
+        working-directory: /opt/anxietywatch
+        run: docker compose exec -T anxietywatch-db psql -U anxietywatch -d anxietywatch -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'health_snapshots' AND column_name = 'data_quality';"
