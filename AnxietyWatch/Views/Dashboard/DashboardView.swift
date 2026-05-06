@@ -10,6 +10,13 @@ struct DashboardView: View {
     private var recentDoses: [MedicationDose]
     @Query(sort: \HealthSnapshot.date, order: .reverse)
     private var recentSnapshots: [HealthSnapshot]
+    // SleepStageEvent rows can be thousands per night × hundreds of nights.
+    // Bound the query to the last 30 days so the dashboard never loads the
+    // full history into memory. The cutoff is captured once at view init via
+    // the `let`-bound `sleepCutoff` because SwiftData's `@Query(filter:)`
+    // can't reference a runtime-evaluated `Date.now` directly inside the
+    // predicate macro.
+    @Query private var recentSleepEvents: [SleepStageEvent]
     @Query(sort: \CPAPSession.date, order: .reverse)
     private var recentCPAP: [CPAPSession]
     @Query(sort: \ClinicalLabResult.effectiveDate, order: .reverse)
@@ -19,6 +26,17 @@ struct DashboardView: View {
 
     @State private var vm = DashboardViewModel()
     private let barometer = BarometerService.shared
+
+    init() {
+        let sleepCutoff = Date.now.addingTimeInterval(-30 * 24 * 3600)
+        _recentSleepEvents = Query(
+            filter: #Predicate<SleepStageEvent> { event in
+                event.startTime >= sleepCutoff
+            },
+            sort: \SleepStageEvent.startTime,
+            order: .reverse
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -524,16 +542,43 @@ struct DashboardView: View {
                     ? .sparkline(segments: vm.sparklineSegments(for: bgType), color: .purple)
                     : .none
             }()
-            LiveMetricCard(
-                title: "Blood Glucose",
-                value: String(format: "%.0f", latest.value),
-                unitLabel: "mg/dL",
-                trend: vm.trend(for: bgType),
-                freshness: vm.freshnessLabel(latest.timestamp),
-                color: .purple,
-                visualization: viz
-            )
+            NavigationLink {
+                GlucoseDetailView(
+                    anxietyEntries: recentEntries,
+                    sleepIntervals: sleepIntervalsFromEvents(recentSleepEvents)
+                )
+            } label: {
+                LiveMetricCard(
+                    title: "Blood Glucose",
+                    value: String(format: "%.0f", latest.value),
+                    unitLabel: "mg/dL",
+                    trend: vm.trend(for: bgType),
+                    freshness: vm.freshnessLabel(latest.timestamp),
+                    color: .purple,
+                    visualization: viz
+                )
+            }
+            .buttonStyle(.plain)
         }
+    }
+
+    /// Map raw `SleepStageEvent`s (HK category samples) to the start/end
+    /// interval pairs `GlucoseDetailView` expects. Only stages that represent
+    /// the user being asleep contribute — `inBed` and `awake` are excluded so
+    /// the chart's overlay reflects actual sleep, not time-in-bed.
+    ///
+    /// Per-stage events are coalesced into contiguous asleep windows before
+    /// being passed downstream. `GlucoseDetailView` renders one
+    /// `RectangleMark` per interval; without coalescing, a single night
+    /// produces dozens of tiny rectangles (one per stage transition) and
+    /// the chart re-runs that work on every render.
+    private func sleepIntervalsFromEvents(
+        _ events: [SleepStageEvent]
+    ) -> [(start: Date, end: Date)] {
+        let asleepIntervals = events
+            .filter { $0.stage.hasPrefix("asleep") }
+            .map { (start: $0.startTime, end: $0.endTime) }
+        return SleepIntervalMerger.coalesce(asleepIntervals)
     }
 
     @ViewBuilder

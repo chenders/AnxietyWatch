@@ -366,6 +366,117 @@ struct SnapshotAggregator {
             }
         }
 
+        // Compute reliability + source-summary JSON from the local SwiftData
+        // mirror of `QuantityHealthSample` rows. This is a hybrid step:
+        // the aggregate fields above still come from the HealthKit-direct
+        // path (preserving PR #120's semantics and SnapshotAggregatorMockTests
+        // coverage), while reliability/source metadata is derived from the
+        // local mirror — the authoritative source for source/device fields.
+        // A follow-up PR can complete the migration so aggregates also derive
+        // from the mirror; until the mirror is fully primed in production,
+        // running both in parallel is the defensible interim step.
+        snapshot.dataQuality = try computeDataQuality(
+            dayStart: start, dayEnd: end,
+            overnightStart: overnightStart, overnightEnd: overnightEnd
+        )
+
         try modelContext.save()
+    }
+
+    /// Build the `dataQuality` JSON object describing reliability tier + source
+    /// breakdown per metric family for this day. Always emits a key per
+    /// family — when no samples are present, the family is `insufficient`
+    /// with empty `sources`. Keys are sorted for deterministic output.
+    private func computeDataQuality(
+        dayStart: Date, dayEnd: Date,
+        overnightStart: Date, overnightEnd: Date
+    ) throws -> String? {
+        // Day-window samples (most metrics)
+        let dayDescriptor = FetchDescriptor<QuantityHealthSample>(
+            predicate: #Predicate { $0.timestamp >= dayStart && $0.timestamp < dayEnd }
+        )
+        let daySamples = try modelContext.fetch(dayDescriptor)
+
+        // Overnight-window samples (SpO2). Fetched separately because the
+        // overnight noon-to-noon window straddles two calendar days. Filtered
+        // to oxygen saturation only — this fetch only feeds the spo2 family,
+        // so pulling other metrics is wasted I/O.
+        let spo2MetricType = HKQuantityTypeIdentifier.oxygenSaturation.rawValue
+        let overnightDescriptor = FetchDescriptor<QuantityHealthSample>(
+            predicate: #Predicate {
+                $0.timestamp >= overnightStart
+                    && $0.timestamp < overnightEnd
+                    && $0.metricType == spo2MetricType
+            }
+        )
+        let overnightSamples = try modelContext.fetch(overnightDescriptor)
+
+        // Bucket samples by metricType identifier raw value.
+        let byType = Dictionary(grouping: daySamples, by: \.metricType)
+        let overnightByType = Dictionary(grouping: overnightSamples, by: \.metricType)
+
+        func group(_ id: HKQuantityTypeIdentifier, source: [String: [QuantityHealthSample]]) -> [QuantityHealthSample] {
+            source[id.rawValue] ?? []
+        }
+
+        // Build family entries. Each entry: [reliability, sources(bundleID:count)].
+        var families: [String: [String: Any]] = [:]
+
+        func emit(_ family: String, samples: [QuantityHealthSample], reliability: Reliability) {
+            var sources: [String: Int] = [:]
+            for s in samples {
+                sources[s.sourceBundleID, default: 0] += 1
+            }
+            families[family] = [
+                "reliability": reliability.rawValue,
+                "sources": sources
+            ]
+        }
+
+        let glucose = group(.bloodGlucose, source: byType)
+        emit("glucose", samples: glucose, reliability: .glucoseDaily(samples: glucose))
+
+        let spo2 = group(.oxygenSaturation, source: overnightByType)
+        emit("spo2", samples: spo2, reliability: .spo2Overnight(samples: spo2))
+
+        let hr = group(.heartRate, source: byType)
+        emit("hr", samples: hr, reliability: .heartRate(samples: hr))
+
+        // HRV/RHR/RR/wrist temp use per-metric classifiers because Apple
+        // Watch writes them at very different cadences than HR (which logs
+        // minute-by-minute). Reusing `Reliability.heartRate`'s ≥50 threshold
+        // would make every other Watch-derived metric look "medium" forever.
+        let hrv = group(.heartRateVariabilitySDNN, source: byType)
+        emit("hrv", samples: hrv, reliability: .hrv(samples: hrv))
+
+        let rhr = group(.restingHeartRate, source: byType)
+        emit("rhr", samples: rhr, reliability: .restingHR(samples: rhr))
+
+        let rr = group(.respiratoryRate, source: byType)
+        emit("rr", samples: rr, reliability: .respiratoryRate(samples: rr))
+
+        // Blood pressure: combine systolic + diastolic into one family.
+        let bpSamples = group(.bloodPressureSystolic, source: byType) +
+                        group(.bloodPressureDiastolic, source: byType)
+        emit("bp", samples: bpSamples, reliability: .bloodPressure(samples: bpSamples))
+
+        // Wrist temp: Apple Watch writes one nightly value, so any
+        // Apple-Watch-sourced sample is high reliability.
+        let wrist = group(.appleSleepingWristTemperature, source: byType)
+        emit("wristTemp", samples: wrist, reliability: .wristTemperature(samples: wrist))
+
+        // Body temperature, weight: medical-device model (same as BP).
+        let bodyTemp = group(.bodyTemperature, source: byType)
+        emit("bodyTemp", samples: bodyTemp, reliability: .bloodPressure(samples: bodyTemp))
+
+        let weight = group(.bodyMass, source: byType)
+        emit("weight", samples: weight, reliability: .bloodPressure(samples: weight))
+
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: families, options: [.sortedKeys]
+        ) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 }

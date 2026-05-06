@@ -187,6 +187,138 @@ def compute_effective_dates(data: dict, date_from: date, date_to: date) -> tuple
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
+# Mirror of `DeviceProvenance.displayName(for:)` in
+# `AnxietyWatch/Utilities/DeviceProvenance.swift`. Keep in sync with that file —
+# any time a new bundle ID is added there, mirror it here so the Claude prompt
+# renders a human-readable source name instead of a raw reverse-DNS string.
+DEVICE_DISPLAY_NAMES = {
+    "com.dexcom.stelo": "Stelo",
+    "com.dexcom.cgm": "Dexcom",
+    "com.dexcom.G6": "Dexcom G6",
+    "com.dexcom.G7": "Dexcom G7",
+    "com.abbottdiabetescare.libre2": "FreeStyle Libre 2",
+    "com.abbottdiabetescare.libre3": "FreeStyle Libre 3",
+    "com.emay.sleepo2": "EMAY SleepO2",
+    "com.emay.SleepO2": "EMAY SleepO2",
+    "io.wellue.health": "Wellue O2Ring",
+    "com.viatomtech.wellue.O2Ring": "Wellue O2Ring",
+    "com.apple.health": "Apple Watch",
+    "com.apple.Health": "Apple Watch",
+    "com.withings.wiscale2": "Withings",
+    "com.omronhealthcare.OmronConnect": "Omron",
+    "com.qardio.app": "Qardio",
+}
+
+
+def _device_display_name(bundle_id: str) -> str:
+    """Mirror of Swift `DeviceProvenance.displayName(for:)`."""
+    return DEVICE_DISPLAY_NAMES.get(bundle_id, bundle_id)
+
+
+# The verbatim reliability + absence-vs-zero instruction block from the spec at
+# `docs/superpowers/specs/2026-05-05-cgm-spo2-provenance-design.md`. The exact
+# phrasing matters — Claude reads "absence is not zero" most reliably when the
+# clinical examples are concrete.
+RELIABILITY_AND_ABSENCE_INSTRUCTIONS = (
+    "**Reliability tiers and absence vs. zero.** Each metric is tagged with a reliability tier based"
+    " on the writing-source device and sample density.\n"
+    "- `high`: dedicated continuous medical-grade device dominant. Treat as physiologically meaningful.\n"
+    "- `medium`: dedicated device present but partial coverage, or mixed sources. Useful but qualify"
+    " temporal claims.\n"
+    "- `low`: spot/ambient sources only. Mention the source explicitly when citing the value;"
+    " avoid clinical conclusions.\n"
+    "- `insufficient`: do not cite the metric.\n"
+    "\n"
+    "**Absence of data is not the same as a zero or low value.** When a metric is missing for a"
+    " period, or marked `insufficient`, the most likely explanation is a capture or sync gap — the"
+    " device wasn't worn, the sensor was offline, the companion app hasn't yet pushed to HealthKit,"
+    " or the iOS sync to this server is lagged. Examples:\n"
+    "- SpO₂ silent overnight does **not** indicate apnea or hypoxia. The patient may simply not"
+    " have worn the EMAY ring that night.\n"
+    "- HR silent for hours does **not** indicate cardiac arrest. The Apple Watch was probably"
+    " off-wrist or charging.\n"
+    "- Glucose silent for an afternoon does **not** indicate hypoglycemia. The Stelo sensor may"
+    " have been compressed, lost signal, or its app hasn't yet written the buffer to HealthKit.\n"
+    "- Sleep silent for a date range does **not** mean the patient stopped sleeping. The Watch"
+    " may not have been worn to bed.\n"
+    "\n"
+    "When a metric is missing, say so explicitly (\"no SpO₂ data captured this night\") rather"
+    " than imputing a value. Distinguish \"we have data showing X\" from \"we have no data for"
+    " this period.\" Do not draw clinical conclusions from absence.\n"
+    "\n"
+    "Full per-sample data is available server-side. If a specific clinical observation would be"
+    " sharper with intraday samples (e.g., HR around an anxiety entry timestamp), request a"
+    " windowed query rather than guessing from daily aggregates."
+)
+
+
+def _safe_int(v) -> int:
+    """Coerce a value to int defensively.
+
+    Server-side `data_quality.sources` is a JSONB blob written by the iOS
+    client. Older or hand-edited rows may surface non-numeric counts; an
+    `int(...)` cast in a sort key would crash the whole prompt build for
+    one bad row. Treat anything we can't coerce as zero so it sorts last.
+    """
+    try:
+        return int(v or 0)
+    except (ValueError, TypeError):
+        return 0
+
+
+def _format_per_day_data_quality(snapshots: list[dict]) -> str:
+    """Render the per-day reliability + sources block for the user message.
+
+    Walks each `health_snapshots` row, parses the `data_quality` JSONB column
+    (Postgres returns it as a Python dict; older rows have NULL), and emits a
+    readable per-family `reliability:` / `sources:` block. Format mirrors the
+    spec example.
+    """
+    lines = ["## Data quality per day"]
+    for snap in snapshots:
+        date_label = snap.get("date") or "unknown date"
+        dq = snap.get("data_quality")
+        # JSONB may surface as a dict (psycopg2 default) or as a JSON-encoded
+        # string in some tests/fixtures. Normalize both.
+        if isinstance(dq, str):
+            try:
+                dq = json.loads(dq)
+            except (ValueError, TypeError):
+                dq = None
+        if not isinstance(dq, dict) or not dq:
+            lines.append(f"\n### {date_label}")
+            lines.append("  data_quality: not yet computed (older snapshot or pre-v3 client)")
+            continue
+
+        lines.append(f"\n### {date_label}")
+        for family in sorted(dq.keys()):
+            entry = dq[family]
+            if not isinstance(entry, dict):
+                continue
+            reliability = entry.get("reliability", "unknown")
+            sources = entry.get("sources") or {}
+            if isinstance(sources, dict) and sources:
+                # Sort most-frequent first, with a deterministic tiebreaker on
+                # bundle ID. Without the secondary key, equal counts come back
+                # in dict-insertion order — which differs between JSON producers
+                # (psycopg2 dict, json.loads, hand-edited fixtures) and makes
+                # the rendered prompt non-deterministic.
+                rendered_sources = ", ".join(
+                    f"{_device_display_name(bid)}: {_safe_int(count)}"
+                    for bid, count in sorted(
+                        sources.items(),
+                        key=lambda kv: (-_safe_int(kv[1]), kv[0]),
+                    )
+                )
+                sources_str = "{ " + rendered_sources + " }"
+            else:
+                sources_str = "not captured"
+            lines.append(f"  {family}:")
+            lines.append(f"    reliability: {reliability}")
+            lines.append(f"    sources: {sources_str}")
+    return "\n".join(lines)
+
+
 def build_prompt(
     data: dict,
     date_from: date,
@@ -294,6 +426,11 @@ def build_prompt(
     )
 
     dq_parts.append(f"**Timezone:** All timestamps are in {timezone} time.")
+
+    # Reliability tier definitions + absence-vs-zero rule (verbatim from the
+    # CGM/SpO2 provenance spec). Always present so Claude has the framing
+    # available regardless of whether `data_quality` is populated.
+    dq_parts.append(RELIABILITY_AND_ABSENCE_INSTRUCTIONS)
 
     if therapy_sessions:
         lines = []
@@ -461,6 +598,14 @@ def build_prompt(
             continue  # Handled in the dedicated Song Patterns section below
         user_parts.append(f"## {source_name}")
         user_parts.append(json.dumps(rows, default=str, separators=(",", ":")))
+        user_parts.append("")
+
+    # Per-day data quality block (reliability tiers + source breakdown).
+    # Pulled from the `data_quality` JSONB column on `health_snapshots`. Older
+    # snapshots without that column render as "not yet computed".
+    snapshots = data.get("health_snapshots") or []
+    if snapshots:
+        user_parts.append(_format_per_day_data_quality(snapshots))
         user_parts.append("")
 
     # Song patterns section

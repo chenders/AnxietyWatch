@@ -218,6 +218,330 @@ def test_build_prompt_dose_caveat_removes_medication_goal(app):
     assert "TestMed" in user_msg
 
 
+def test_build_prompt_includes_reliability_tier_definitions(app):
+    """build_prompt system message defines all four reliability tiers."""
+    with app.app_context():
+        from analysis import build_prompt
+        system, _ = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 1), date(2026, 1, 7),
+        )
+
+    # Tier definitions per the spec
+    assert "reliability tier" in system.lower()
+    assert "`high`" in system
+    assert "`medium`" in system
+    assert "`low`" in system
+    assert "`insufficient`" in system
+    assert "do not cite the metric" in system.lower()
+
+
+def test_build_prompt_includes_absence_vs_zero_rule_verbatim(app):
+    """build_prompt system prompt contains the verbatim absence-vs-zero rule from the spec."""
+    with app.app_context():
+        from analysis import build_prompt
+        system, _ = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 1), date(2026, 1, 7),
+        )
+
+    # Verbatim text from the spec
+    assert "Absence of data is not the same as a zero or low value." in system
+    # SpO2 apnea example must be present
+    assert "SpO₂ silent overnight does **not** indicate apnea or hypoxia" in system
+    # HR off-wrist example
+    assert "HR silent for hours does **not** indicate cardiac arrest" in system
+    # Glucose silent example
+    assert "Glucose silent for an afternoon does **not** indicate hypoglycemia" in system
+    # Sleep silent example
+    assert "Sleep silent for a date range does **not** mean the patient stopped sleeping" in system
+    # Rendering instruction
+    assert "no SpO₂ data captured this night" in system
+
+
+def test_build_prompt_data_quality_section_header(app):
+    """The reliability + absence rule lives under a clearly labeled section header."""
+    with app.app_context():
+        from analysis import build_prompt
+        system, _ = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 1), date(2026, 1, 7),
+        )
+
+    # We accept either "Data Quality Notes" (existing) or a more specific
+    # "Data quality notes" / "Data Quality and Reliability" header — the spec
+    # asks for a clearly-labeled section the model can latch onto.
+    lowered = system.lower()
+    assert "data quality" in lowered
+
+
+def test_build_prompt_per_day_data_quality_block(app):
+    """For a snapshot with non-null data_quality, per-day block emits reliability + sources lines."""
+    with app.app_context():
+        from analysis import build_prompt
+        data_quality = {
+            "glucose": {"reliability": "high", "sources": {"com.dexcom.stelo": 287}},
+            "spo2": {
+                "reliability": "high",
+                "sources": {"com.emay.SleepO2": 462, "com.apple.health": 3},
+            },
+            "hr": {"reliability": "high", "sources": {"com.apple.health": 1438}},
+        }
+        snapshot = {
+            "date": "2026-01-10",
+            "hrv_avg": 45.0,
+            "resting_hr": 62,
+            "data_quality": data_quality,
+        }
+        _system, user_msg = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [snapshot], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 10), date(2026, 1, 10),
+        )
+
+    # New per-day data quality section title
+    assert "Data quality per day" in user_msg or "data quality per day" in user_msg.lower()
+    # The day's date is referenced
+    assert "2026-01-10" in user_msg
+    # Each metric family present in data_quality is rendered
+    assert "glucose:" in user_msg
+    assert "spo2:" in user_msg
+    assert "hr:" in user_msg
+    # Reliability and sources lines per family
+    assert "reliability: high" in user_msg
+    assert "sources:" in user_msg
+    # Display-name mapping converts bundle IDs (Stelo, EMAY SleepO2, Apple Watch)
+    assert "Stelo" in user_msg
+    assert "EMAY SleepO2" in user_msg
+    assert "Apple Watch" in user_msg
+    # Counts preserved
+    assert "287" in user_msg
+    assert "462" in user_msg
+
+
+def test_build_prompt_per_day_data_quality_handles_null(app):
+    """A snapshot with NULL data_quality renders gracefully without crashing."""
+    with app.app_context():
+        from analysis import build_prompt
+        snapshot = {
+            "date": "2026-01-10",
+            "hrv_avg": 45.0,
+            "resting_hr": 62,
+            "data_quality": None,
+        }
+        _system, user_msg = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [snapshot], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 10), date(2026, 1, 10),
+        )
+
+    # Either omit the day's block or render a "not yet computed" placeholder —
+    # the only hard requirement is no crash and a reasonable rendering.
+    assert "2026-01-10" in user_msg
+    # The user message should still reference some form of data quality awareness
+    assert "data quality" in user_msg.lower() or "data_quality" in user_msg.lower()
+
+
+def test_build_prompt_per_day_data_quality_handles_non_numeric_sources(app):
+    """`sources` blob with non-numeric counts must not crash prompt building.
+
+    Older or hand-edited `data_quality.sources` rows can contain strings or
+    nulls instead of ints. The sort key in `_format_per_day_data_quality`
+    must coerce defensively rather than blowing up the entire analysis.
+    """
+    with app.app_context():
+        from analysis import build_prompt
+        data_quality = {
+            "glucose": {
+                "reliability": "high",
+                # Mixed bag: int, numeric string, None, and a non-numeric string.
+                "sources": {
+                    "com.dexcom.stelo": 287,
+                    "com.dexcom.G7": "12",
+                    "com.apple.health": None,
+                    "com.unknown.weird": "not-a-number",
+                },
+            },
+        }
+        snapshot = {
+            "date": "2026-01-10",
+            "hrv_avg": 45.0,
+            "resting_hr": 62,
+            "data_quality": data_quality,
+        }
+        # Smoke test: build_prompt must not raise.
+        _system, user_msg = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [snapshot], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 10), date(2026, 1, 10),
+        )
+
+    # Prompt rendered something for this day — the misbehaving entries didn't
+    # short-circuit the whole block.
+    assert "2026-01-10" in user_msg
+    assert "glucose:" in user_msg
+    assert "Stelo" in user_msg
+    # Within the rendered "sources: { ... }" block (NOT the raw JSON snapshot
+    # dump earlier in the message), the highest numeric count must rank first
+    # and non-numeric entries must sort last (coerced to 0). Locate the
+    # rendered block so we don't accidentally measure ordering in the JSON
+    # snapshot section.
+    sources_block_start = user_msg.index("sources: {", user_msg.index("glucose:"))
+    sources_block_end = user_msg.index("}", sources_block_start)
+    sources_block = user_msg[sources_block_start:sources_block_end]
+    assert sources_block.index("Stelo") < sources_block.index("com.unknown.weird")
+    # Apple Watch (None count) and unknown.weird (non-numeric) both coerce to
+    # 0, so they're listed after Stelo and Dexcom G7.
+    assert sources_block.index("Dexcom G7") < sources_block.index("com.unknown.weird")
+
+
+def test_build_prompt_per_day_data_quality_ties_break_alphabetically(app):
+    """Equal source counts must sort alphabetically by bundle ID for determinism.
+
+    Without a secondary sort key, two sources with identical counts come back
+    in dict-insertion order, which differs between JSON producers (psycopg2
+    dict, json.loads, hand-edited fixtures) and makes the rendered prompt
+    non-deterministic. Pin the tiebreaker so prompt output is stable.
+    """
+    with app.app_context():
+        from analysis import build_prompt
+        # Two sources with identical counts. Insertion order intentionally
+        # places "com.zeta.late" first to prove it's the sort, not insertion
+        # order, that decides the rendering.
+        data_quality = {
+            "glucose": {
+                "reliability": "high",
+                "sources": {
+                    "com.zeta.late": 100,
+                    "com.alpha.early": 100,
+                },
+            },
+        }
+        snapshot = {
+            "date": "2026-01-10",
+            "hrv_avg": 45.0,
+            "resting_hr": 62,
+            "data_quality": data_quality,
+        }
+        _system, user_msg = build_prompt(
+            {"anxiety_entries": [], "health_snapshots": [snapshot], "medication_doses": [],
+             "cpap_sessions": [], "barometric_readings": [], "correlations": []},
+            date(2026, 1, 10), date(2026, 1, 10),
+        )
+
+    # Locate the rendered "sources: { ... }" block (NOT the raw JSON snapshot
+    # dump earlier in the message).
+    sources_block_start = user_msg.index("sources: {", user_msg.index("glucose:"))
+    sources_block_end = user_msg.index("}", sources_block_start)
+    sources_block = user_msg[sources_block_start:sources_block_end]
+
+    # Both bundle IDs survive the display-name lookup unchanged because they
+    # aren't in DEVICE_DISPLAY_NAMES; the alphabetical bundle-ID order should
+    # therefore match the rendered substring order.
+    assert sources_block.index("com.alpha.early") < sources_block.index("com.zeta.late"), (
+        "Tied counts must break alphabetically by bundle ID for deterministic prompt output"
+    )
+
+
+def test_format_per_day_data_quality_renders_canonical_display_name(app):
+    """Dict-shape `sources` with a known bundle ID renders the canonical
+    display name (`Stelo`) rather than the raw reverse-DNS string
+    (`com.dexcom.stelo`).
+
+    This pins the wire format: `sources` is a dict keyed by bundle ID, never
+    a list of display strings. Round-9 review explicitly rejected list-shape
+    fallback handling — supporting two parallel rendering paths is a
+    maintenance trap, and the iOS client never emits list-shape sources.
+    """
+    with app.app_context():
+        from analysis import _format_per_day_data_quality
+        snapshot = {
+            "date": "2026-01-10",
+            "data_quality": {
+                "glucose": {
+                    "reliability": "high",
+                    "sources": {"com.dexcom.stelo": 287},
+                },
+            },
+        }
+        rendered = _format_per_day_data_quality([snapshot])
+
+    # Canonical display name appears with its count.
+    assert "Stelo: 287" in rendered, (
+        "Dict-shape sources with a known bundle ID must render the display name"
+    )
+    # The raw bundle ID does NOT leak into the rendered sources block.
+    sources_block_start = rendered.index("sources: {", rendered.index("glucose:"))
+    sources_block_end = rendered.index("}", sources_block_start)
+    sources_block = rendered[sources_block_start:sources_block_end]
+    assert "com.dexcom.stelo" not in sources_block, (
+        "Known bundle IDs must be replaced with the canonical display name"
+    )
+    # Sanity check: the rendered block is NOT the "not captured" placeholder
+    # (which is what list-shape sources would silently produce).
+    assert "not captured" not in rendered
+
+
+def test_format_per_day_data_quality_renders_counts_as_ints(app):
+    """Per-source counts must be rendered as ints, not the raw JSON value.
+
+    `data_quality.sources` is a JSONB blob written by the iOS client; older or
+    hand-edited rows can carry `None` or numeric strings (`"12"`). The sort
+    key already coerces with `_safe_int`, but the rendered string previously
+    interpolated the raw value — surfacing strings like `Apple Watch: None`
+    in the prompt sent to Claude. Coerce on render too so the prompt always
+    shows clean integers.
+    """
+    with app.app_context():
+        from analysis import _format_per_day_data_quality
+        snapshot = {
+            "date": "2026-01-10",
+            "data_quality": {
+                "glucose": {
+                    "reliability": "high",
+                    "sources": {
+                        # Numeric string — should render as 12, not "12".
+                        "com.dexcom.G7": "12",
+                        # None — should render as 0, not "None".
+                        "com.apple.health": None,
+                        # Non-numeric string — should render as 0, not the raw text.
+                        "com.unknown.weird": "not-a-number",
+                    },
+                },
+            },
+        }
+        rendered = _format_per_day_data_quality([snapshot])
+
+    # Locate the rendered "sources: { ... }" block — we must not accidentally
+    # match against any raw JSON snapshot dump elsewhere in the prompt.
+    sources_block_start = rendered.index("sources: {", rendered.index("glucose:"))
+    sources_block_end = rendered.index("}", sources_block_start)
+    sources_block = rendered[sources_block_start:sources_block_end]
+
+    # Strings and Nones must not leak through into the prompt.
+    assert "None" not in sources_block, (
+        "None counts must coerce to 0, not render as the literal 'None'"
+    )
+    assert "not-a-number" not in sources_block, (
+        "Non-numeric string counts must coerce to 0, not surface as raw text"
+    )
+    # The numeric-string '12' must render as the int 12, with no quotes.
+    assert "Dexcom G7: 12" in sources_block, (
+        "Numeric-string counts must render as bare integers"
+    )
+    # The None and non-numeric entries should both render as 0 — the coerced
+    # int — even though the raw blob held something else.
+    assert "Apple Watch: 0" in sources_block or "com.apple.health: 0" in sources_block, (
+        "None counts must render as 0 in the prompt"
+    )
+    assert "com.unknown.weird: 0" in sources_block, (
+        "Non-numeric string counts must render as 0 in the prompt"
+    )
+
+
 def test_parse_response_valid():
     """parse_response extracts structured data from Claude response."""
     from analysis import parse_response

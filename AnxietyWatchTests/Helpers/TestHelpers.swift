@@ -28,6 +28,8 @@ enum TestHelpers {
             HRVReading.self,
             AccelSpectrogram.self,
             DerivedBreathingRate.self,
+            QuantityHealthSample.self,
+            SleepStageEvent.self,
         ])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [config])

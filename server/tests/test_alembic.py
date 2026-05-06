@@ -133,6 +133,10 @@ class TestFullMigrationChain:
         tables = _table_names()
         assert "analyses" in tables
         assert "songs" in tables
+        # 0004 — per-sample provenance tables and JSONB column
+        assert "quantity_health_samples" in tables
+        assert "sleep_stage_events" in tables
+        assert "data_quality" in _column_names("health_snapshots")
 
     def test_round_trip(self):
         """Upgrade to head, downgrade to base, upgrade again."""
@@ -140,8 +144,12 @@ class TestFullMigrationChain:
         command.upgrade(cfg, "head")
         command.downgrade(cfg, "0001")
         # Data fix downgrade goes back to baseline — verify tables still exist
+        # and that the 0004 additions have been removed.
         tables = _table_names()
         assert "health_snapshots" in tables
+        assert "quantity_health_samples" not in tables
+        assert "sleep_stage_events" not in tables
+        assert "data_quality" not in _column_names("health_snapshots")
         command.downgrade(cfg, "base")
         tables = _table_names()
         user_tables = tables - {"alembic_version"}

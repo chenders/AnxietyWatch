@@ -190,6 +190,12 @@ def create_app(test_config=None):
             counts["health_snapshots"] = _upsert_health_snapshots(
                 cur, data.get("healthSnapshots", []), schema_version=schema_version,
             )
+            counts["quantity_health_samples"] = _upsert_quantity_health_samples(
+                cur, data.get("quantitySamples", []),
+            )
+            counts["sleep_stage_events"] = _upsert_sleep_stage_events(
+                cur, data.get("sleepStageEvents", []),
+            )
             counts["barometric_readings"] = _upsert_barometric_readings(cur, data.get("barometricReadings", []))
             counts["pharmacies"] = _upsert_pharmacies(cur, data.get("pharmacies", []))
             counts["prescriptions"] = _upsert_prescriptions(cur, data.get("prescriptions", []))
@@ -360,9 +366,41 @@ def create_app(test_config=None):
             for col in _OVERNIGHT_STATS_COLUMNS
         )
 
+    def _data_quality_update_clause(schema_version):
+        """Return the SET fragment for the `data_quality` JSONB column.
+
+        Same shape as `_overnight_stats_update_clause`, but the version
+        boundary is 3 (this column was introduced after the overnight stats
+        in PR #122). v >= 3 clients know the field, so missing key = clear.
+        v <= 2 clients may simply not know about it, so preserve.
+        """
+        if schema_version >= 3:
+            return "data_quality = EXCLUDED.data_quality"
+        return "data_quality = COALESCE(EXCLUDED.data_quality, health_snapshots.data_quality)"
+
     def _upsert_health_snapshots(cur, snapshots, schema_version=1):
         overnight_clause = _overnight_stats_update_clause(schema_version)
+        data_quality_clause = _data_quality_update_clause(schema_version)
         for s in snapshots:
+            # `dataQuality` may arrive as a Python dict (from JSON decode) or a
+            # JSON-encoded string (older Swift Codable shapes). psycopg2 needs a
+            # string for JSONB binding; serialize dicts here, validate strings
+            # before passing them through. A malformed JSON string would cause
+            # Postgres to reject the entire batch with a 500 — coerce invalid
+            # strings to NULL so one bad blob can't take down sync.
+            data_quality = s.get("dataQuality")
+            if isinstance(data_quality, (dict, list)):
+                data_quality = json.dumps(data_quality)
+            elif isinstance(data_quality, str):
+                try:
+                    parsed = json.loads(data_quality)
+                    data_quality = json.dumps(parsed)
+                except (json.JSONDecodeError, TypeError):
+                    app.logger.warning(
+                        "Discarding malformed dataQuality string for snapshot date=%s",
+                        s.get("date"),
+                    )
+                    data_quality = None
             cur.execute(
                 f"""INSERT INTO health_snapshots (
                        date, hrv_avg, hrv_min, resting_hr,
@@ -373,9 +411,10 @@ def create_app(test_config=None):
                        environmental_sound_avg, bp_systolic, bp_diastolic, blood_glucose_avg,
                        glucose_std_dev, glucose_cv, glucose_min, glucose_max,
                        cpap_ahi, cpap_usage_minutes,
-                       barometric_pressure_avg_kpa, barometric_pressure_change_kpa)
+                       barometric_pressure_avg_kpa, barometric_pressure_change_kpa,
+                       data_quality)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (date) DO UPDATE SET
                        hrv_avg = EXCLUDED.hrv_avg,
                        hrv_min = EXCLUDED.hrv_min,
@@ -400,7 +439,8 @@ def create_app(test_config=None):
                        cpap_ahi = EXCLUDED.cpap_ahi,
                        cpap_usage_minutes = EXCLUDED.cpap_usage_minutes,
                        barometric_pressure_avg_kpa = EXCLUDED.barometric_pressure_avg_kpa,
-                       barometric_pressure_change_kpa = EXCLUDED.barometric_pressure_change_kpa""",
+                       barometric_pressure_change_kpa = EXCLUDED.barometric_pressure_change_kpa,
+                       {data_quality_clause}""",
                 (
                     s["date"], s.get("hrvAvg"), s.get("hrvMin"), s.get("restingHR"),
                     s.get("sleepDurationMin"), s.get("sleepDeepMin"), s.get("sleepREMMin"),
@@ -414,9 +454,91 @@ def create_app(test_config=None):
                     s.get("glucoseMin"), s.get("glucoseMax"),
                     s.get("cpapAHI"), s.get("cpapUsageMinutes"),
                     s.get("barometricPressureAvgKPa"), s.get("barometricPressureChangeKPa"),
+                    data_quality,
                 ),
             )
         return len(snapshots)
+
+    def _upsert_quantity_health_samples(cur, samples):
+        """Upsert per-sample HealthKit quantity rows (id = HKSample.uuid).
+
+        Replays update value, provenance, AND identity columns
+        (timestamp, metric_type, unit_string, source_bundle_id) because
+        HealthKit can issue retroactive corrections that change a sample's
+        timestamp or unit while keeping the same uuid (e.g., CGM backfills,
+        sensor recalibration). group_id uses COALESCE so a previously-set
+        correlation link isn't accidentally cleared by a replay that omits it.
+
+        Uses ``execute_values`` so a 1000-sample sync becomes one round trip
+        instead of 1000 individual ``cur.execute`` calls. Note: this batches
+        all rows into a single INSERT — one bad row aborts the whole call,
+        so callers relying on per-row error isolation must split the batch
+        themselves.
+        """
+        if not samples:
+            return 0
+        rows = [
+            (
+                s["id"], s["timestamp"], s["metricType"], s["value"],
+                s["unitString"], s["sourceBundleID"],
+                s.get("sourceName"), s.get("deviceModel"), s.get("groupId"),
+            )
+            for s in samples
+        ]
+        psycopg2.extras.execute_values(
+            cur,
+            """INSERT INTO quantity_health_samples (
+                   id, timestamp, metric_type, value, unit_string,
+                   source_bundle_id, source_name, device_model, group_id)
+               VALUES %s
+               ON CONFLICT (id) DO UPDATE SET
+                   timestamp = EXCLUDED.timestamp,
+                   metric_type = EXCLUDED.metric_type,
+                   value = EXCLUDED.value,
+                   unit_string = EXCLUDED.unit_string,
+                   source_bundle_id = EXCLUDED.source_bundle_id,
+                   source_name = EXCLUDED.source_name,
+                   device_model = EXCLUDED.device_model,
+                   group_id = COALESCE(
+                       EXCLUDED.group_id,
+                       quantity_health_samples.group_id
+                   )""",
+            rows,
+        )
+        return len(samples)
+
+    def _upsert_sleep_stage_events(cur, events):
+        """Upsert per-event HealthKit sleep stage rows (id = HKSample.uuid).
+
+        Batched via ``execute_values`` for the same reason as
+        ``_upsert_quantity_health_samples`` — one round trip per sync instead
+        of one per row.
+        """
+        if not events:
+            return 0
+        rows = [
+            (
+                e["id"], e["startTime"], e["endTime"], e["stage"],
+                e["sourceBundleID"], e.get("sourceName"), e.get("deviceModel"),
+            )
+            for e in events
+        ]
+        psycopg2.extras.execute_values(
+            cur,
+            """INSERT INTO sleep_stage_events (
+                   id, start_time, end_time, stage,
+                   source_bundle_id, source_name, device_model)
+               VALUES %s
+               ON CONFLICT (id) DO UPDATE SET
+                   start_time = EXCLUDED.start_time,
+                   end_time = EXCLUDED.end_time,
+                   stage = EXCLUDED.stage,
+                   source_bundle_id = EXCLUDED.source_bundle_id,
+                   source_name = EXCLUDED.source_name,
+                   device_model = EXCLUDED.device_model""",
+            rows,
+        )
+        return len(events)
 
     def _upsert_barometric_readings(cur, readings):
         for r in readings:

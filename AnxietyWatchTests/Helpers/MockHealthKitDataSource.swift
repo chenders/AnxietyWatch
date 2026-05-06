@@ -74,6 +74,26 @@ actor MockHealthKitDataSource: HealthKitDataSource {
         return quantitySamplesResults[identifier] ?? []
     }
 
+    var quantitySamplesWithSourceResults: [HKQuantityTypeIdentifier: [SourcedQuantitySample]] = [:]
+    var sleepStageEventsResult: [SourcedSleepStageEvent] = []
+
+    func quantitySamplesWithSource(_ identifier: HKQuantityTypeIdentifier, unit: HKUnit,
+                                   start: Date, end: Date) async throws -> [SourcedQuantitySample] {
+        queriedIdentifiers.append(identifier)
+        // Filter by `[start, end)` to mirror HealthKit's `.strictStartDate`
+        // semantics. Tests asserting the look-back boundary depend on this:
+        // samples whose timestamp falls outside the queried window must be
+        // invisible to the caller, just as they would be in production.
+        let all = quantitySamplesWithSourceResults[identifier] ?? []
+        return all.filter { $0.timestamp >= start && $0.timestamp < end }
+    }
+
+    func sleepStageEvents(start: Date, end: Date) async throws -> [SourcedSleepStageEvent] {
+        // Same `[start, end)` filtering as quantity samples — keyed on the
+        // event's `start` so tests can assert look-back boundary behaviour.
+        sleepStageEventsResult.filter { $0.start >= start && $0.start < end }
+    }
+
     // Convenience setters
     func setAverage(_ id: HKQuantityTypeIdentifier, value: Double) {
         averageResults[id] = value
@@ -98,5 +118,12 @@ actor MockHealthKitDataSource: HealthKitDataSource {
     }
     func setQuantitySamples(_ id: HKQuantityTypeIdentifier, _ samples: [QuantitySample]) {
         quantitySamplesResults[id] = samples
+    }
+    func setQuantitySamplesWithSource(_ id: HKQuantityTypeIdentifier,
+                                      _ samples: [SourcedQuantitySample]) {
+        quantitySamplesWithSourceResults[id] = samples
+    }
+    func setSleepStageEvents(_ events: [SourcedSleepStageEvent]) {
+        sleepStageEventsResult = events
     }
 }

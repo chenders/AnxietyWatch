@@ -34,6 +34,9 @@ struct AnxietyWatchApp: App {
             HRVReading.self,
             AccelSpectrogram.self,
             DerivedBreathingRate.self,
+            // High-fidelity HealthKit sample mirror
+            QuantityHealthSample.self,
+            SleepStageEvent.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 

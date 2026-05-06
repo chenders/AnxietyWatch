@@ -30,4 +30,32 @@ enum SleepIntervalMerger {
         }
         return Int(totalSeconds / 60)
     }
+
+    /// Coalesce intervals that overlap or are separated by a gap no greater than
+    /// `gapTolerance` (default 5 minutes). Used by `DashboardView` to collapse
+    /// many per-stage `SleepStageEvent` rows into a small number of contiguous
+    /// asleep windows before passing them to `GlucoseDetailView` — the chart
+    /// overlay renders one `RectangleMark` per interval, so per-stage
+    /// granularity (often dozens per night) is wasted work.
+    static func coalesce(
+        _ intervals: [(start: Date, end: Date)],
+        gapTolerance: TimeInterval = 5 * 60
+    ) -> [(start: Date, end: Date)] {
+        guard !intervals.isEmpty else { return [] }
+
+        let sorted = intervals.sorted { $0.start < $1.start }
+        var merged: [(start: Date, end: Date)] = [sorted[0]]
+
+        for interval in sorted.dropFirst() {
+            let last = merged[merged.count - 1]
+            // Treat as adjacent if the gap from the last end to this start is
+            // within tolerance. Negative gaps (overlap) always merge.
+            if interval.start.timeIntervalSince(last.end) <= gapTolerance {
+                merged[merged.count - 1] = (last.start, max(last.end, interval.end))
+            } else {
+                merged.append(interval)
+            }
+        }
+        return merged
+    }
 }

@@ -82,7 +82,8 @@ CREATE TABLE IF NOT EXISTS health_snapshots (
     cpap_ahi                DOUBLE PRECISION,
     cpap_usage_minutes      INTEGER,
     barometric_pressure_avg_kpa    DOUBLE PRECISION,
-    barometric_pressure_change_kpa DOUBLE PRECISION
+    barometric_pressure_change_kpa DOUBLE PRECISION,
+    data_quality            JSONB
 );
 
 CREATE TABLE IF NOT EXISTS barometric_readings (
@@ -90,6 +91,43 @@ CREATE TABLE IF NOT EXISTS barometric_readings (
     pressure_kpa        DOUBLE PRECISION NOT NULL,
     relative_altitude_m DOUBLE PRECISION NOT NULL
 );
+
+-- Per-sample mirror of HealthKit HKQuantitySample rows for clinically-
+-- meaningful metrics (HR, HRV, glucose, SpO2, BP, body/wrist temp, etc.).
+-- The `id` PK is the iOS UUID (= HKSample.uuid), so upsert by id is the
+-- dedupe path for replays + retroactive HealthKit corrections.
+CREATE TABLE IF NOT EXISTS quantity_health_samples (
+    id                  UUID PRIMARY KEY,
+    timestamp           TIMESTAMPTZ NOT NULL,
+    metric_type         TEXT NOT NULL,
+    value               DOUBLE PRECISION NOT NULL,
+    unit_string         TEXT NOT NULL,
+    source_bundle_id    TEXT NOT NULL,
+    source_name         TEXT,
+    device_model        TEXT,
+    group_id            UUID,
+    created_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_quantity_samples_metric_time
+    ON quantity_health_samples (metric_type, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_quantity_samples_group
+    ON quantity_health_samples (group_id);
+
+-- Per-event mirror of HealthKit HKCategorySample sleep-analysis rows.
+CREATE TABLE IF NOT EXISTS sleep_stage_events (
+    id                  UUID PRIMARY KEY,
+    start_time          TIMESTAMPTZ NOT NULL,
+    end_time            TIMESTAMPTZ NOT NULL,
+    stage               TEXT NOT NULL,
+    source_bundle_id    TEXT NOT NULL,
+    source_name         TEXT,
+    device_model        TEXT,
+    created_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sleep_events_start
+    ON sleep_stage_events (start_time DESC);
 
 CREATE TABLE IF NOT EXISTS sync_log (
     id              SERIAL PRIMARY KEY,

@@ -11,6 +11,30 @@ struct SleepData: Sendable {
     var awakeMinutes: Int = 0
 }
 
+/// A quantity sample annotated with its HealthKit source/device provenance.
+/// Used by importers that need to classify samples by their originating
+/// device (e.g. CGM vs. on-watch SpO2 vs. nightstand pulse oximeter).
+struct SourcedQuantitySample: Sendable, Equatable {
+    let timestamp: Date
+    let value: Double
+    let sourceBundleID: String
+    let sourceName: String
+    let deviceModel: String?
+    let hkUUID: UUID
+}
+
+/// A sleep-stage event annotated with its HealthKit source/device provenance.
+/// `stage` is the raw `HKCategoryValueSleepAnalysis` rawValue.
+struct SourcedSleepStageEvent: Sendable, Equatable {
+    let start: Date
+    let end: Date
+    let stage: Int          // raw HKCategoryValueSleepAnalysis
+    let sourceBundleID: String
+    let sourceName: String
+    let deviceModel: String?
+    let hkUUID: UUID
+}
+
 /// Abstraction over HealthKit queries. HealthKitManager conforms to this;
 /// tests can inject a MockHealthKitDataSource instead.
 protocol HealthKitDataSource: Sendable {
@@ -24,6 +48,11 @@ protocol HealthKitDataSource: Sendable {
                             unit: HKUnit) async throws -> (date: Date, value: Double)?
     func quantitySamples(_ identifier: HKQuantityTypeIdentifier, unit: HKUnit,
                          start: Date, end: Date) async throws -> [QuantitySample]
+    func quantitySamplesWithSource(
+        _ identifier: HKQuantityTypeIdentifier, unit: HKUnit,
+        start: Date, end: Date
+    ) async throws -> [SourcedQuantitySample]
+    func sleepStageEvents(start: Date, end: Date) async throws -> [SourcedSleepStageEvent]
     func averageBloodPressure(start: Date, end: Date) async throws -> (systolic: Double, diastolic: Double)?
     func querySleepAnalysis(start: Date, end: Date) async throws -> SleepData
     func queryClinicalLabResults(since startDate: Date?) async throws -> [HKClinicalRecord]

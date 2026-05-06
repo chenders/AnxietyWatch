@@ -290,6 +290,95 @@ actor HealthKitManager: HealthKitDataSource {
         }
     }
 
+    /// Quantity samples in the given range, annotated with their HealthKit
+    /// source/device provenance. Mirrors `quantitySamples(...)` but preserves
+    /// `sourceRevision`, `device`, and `uuid` so callers can classify samples
+    /// by originating device (e.g. CGM vs. on-watch SpO2 vs. nightstand pulse
+    /// oximeter). Uses `.strictStartDate` for the same boundary semantics.
+    func quantitySamplesWithSource(
+        _ identifier: HKQuantityTypeIdentifier,
+        unit: HKUnit,
+        start: Date,
+        end: Date
+    ) async throws -> [SourcedQuantitySample] {
+        guard isAvailable else { return [] }
+        let type = HKQuantityType(identifier)
+        let predicate = HKQuery.predicateForSamples(
+            withStart: start, end: end, options: .strictStartDate
+        )
+
+        let samples: [HKQuantitySample] = try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+            ) { _, results, error in
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: [])
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: (results as? [HKQuantitySample]) ?? [])
+                }
+            }
+            healthStore.execute(query)
+        }
+
+        return samples.map { sample in
+            SourcedQuantitySample(
+                timestamp: sample.startDate,
+                value: sample.quantity.doubleValue(for: unit),
+                sourceBundleID: sample.sourceRevision.source.bundleIdentifier,
+                sourceName: sample.sourceRevision.source.name,
+                deviceModel: sample.device?.model,
+                hkUUID: sample.uuid
+            )
+        }
+    }
+
+    /// Per-sample sleep-stage events in the given range, annotated with
+    /// HealthKit source/device provenance. Returns one event per
+    /// `HKCategorySample` (no merging — callers that need aggregated minutes
+    /// should keep using `querySleepAnalysis`).
+    func sleepStageEvents(start: Date, end: Date) async throws -> [SourcedSleepStageEvent] {
+        guard isAvailable else { return [] }
+        let type = HKCategoryType(.sleepAnalysis)
+        let predicate = HKQuery.predicateForSamples(
+            withStart: start, end: end, options: .strictStartDate
+        )
+
+        let samples: [HKCategorySample] = try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+            ) { _, results, error in
+                if let error, Self.isNoDataError(error) {
+                    continuation.resume(returning: [])
+                } else if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: (results as? [HKCategorySample]) ?? [])
+                }
+            }
+            healthStore.execute(query)
+        }
+
+        return samples.map { sample in
+            SourcedSleepStageEvent(
+                start: sample.startDate,
+                end: sample.endDate,
+                stage: sample.value,
+                sourceBundleID: sample.sourceRevision.source.bundleIdentifier,
+                sourceName: sample.sourceRevision.source.name,
+                deviceModel: sample.device?.model,
+                hkUUID: sample.uuid
+            )
+        }
+    }
+
     // MARK: - Blood Pressure (Correlation)
 
     /// Query blood pressure as HKCorrelation to get properly paired

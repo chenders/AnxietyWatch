@@ -1,9 +1,12 @@
 """Tests for Anxiety Watch sync server."""
 
+import datetime
 import hashlib
+import json
 import os
 
 import psycopg2
+import psycopg2.extras
 import pytest
 
 # Point to the server module
@@ -59,6 +62,7 @@ def _clean_tables(app):
             "analyses, api_keys, sync_log, therapy_sessions, settings, "
             "patient_profile, psychiatrist_profile, conflicts, analysis_jobs, "
             "pharmacies, prescriptions, pharmacy_call_logs, "
+            "quantity_health_samples, sleep_stage_events, "
             "songs, song_occurrences "
             "RESTART IDENTITY CASCADE"
         )
@@ -458,6 +462,503 @@ def test_sync_health_snapshot_overnight_stats_upsert(client, app):
     assert len(same_day) == 1
     assert same_day[0]["spo2_nadir_overnight"] == 85.0
     assert same_day[0]["glucose_cv"] == 28.0
+
+
+def _fetch_quantity_samples(app):
+    """Return all rows from quantity_health_samples ordered by timestamp."""
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "SELECT id, timestamp, metric_type, value, unit_string, "
+            "source_bundle_id, source_name, device_model, group_id "
+            "FROM quantity_health_samples ORDER BY timestamp"
+        )
+        return cur.fetchall()
+
+
+def _fetch_sleep_events(app):
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "SELECT id, start_time, end_time, stage, source_bundle_id, "
+            "source_name, device_model "
+            "FROM sleep_stage_events ORDER BY start_time"
+        )
+        return cur.fetchall()
+
+
+def _fetch_health_snapshot(app, day):
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            "SELECT * FROM health_snapshots WHERE date = %s",
+            (day,),
+        )
+        return cur.fetchone()
+
+
+# Per-metric production-shape defaults for the quantity-sample test fixture.
+# Bundle IDs match `DeviceProvenance.continuousGlucoseMonitors` /
+# `overnightPulseOximeters` / `appleEcosystemSources` on the iOS side so the
+# server tests assert against the same identifiers production clients send.
+# Units match what `HKUnit.unitString` actually serializes to (see
+# `SampleCaptureRegistry`): glucose → "mg/dL", SpO₂ → "%", heart rate →
+# "count/min", systolic/diastolic → "mmHg".
+_METRIC_DEFAULTS = {
+    "HKQuantityTypeIdentifierBloodGlucose": {
+        "unitString": "mg/dL",
+        "sourceBundleID": "com.dexcom.stelo",
+        "sourceName": "Stelo",
+        "deviceModel": "Stelo G7",
+    },
+    "HKQuantityTypeIdentifierOxygenSaturation": {
+        "unitString": "%",
+        "sourceBundleID": "com.emay.sleepo2",
+        "sourceName": "EMAY SleepO2",
+        "deviceModel": "EMAY SleepO2",
+    },
+    "HKQuantityTypeIdentifierHeartRate": {
+        "unitString": "count/min",
+        "sourceBundleID": "com.apple.health",
+        "sourceName": "Apple Watch",
+        "deviceModel": "Watch10,1",
+    },
+    "HKQuantityTypeIdentifierBloodPressureSystolic": {
+        "unitString": "mmHg",
+        "sourceBundleID": "com.omronhealthcare.OmronConnect",
+        "sourceName": "Omron",
+        "deviceModel": "Omron BP",
+    },
+    "HKQuantityTypeIdentifierBloodPressureDiastolic": {
+        "unitString": "mmHg",
+        "sourceBundleID": "com.omronhealthcare.OmronConnect",
+        "sourceName": "Omron",
+        "deviceModel": "Omron BP",
+    },
+}
+
+
+def _make_quantity_samples(count, metric_type=None):
+    """Build `count` quantity samples with stable, varied UUIDs.
+
+    Uses the canonical `HKQuantityTypeIdentifier<X>` strings the iOS client
+    actually sends (rather than short forms like "bloodGlucose") so server
+    tests reflect production payload shape.
+
+    Per-metric `unitString` and `sourceBundleID` come from `_METRIC_DEFAULTS`
+    so SpO₂ rows aren't tagged "mg/dL" and glucose rows aren't tagged with a
+    placeholder bundle ID. Bundle IDs match production CGM / pulse-oximeter /
+    Apple-Watch identifiers (see `DeviceProvenance` on the iOS side) so the
+    fixture round-trips representative production data.
+
+    `metric_type=None` (the default) round-robins through glucose / SpO₂ /
+    heart-rate to give multi-metric coverage; pass a single
+    `HKQuantityTypeIdentifier...` string to pin every sample to one metric
+    (useful for bundle-ID assertions or single-metric volume tests).
+
+    Timestamps are generated via `datetime` arithmetic (5-minute cadence) so
+    larger counts (>24) don't produce invalid hour-of-day strings like
+    `T24:00:00Z`. CGM-volume tests need to push thousands of samples through
+    this helper to exercise SQLite parameter limits, so the previous
+    hour-by-index approach was fundamentally broken once `count > 24`.
+    """
+    samples = []
+    if metric_type is None:
+        metric_types = [
+            "HKQuantityTypeIdentifierBloodGlucose",
+            "HKQuantityTypeIdentifierOxygenSaturation",
+            "HKQuantityTypeIdentifierHeartRate",
+        ]
+    else:
+        metric_types = [metric_type]
+    base = datetime.datetime(2026, 5, 4, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    for i in range(count):
+        # Stable UUIDs derived from the index — deterministic + reproducible.
+        sid = f"00000000-0000-0000-0000-{i:012d}"
+        gid = f"11111111-1111-1111-1111-{i:012d}"
+        ts = base + datetime.timedelta(minutes=5 * i)
+        mt = metric_types[i % len(metric_types)]
+        defaults = _METRIC_DEFAULTS[mt]
+        samples.append({
+            "id": sid,
+            "timestamp": ts.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "metricType": mt,
+            "value": 90.0 + i,
+            "unitString": defaults["unitString"],
+            "sourceBundleID": defaults["sourceBundleID"],
+            "sourceName": defaults["sourceName"],
+            "deviceModel": defaults["deviceModel"],
+            "groupId": gid,
+        })
+    return samples
+
+
+def test_sync_quantity_samples_round_trip(client, app):
+    """quantitySamples in /api/sync payload land in quantity_health_samples."""
+    samples = _make_quantity_samples(10)
+    payload = {"syncSchemaVersion": 3, "quantitySamples": samples}
+
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200, resp.get_json()
+
+    rows = _fetch_quantity_samples(app)
+    assert len(rows) == 10
+
+    # Spot-check the first sample's fields round-trip.
+    first = rows[0]
+    assert str(first["id"]) == samples[0]["id"]
+    assert first["metric_type"] == samples[0]["metricType"]
+    assert first["value"] == samples[0]["value"]
+    assert first["unit_string"] == samples[0]["unitString"]
+    assert first["source_bundle_id"] == samples[0]["sourceBundleID"]
+    assert first["source_name"] == samples[0]["sourceName"]
+    assert first["device_model"] == samples[0]["deviceModel"]
+    assert str(first["group_id"]) == samples[0]["groupId"]
+
+
+def test_sync_quantity_samples_idempotent(client, app):
+    """Replaying the same quantity samples twice keeps row count at 10."""
+    samples = _make_quantity_samples(10)
+    payload = {"syncSchemaVersion": 3, "quantitySamples": samples}
+
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    rows = _fetch_quantity_samples(app)
+    assert len(rows) == 10
+
+
+def test_sync_quantity_samples_replay_updates(client, app):
+    """Re-posting the same id with a new value updates the existing row."""
+    samples = _make_quantity_samples(1)
+    sid = samples[0]["id"]
+    payload = {"syncSchemaVersion": 3, "quantitySamples": samples}
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    # Replay with a new value (HealthKit retroactive correction scenario).
+    samples[0]["value"] = 142.5
+    samples[0]["sourceName"] = "Stelo (corrected)"
+    samples[0]["deviceModel"] = "Stelo G7 v2"
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    rows = _fetch_quantity_samples(app)
+    assert len(rows) == 1
+    assert rows[0]["value"] == 142.5
+    assert rows[0]["source_name"] == "Stelo (corrected)"
+    assert rows[0]["device_model"] == "Stelo G7 v2"
+    # Identity didn't change.
+    assert str(rows[0]["id"]) == sid
+
+
+def test_sync_quantity_samples_replay_backfills_group_id(client, app):
+    """Replaying a row that originally had no groupId should backfill it.
+
+    Mirrors the future HKCorrelation linking flow: a client posts a glucose
+    or BP reading without a groupId on first sync, then later identifies
+    the correlation and replays the same id with a groupId attached. The
+    server must update the column without overwriting an existing non-null
+    group_id (handled by COALESCE(EXCLUDED.group_id, ...)).
+    """
+    samples = _make_quantity_samples(1)
+    sid = samples[0]["id"]
+    samples[0]["groupId"] = None
+    payload = {"syncSchemaVersion": 3, "quantitySamples": samples}
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    rows = _fetch_quantity_samples(app)
+    assert len(rows) == 1
+    assert rows[0]["group_id"] is None
+
+    # Replay with a now-known groupId; server should backfill the column.
+    new_group = "33333333-3333-3333-3333-000000000001"
+    samples[0]["groupId"] = new_group
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    rows = _fetch_quantity_samples(app)
+    assert len(rows) == 1
+    assert str(rows[0]["group_id"]) == new_group
+    assert str(rows[0]["id"]) == sid
+
+    # A subsequent replay that omits groupId must NOT clear the existing one
+    # — COALESCE(NULL, existing) keeps the previously-stored correlation.
+    samples[0]["groupId"] = None
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    rows = _fetch_quantity_samples(app)
+    assert str(rows[0]["group_id"]) == new_group
+
+
+def test_sync_quantity_samples_replay_updates_timestamp_and_metric(client, app):
+    """Replays must overwrite identity columns too — HealthKit can issue
+    retroactive corrections that change `timestamp`, `metricType`,
+    `unitString`, or `sourceBundleID` while keeping the same uuid (e.g.,
+    CGM backfill, sensor recalibration). The previous ON CONFLICT clause
+    only updated value/source_name/device_model, which silently dropped
+    those corrections on the floor.
+    """
+    samples = _make_quantity_samples(1)
+    sid = samples[0]["id"]
+    samples[0]["timestamp"] = "2026-05-04T00:00:00Z"
+    samples[0]["metricType"] = "HKQuantityTypeIdentifierBloodGlucose"
+    samples[0]["unitString"] = "mg/dL"
+    samples[0]["sourceBundleID"] = "com.dexcom.stelo"
+    payload = {"syncSchemaVersion": 3, "quantitySamples": samples}
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    # Replay with corrected identity fields under the same uuid.
+    samples[0]["timestamp"] = "2026-05-04T00:05:00Z"
+    samples[0]["metricType"] = "HKQuantityTypeIdentifierOxygenSaturation"
+    samples[0]["unitString"] = "%"
+    samples[0]["sourceBundleID"] = "com.apple.health"
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    rows = _fetch_quantity_samples(app)
+    assert len(rows) == 1
+    row = rows[0]
+    assert str(row["id"]) == sid
+    # Identity columns reflect the replay, not the original insert. The DB
+    # may return a TZ-aware datetime in any offset; normalize to UTC before
+    # comparing so we're testing the instant, not the textual representation.
+    expected = datetime.datetime(2026, 5, 4, 0, 5, 0, tzinfo=datetime.timezone.utc)
+    actual_utc = row["timestamp"].astimezone(datetime.timezone.utc)
+    assert actual_utc == expected
+    assert row["metric_type"] == "HKQuantityTypeIdentifierOxygenSaturation"
+    assert row["unit_string"] == "%"
+    assert row["source_bundle_id"] == "com.apple.health"
+
+
+def test_sync_sleep_stage_events_round_trip(client, app):
+    """sleepStageEvents in payload land in sleep_stage_events."""
+    events = [
+        {
+            "id": "22222222-2222-2222-2222-000000000001",
+            "startTime": "2026-05-04T03:00:00Z",
+            "endTime": "2026-05-04T03:45:00Z",
+            "stage": "asleepCore",
+            "sourceBundleID": "com.apple.health",
+            "sourceName": "Apple Watch",
+            "deviceModel": "Watch10,1",
+        },
+        {
+            "id": "22222222-2222-2222-2222-000000000002",
+            "startTime": "2026-05-04T03:45:00Z",
+            "endTime": "2026-05-04T04:30:00Z",
+            "stage": "asleepREM",
+            "sourceBundleID": "com.apple.health",
+        },
+        {
+            "id": "22222222-2222-2222-2222-000000000003",
+            "startTime": "2026-05-04T04:30:00Z",
+            "endTime": "2026-05-04T05:15:00Z",
+            "stage": "asleepDeep",
+            "sourceBundleID": "com.apple.health",
+            "sourceName": "Apple Watch",
+        },
+    ]
+    payload = {"syncSchemaVersion": 3, "sleepStageEvents": events}
+
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200, resp.get_json()
+
+    rows = _fetch_sleep_events(app)
+    assert len(rows) == 3
+    assert [r["stage"] for r in rows] == ["asleepCore", "asleepREM", "asleepDeep"]
+    assert rows[0]["source_bundle_id"] == "com.apple.health"
+    assert rows[0]["device_model"] == "Watch10,1"
+
+
+def test_sync_sleep_stage_events_replay_updates_interval(client, app):
+    """Replaying a sleep stage event with corrected timestamps updates the row.
+
+    Same `id`, but corrected `startTime`/`endTime` and `sourceBundleID`. The
+    upsert's ON CONFLICT branch must apply the new interval rather than
+    silently keeping the original.
+    """
+    event_id = "33333333-3333-3333-3333-000000000001"
+
+    initial = [{
+        "id": event_id,
+        "startTime": "2026-05-04T03:00:00Z",
+        "endTime": "2026-05-04T03:30:00Z",
+        "stage": "asleepCore",
+        "sourceBundleID": "com.apple.health.original",
+        "sourceName": "Apple Watch",
+        "deviceModel": "Watch10,1",
+    }]
+    resp = client.post(
+        "/api/sync",
+        json={"syncSchemaVersion": 3, "sleepStageEvents": initial},
+        headers=auth_header(),
+    )
+    assert resp.status_code == 200, resp.get_json()
+
+    corrected = [{
+        "id": event_id,
+        "startTime": "2026-05-04T03:05:00Z",
+        "endTime": "2026-05-04T03:55:00Z",
+        "stage": "asleepREM",
+        "sourceBundleID": "com.apple.health.corrected",
+        "sourceName": "Apple Watch (renamed)",
+        "deviceModel": "Watch10,2",
+    }]
+    resp = client.post(
+        "/api/sync",
+        json={"syncSchemaVersion": 3, "sleepStageEvents": corrected},
+        headers=auth_header(),
+    )
+    assert resp.status_code == 200, resp.get_json()
+
+    rows = _fetch_sleep_events(app)
+    assert len(rows) == 1
+    row = rows[0]
+    assert str(row["id"]) == event_id
+    # Interval must reflect the replay, not the initial values. Compare in UTC
+    # since psycopg2 may return rows in the session's local tz.
+    expected_start = datetime.datetime(2026, 5, 4, 3, 5, tzinfo=datetime.timezone.utc)
+    expected_end = datetime.datetime(2026, 5, 4, 3, 55, tzinfo=datetime.timezone.utc)
+    assert row["start_time"].astimezone(datetime.timezone.utc) == expected_start
+    assert row["end_time"].astimezone(datetime.timezone.utc) == expected_end
+    assert row["stage"] == "asleepREM"
+    assert row["source_bundle_id"] == "com.apple.health.corrected"
+    assert row["source_name"] == "Apple Watch (renamed)"
+    assert row["device_model"] == "Watch10,2"
+
+
+def test_sync_data_quality_v3_clear_on_conflict(client, app):
+    """v3 client: omitting dataQuality on a follow-up sync clears the column."""
+    initial = {
+        "syncSchemaVersion": 3,
+        "healthSnapshots": [{
+            "date": "2026-05-04",
+            "hrvAvg": 50.0,
+            "dataQuality": {
+                "glucose": {"reliability": "high", "sources": {"com.dexcom.stelo": 287}},
+                "spo2": {"reliability": "medium", "sources": {"com.apple.health": 1438}},
+            },
+        }],
+    }
+    resp = client.post("/api/sync", json=initial, headers=auth_header())
+    assert resp.status_code == 200
+
+    row = _fetch_health_snapshot(app, "2026-05-04")
+    assert row["data_quality"] is not None
+    assert row["data_quality"]["glucose"]["reliability"] == "high"
+
+    # Re-sync at v3 with dataQuality omitted (modern client recompute → nil).
+    cleared = {
+        "syncSchemaVersion": 3,
+        "healthSnapshots": [{"date": "2026-05-04", "hrvAvg": 55.0}],
+    }
+    resp = client.post("/api/sync", json=cleared, headers=auth_header())
+    assert resp.status_code == 200
+
+    row = _fetch_health_snapshot(app, "2026-05-04")
+    assert row["hrv_avg"] == 55.0
+    assert row["data_quality"] is None
+
+
+def test_sync_data_quality_v2_preserves(client, app):
+    """v1/v2 client: omitting dataQuality preserves a previously-synced value.
+
+    A v3 sync seeds the column. A subsequent sync without `syncSchemaVersion`
+    (treated as v1) must NOT wipe the JSONB block, since the older client may
+    simply not know about the field.
+    """
+    initial = {
+        "syncSchemaVersion": 3,
+        "healthSnapshots": [{
+            "date": "2026-05-04",
+            "dataQuality": {"glucose": {"reliability": "high", "sources": {"com.dexcom.stelo": 287}}},
+        }],
+    }
+    resp = client.post("/api/sync", json=initial, headers=auth_header())
+    assert resp.status_code == 200
+
+    # Older client (no version flag) updates only hrvAvg; dataQuality omitted.
+    older = {
+        "healthSnapshots": [{"date": "2026-05-04", "hrvAvg": 60.0}],
+    }
+    resp = client.post("/api/sync", json=older, headers=auth_header())
+    assert resp.status_code == 200
+
+    row = _fetch_health_snapshot(app, "2026-05-04")
+    assert row["hrv_avg"] == 60.0
+    assert row["data_quality"] is not None
+    assert row["data_quality"]["glucose"]["reliability"] == "high"
+
+
+def test_sync_health_snapshot_data_quality_invalid_json_string_treated_as_null(client, app):
+    """A malformed dataQuality string must not 500 the request — coerce to NULL."""
+    payload = {
+        "syncSchemaVersion": 3,
+        "healthSnapshots": [{
+            "date": "2026-05-04",
+            "hrvAvg": 50.0,
+            "dataQuality": "not-json",
+        }],
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200, resp.get_json()
+
+    row = _fetch_health_snapshot(app, "2026-05-04")
+    assert row is not None
+    assert row["hrv_avg"] == 50.0
+    assert row["data_quality"] is None
+
+
+def test_sync_health_snapshot_data_quality_valid_json_string_round_trips(client, app):
+    """A valid JSON string for dataQuality is parsed and stored as JSONB."""
+    quality = {
+        "glucose": {"reliability": "high", "sources": {"com.dexcom.stelo": 287}},
+        "spo2": {"reliability": "medium", "sources": {"com.apple.health": 1438}},
+    }
+    payload = {
+        "syncSchemaVersion": 3,
+        "healthSnapshots": [{
+            "date": "2026-05-04",
+            "hrvAvg": 50.0,
+            "dataQuality": json.dumps(quality),
+        }],
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200, resp.get_json()
+
+    row = _fetch_health_snapshot(app, "2026-05-04")
+    assert row is not None
+    assert row["data_quality"] == quality
+
+
+def test_sync_health_snapshot_data_quality_dict_round_trips(client, app):
+    """A dict dataQuality round-trips into the JSONB column intact."""
+    quality = {
+        "glucose": {"reliability": "high", "sources": {"com.dexcom.stelo": 287}},
+    }
+    payload = {
+        "syncSchemaVersion": 3,
+        "healthSnapshots": [{
+            "date": "2026-05-04",
+            "hrvAvg": 50.0,
+            "dataQuality": quality,
+        }],
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200, resp.get_json()
+
+    row = _fetch_health_snapshot(app, "2026-05-04")
+    assert row is not None
+    assert row["data_quality"] == quality
 
 
 def test_sync_invalid_json(client):

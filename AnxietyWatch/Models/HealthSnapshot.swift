@@ -98,6 +98,12 @@ final class HealthSnapshot {
     var breathingRateAvg: Double?       // Daily avg breaths/min from accelerometer
     var fidgetIndexAvg: Double?         // Daily avg 0.5–4Hz spectral power
 
+    /// JSON-encoded `[metricFamily: {reliability, sources}]` describing the
+    /// reliability tier and per-bundle-ID sample counts for this day. Computed
+    /// by `SnapshotAggregator` from the local `QuantityHealthSample` mirror.
+    /// Surfaced in the Claude prompt and Glucose Detail UI.
+    var dataQuality: String?
+
     init(date: Date) {
         self.id = UUID()
         // Normalize to start of day so the unique constraint works on calendar days
