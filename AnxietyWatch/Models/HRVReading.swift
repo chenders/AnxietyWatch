@@ -16,10 +16,15 @@ final class HRVReading {
     var hfPower: Double     // High-frequency power 0.15–0.40 Hz
     var lfHfRatio: Double   // Sympathovagal balance
     var sensorSessionID: UUID?
+    /// Originating data source for this reading (e.g. "polar_h10",
+    /// "apple_watch_ppg"). New Polar sessions always populate this. Nil
+    /// otherwise — covers both pre-source-tracking rows and rows from the
+    /// existing Watch → phone transfer pipeline that doesn't set source yet.
+    var source: String?
 
     init(id: UUID = UUID(), timestamp: Date, rmssd: Double, sdnn: Double, pnn50: Double,
          lfPower: Double, hfPower: Double, lfHfRatio: Double,
-         sensorSessionID: UUID? = nil) {
+         sensorSessionID: UUID? = nil, source: String? = nil) {
         self.id = id
         self.timestamp = timestamp
         self.rmssd = rmssd
@@ -29,5 +34,6 @@ final class HRVReading {
         self.hfPower = hfPower
         self.lfHfRatio = lfHfRatio
         self.sensorSessionID = sensorSessionID
+        self.source = source
     }
 }

@@ -18,6 +18,15 @@ final class SensorSession {
     var interruptions: [SensorInterruption]
     var batteryAtStart: Int
     var batteryAtEnd: Int?
+    /// Originating data source for this session (e.g. "polar_h10"). New
+    /// Polar sessions always populate this. Nil otherwise — covers both
+    /// pre-source-tracking rows and Watch-side capture sessions that
+    /// don't set source yet.
+    var source: String?
+    /// JSON-encoded session summary (e.g. rmssdMean, rrCount, durationSec).
+    /// Schema is intentionally flexible while we figure out which derived
+    /// fields actually drive the chart pipeline.
+    var summaryJSON: String?
 
     init(startTime: Date, batteryAtStart: Int) {
         self.id = UUID()
@@ -26,5 +35,7 @@ final class SensorSession {
         self.interruptions = []
         self.batteryAtStart = batteryAtStart
         self.batteryAtEnd = nil
+        self.source = nil
+        self.summaryJSON = nil
     }
 }

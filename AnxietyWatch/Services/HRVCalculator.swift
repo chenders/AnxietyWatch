@@ -3,8 +3,10 @@ import Foundation
 import Accelerate
 
 /// Computes heart rate variability metrics from RR intervals.
-/// Pure computation — no hardware dependencies.
-enum HRVCalculator {
+/// Pure computation — no hardware dependencies. Declared `nonisolated` so
+/// callers (e.g. `HRVSessionRecorder.tick`) can offload the Accelerate FFT
+/// work to a detached task without hopping back to the main actor.
+nonisolated enum HRVCalculator {
 
     struct TimeDomainResult {
         let rmssd: Double       // Root mean square of successive differences (ms)

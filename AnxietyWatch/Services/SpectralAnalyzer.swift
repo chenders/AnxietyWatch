@@ -2,8 +2,10 @@
 import Accelerate
 
 /// FFT-based spectral analysis using Apple's Accelerate framework.
-/// Pure computation — no hardware dependencies.
-enum SpectralAnalyzer {
+/// Pure computation — no hardware dependencies. Declared `nonisolated` so
+/// `HRVCalculator.frequencyDomain` can invoke it from a detached task without
+/// hopping back to the main actor.
+nonisolated enum SpectralAnalyzer {
 
     struct PowerSpectrum {
         let frequencies: [Float]    // Hz per bin
