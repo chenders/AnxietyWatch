@@ -2,9 +2,19 @@ import Foundation
 import SwiftData
 
 /// Per-sample mirror of `HKQuantitySample` rows for clinically-meaningful metrics.
-/// `id` is the HealthKit sample UUID, making sync end-to-end idempotent.
+/// For HealthKit-sourced rows, `id` is the originating `HKSample.uuid`, which
+/// makes anchored-query sync end-to-end idempotent. For rows imported from
+/// external sources without HealthKit UUIDs (e.g. EMAY oximeter CSVs),
+/// `id` is an app-generated UUID; idempotency for those imports is enforced
+/// instead by `(sourceBundleID, timestamp, metricType)` dedup at the importer.
 @Model
 final class QuantityHealthSample {
+    /// Dedup queries during CSV imports filter by `sourceBundleID` and read
+    /// timestamps; a compound index keeps that lookup O(log n) as the table
+    /// grows past CSV-friendly sizes (EMAY 1 Hz exports add ~36k rows per
+    /// overnight session).
+    #Index<QuantityHealthSample>([\.sourceBundleID, \.timestamp])
+
     @Attribute(.unique) var id: UUID
     var timestamp: Date
     /// Raw value of `HKQuantityTypeIdentifier` (e.g. "HKQuantityTypeIdentifierBloodGlucose").

@@ -99,28 +99,33 @@ struct CPAPListView: View {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
-            do {
-                let result = try CPAPImporter.importCSV(from: url, into: modelContext)
-                if result.updated == 0 {
-                    alertMessage = "Imported \(result.inserted) session\(result.inserted == 1 ? "" : "s")."
-                } else if result.inserted == 0 {
-                    alertMessage = "Updated \(result.updated) session\(result.updated == 1 ? "" : "s")."
-                } else {
-                    alertMessage = "Imported \(result.inserted) new, updated \(result.updated) existing (\(result.total) total)."
-                }
-                // Backfill snapshots for imported date range
-                if let dateRange = result.dateRange {
-                    Task { @MainActor in
+            // EMAY CSVs can be ~36k rows; importing on the main actor would
+            // stutter the UI. Detach into a userInitiated task with a fresh
+            // ModelContext, then return to main only to update view state.
+            let container = modelContext.container
+            Task { @MainActor in
+                do {
+                    let routerResult = try await Task.detached(priority: .userInitiated) {
+                        let context = ModelContext(container)
+                        return try CSVImportRouter.importCSV(from: url, into: context)
+                    }.value
+                    alertMessage = routerResult.alertMessage
+                    // Snapshot backfill is CPAP-only — EMAY samples don't drive
+                    // overnight snapshots in the same way.
+                    if routerResult.kind == .cpap, let dateRange = routerResult.dateRange {
                         await backfillSnapshots(dateRange: dateRange)
                     }
+                } catch let error as CSVImportRouter.ImportError {
+                    alertMessage = error.alertMessage
+                } catch {
+                    alertMessage = error.localizedDescription
                 }
-            } catch {
-                alertMessage = error.localizedDescription
             }
         case .failure(let error):
             alertMessage = error.localizedDescription
         }
     }
+
 
     @MainActor
     private func backfillSnapshots(dateRange: ClosedRange<Date>) async {

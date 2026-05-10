@@ -67,6 +67,23 @@ struct CPAPImporterTests {
         #expect(session.hypopneaEvents == 3)
     }
 
+    @Test("ImportResult includes skippedRowCount and warnings fields")
+    func importResultDefaults() throws {
+        let csv = """
+        date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea
+        2026-03-20,2.5,420,18.3,6.0,12.0,9.5,3,1,2
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let result = try CPAPImporter.importCSV(from: url, into: context)
+        #expect(result.skippedRowCount == 0)
+        #expect(result.warnings.isEmpty)
+    }
+
     // MARK: - Error cases
 
     @Test("Throws noData for header-only CSV")
@@ -78,8 +95,17 @@ struct CPAPImporterTests {
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
-        #expect(throws: CPAPImporter.ImportError.noData) {
+        #expect(throws: CPAPImporter.ImportError.self) {
             try CPAPImporter.importCSV(from: url, into: context)
+        }
+        do {
+            _ = try CPAPImporter.importCSV(from: url, into: context)
+            Issue.record("Expected noData throw")
+        } catch CPAPImporter.ImportError.noData(let skipped, let warnings) {
+            #expect(skipped == 0)
+            #expect(warnings.isEmpty)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
         }
     }
 
@@ -91,8 +117,17 @@ struct CPAPImporterTests {
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
-        #expect(throws: CPAPImporter.ImportError.noData) {
+        #expect(throws: CPAPImporter.ImportError.self) {
             try CPAPImporter.importCSV(from: url, into: context)
+        }
+        do {
+            _ = try CPAPImporter.importCSV(from: url, into: context)
+            Issue.record("Expected noData throw")
+        } catch CPAPImporter.ImportError.noData(let skipped, let warnings) {
+            #expect(skipped == 0)
+            #expect(warnings.isEmpty)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
         }
     }
 
@@ -249,8 +284,16 @@ struct CPAPImporterTests {
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
-        #expect(throws: CPAPImporter.ImportError.invalidFormat) {
+        #expect(throws: CPAPImporter.ImportError.self) {
             try CPAPImporter.importCSV(from: url, into: context)
+        }
+        do {
+            _ = try CPAPImporter.importCSV(from: url, into: context)
+            Issue.record("Expected invalidFormat throw")
+        } catch CPAPImporter.ImportError.invalidFormat {
+            // expected
+        } catch {
+            Issue.record("Unexpected error: \(error)")
         }
     }
 
@@ -313,6 +356,52 @@ struct CPAPImporterTests {
         #expect(result.dateRange != nil)
         #expect(result.dateRange?.lowerBound == expectedMin)
         #expect(result.dateRange?.upperBound == expectedMax)
+    }
+
+    @Test("Simple format populates skip count and warnings on bad rows")
+    func simpleSkipsCarryDiagnostics() throws {
+        let csv = """
+        date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea
+        bad-date,2.5,420,18.3,6.0,12.0,9.5,3,1,2
+        2026-03-20,not-a-number,420,18.3,6.0,12.0,9.5,3,1,2
+        2026-03-21,1.8,390,15.1,6.0,11.5,9.2,2,0,1
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let result = try CPAPImporter.importCSV(from: url, into: context)
+        #expect(result.inserted == 1)
+        #expect(result.skippedRowCount == 2)
+        // try #require fails the test cleanly if the count is wrong; without it,
+        // the [0] / [1] subscripts below would trap and crash the test runner.
+        try #require(result.warnings.count == 2)
+        #expect(result.warnings[0].contains("Row 2"))
+        #expect(result.warnings[1].contains("Row 3"))
+    }
+
+    @Test("Simple format caps warnings at 5 plus an overflow line")
+    func simpleWarningsCappedAtFive() throws {
+        var lines = ["date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea"]
+        for _ in 0..<10 { lines.append("bad-date,2.5,420,18.3,6.0,12.0,9.5,3,1,2") }
+        let url = try writeTempCSV(lines.joined(separator: "\n"))
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        do {
+            _ = try CPAPImporter.importCSV(from: url, into: context)
+            Issue.record("Expected noData throw")
+        } catch CPAPImporter.ImportError.noData(let skipped, let warnings) {
+            #expect(skipped == 10)
+            #expect(warnings.count == 6) // 5 + "and N more"
+            #expect(warnings.last?.contains("5 more") == true)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
     }
 
     @Test("Mixed insert and update when pre-existing session overlaps")

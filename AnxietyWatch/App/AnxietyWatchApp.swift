@@ -52,6 +52,20 @@ struct AnxietyWatchApp: App {
     @State private var followUpDose: MedicationDose?
     @State private var followUpMedication: MedicationDefinition?
     @State private var showingRandomCheckIn = false
+    @State private var importAlert: ImportAlert?
+    @State private var pendingImports: [URL] = []
+    @State private var importDebounceTask: Task<Void, Never>?
+
+    /// Coalesce window for batch imports — long enough to absorb a multi-file
+    /// share sheet drop (iOS delivers each URL via a separate `.onOpenURL`
+    /// call), short enough to feel instant for single-file imports.
+    private static let importDebounceMillis: UInt64 = 300
+
+    private struct ImportAlert: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+    }
 
     // BGTask registration must happen before app finishes launching.
     init() {
@@ -137,8 +151,118 @@ struct AnxietyWatchApp: App {
                 .sheet(isPresented: $showingRandomCheckIn) {
                     RandomCheckInPromptView()
                 }
+                .onOpenURL { url in
+                    handleIncomingFile(url)
+                }
+                .alert(item: $importAlert) { alert in
+                    Alert(
+                        title: Text(alert.title),
+                        message: Text(alert.message),
+                        dismissButton: .default(Text("OK"))
+                    )
+                }
         }
         .modelContainer(sharedModelContainer)
+    }
+
+    /// Buffers an incoming CSV URL and (re)arms the debounce timer. iOS
+    /// delivers each URL in a multi-file share via a separate `.onOpenURL`
+    /// call; coalescing them into one batch prevents N stacked alerts and
+    /// lets us run a single snapshot backfill across the union date range.
+    private func handleIncomingFile(_ url: URL) {
+        pendingImports.append(url)
+        importDebounceTask?.cancel()
+        importDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.importDebounceMillis * 1_000_000)
+            guard !Task.isCancelled else { return }
+            let batch = pendingImports
+            pendingImports = []
+            await processImportBatch(batch)
+        }
+    }
+
+    @MainActor
+    private func processImportBatch(_ urls: [URL]) async {
+        guard !urls.isEmpty else { return }
+        let container = sharedModelContainer
+
+        // Off-main: parsing and inserting an EMAY CSV (~36k rows for an
+        // overnight session) takes long enough to visibly stutter the UI if
+        // run on the main actor. Detach into a userInitiated task with a
+        // fresh ModelContext owned by that task's isolation domain.
+        let outcome = await Task.detached(priority: .userInitiated) {
+            Self.runImports(urls: urls, in: container)
+        }.value
+
+        let alert = MultiFileImportAlert.compose(results: outcome.results, errors: outcome.errors)
+        importAlert = ImportAlert(title: alert.title, message: alert.message)
+
+        if let range = outcome.cpapRange {
+            await backfillSnapshots(dateRange: range, context: ModelContext(container))
+        }
+    }
+
+    private struct ImportBatchOutcome: Sendable {
+        let results: [MultiFileImportAlert.PerFileResult]
+        let errors: [MultiFileImportAlert.PerFileError]
+        let cpapRange: ClosedRange<Date>?
+    }
+
+    /// Pure import work — parses each URL into the given container's store and
+    /// returns per-file results and the union of CPAP date ranges. Marked
+    /// `nonisolated static` so it can run inside a detached task without
+    /// capturing `self` or any actor-isolated state.
+    ///
+    /// Uses a fresh `ModelContext` per file so a failed import (which may
+    /// leave pending inserts in its context after throwing) cannot leak into
+    /// the next file's successful `save()`. Each file is its own transaction.
+    private nonisolated static func runImports(
+        urls: [URL],
+        in container: ModelContainer
+    ) -> ImportBatchOutcome {
+        var results: [MultiFileImportAlert.PerFileResult] = []
+        var errors: [MultiFileImportAlert.PerFileError] = []
+        var cpapRange: ClosedRange<Date>?
+
+        for url in urls {
+            let filename = url.lastPathComponent
+            let context = ModelContext(container)
+            do {
+                let result = try CSVImportRouter.importCSV(from: url, into: context)
+                results.append(.init(filename: filename, result: result))
+                if result.kind == .cpap, let range = result.dateRange {
+                    if let existing = cpapRange {
+                        let lower = min(existing.lowerBound, range.lowerBound)
+                        let upper = max(existing.upperBound, range.upperBound)
+                        cpapRange = lower...upper
+                    } else {
+                        cpapRange = range
+                    }
+                }
+            } catch let error as CSVImportRouter.ImportError {
+                errors.append(.init(filename: filename, message: error.alertMessage))
+            } catch {
+                errors.append(.init(filename: filename, message: error.localizedDescription))
+            }
+        }
+        return ImportBatchOutcome(results: results, errors: errors, cpapRange: cpapRange)
+    }
+
+    @MainActor
+    private func backfillSnapshots(dateRange: ClosedRange<Date>, context: ModelContext) async {
+        let aggregator = SnapshotAggregator(
+            healthKit: HealthKitManager.shared,
+            modelContext: context
+        )
+        var date = dateRange.lowerBound
+        while date <= dateRange.upperBound {
+            do {
+                try await aggregator.aggregateDay(date)
+            } catch {
+                Log.data.error("Backfill snapshot failed for \(date.formatted(.dateTime.month().day()), privacy: .public): \(error, privacy: .public)")
+            }
+            date = Calendar.current.date(byAdding: .day, value: 1, to: date) ?? dateRange.upperBound.addingTimeInterval(1)
+        }
     }
 
     private func checkPendingFollowUp() {
