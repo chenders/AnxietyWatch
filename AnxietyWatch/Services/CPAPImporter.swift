@@ -204,14 +204,21 @@ enum CPAPImporter {
                 .map { $0.trimmingCharacters(in: .whitespaces) }
             guard fields.count >= 37 else { continue }
 
+            // OSCAR exports per-session-averaged event counts as decimals when
+            // Session Count > 1; parse as Double and round so multi-session
+            // nights aren't silently skipped.
             guard let date = dateFormatter.date(from: fields[0]),
                   let ahi = Double(fields[5]),
-                  let centralEvents = Int(fields[6]),
-                  let obstructiveEvents = Int(fields[8]),
-                  let hypopneaEvents = Int(fields[9]),
+                  let centralRaw = Double(fields[6]),
+                  let obstructiveRaw = Double(fields[8]),
+                  let hypopneaRaw = Double(fields[9]),
                   let medianPressure = Double(fields[22]),
                   let pressure995 = Double(fields[36])
             else { continue }
+
+            let centralEvents = Int(centralRaw.rounded())
+            let obstructiveEvents = Int(obstructiveRaw.rounded())
+            let hypopneaEvents = Int(hypopneaRaw.rounded())
 
             let usageMinutes = parseHHMMSS(fields[4])
             guard usageMinutes > 0 else { continue }

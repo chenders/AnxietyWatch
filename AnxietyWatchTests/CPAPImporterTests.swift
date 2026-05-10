@@ -212,6 +212,31 @@ struct CPAPImporterTests {
         #expect(session.totalUsageMinutes == 450) // 7*60 + 30
     }
 
+    @Test("Imports OSCAR row with fractional event counts (multi-session night)")
+    func importOSCARFractionalCounts() throws {
+        // OSCAR exports per-session-averaged event counts as decimals when
+        // Session Count > 1. Verbatim row from a 4-session night exported by
+        // OSCAR (CA=15.0433, OA=16.1067, H=0.433333). The importer must parse
+        // these as Double and round to Int rather than skipping the row.
+        let csv = """
+        Date,Session Count,Start,End,Total Time,AHI,CA Count,A Count,OA Count,H Count,UA Count,VS Count,VS2 Count,RE Count,FL Count,SA Count,NR Count,EP Count,LF Count,UF1 Count,UF2 Count,PP Count,Median Pressure,Median Pressure Set,Median IPAP,Median IPAP Set,Median EPAP,Median EPAP Set,Median Flow Limit.,95% Pressure,95% Pressure Set,95% IPAP,95% IPAP Set,95% EPAP,95% EPAP Set,95% Flow Limit.,99.5% Pressure,99.5% Pressure Set,99.5% IPAP,99.5% IPAP Set,99.5% EPAP,99.5% EPAP Set,99.5% Flow Limit.
+        2026-05-06,4,2026-05-06T22:52:00,2026-05-07T13:28:00,14:16:00,2.229,15.0433,0,16.1067,0.433333,0,0,0,0,0,0,0,0,0,0,0,0,11.5,0,0,0,11.5,0,0,13.5,0,0,0,13.5,0,0,15.5,0,0,0,15.5,0,0
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let result = try CPAPImporter.importCSV(from: url, into: context)
+        #expect(result.inserted == 1)
+
+        let session = try context.fetch(FetchDescriptor<CPAPSession>()).first!
+        #expect(session.centralEvents == 15)      // round(15.0433)
+        #expect(session.obstructiveEvents == 16)  // round(16.1067)
+        #expect(session.hypopneaEvents == 0)      // round(0.433333)
+    }
+
     @Test("Rejects unrecognized CSV format")
     func rejectsUnknownFormat() throws {
         let csv = """
