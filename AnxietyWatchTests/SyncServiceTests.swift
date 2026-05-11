@@ -349,7 +349,7 @@ struct SyncServiceTests {
 
     // MARK: - Payload metadata
 
-    @Test("buildPayload includes syncSchemaVersion=3 in the wrapper metadata")
+    @Test("buildPayload includes syncSchemaVersion=4 in the wrapper metadata")
     @MainActor
     func payloadIncludesSchemaVersion() throws {
         let restore = saveSyncDefaults()
@@ -365,11 +365,12 @@ struct SyncServiceTests {
         let data = try SyncService().buildPayload(from: context)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         #expect(json != nil)
-        // v3 adds raw quantitySamples + sleepStageEvents arrays plus the
+        // v4 adds top-level sensorSessions + hrvReadings (Polar H10 BLE).
+        // v3 added raw quantitySamples + sleepStageEvents arrays plus the
         // dataQuality JSONB on each snapshot. The server uses the version flag
         // to decide whether a missing dataQuality key is "clear-on-conflict"
         // (v3+) or "preserve via COALESCE" (older clients).
-        #expect((json?["syncSchemaVersion"] as? Int) == 3)
+        #expect((json?["syncSchemaVersion"] as? Int) == 4)
     }
 
     @Test("buildPayload includes unsynced QuantityHealthSample rows")
@@ -583,8 +584,7 @@ struct SyncServiceTests {
         let allIDs = inserted.map(\.id)
 
         try SyncService().markSamplesSynced(
-            quantityIDs: allIDs,
-            sleepIDs: [],
+            UploadedSyncedIDs(quantitySamples: allIDs),
             modelContext: context
         )
 
@@ -629,8 +629,10 @@ struct SyncServiceTests {
         try context.save()
 
         try SyncService().markSamplesSynced(
-            quantityIDs: [q1.id, q2.id],
-            sleepIDs: [s1.id],
+            UploadedSyncedIDs(
+                quantitySamples: [q1.id, q2.id],
+                sleepStageEvents: [s1.id]
+            ),
             modelContext: context
         )
 
@@ -683,10 +685,12 @@ struct SyncServiceTests {
         let result = await SyncService().applyPostUploadResponse(
             responseData: responseData,
             payloadByteCount: 1024,
-            uploadedQuantityIDs: [UUID()],
-            uploadedSleepIDs: [UUID()],
+            uploadedIDs: UploadedSyncedIDs(
+                quantitySamples: [UUID()],
+                sleepStageEvents: [UUID()]
+            ),
             modelContext: context,
-            markSamples: { _, _, _ in throw ForcedSaveError() }
+            markSamples: { _, _ in throw ForcedSaveError() }
         )
 
         // Correlations were applied despite the sample-flag failure.
@@ -720,8 +724,7 @@ struct SyncServiceTests {
         let result = await SyncService().applyPostUploadResponse(
             responseData: responseData,
             payloadByteCount: 512,
-            uploadedQuantityIDs: [],
-            uploadedSleepIDs: [],
+            uploadedIDs: UploadedSyncedIDs(),
             modelContext: context
         )
 
@@ -746,6 +749,409 @@ struct SyncServiceTests {
         #expect(json?["syncType"] as? String == "full")
         #expect(json?["clientVersion"] as? String == "1.0")
         #expect((json?["deviceName"] as? String)?.hasPrefix("iOS ") == true)
+    }
+
+    // MARK: - Phase 3b: SensorSession + HRVReading payload shape
+
+    @Test("buildPayload includes unsynced SensorSession rows with decoded summaryJSON")
+    @MainActor
+    func payloadIncludesSensorSessions() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let baseDate = Date(timeIntervalSince1970: 1_711_300_000)
+        let session = SensorSession(startTime: baseDate, batteryAtStart: 95)
+        session.endTime = baseDate.addingTimeInterval(3600)
+        session.source = "polar_h10"
+        // summaryJSON is stored as String? on disk but is sent on the wire
+        // as a decoded dict so `summary_json->>'rmssdMean'` works server-side
+        // without an intermediate unwrap.
+        session.summaryJSON = #"{"rmssdMean":42.5,"rrCount":3600}"#
+        context.insert(session)
+        try context.save()
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let array = json?["sensorSessions"] as? [[String: Any]]
+        #expect(array?.count == 1)
+
+        let row = array?.first
+        #expect(row?["id"] as? String == session.id.uuidString)
+        #expect(row?["source"] as? String == "polar_h10")
+        #expect(row?["batteryAtStart"] as? Int == 95)
+        #expect(row?["interruptionCount"] as? Int == 0)
+        #expect((row?["startTime"] as? String)?.contains("T") == true)
+        #expect((row?["endTime"] as? String)?.contains("T") == true)
+
+        let summary = row?["summaryJSON"] as? [String: Any]
+        #expect(summary?["rmssdMean"] as? Double == 42.5)
+        #expect(summary?["rrCount"] as? Int == 3600)
+    }
+
+    @Test("buildPayload sets source='unknown' when SensorSession.source is nil")
+    @MainActor
+    func payloadSensorSessionDefaultsUnknownSource() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        // Pre-source-tracking rows and Watch-side captures have nil source.
+        // Server schema 0005 requires the column non-null, so the sentinel
+        // avoids silent upsert failures on the server side.
+        let session = SensorSession(
+            startTime: Date(timeIntervalSince1970: 1_711_300_000),
+            batteryAtStart: 80
+        )
+        context.insert(session)
+        try context.save()
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let row = (json?["sensorSessions"] as? [[String: Any]])?.first
+        #expect(row?["source"] as? String == "unknown")
+    }
+
+    @Test("buildPayload includes unsynced HRVReading rows")
+    @MainActor
+    func payloadIncludesHRVReadings() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let sessionID = UUID()
+        let baseDate = Date(timeIntervalSince1970: 1_711_300_000)
+        let reading = HRVReading(
+            timestamp: baseDate,
+            rmssd: 45.2,
+            sdnn: 51.3,
+            pnn50: 12.5,
+            lfPower: 320.0,
+            hfPower: 410.0,
+            lfHfRatio: 0.78,
+            sensorSessionID: sessionID,
+            source: "polar_h10"
+        )
+        context.insert(reading)
+        try context.save()
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let array = json?["hrvReadings"] as? [[String: Any]]
+        #expect(array?.count == 1)
+
+        let row = array?.first
+        #expect(row?["id"] as? String == reading.id.uuidString)
+        #expect(row?["rmssd"] as? Double == 45.2)
+        #expect(row?["sdnn"] as? Double == 51.3)
+        #expect(row?["pnn50"] as? Double == 12.5)
+        #expect(row?["lfPower"] as? Double == 320.0)
+        #expect(row?["hfPower"] as? Double == 410.0)
+        #expect(row?["lfHfRatio"] as? Double == 0.78)
+        // Wire key is `sessionId` (matches server `_upsert_hrv_readings`,
+        // which reads `r["sessionId"]` and FK column `hrv_readings.session_id`).
+        // The iOS model field is `sensorSessionID` but the on-wire name
+        // follows the server contract.
+        #expect(row?["sessionId"] as? String == sessionID.uuidString)
+        #expect(row?["source"] as? String == "polar_h10")
+        #expect((row?["timestamp"] as? String)?.contains("T") == true)
+    }
+
+    @Test("buildPayload sets source='unknown' when HRVReading.source is nil")
+    @MainActor
+    func payloadHRVReadingDefaultsUnknownSource() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        // Server schema 0005 makes `source` NOT NULL and the upsert reads
+        // `r["source"]` (raises KeyError on missing). Pre-source-tracking
+        // rows and Watch-side captures have nil; the sentinel keeps the
+        // batch from 500'ing the whole sync.
+        let reading = HRVReading(
+            timestamp: Date(timeIntervalSince1970: 1_711_300_000),
+            rmssd: 40, sdnn: 50, pnn50: 10,
+            lfPower: 300, hfPower: 400, lfHfRatio: 0.75
+        )
+        context.insert(reading)
+        try context.save()
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let row = (json?["hrvReadings"] as? [[String: Any]])?.first
+        #expect(row?["source"] as? String == "unknown")
+    }
+
+    @Test("buildPayload omits already-synced SensorSession rows")
+    @MainActor
+    func payloadOmitsAlreadySyncedSensorSessions() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let baseDate = Date(timeIntervalSince1970: 1_711_300_000)
+        for i in 0..<4 {
+            let session = SensorSession(
+                startTime: baseDate.addingTimeInterval(TimeInterval(i * 60)),
+                batteryAtStart: 90
+            )
+            session.syncedToServer = i < 3  // first 3 already synced
+            context.insert(session)
+        }
+        try context.save()
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let array = json?["sensorSessions"] as? [[String: Any]]
+        #expect(array?.count == 1)
+    }
+
+    @Test("buildPayload omits already-synced HRVReading rows")
+    @MainActor
+    func payloadOmitsAlreadySyncedHRVReadings() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let baseDate = Date(timeIntervalSince1970: 1_711_300_000)
+        for i in 0..<5 {
+            let reading = HRVReading(
+                timestamp: baseDate.addingTimeInterval(TimeInterval(i * 60)),
+                rmssd: 40 + Double(i),
+                sdnn: 50,
+                pnn50: 10,
+                lfPower: 300,
+                hfPower: 400,
+                lfHfRatio: 0.75
+            )
+            reading.syncedToServer = i < 2  // first 2 already synced
+            context.insert(reading)
+        }
+        try context.save()
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let array = json?["hrvReadings"] as? [[String: Any]]
+        #expect(array?.count == 3)
+    }
+
+    @Test("markSamplesSynced flips syncedToServer on SensorSession rows")
+    @MainActor
+    func markSyncedFlipsSensorSessions() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let baseDate = Date(timeIntervalSince1970: 1_711_300_000)
+        let s1 = SensorSession(startTime: baseDate, batteryAtStart: 90)
+        let s2 = SensorSession(startTime: baseDate.addingTimeInterval(60), batteryAtStart: 85)
+        context.insert(s1)
+        context.insert(s2)
+        try context.save()
+
+        try SyncService().markSamplesSynced(
+            UploadedSyncedIDs(sensorSessions: [s1.id, s2.id]),
+            modelContext: context
+        )
+
+        #expect(s1.syncedToServer == true)
+        #expect(s2.syncedToServer == true)
+    }
+
+    @Test("markSamplesSynced flips syncedToServer on HRVReading rows")
+    @MainActor
+    func markSyncedFlipsHRVReadings() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let baseDate = Date(timeIntervalSince1970: 1_711_300_000)
+        let r1 = HRVReading(
+            timestamp: baseDate,
+            rmssd: 40, sdnn: 50, pnn50: 10,
+            lfPower: 300, hfPower: 400, lfHfRatio: 0.75
+        )
+        let r2 = HRVReading(
+            timestamp: baseDate.addingTimeInterval(60),
+            rmssd: 42, sdnn: 52, pnn50: 11,
+            lfPower: 320, hfPower: 410, lfHfRatio: 0.78
+        )
+        context.insert(r1)
+        context.insert(r2)
+        try context.save()
+
+        try SyncService().markSamplesSynced(
+            UploadedSyncedIDs(hrvReadings: [r1.id, r2.id]),
+            modelContext: context
+        )
+
+        #expect(r1.syncedToServer == true)
+        #expect(r2.syncedToServer == true)
+    }
+
+    // MARK: - Phase 3b: RR-archive upload
+
+    /// Reference-type recorder for the injected `postArchive` closure.
+    /// `@MainActor` so mutation from inside the `@MainActor`-isolated
+    /// `uploadPendingRRArchives` is race-free without `@Sendable` annotations.
+    @MainActor
+    private final class RRPostRecorder {
+        var calls: [(sessionID: UUID, byteCount: Int)] = []
+        var shouldThrow: Error?
+    }
+
+    @Test("uploadPendingRRArchives posts and stamps rrArchiveUploadedAt on success")
+    @MainActor
+    func uploadPendingRRArchivesHappyPath() async throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        // `isConfigured` is a precondition for the upload to proceed; without
+        // it the function short-circuits before invoking the closure.
+        UserDefaults.standard.set("http://example.com", forKey: "syncServerURL")
+        UserDefaults.standard.set("test-key", forKey: "syncApiKey")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let session = SensorSession(
+            startTime: Date(timeIntervalSince1970: 1_711_300_000),
+            batteryAtStart: 90
+        )
+        context.insert(session)
+        try context.save()
+
+        // Real on-disk archive at the canonical path. `RRArchiveWriter`
+        // derives the path purely from `sessionID`, so each test's fresh
+        // UUID keeps fixtures isolated.
+        let url = RRArchiveWriter.archiveURL(for: session.id)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(repeating: 0xAB, count: 200).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let recorder = RRPostRecorder()
+        await SyncService().uploadPendingRRArchives(
+            sessionIDs: [session.id],
+            modelContext: context,
+            postArchive: { id, body in
+                recorder.calls.append((id, body.count))
+            }
+        )
+
+        #expect(recorder.calls.count == 1)
+        #expect(recorder.calls.first?.sessionID == session.id)
+        #expect((recorder.calls.first?.byteCount ?? 0) > 0)
+        #expect(session.rrArchiveUploadedAt != nil)
+    }
+
+    @Test("uploadPendingRRArchives leaves rrArchiveUploadedAt nil on post failure")
+    @MainActor
+    func uploadPendingRRArchivesLeavesUploadedAtNilOnFailure() async throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.set("http://example.com", forKey: "syncServerURL")
+        UserDefaults.standard.set("test-key", forKey: "syncApiKey")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let session = SensorSession(
+            startTime: Date(timeIntervalSince1970: 1_711_300_000),
+            batteryAtStart: 90
+        )
+        context.insert(session)
+        try context.save()
+
+        let url = RRArchiveWriter.archiveURL(for: session.id)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(repeating: 0xCD, count: 200).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        struct InjectedFailure: Error {}
+        let recorder = RRPostRecorder()
+        recorder.shouldThrow = InjectedFailure()
+        await SyncService().uploadPendingRRArchives(
+            sessionIDs: [session.id],
+            modelContext: context,
+            postArchive: { id, body in
+                recorder.calls.append((id, body.count))
+                if let err = recorder.shouldThrow { throw err }
+            }
+        )
+
+        #expect(recorder.calls.count == 1, "Closure still called once before throwing")
+        #expect(
+            session.rrArchiveUploadedAt == nil,
+            "Failure must leave rrArchiveUploadedAt nil so next sync retries"
+        )
+    }
+
+    @Test("uploadPendingRRArchives skips sessions whose archive already uploaded")
+    @MainActor
+    func uploadPendingRRArchivesSkipsAlreadyUploaded() async throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.set("http://example.com", forKey: "syncServerURL")
+        UserDefaults.standard.set("test-key", forKey: "syncApiKey")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let session = SensorSession(
+            startTime: Date(timeIntervalSince1970: 1_711_300_000),
+            batteryAtStart: 90
+        )
+        let priorUpload = Date(timeIntervalSince1970: 1_711_310_000)
+        session.rrArchiveUploadedAt = priorUpload
+        context.insert(session)
+        try context.save()
+
+        let url = RRArchiveWriter.archiveURL(for: session.id)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(repeating: 0xEF, count: 200).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let recorder = RRPostRecorder()
+        await SyncService().uploadPendingRRArchives(
+            sessionIDs: [session.id],
+            modelContext: context,
+            postArchive: { id, body in
+                recorder.calls.append((id, body.count))
+            }
+        )
+
+        #expect(
+            recorder.calls.isEmpty,
+            "Already-uploaded session must short-circuit before invoking the post closure"
+        )
+        #expect(
+            session.rrArchiveUploadedAt == priorUpload,
+            "Prior upload timestamp must be preserved"
+        )
     }
 
 }

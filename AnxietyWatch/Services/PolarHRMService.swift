@@ -354,7 +354,7 @@ final class PolarHRMService: NSObject {
         // Now we know the SensorSession's ID; mint the archive against the
         // same identifier so a later (Phase 3) sync can find both halves.
         if let sessionID = localRecorder.sessionID {
-            let archiveURL = Self.archiveURL(for: sessionID)
+            let archiveURL = RRArchiveWriter.archiveURL(for: sessionID)
             self.archive = try? RRArchiveWriter(url: archiveURL)
             if self.archive == nil {
                 log.warning("RR archive writer failed to open at \(archiveURL.path, privacy: .public); proceeding without raw archive.")
@@ -580,7 +580,7 @@ final class PolarHRMService: NSObject {
             sortBy: [SortDescriptor(\.timestamp)]
         )
         let priorRMSSDs = (try? modelContext.fetch(priorReadingsDescriptor))?.map(\.rmssd) ?? []
-        let archiveURL = Self.archiveURL(for: candidate.id)
+        let archiveURL = RRArchiveWriter.archiveURL(for: candidate.id)
         // Use the writer's helper so the count stays in sync with what
         // init(url:append:true) will actually preserve — an unaligned file
         // is truncated by the writer, and recordCount returns 0 for it
@@ -645,7 +645,7 @@ final class PolarHRMService: NSObject {
             predicate: #Predicate { $0.sensorSessionID == sessionID }
         )
         let rmssds = (try? modelContext.fetch(readingsDescriptor))?.map(\.rmssd) ?? []
-        let rrCount = RRArchiveWriter.recordCount(url: Self.archiveURL(for: session.id))
+        let rrCount = RRArchiveWriter.recordCount(url: RRArchiveWriter.archiveURL(for: session.id))
         // Skipped minutes weren't tracked across the suspend boundary, so
         // we report 0 here. Real per-minute "skipped" counts only exist
         // while the in-memory recorder is alive.
@@ -656,18 +656,6 @@ final class PolarHRMService: NSObject {
             session: session
         )
         try? modelContext.save()
-    }
-
-    private static func archiveURL(for sessionID: UUID) -> URL {
-        let supportDir = (try? FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? FileManager.default.temporaryDirectory
-        return supportDir
-            .appendingPathComponent("rr_archives", isDirectory: true)
-            .appendingPathComponent("\(sessionID.uuidString).rr")
     }
 }
 

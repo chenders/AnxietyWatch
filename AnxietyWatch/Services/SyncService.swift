@@ -126,7 +126,7 @@ final class SyncService {
             let payload = try buildPayload(from: modelContext, demographics: demographics.isEmpty ? nil : demographics)
             // Capture the ids included in the payload so we can flip
             // syncedToServer = true after the server confirms 200 OK.
-            let (uploadedQuantityIDs, uploadedSleepIDs) = extractUploadedSampleIDs(from: payload)
+            let uploadedIDs = extractUploadedSyncedIDs(from: payload)
 
             guard var urlComponents = URLComponents(string: serverURL) else {
                 throw SyncError.invalidURL
@@ -162,8 +162,7 @@ final class SyncService {
             lastSyncResult = await applyPostUploadResponse(
                 responseData: responseData,
                 payloadByteCount: payload.count,
-                uploadedQuantityIDs: uploadedQuantityIDs,
-                uploadedSleepIDs: uploadedSleepIDs,
+                uploadedIDs: uploadedIDs,
                 modelContext: modelContext
             )
         } catch is URLError {
@@ -196,35 +195,40 @@ final class SyncService {
     func applyPostUploadResponse(
         responseData: Data,
         payloadByteCount: Int,
-        uploadedQuantityIDs: [UUID],
-        uploadedSleepIDs: [UUID],
+        uploadedIDs: UploadedSyncedIDs,
         modelContext: ModelContext,
-        markSamples: ((_ qIDs: [UUID], _ sIDs: [UUID], _ ctx: ModelContext) throws -> Void)? = nil
+        markSamples: ((_ ids: UploadedSyncedIDs, _ ctx: ModelContext) throws -> Void)? = nil
     ) async -> String {
-        // Mark uploaded raw samples as synced so we don't resend them.
+        // Mark uploaded raw rows as synced so we don't resend them.
         // Failures here used to be swallowed via `try?`, which meant the
-        // app would re-upload the same first 1000 samples forever if the
+        // app would re-upload the same first 1000 rows forever if the
         // save failed. Surface the error explicitly so it's diagnosable
         // even though the upload itself succeeded — but do NOT short-circuit
         // the rest of the post-200-OK flow. Correlations apply and the
-        // song-catalog pull are logically independent of raw-sample
+        // song-catalog pull are logically independent of raw-row
         // flagging, so they should still run; we just record the partial
         // failure to surface in the result string at the end.
         var sampleFlagError: Error?
         do {
             if let markSamples {
-                try markSamples(uploadedQuantityIDs, uploadedSleepIDs, modelContext)
+                try markSamples(uploadedIDs, modelContext)
             } else {
-                try markSamplesSynced(
-                    quantityIDs: uploadedQuantityIDs,
-                    sleepIDs: uploadedSleepIDs,
-                    modelContext: modelContext
-                )
+                try markSamplesSynced(uploadedIDs, modelContext: modelContext)
             }
         } catch {
             Log.data.error("markSamplesSynced failed after successful upload: \(error, privacy: .public)")
             sampleFlagError = error
         }
+
+        // For each session whose row just landed on the server, push the
+        // binary RR-interval archive if it hasn't been uploaded yet. The
+        // /api/sync POST creates the server-side row; this second call
+        // attaches the blob (~80–120 KB gzipped). Failures are non-fatal:
+        // `rrArchiveUploadedAt` stays nil so the next sync retries.
+        await uploadPendingRRArchives(
+            sessionIDs: uploadedIDs.sensorSessions,
+            modelContext: modelContext
+        )
 
         // Parse correlations from sync response if present
         if let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
@@ -426,14 +430,16 @@ final class SyncService {
             json["since"] = ISO8601DateFormatter().string(from: since)
         }
         json["clientVersion"] = "1.0"
-        // syncSchemaVersion 3 adds raw quantitySamples + sleepStageEvents arrays
-        // and the dataQuality JSONB on each HealthSnapshot. The server uses the
-        // version flag to interpret missing dataQuality keys as intentional nils
-        // (clear-on-conflict) on v3+ clients vs. preserve-via-COALESCE on older.
-        // v2 added the seven overnight clinical stats fields (spo2NadirOvernight,
-        // spo2TimeBelow90Min, spo2DesatsCount, glucoseStdDev/CV/Min/Max) under
-        // the same clear-on-conflict semantics.
-        json["syncSchemaVersion"] = 3
+        // syncSchemaVersion 4 adds top-level `sensorSessions` + `hrvReadings`
+        // arrays from the Polar H10 BLE pipeline. v3 added raw quantitySamples
+        // + sleepStageEvents arrays and the dataQuality JSONB on each
+        // HealthSnapshot; the server uses the version flag to interpret missing
+        // dataQuality keys as intentional nils (clear-on-conflict) on v3+
+        // clients vs. preserve-via-COALESCE on older. v2 added the seven
+        // overnight clinical stats fields (spo2NadirOvernight, spo2TimeBelow90Min,
+        // spo2DesatsCount, glucoseStdDev/CV/Min/Max) under the same
+        // clear-on-conflict semantics.
+        json["syncSchemaVersion"] = 4
         json["deviceName"] = "iOS \(UIDevice.current.systemVersion)"
         if let demographics {
             json["demographics"] = demographics
@@ -442,13 +448,18 @@ final class SyncService {
         // v3: include un-synced raw samples (capped at 1000 each per request)
         json["quantitySamples"] = try fetchUnsyncedQuantitySamples(from: context)
         json["sleepStageEvents"] = try fetchUnsyncedSleepStageEvents(from: context)
+        // v4: Polar H10 sensor sessions + per-window HRV readings. Server
+        // accepts both since 0005_polar_h10_sessions; the version bump signals
+        // intent to receive them on the next round-trip.
+        json["sensorSessions"] = try fetchUnsyncedSensorSessions(from: context)
+        json["hrvReadings"] = try fetchUnsyncedHRVReadings(from: context)
 
         return try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
     }
 
-    /// Flip `syncedToServer = true` on the rows whose ids match. Called from
-    /// `sync()` after the server returns 200 OK so subsequent payloads only
-    /// include newly-mirrored samples.
+    /// Flip `syncedToServer = true` on the rows whose ids are in `uploaded`.
+    /// Called from `sync()` after the server returns 200 OK so subsequent
+    /// payloads only include newly-mirrored rows.
     ///
     /// Chunks the IN(...) lookup and the save under SQLite's 999-parameter
     /// limit so a 1000-ID upload doesn't cause the flag step to silently fail
@@ -459,22 +470,37 @@ final class SyncService {
     /// keeps `ModelContext` access on the same actor as its caller.
     @MainActor
     func markSamplesSynced(
-        quantityIDs: [UUID],
-        sleepIDs: [UUID],
+        _ uploaded: UploadedSyncedIDs,
         modelContext: ModelContext
     ) throws {
-        if !quantityIDs.isEmpty {
-            let qSet = Set(quantityIDs)
-            try Self.flagSyncedInChunks(ids: qSet, in: modelContext) { batch in
+        if !uploaded.quantitySamples.isEmpty {
+            let ids = Set(uploaded.quantitySamples)
+            try Self.flagSyncedInChunks(ids: ids, in: modelContext) { batch in
                 FetchDescriptor<QuantityHealthSample>(
                     predicate: #Predicate { batch.contains($0.id) }
                 )
             }
         }
-        if !sleepIDs.isEmpty {
-            let sSet = Set(sleepIDs)
-            try Self.flagSyncedInChunks(ids: sSet, in: modelContext) { batch in
+        if !uploaded.sleepStageEvents.isEmpty {
+            let ids = Set(uploaded.sleepStageEvents)
+            try Self.flagSyncedInChunks(ids: ids, in: modelContext) { batch in
                 FetchDescriptor<SleepStageEvent>(
+                    predicate: #Predicate { batch.contains($0.id) }
+                )
+            }
+        }
+        if !uploaded.sensorSessions.isEmpty {
+            let ids = Set(uploaded.sensorSessions)
+            try Self.flagSyncedInChunks(ids: ids, in: modelContext) { batch in
+                FetchDescriptor<SensorSession>(
+                    predicate: #Predicate { batch.contains($0.id) }
+                )
+            }
+        }
+        if !uploaded.hrvReadings.isEmpty {
+            let ids = Set(uploaded.hrvReadings)
+            try Self.flagSyncedInChunks(ids: ids, in: modelContext) { batch in
+                FetchDescriptor<HRVReading>(
                     predicate: #Predicate { batch.contains($0.id) }
                 )
             }
@@ -550,18 +576,22 @@ final class SyncService {
     /// Pull the `id` strings out of the just-built payload so we can flip
     /// their `syncedToServer` flag after the server returns 200. Reading from
     /// the payload (instead of re-querying SwiftData) guarantees we mark
-    /// exactly what was uploaded — no race with new mirrored samples.
-    private func extractUploadedSampleIDs(from payload: Data) -> (quantity: [UUID], sleep: [UUID]) {
+    /// exactly what was uploaded — no race with new mirrored rows.
+    private func extractUploadedSyncedIDs(from payload: Data) -> UploadedSyncedIDs {
         guard let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
-            return ([], [])
+            return UploadedSyncedIDs()
         }
-        let qIDs = (json["quantitySamples"] as? [[String: Any]])?.compactMap { dict in
-            (dict["id"] as? String).flatMap(UUID.init(uuidString:))
-        } ?? []
-        let sIDs = (json["sleepStageEvents"] as? [[String: Any]])?.compactMap { dict in
-            (dict["id"] as? String).flatMap(UUID.init(uuidString:))
-        } ?? []
-        return (qIDs, sIDs)
+        func ids(forKey key: String) -> [UUID] {
+            ((json[key] as? [[String: Any]]) ?? []).compactMap { dict in
+                (dict["id"] as? String).flatMap(UUID.init(uuidString:))
+            }
+        }
+        return UploadedSyncedIDs(
+            quantitySamples: ids(forKey: "quantitySamples"),
+            sleepStageEvents: ids(forKey: "sleepStageEvents"),
+            sensorSessions: ids(forKey: "sensorSessions"),
+            hrvReadings: ids(forKey: "hrvReadings")
+        )
     }
 
     @MainActor
@@ -587,6 +617,176 @@ final class SyncService {
             return dict
         }
     }
+
+    @MainActor
+    private func fetchUnsyncedSensorSessions(from context: ModelContext) throws -> [[String: Any]] {
+        var descriptor = FetchDescriptor<SensorSession>(
+            predicate: #Predicate { !$0.syncedToServer },
+            sortBy: [SortDescriptor(\.startTime)]
+        )
+        descriptor.fetchLimit = Self.sampleBatchLimit
+        let rows = try context.fetch(descriptor)
+        return rows.map { row in
+            var dict: [String: Any] = [
+                "id": row.id.uuidString,
+                "startTime": Self.isoFormatter.string(from: row.startTime),
+                "interruptionCount": row.interruptions.count,
+                "batteryAtStart": row.batteryAtStart,
+            ]
+            if let endTime = row.endTime {
+                dict["endTime"] = Self.isoFormatter.string(from: endTime)
+            }
+            if let source = row.source {
+                dict["source"] = source
+            } else {
+                // Server requires `source` per schema 0005. Use a stable
+                // sentinel when the field is nil so we never silently fail
+                // the upsert on the server side.
+                dict["source"] = "unknown"
+            }
+            // Decode the on-disk `String?` into a dict before sending. The
+            // server tolerates both shapes (see `_coerce_summary_json` in
+            // server.py), but the dict path is the cleaner contract — no
+            // double-encoding ambiguity, and lookups like
+            // `summary_json->>'rmssdMean'` work without an intermediate
+            // unwrap. A malformed string falls through as nil so one bad
+            // row doesn't break the batch.
+            if let summary = row.summaryJSON,
+               let data = summary.data(using: .utf8),
+               let parsed = try? JSONSerialization.jsonObject(with: data) {
+                dict["summaryJSON"] = parsed
+            }
+            return dict
+        }
+    }
+
+    @MainActor
+    private func fetchUnsyncedHRVReadings(from context: ModelContext) throws -> [[String: Any]] {
+        var descriptor = FetchDescriptor<HRVReading>(
+            predicate: #Predicate { !$0.syncedToServer },
+            sortBy: [SortDescriptor(\.timestamp)]
+        )
+        descriptor.fetchLimit = Self.sampleBatchLimit
+        let rows = try context.fetch(descriptor)
+        return rows.map { row in
+            var dict: [String: Any] = [
+                "id": row.id.uuidString,
+                "timestamp": Self.isoFormatter.string(from: row.timestamp),
+                "rmssd": row.rmssd,
+                "sdnn": row.sdnn,
+                "pnn50": row.pnn50,
+                "lfPower": row.lfPower,
+                "hfPower": row.hfPower,
+                "lfHfRatio": row.lfHfRatio,
+                // Server schema 0005 requires source non-null and reads
+                // `r["source"]` (raises KeyError on missing). Fall back to
+                // the same "unknown" sentinel sensorSessions uses so legacy
+                // / Watch-side rows don't 500 the whole batch.
+                "source": row.source ?? "unknown",
+            ]
+            // Server key is `sessionId` (matches the parent table FK column
+            // `hrv_readings.session_id`). The iOS model field happens to be
+            // `sensorSessionID`; only the wire name follows the server
+            // contract.
+            if let sessionID = row.sensorSessionID {
+                dict["sessionId"] = sessionID.uuidString
+            }
+            return dict
+        }
+    }
+
+    // MARK: - RR-archive upload (Phase 3b)
+
+    /// For each session that just landed on the server via /api/sync, push
+    /// the binary RR-interval archive if it hasn't been uploaded yet. The
+    /// archive is a separate POST because it's a multi-hundred-KB binary
+    /// blob and shouldn't bloat the JSON sync payload.
+    ///
+    /// Skip semantics:
+    /// - Already uploaded (`rrArchiveUploadedAt != nil`) — skip.
+    /// - No on-disk file — skip (no archive to attach; session metadata
+    ///   alone is sufficient).
+    /// - Empty file (`fileSize == 0`) — skip (server returns 400 for empty
+    ///   payloads; an empty archive is the same as "no archive").
+    ///
+    /// Each upload is independent — a single failure doesn't abort the
+    /// rest. Failures leave `rrArchiveUploadedAt` nil so the next sync
+    /// retries.
+    ///
+    /// `postArchive` is injectable so tests can drive the upload-decision
+    /// logic without standing up a real URLSession. When nil, the private
+    /// `postRRArchive` (real network impl) runs. Matches the `markSamples`
+    /// closure-injection pattern on `applyPostUploadResponse`.
+    @MainActor
+    func uploadPendingRRArchives(
+        sessionIDs: [UUID],
+        modelContext: ModelContext,
+        postArchive: ((_ sessionID: UUID, _ body: Data) async throws -> Void)? = nil
+    ) async {
+        guard !sessionIDs.isEmpty, isConfigured else { return }
+        let ids = Set(sessionIDs)
+        let sessions: [SensorSession]
+        do {
+            sessions = try modelContext.fetch(
+                FetchDescriptor<SensorSession>(
+                    predicate: #Predicate { ids.contains($0.id) }
+                )
+            )
+        } catch {
+            Log.sync.error("RR archive: failed to fetch sessions: \(error, privacy: .public)")
+            return
+        }
+
+        for session in sessions where session.rrArchiveUploadedAt == nil {
+            let url = RRArchiveWriter.archiveURL(for: session.id)
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            guard let raw = try? Data(contentsOf: url), !raw.isEmpty else { continue }
+            guard let compressed = try? (raw as NSData).compressed(using: .zlib) as Data else {
+                Log.sync.error(
+                    "RR archive: zlib compression failed for session \(session.id.uuidString, privacy: .public)"
+                )
+                continue
+            }
+            do {
+                if let postArchive {
+                    try await postArchive(session.id, compressed)
+                } else {
+                    try await postRRArchive(sessionID: session.id, body: compressed)
+                }
+                session.rrArchiveUploadedAt = .now
+                try modelContext.save()
+            } catch {
+                Log.sync.error(
+                    "RR archive upload failed for session \(session.id.uuidString, privacy: .public): \(error, privacy: .public)"
+                )
+                // rrArchiveUploadedAt stays nil — next sync retries.
+            }
+        }
+    }
+
+    private func postRRArchive(sessionID: UUID, body: Data) async throws {
+        guard var components = URLComponents(string: serverURL) else {
+            throw SyncError.invalidURL
+        }
+        components.path = "/api/sensor_sessions/\(sessionID.uuidString)/rr_archive"
+        guard let url = components.url else { throw SyncError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        request.timeoutInterval = 60
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SyncError.noConnection
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let bodyText = String(data: data, encoding: .utf8)
+            throw SyncError.serverError(http.statusCode, bodyText)
+        }
+    }
 }
 
 /// Models that carry a `syncedToServer` flag flipped by `markSamplesSynced`
@@ -599,3 +799,19 @@ protocol SyncableSample: AnyObject {
 
 extension QuantityHealthSample: SyncableSample {}
 extension SleepStageEvent: SyncableSample {}
+extension SensorSession: SyncableSample {}
+extension HRVReading: SyncableSample {}
+
+/// Bundle of ids the sync payload uploaded, captured before the POST so
+/// `markSamplesSynced` flips the local flag for exactly what made it onto
+/// the wire — never less (would re-upload) and never more (would mark
+/// in-flight rows as synced and lose them on the next sync).
+///
+/// New synced types add fields here rather than spreading through the
+/// `applyPostUploadResponse` / `markSamples` signature.
+struct UploadedSyncedIDs: Equatable {
+    var quantitySamples: [UUID] = []
+    var sleepStageEvents: [UUID] = []
+    var sensorSessions: [UUID] = []
+    var hrvReadings: [UUID] = []
+}

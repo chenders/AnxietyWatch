@@ -27,6 +27,17 @@ final class SensorSession {
     /// Schema is intentionally flexible while we figure out which derived
     /// fields actually drive the chart pipeline.
     var summaryJSON: String?
+    /// `true` once the session row has been mirrored to the sync server via
+    /// `/api/sync`. Matches the `QuantityHealthSample` / `SleepStageEvent`
+    /// pattern so `SyncService` can fetch unsynced rows generically.
+    var syncedToServer: Bool = false
+    /// Timestamp the RR-interval binary archive was successfully uploaded
+    /// via `POST /api/sensor_sessions/<id>/rr_archive`. Nil until upload
+    /// lands. Tracked separately from `syncedToServer` because the archive
+    /// upload is a second HTTP call that can fail independently — the next
+    /// sync run retries any session where this is nil but the on-disk
+    /// `.rr` file still exists.
+    var rrArchiveUploadedAt: Date?
 
     init(startTime: Date, batteryAtStart: Int) {
         self.id = UUID()
@@ -37,5 +48,7 @@ final class SensorSession {
         self.batteryAtEnd = nil
         self.source = nil
         self.summaryJSON = nil
+        self.syncedToServer = false
+        self.rrArchiveUploadedAt = nil
     }
 }

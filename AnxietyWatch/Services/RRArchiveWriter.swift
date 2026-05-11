@@ -28,6 +28,29 @@ nonisolated final class RRArchiveWriter: @unchecked Sendable {
     private static let recordSize = 10
     private static let flushThreshold = 65_536
 
+    /// Canonical on-disk location for a session's RR-interval archive. The
+    /// path is derived purely from `sessionID`, so any subsystem that knows
+    /// a `SensorSession.id` can locate its archive — the BLE writer, the
+    /// sync uploader, and (future) the chart pipeline don't need to share
+    /// state, only the UUID.
+    ///
+    /// Falls back to `temporaryDirectory` if `applicationSupportDirectory`
+    /// is unavailable — only happens in extreme low-storage / corrupted
+    /// container states, where any write is going to fail anyway. Returning
+    /// a temp path keeps the failure mode "write fails when archive opens"
+    /// rather than "force-unwrap crashes here".
+    static func archiveURL(for sessionID: UUID) -> URL {
+        let supportDir = (try? FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )) ?? FileManager.default.temporaryDirectory
+        return supportDir
+            .appendingPathComponent("rr_archives", isDirectory: true)
+            .appendingPathComponent("\(sessionID.uuidString).rr")
+    }
+
     private let url: URL
     private var pending = Data()
 

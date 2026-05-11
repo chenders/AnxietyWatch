@@ -21,6 +21,10 @@ final class HRVReading {
     /// otherwise — covers both pre-source-tracking rows and rows from the
     /// existing Watch → phone transfer pipeline that doesn't set source yet.
     var source: String?
+    /// `true` once the reading has been mirrored to the sync server via
+    /// `/api/sync`. Matches the `QuantityHealthSample` / `SleepStageEvent`
+    /// pattern.
+    var syncedToServer: Bool = false
 
     init(id: UUID = UUID(), timestamp: Date, rmssd: Double, sdnn: Double, pnn50: Double,
          lfPower: Double, hfPower: Double, lfHfRatio: Double,
@@ -35,5 +39,6 @@ final class HRVReading {
         self.lfHfRatio = lfHfRatio
         self.sensorSessionID = sensorSessionID
         self.source = source
+        self.syncedToServer = false
     }
 }
