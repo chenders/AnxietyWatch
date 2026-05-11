@@ -84,7 +84,7 @@ struct SparklineView: View {
             let w = geo.size.width
             let h = geo.size.height
 
-            Canvas { context, size in
+            Canvas { context, _ in
                 for segment in segments {
                     guard segment.count >= 2 else {
                         // Single point: draw a dot

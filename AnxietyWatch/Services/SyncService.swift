@@ -232,8 +232,11 @@ final class SyncService {
             upsertCorrelations(correlationList, modelContext: modelContext)
         }
 
-        // Pull songs catalog (server → iOS)
-        try? await SongService.fetchCatalog(into: modelContext)
+        // Pull songs catalog (server → iOS). Failures here are non-fatal
+        // for the sync; the explicit `_ = try?` silences the "result of
+        // 'try?' is unused" warning while preserving the swallow-and-move-on
+        // semantics this call needs.
+        _ = try? await SongService.fetchCatalog(into: modelContext)
 
         let size = ByteCountFormatter.string(fromByteCount: Int64(payloadByteCount), countStyle: .file)
         if let sampleFlagError {
@@ -341,7 +344,6 @@ final class SyncService {
             try modelContext.save()
         }
     }
-
 
     // MARK: - Correlations
 

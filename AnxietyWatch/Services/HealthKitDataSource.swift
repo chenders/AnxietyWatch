@@ -3,7 +3,9 @@ import HealthKit
 
 /// Aggregated sleep stage data from HealthKit.
 /// Top-level so it can be used in the protocol without referencing HealthKitManager.
-struct SleepData: Sendable {
+/// `nonisolated` so the synthesized `init()` is callable from any actor context
+/// (e.g. HealthKitManager's actor-isolated query methods).
+nonisolated struct SleepData: Sendable {
     var totalMinutes: Int = 0
     var deepMinutes: Int = 0
     var remMinutes: Int = 0
@@ -14,7 +16,9 @@ struct SleepData: Sendable {
 /// A quantity sample annotated with its HealthKit source/device provenance.
 /// Used by importers that need to classify samples by their originating
 /// device (e.g. CGM vs. on-watch SpO2 vs. nightstand pulse oximeter).
-struct SourcedQuantitySample: Sendable, Equatable {
+/// `nonisolated` so member access works from any actor context (mock data
+/// source, sync service, importer pipelines).
+nonisolated struct SourcedQuantitySample: Sendable, Equatable {
     let timestamp: Date
     let value: Double
     let sourceBundleID: String
@@ -25,7 +29,8 @@ struct SourcedQuantitySample: Sendable, Equatable {
 
 /// A sleep-stage event annotated with its HealthKit source/device provenance.
 /// `stage` is the raw `HKCategoryValueSleepAnalysis` rawValue.
-struct SourcedSleepStageEvent: Sendable, Equatable {
+/// `nonisolated` so member access works from any actor context.
+nonisolated struct SourcedSleepStageEvent: Sendable, Equatable {
     let start: Date
     let end: Date
     let stage: Int          // raw HKCategoryValueSleepAnalysis

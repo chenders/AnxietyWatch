@@ -74,6 +74,35 @@ def _column_names(table):
     return names
 
 
+def _foreign_keys(table):
+    """Return a list of (column, references_table, references_column, on_delete)
+    tuples for each foreign key constraint on `table`. Used in migration
+    tests to assert the FK contract survives upgrade/downgrade rounds."""
+    conn = psycopg2.connect(DATABASE_URL)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                kcu.column_name,
+                ccu.table_name AS foreign_table,
+                ccu.column_name AS foreign_column,
+                rc.delete_rule
+            FROM information_schema.table_constraints AS tc
+            JOIN information_schema.key_column_usage AS kcu
+                ON tc.constraint_name = kcu.constraint_name
+            JOIN information_schema.constraint_column_usage AS ccu
+                ON ccu.constraint_name = tc.constraint_name
+            JOIN information_schema.referential_constraints AS rc
+                ON rc.constraint_name = tc.constraint_name
+            WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = %s
+            """,
+            (table,),
+        )
+        rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
 class TestBaselineMigration:
     """Test that the baseline migration creates the full schema."""
 
@@ -137,6 +166,23 @@ class TestFullMigrationChain:
         assert "quantity_health_samples" in tables
         assert "sleep_stage_events" in tables
         assert "data_quality" in _column_names("health_snapshots")
+        # 0005 — Polar H10 sensor_sessions + hrv_readings
+        assert "sensor_sessions" in tables
+        assert "hrv_readings" in tables
+        cols = _column_names("hrv_readings")
+        assert {"session_id", "rmssd", "lf_power", "source"}.issubset(cols)
+        # FK enforcement: hrv_readings.session_id must actually reference
+        # sensor_sessions.id with CASCADE on delete. A column-only check
+        # would silently pass if a future migration dropped the FK while
+        # keeping the column.
+        fks = _foreign_keys("hrv_readings")
+        assert any(
+            col == "session_id"
+            and ref_table == "sensor_sessions"
+            and ref_col == "id"
+            and on_delete == "CASCADE"
+            for col, ref_table, ref_col, on_delete in fks
+        ), f"Expected CASCADE FK hrv_readings.session_id -> sensor_sessions.id; got {fks}"
 
     def test_round_trip(self):
         """Upgrade to head, downgrade to base, upgrade again."""
@@ -144,12 +190,14 @@ class TestFullMigrationChain:
         command.upgrade(cfg, "head")
         command.downgrade(cfg, "0001")
         # Data fix downgrade goes back to baseline — verify tables still exist
-        # and that the 0004 additions have been removed.
+        # and that the 0004 + 0005 additions have been removed.
         tables = _table_names()
         assert "health_snapshots" in tables
         assert "quantity_health_samples" not in tables
         assert "sleep_stage_events" not in tables
         assert "data_quality" not in _column_names("health_snapshots")
+        assert "sensor_sessions" not in tables
+        assert "hrv_readings" not in tables
         command.downgrade(cfg, "base")
         tables = _table_names()
         user_tables = tables - {"alembic_version"}

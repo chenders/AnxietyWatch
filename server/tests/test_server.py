@@ -63,6 +63,7 @@ def _clean_tables(app):
             "patient_profile, psychiatrist_profile, conflicts, analysis_jobs, "
             "pharmacies, prescriptions, pharmacy_call_logs, "
             "quantity_health_samples, sleep_stage_events, "
+            "sensor_sessions, hrv_readings, "
             "songs, song_occurrences "
             "RESTART IDENTITY CASCADE"
         )
@@ -1481,3 +1482,336 @@ class TestFormatAnalysisFilter:
         with app.app_context():
             f = app.jinja_env.filters["format_analysis"]
             assert f("") == ""
+
+
+# ---------------------------------------------------------------------------
+# Polar H10 sensor_sessions + hrv_readings sync (PR 130, migration 0005)
+# ---------------------------------------------------------------------------
+
+
+def _polar_session_payload(session_id, **overrides):
+    base = {
+        "id": session_id,
+        "source": "polar_h10",
+        "startTime": "2026-05-11T03:00:00Z",
+        "endTime": "2026-05-11T10:30:00Z",
+        "batteryAtStart": 78,
+        "interruptionCount": 2,
+        "summaryJSON": {"rmssdMean": 46.7, "rrCount": 28912, "durationSec": 27000},
+    }
+    base.update(overrides)
+    return base
+
+
+def _hrv_reading_payload(reading_id, session_id, **overrides):
+    base = {
+        "id": reading_id,
+        "sessionId": session_id,
+        "timestamp": "2026-05-11T03:01:00Z",
+        "rmssd": 42.0,
+        "sdnn": 50.0,
+        "pnn50": 10.0,
+        "lfPower": 120.5,
+        "hfPower": 80.2,
+        "lfHfRatio": 1.5,
+        "source": "polar_h10",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_sync_sensor_session_inserts_row(client, app):
+    session_id = "11111111-1111-1111-1111-111111111111"
+    resp = client.post(
+        "/api/sync",
+        json={"sensorSessions": [_polar_session_payload(session_id)]},
+        headers=auth_header(),
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["counts"]["sensor_sessions"] == 1
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "SELECT source, battery_at_start, interruption_count, summary_json FROM sensor_sessions WHERE id = %s",
+            (session_id,),
+        )
+        row = cur.fetchone()
+        assert row is not None
+        assert row[0] == "polar_h10"
+        assert row[1] == 78
+        assert row[2] == 2
+        # summary_json round-trips through JSONB as a dict
+        assert row[3]["rmssdMean"] == 46.7
+
+
+def test_sync_sensor_session_accepts_summary_json_as_string(client, app):
+    """iOS `SensorSession.summaryJSON` is `String?` (a pre-encoded JSON
+    string). A naive Phase-3b client would send it as a string rather than
+    a decoded dict — the server must accept both shapes and store a real
+    JSONB object either way, so `summary_json->>'rmssdMean'` lookups work
+    regardless of which client variant produced the row."""
+    session_id = "21111111-1111-1111-1111-111111111111"
+    payload = _polar_session_payload(session_id)
+    # Pre-encode as iOS would naively send it (String? round-tripped over JSON).
+    payload["summaryJSON"] = json.dumps({"rmssdMean": 41.2, "rrCount": 27000})
+    resp = client.post("/api/sync", json={"sensorSessions": [payload]}, headers=auth_header())
+    assert resp.status_code == 200
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute("SELECT summary_json FROM sensor_sessions WHERE id = %s", (session_id,))
+        stored = cur.fetchone()[0]
+        # If the server had double-encoded the string, `stored` would be a
+        # JSON string ("{...}") and dict access would raise. We want a dict.
+        assert isinstance(stored, dict)
+        assert stored["rmssdMean"] == 41.2
+        # Indexed lookup via Postgres operator must also work.
+        cur.execute(
+            "SELECT (summary_json->>'rmssdMean')::float FROM sensor_sessions WHERE id = %s",
+            (session_id,),
+        )
+        assert cur.fetchone()[0] == 41.2
+
+
+def test_sync_sensor_session_drops_malformed_summary_json_string(client, app):
+    """A malformed JSON string in `summaryJSON` shouldn't poison the upsert
+    batch — drop it (the column is nullable) and let the rest of the row
+    land. Same precedent as other importer fixes that don't fail closed
+    on one bad field."""
+    session_id = "21222222-2222-2222-2222-222222222222"
+    payload = _polar_session_payload(session_id)
+    payload["summaryJSON"] = "this is not json {{{"
+    resp = client.post("/api/sync", json={"sensorSessions": [payload]}, headers=auth_header())
+    assert resp.status_code == 200
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute("SELECT summary_json FROM sensor_sessions WHERE id = %s", (session_id,))
+        assert cur.fetchone()[0] is None
+
+
+def test_sync_sensor_session_is_idempotent(client, app):
+    session_id = "22222222-2222-2222-2222-222222222222"
+    payload = _polar_session_payload(session_id)
+    client.post("/api/sync", json={"sensorSessions": [payload]}, headers=auth_header())
+    # Repeat with an updated summary — should update in place, not insert.
+    payload["summaryJSON"] = {"rmssdMean": 50.0, "rrCount": 31000}
+    client.post("/api/sync", json={"sensorSessions": [payload]}, headers=auth_header())
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute("SELECT COUNT(*), MAX((summary_json->>'rmssdMean')::float) FROM sensor_sessions WHERE id = %s",
+                    (session_id,))
+        count, max_rmssd = cur.fetchone()
+        assert count == 1
+        assert max_rmssd == 50.0
+
+
+def test_sync_sensor_session_partial_update_preserves_existing_fields(client, app):
+    """Replay with only the start row (no summary) keeps the previous summary."""
+    session_id = "33333333-3333-3333-3333-333333333333"
+    # First sync: full row with summary.
+    client.post(
+        "/api/sync",
+        json={"sensorSessions": [_polar_session_payload(session_id)]},
+        headers=auth_header(),
+    )
+    # Second sync: only start row (summary omitted).
+    partial = {
+        "id": session_id,
+        "source": "polar_h10",
+        "startTime": "2026-05-11T03:00:00Z",
+        "interruptionCount": 2,
+    }
+    client.post(
+        "/api/sync",
+        json={"sensorSessions": [partial]},
+        headers=auth_header(),
+    )
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute(
+            "SELECT end_time, battery_at_start, summary_json FROM sensor_sessions WHERE id = %s",
+            (session_id,),
+        )
+        end_time, battery, summary = cur.fetchone()
+        # Original end_time, battery, summary should all survive the
+        # partial replay via COALESCE.
+        assert end_time is not None
+        assert battery == 78
+        assert summary["rmssdMean"] == 46.7
+
+
+def test_sync_hrv_readings_after_session(client, app):
+    session_id = "44444444-4444-4444-4444-444444444444"
+    reading_id = "55555555-5555-5555-5555-555555555555"
+    resp = client.post(
+        "/api/sync",
+        json={
+            "sensorSessions": [_polar_session_payload(session_id)],
+            "hrvReadings": [_hrv_reading_payload(reading_id, session_id)],
+        },
+        headers=auth_header(),
+    )
+    assert resp.status_code == 200
+    counts = resp.get_json()["counts"]
+    assert counts["sensor_sessions"] == 1
+    assert counts["hrv_readings"] == 1
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute("SELECT rmssd, lf_power FROM hrv_readings WHERE id = %s", (reading_id,))
+        rmssd, lf = cur.fetchone()
+        assert rmssd == 42.0
+        assert lf == 120.5
+
+
+def test_sync_hrv_reading_with_null_frequency_domain(client, app):
+    """Per-minute windows with <30 RR intervals have time-domain only —
+    LF/HF/ratio must be allowed to be null."""
+    session_id = "66666666-6666-6666-6666-666666666666"
+    reading_id = "77777777-7777-7777-7777-777777777777"
+    sparse = _hrv_reading_payload(
+        reading_id, session_id,
+        lfPower=None, hfPower=None, lfHfRatio=None,
+    )
+    resp = client.post(
+        "/api/sync",
+        json={
+            "sensorSessions": [_polar_session_payload(session_id)],
+            "hrvReadings": [sparse],
+        },
+        headers=auth_header(),
+    )
+    assert resp.status_code == 200
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute(
+            "SELECT lf_power, hf_power, lf_hf_ratio FROM hrv_readings WHERE id = %s",
+            (reading_id,),
+        )
+        lf, hf, ratio = cur.fetchone()
+        assert lf is None and hf is None and ratio is None
+
+
+def test_hrv_reading_cascade_deletes_with_session(client, app):
+    session_id = "88888888-8888-8888-8888-888888888888"
+    reading_id = "99999999-9999-9999-9999-999999999999"
+    client.post(
+        "/api/sync",
+        json={
+            "sensorSessions": [_polar_session_payload(session_id)],
+            "hrvReadings": [_hrv_reading_payload(reading_id, session_id)],
+        },
+        headers=auth_header(),
+    )
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute("DELETE FROM sensor_sessions WHERE id = %s", (session_id,))
+        db.commit()
+        cur.execute("SELECT COUNT(*) FROM hrv_readings WHERE id = %s", (reading_id,))
+        assert cur.fetchone()[0] == 0
+
+
+def test_rr_archive_upload_attaches_bytes_to_session(client, app):
+    session_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    client.post(
+        "/api/sync",
+        json={"sensorSessions": [_polar_session_payload(session_id)]},
+        headers=auth_header(),
+    )
+    archive_bytes = b"\x1f\x8b\x08\x00" + (b"\x00" * 100)  # plausible gzip-magic prefix
+    resp = client.post(
+        f"/api/sensor_sessions/{session_id}/rr_archive",
+        data=archive_bytes,
+        headers={"Authorization": f"Bearer {TEST_API_KEY}", "Content-Type": "application/octet-stream"},
+    )
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    assert resp.get_json()["bytes"] == len(archive_bytes)
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute("SELECT rr_archive FROM sensor_sessions WHERE id = %s", (session_id,))
+        # psycopg2 returns BYTEA as memoryview by default.
+        archive = bytes(cur.fetchone()[0])
+        assert archive == archive_bytes
+
+
+def test_rr_archive_upload_404_for_unknown_session(client):
+    resp = client.post(
+        "/api/sensor_sessions/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/rr_archive",
+        data=b"junk",
+        headers={"Authorization": f"Bearer {TEST_API_KEY}", "Content-Type": "application/octet-stream"},
+    )
+    assert resp.status_code == 404
+
+
+def test_rr_archive_upload_400_for_invalid_session_id(client):
+    resp = client.post(
+        "/api/sensor_sessions/not-a-uuid/rr_archive",
+        data=b"junk",
+        headers={"Authorization": f"Bearer {TEST_API_KEY}", "Content-Type": "application/octet-stream"},
+    )
+    assert resp.status_code == 400
+
+
+def test_rr_archive_upload_400_for_empty_payload(client):
+    """Empty body must produce 400, but only when the target session exists.
+    Without the seeded session the endpoint would correctly return 404 first
+    (resource-existence beats payload validation), which would conflate two
+    distinct failure modes."""
+    session_id = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    client.post(
+        "/api/sync",
+        json={"sensorSessions": [_polar_session_payload(session_id)]},
+        headers=auth_header(),
+    )
+    resp = client.post(
+        f"/api/sensor_sessions/{session_id}/rr_archive",
+        data=b"",
+        headers={"Authorization": f"Bearer {TEST_API_KEY}", "Content-Type": "application/octet-stream"},
+    )
+    assert resp.status_code == 400
+
+
+def test_rr_archive_upload_404_beats_empty_payload(client):
+    """Resource-existence check must run before payload validation: a POST
+    to an unknown session_id with an empty body returns 404, not 400."""
+    resp = client.post(
+        "/api/sensor_sessions/eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee/rr_archive",
+        data=b"",
+        headers={"Authorization": f"Bearer {TEST_API_KEY}", "Content-Type": "application/octet-stream"},
+    )
+    assert resp.status_code == 404
+
+
+def test_rr_archive_upload_413_for_oversize_payload(client, app):
+    """Payloads exceeding the 5 MB cap must be rejected with 413 and not
+    written to the row. Insert a session first so the failure can't be
+    confused with a 404."""
+    session_id = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+    client.post(
+        "/api/sync",
+        json={"sensorSessions": [_polar_session_payload(session_id)]},
+        headers=auth_header(),
+    )
+    # 6 MB > the 5 MB cap.
+    oversize = b"\x00" * (6 * 1024 * 1024)
+    resp = client.post(
+        f"/api/sensor_sessions/{session_id}/rr_archive",
+        data=oversize,
+        headers={"Authorization": f"Bearer {TEST_API_KEY}", "Content-Type": "application/octet-stream"},
+    )
+    assert resp.status_code == 413
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute("SELECT rr_archive FROM sensor_sessions WHERE id = %s", (session_id,))
+        # rr_archive should still be NULL — the oversize upload didn't land.
+        assert cur.fetchone()[0] is None

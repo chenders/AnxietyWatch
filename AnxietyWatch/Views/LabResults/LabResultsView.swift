@@ -13,7 +13,10 @@ struct LabResultsView: View {
                 ContentUnavailableView(
                     "No Lab Results",
                     systemImage: "flask",
-                    description: Text("To see lab results here, link your hospital in the Health app.\n\nSettings → Health → Health Records → Get Started")
+                    description: Text(
+                        "To see lab results here, link your hospital in the Health app.\n\n" +
+                        "Settings → Health → Health Records → Get Started"
+                    )
                 )
             } else {
                 List {

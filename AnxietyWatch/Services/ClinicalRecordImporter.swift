@@ -41,7 +41,7 @@ struct ClinicalRecordImporter {
                 referenceRangeLow: parsed.referenceRangeLow,
                 referenceRangeHigh: parsed.referenceRangeHigh,
                 interpretation: parsed.interpretation,
-                sourceName: record.source.name,
+                sourceName: record.sourceRevision.source.name,
                 healthKitSampleUUID: sampleUUID
             )
             modelContext.insert(labResult)

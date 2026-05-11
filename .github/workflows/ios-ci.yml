@@ -13,12 +13,29 @@ concurrency:
 
 jobs:
   test:
-    runs-on: macos-15
+    runs-on: [self-hosted, macOS, xcode]
     steps:
       - uses: actions/checkout@v6
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.app || sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | tail -1)"
+      # Launchd doesn't inherit your interactive shell PATH, so Homebrew tools
+      # (swiftlint, xcbeautify, etc.) won't be found unless we add the prefix.
+      - name: Set up PATH for Homebrew
+        run: |
+          echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+          echo "/opt/homebrew/sbin" >> "$GITHUB_PATH"
+
+      - name: Toolchain info
+        run: |
+          echo "Xcode: $(xcode-select -p)"
+          xcodebuild -version
+          echo "Available iOS simulator runtimes:"
+          xcrun simctl list runtimes | grep iOS || true
+
+      # Uncomment if you start seeing stale-build weirdness. Self-hosted runners
+      # keep DerivedData around between runs, which is usually a feature
+      # (faster incremental builds) but occasionally a problem.
+      # - name: Clean DerivedData
+      #   run: rm -rf ~/Library/Developer/Xcode/DerivedData/AnxietyWatch-*
 
       - name: Find simulator destination
         id: dest
@@ -38,32 +55,43 @@ jobs:
       - name: Generate BuildVersion.swift
         run: SRCROOT="${GITHUB_WORKSPACE}" bash scripts/generate-version.sh
 
-      - name: Run SwiftLint
-        continue-on-error: true
+      - name: Verify SwiftLint is available
         run: |
-          brew install swiftlint
-          swiftlint lint --reporter github-actions-logging
+          if ! command -v swiftlint >/dev/null 2>&1; then
+            echo "::error::swiftlint is not installed on this runner. Run 'brew install swiftlint' on the runner Mac."
+            exit 1
+          fi
+          swiftlint version
+
+      - name: Run SwiftLint
+        # Enforces the "zero violations" policy in CLAUDE.md. Any new
+        # violation fails CI — fix the source instead of grandfathering.
+        run: swiftlint lint --reporter github-actions-logging --strict
 
       - name: Run tests with coverage
+        env:
+          SIM_NAME: ${{ steps.dest.outputs.sim_name }}
         run: |
+          # SWIFT_TREAT_WARNINGS_AS_ERRORS=YES enforces the "zero warnings"
+          # policy in CLAUDE.md — any new compiler warning fails CI.
           xcodebuild test \
             -scheme AnxietyWatch \
-            -destination 'platform=iOS Simulator,name=${{ steps.dest.outputs.sim_name }}' \
+            -destination "platform=iOS Simulator,name=$SIM_NAME" \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
-            -quiet
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
 
       - name: Report coverage
         if: always()
         run: |
-          echo "## Code Coverage" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          xcrun xccov view --report TestResults.xcresult 2>/dev/null | grep -E "^AnxietyWatch\.app" >> $GITHUB_STEP_SUMMARY || echo "Coverage data not available" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "## Code Coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          xcrun xccov view --report TestResults.xcresult 2>/dev/null | grep -E "^AnxietyWatch\.app" >> "$GITHUB_STEP_SUMMARY" || echo "Coverage data not available" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build watchOS app
         run: |
           xcodebuild build \
             -scheme "AnxietyWatch Watch App" \
             -destination 'generic/platform=watchOS Simulator' \
-            -quiet
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES

@@ -38,40 +38,54 @@ nonisolated enum SpectralAnalyzer {
         vDSP_vmul(padded, 1, window, 1, &padded, 1, vDSP_Length(n))
 
         // Pack real signal into split complex for vDSP_fft_zrip:
-        // even-indexed samples → realp, odd-indexed → imagp
+        // even-indexed samples → realp, odd-indexed → imagp.
+        // `withUnsafeMutableBufferPointer` scopes the pointer lifetime to the
+        // closure body — `DSPSplitComplex(realp: &realp, imagp: &imagp)` alone
+        // would only borrow the storage for the init call, leaving dangling
+        // pointers in `split` if Array decides to reallocate.
         var realp = [Float](repeating: 0, count: halfN)
         var imagp = [Float](repeating: 0, count: halfN)
-        padded.withUnsafeBufferPointer { buf in
-            buf.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: halfN) { ptr in
-                var split = DSPSplitComplex(realp: &realp, imagp: &imagp)
-                vDSP_ctoz(ptr, 2, &split, 1, vDSP_Length(halfN))
+        var magnitudes = [Float](repeating: 0, count: halfN)
+
+        realp.withUnsafeMutableBufferPointer { realpBuf in
+            imagp.withUnsafeMutableBufferPointer { imagpBuf in
+                var split = DSPSplitComplex(
+                    realp: realpBuf.baseAddress!,
+                    imagp: imagpBuf.baseAddress!
+                )
+
+                padded.withUnsafeBufferPointer { buf in
+                    buf.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: halfN) { ptr in
+                        vDSP_ctoz(ptr, 2, &split, 1, vDSP_Length(halfN))
+                    }
+                }
+
+                // Forward real-to-complex FFT in place
+                vDSP_fft_zrip(fftSetup, &split, 1, log2n, FFTDirection(kFFTDirection_Forward))
+
+                // vDSP_fft_zrip packs DC into realp[0] and Nyquist into imagp[0].
+                // Unpack before computing magnitudes so bin 0 is pure DC power.
+                // Nyquist bin (sampleRate/2) is discarded — above all analysis bands.
+                let dcComponent = split.realp[0]
+                split.imagp[0] = 0
+
+                // Magnitude squared of each frequency bin
+                magnitudes.withUnsafeMutableBufferPointer { magBuf in
+                    vDSP_zvmags(&split, 1, magBuf.baseAddress!, 1, vDSP_Length(halfN))
+                }
+
+                // DC and Nyquist are real-only — they appear once in the one-sided
+                // spectrum so they get 1/N² normalization (not 2/N²).
+                let dcNyquistScale = 1.0 / Float(n * n)
+                magnitudes[0] = dcComponent * dcComponent * dcNyquistScale
+
+                // Normalize remaining bins: 2/N² gives one-sided PSD
+                var scale = 2.0 / Float(n * n)
+                vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(halfN))
+                // Restore DC bin (was overwritten by vDSP_vsmul)
+                magnitudes[0] = dcComponent * dcComponent * dcNyquistScale
             }
         }
-
-        // Forward real-to-complex FFT in place
-        var split = DSPSplitComplex(realp: &realp, imagp: &imagp)
-        vDSP_fft_zrip(fftSetup, &split, 1, log2n, FFTDirection(kFFTDirection_Forward))
-
-        // vDSP_fft_zrip packs DC into realp[0] and Nyquist into imagp[0].
-        // Unpack before computing magnitudes so bin 0 is pure DC power.
-        // Nyquist bin (sampleRate/2) is discarded — above all analysis bands.
-        let dcComponent = split.realp[0]
-        split.imagp[0] = 0
-
-        // Magnitude squared of each frequency bin
-        var magnitudes = [Float](repeating: 0, count: halfN)
-        vDSP_zvmags(&split, 1, &magnitudes, 1, vDSP_Length(halfN))
-
-        // DC and Nyquist are real-only — they appear once in the one-sided spectrum
-        // so they get 1/N² normalization (not 2/N²).
-        let dcNyquistScale = 1.0 / Float(n * n)
-        magnitudes[0] = dcComponent * dcComponent * dcNyquistScale
-
-        // Normalize remaining bins: 2/N² gives one-sided PSD
-        var scale = 2.0 / Float(n * n)
-        vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(halfN))
-        // Restore DC bin (was overwritten by vDSP_vsmul)
-        magnitudes[0] = dcComponent * dcComponent * dcNyquistScale
 
         // Frequency axis: bin k corresponds to k * (sampleRate / N) Hz
         let freqResolution = sampleRate / Float(n)

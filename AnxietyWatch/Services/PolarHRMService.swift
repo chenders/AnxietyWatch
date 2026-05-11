@@ -537,12 +537,17 @@ final class PolarHRMService: NSObject {
         // open indefinitely pollutes history and any future sync. Only the
         // newest candidate is a potential recovery target.
         for olderOpen in openSessions.dropFirst() {
-            log.info("Finalizing stranded older open SensorSession \(olderOpen.id.uuidString, privacy: .public) from \(olderOpen.startTime, privacy: .public)")
+            let id = olderOpen.id.uuidString
+            log.info("Finalizing stranded older open SensorSession \(id, privacy: .public) from \(olderOpen.startTime, privacy: .public)")
             finalizeOrphan(olderOpen, at: now)
         }
 
         if candidate.startTime < staleCutoff {
-            log.warning("Found stale open SensorSession \(candidate.id.uuidString, privacy: .public) from \(candidate.startTime, privacy: .public); finalizing without recovery")
+            let id = candidate.id.uuidString
+            log.warning("""
+                Found stale open SensorSession \(id, privacy: .public) \
+                from \(candidate.startTime, privacy: .public); finalizing without recovery
+                """)
             finalizeOrphan(candidate, at: now)
             return false
         }
@@ -602,7 +607,12 @@ final class PolarHRMService: NSObject {
             archive = try RRArchiveWriter(url: archiveURL, append: true)
         } catch {
             archive = nil
-            log.warning("RR archive writer failed to open at \(archiveURL.path, privacy: .public) during recovery: \(error.localizedDescription, privacy: .public); recovered session will record without raw archive")
+            let path = archiveURL.path
+            let message = error.localizedDescription
+            log.warning("""
+                RR archive writer failed to open at \(path, privacy: .public) during recovery: \
+                \(message, privacy: .public); recovered session will record without raw archive
+                """)
         }
         state.sessionStarted = candidate.startTime
         state.sessionElapsed = now.timeIntervalSince(candidate.startTime)
@@ -692,10 +702,19 @@ extension PolarHRMService: CBCentralManagerDelegate {
                 return
             }
             guard let p = restored.first(where: { $0.identifier == pairedID }) else {
-                self.log.info("State restoration received but no matching paired peripheral; ignoring \(restored.count, privacy: .public) restored entries")
+                let count = restored.count
+                self.log.info("""
+                    State restoration received but no matching paired peripheral; \
+                    ignoring \(count, privacy: .public) restored entries
+                    """)
                 return
             }
-            self.log.info("Restoring in-flight peripheral \(p.identifier.uuidString, privacy: .public) (CB state=\(String(describing: p.state), privacy: .public))")
+            let pid = p.identifier.uuidString
+            let pstate = String(describing: p.state)
+            self.log.info("""
+                Restoring in-flight peripheral \(pid, privacy: .public) \
+                (CB state=\(pstate, privacy: .public))
+                """)
             p.delegate = self
             self.peripheral = p
             // Recover the SwiftData session row that was open when we got
@@ -1033,7 +1052,12 @@ extension PolarHRMService: CBPeripheralDelegate {
                         // Rate-limited via the unified logger; the same
                         // archive instance won't keep throwing for one
                         // session, so the first hit is what we want to see.
-                        self.log.warning("RR archive append failed (rrMs=\(sample.rrMs, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+                        let rr = sample.rrMs
+                        let message = error.localizedDescription
+                        self.log.warning("""
+                            RR archive append failed (rrMs=\(rr, privacy: .public)): \
+                            \(message, privacy: .public)
+                            """)
                     }
                 }
             }

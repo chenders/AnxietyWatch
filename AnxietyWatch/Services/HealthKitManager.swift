@@ -565,7 +565,7 @@ actor HealthKitManager: HealthKitDataSource {
     private var activeAnchoredQueries: [HKAnchoredObjectQuery] = []
 
     /// UserDefaults key prefix for persisting query anchors per type.
-    private static let anchorKeyPrefix = "HKAnchor_"
+    nonisolated private static let anchorKeyPrefix = "HKAnchor_"
 
     /// Start anchored object queries for all types in SampleTypeConfig.anchoredTypes.
     /// Calls onNewSamples with an array of (type raw identifier, value, timestamp, source)
@@ -584,10 +584,16 @@ actor HealthKitManager: HealthKitDataSource {
             let sampleType = HKQuantityType(config.identifier)
             let anchor = loadAnchor(for: config.identifier.rawValue)
 
-            let handler: (HKAnchoredObjectQuery, [HKSample]?, [HKDeletedObject]?, HKQueryAnchor?, (any Error)?) -> Void = {
-                [weak self] query, newSamples, _, newAnchor, error in
+            let handler: @Sendable (
+                HKAnchoredObjectQuery,
+                [HKSample]?,
+                [HKDeletedObject]?,
+                HKQueryAnchor?,
+                (any Error)?
+            ) -> Void = { [weak self] _, newSamples, _, newAnchor, error in
                 if let error {
-                    Log.health.error("Anchored query error for \(config.identifier.rawValue, privacy: .public): \(error, privacy: .public)")
+                    let id = config.identifier.rawValue
+                    Log.health.error("Anchored query error for \(id, privacy: .public): \(error, privacy: .public)")
                     return
                 }
 
@@ -630,10 +636,11 @@ actor HealthKitManager: HealthKitDataSource {
             activeAnchoredQueries.append(query)
 
             healthStore.enableBackgroundDelivery(for: sampleType, frequency: .immediate) { success, error in
+                let id = config.identifier.rawValue
                 if let error {
-                    Log.health.error("enableBackgroundDelivery failed for \(config.identifier.rawValue, privacy: .public): \(error, privacy: .public)")
+                    Log.health.error("enableBackgroundDelivery failed for \(id, privacy: .public): \(error, privacy: .public)")
                 } else if !success {
-                    Log.health.warning("enableBackgroundDelivery returned false for \(config.identifier.rawValue, privacy: .public)")
+                    Log.health.warning("enableBackgroundDelivery returned false for \(id, privacy: .public)")
                 }
             }
         }
@@ -755,7 +762,12 @@ actor HealthKitManager: HealthKitDataSource {
 
         return samples.map { workout in
             let minutes = Int(workout.endDate.timeIntervalSince(workout.startDate) / 60)
-            let calories = workout.totalEnergyBurned?.doubleValue(for: .kilocalorie())
+            // iOS 18 deprecated `HKWorkout.totalEnergyBurned`; the replacement
+            // is the per-type statistics dictionary on the workout, which sums
+            // the active-energy samples HealthKit aggregated for the session.
+            let calories = workout.statistics(for: HKQuantityType(.activeEnergyBurned))?
+                .sumQuantity()?
+                .doubleValue(for: .kilocalorie())
             return WorkoutData(
                 startDate: workout.startDate,
                 endDate: workout.endDate,

@@ -105,7 +105,7 @@ enum PrescriptionImporter {
     ) throws -> Int {
         var count = 0
         for record in records {
-            guard let _ = record["rx_number"] as? String else { continue }
+            guard record["rx_number"] is String else { continue }
             try importRecord(record, into: context)
             count += 1
         }

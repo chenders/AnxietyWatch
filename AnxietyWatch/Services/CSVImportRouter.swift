@@ -3,7 +3,10 @@ import SwiftData
 
 /// Sniffs a CSV's first non-empty line and dispatches to the matching importer.
 /// Reads the file exactly once and hands the content to the chosen importer.
-enum CSVImportRouter {
+/// `nonisolated` because import work runs inside `Task.detached` from the
+/// share-sheet entry point — keeping it off the main actor avoids UI stutter
+/// on ~36k-row EMAY CSVs.
+nonisolated enum CSVImportRouter {
 
     enum Kind: String, Sendable {
         case cpap

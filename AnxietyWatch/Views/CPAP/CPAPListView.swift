@@ -126,7 +126,6 @@ struct CPAPListView: View {
         }
     }
 
-
     @MainActor
     private func backfillSnapshots(dateRange: ClosedRange<Date>) async {
         let aggregator = SnapshotAggregator(
@@ -138,9 +137,11 @@ struct CPAPListView: View {
             do {
                 try await aggregator.aggregateDay(date)
             } catch {
-                Log.data.error("Backfill snapshot failed for \(date.formatted(.dateTime.month().day()), privacy: .public): \(error, privacy: .public)")
+                let label = date.formatted(.dateTime.month().day())
+                Log.data.error("Backfill snapshot failed for \(label, privacy: .public): \(error, privacy: .public)")
             }
-            date = Calendar.current.date(byAdding: .day, value: 1, to: date) ?? dateRange.upperBound.addingTimeInterval(1)
+            let next = Calendar.current.date(byAdding: .day, value: 1, to: date)
+            date = next ?? dateRange.upperBound.addingTimeInterval(1)
         }
     }
 

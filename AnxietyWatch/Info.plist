@@ -10,6 +10,8 @@
 	<string>Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Anxiety Watch reads beat-to-beat heart-rate intervals from a paired Polar H10 chest strap to compute high-fidelity HRV during stress check-ins.</string>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<false/>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.groundeffectsoftware.AnxietyWatch.refresh</string>

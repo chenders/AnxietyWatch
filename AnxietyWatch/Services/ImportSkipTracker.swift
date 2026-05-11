@@ -6,7 +6,9 @@ import Foundation
 ///
 /// Shared across CSV importers (CPAP simple, OSCAR, EMAY) so warning shape and
 /// cap behavior stay identical regardless of source format.
-struct ImportSkipTracker {
+/// `nonisolated` so it can be used from the nonisolated `CPAPImporter` /
+/// `EMAYImporter` enums that run inside detached tasks.
+nonisolated struct ImportSkipTracker {
     private(set) var count = 0
     private var collected: [String] = []
     private static let cap = 5

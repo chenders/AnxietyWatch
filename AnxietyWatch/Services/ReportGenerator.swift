@@ -16,7 +16,7 @@ enum ReportGenerator {
     ) -> Data {
         let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // US Letter
         let margin: CGFloat = 50
-        let contentWidth = pageRect.width - margin * 2
+        // Note: page content width is computed where needed via PDFCursor.contentWidth.
 
         let renderer = UIGraphicsPDFRenderer(bounds: pageRect)
 

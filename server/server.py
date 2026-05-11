@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import uuid
 from datetime import date, datetime, timezone
 from functools import wraps
 
@@ -196,6 +197,15 @@ def create_app(test_config=None):
             counts["sleep_stage_events"] = _upsert_sleep_stage_events(
                 cur, data.get("sleepStageEvents", []),
             )
+            # Polar H10 (and future BLE-strap) recording sessions + per-
+            # minute HRV. Sessions before readings so the FK is satisfied
+            # even when both are uploaded in the same /api/sync call.
+            counts["sensor_sessions"] = _upsert_sensor_sessions(
+                cur, data.get("sensorSessions", []),
+            )
+            counts["hrv_readings"] = _upsert_hrv_readings(
+                cur, data.get("hrvReadings", []),
+            )
             counts["barometric_readings"] = _upsert_barometric_readings(cur, data.get("barometricReadings", []))
             counts["pharmacies"] = _upsert_pharmacies(cur, data.get("pharmacies", []))
             counts["prescriptions"] = _upsert_prescriptions(cur, data.get("prescriptions", []))
@@ -240,6 +250,70 @@ def create_app(test_config=None):
             app.logger.exception("Correlation computation failed (non-fatal)")
 
         return jsonify({"status": "ok", "counts": counts, **correlation_data})
+
+    # ---------------------------------------------------------------------------
+    # POST /api/sensor_sessions/<id>/rr_archive
+    # ---------------------------------------------------------------------------
+
+    # Upload the gzipped raw RR-interval archive for a completed
+    # SensorSession. Kept separate from /api/sync because the payload is
+    # binary (the iOS side compresses the per-session .rr file at upload
+    # time with Data.compressed(using: .zlib)); ~80–120 KB / overnight
+    # session. The session row must already exist (sync first, archive
+    # second) so we have a row to attach to.
+    MAX_RR_ARCHIVE_BYTES = 5 * 1024 * 1024  # 5 MB cap; overnight gzip ~120 KB
+
+    @app.route("/api/sensor_sessions/<session_id>/rr_archive", methods=["POST"])
+    @require_api_key
+    def upload_rr_archive(session_id):
+        try:
+            uuid.UUID(session_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid session id"}), 400
+
+        # Resource existence comes before payload validation so that
+        # debugging is unambiguous: a POST to an unknown session_id always
+        # returns 404, regardless of body shape. Cheap SELECT 1 — this
+        # endpoint is called once per overnight session, not in a hot path.
+        db = get_db()
+        cur = db.cursor()
+        cur.execute("SELECT 1 FROM sensor_sessions WHERE id = %s", (session_id,))
+        if cur.fetchone() is None:
+            return jsonify({"error": "Unknown session id"}), 404
+
+        # Reject oversize payloads *before* buffering the full body. First
+        # the cheap Content-Length check (catches honest clients), then a
+        # bounded-chunk read from request.stream so chunked-transfer
+        # uploads (no Content-Length) can't bypass the cap by streaming
+        # arbitrarily large bodies.
+        if request.content_length is not None and request.content_length > MAX_RR_ARCHIVE_BYTES:
+            return jsonify({"error": "Archive too large"}), 413
+
+        chunks = []
+        total = 0
+        while True:
+            chunk = request.stream.read(64 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_RR_ARCHIVE_BYTES:
+                return jsonify({"error": "Archive too large"}), 413
+            chunks.append(chunk)
+        if total == 0:
+            return jsonify({"error": "Empty archive payload"}), 400
+        data = b"".join(chunks)
+
+        try:
+            cur.execute(
+                "UPDATE sensor_sessions SET rr_archive = %s WHERE id = %s",
+                (psycopg2.Binary(data), session_id),
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            app.logger.exception("rr_archive upload failed")
+            return jsonify({"error": "Internal server error"}), 500
+        return jsonify({"status": "ok", "bytes": len(data)})
 
     # ---------------------------------------------------------------------------
     # GET /api/correlations
@@ -539,6 +613,118 @@ def create_app(test_config=None):
             rows,
         )
         return len(events)
+
+    def _coerce_summary_json(value):
+        """Normalize the iOS-side ``summaryJSON`` field into a JSONB-ready
+        value before insert.
+
+        The iOS ``SensorSession`` model stores ``summaryJSON`` as a
+        ``String?`` (the JSON-encoded HRV summary), so a naive Phase-3b
+        client would send the encoded string over the wire. Passing that
+        string through ``json.dumps`` would double-encode it and Postgres
+        would store ``"{...}"`` (a JSON *string*) instead of a JSON object,
+        silently breaking key lookups like
+        ``summary_json->>'rmssdMean'``.
+
+        Tolerate both shapes: if the field is already a string, decode it
+        first; if a future client decodes before sending we accept the
+        dict as-is. Malformed strings are dropped (column is nullable) so
+        a single bad payload can't poison the upsert batch.
+        """
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                decoded = json.loads(value)
+            except (TypeError, ValueError):
+                return None
+            return psycopg2.extras.Json(decoded)
+        return psycopg2.extras.Json(value)
+
+    def _upsert_sensor_sessions(cur, sessions):
+        """Upsert Polar H10 (and future BLE-strap) recording sessions.
+
+        ``id`` is the iOS UUID so replays / partial-row updates (start row
+        first, fill summary on finalize, optionally attach archive later)
+        are idempotent. ``rr_archive`` is NOT touched in this path — the
+        binary upload lives at ``POST /api/sensor_sessions/<id>/rr_archive``
+        so callers can decide whether to ship the multi-hundred-KB blob.
+        """
+        if not sessions:
+            return 0
+        rows = [
+            (
+                s["id"], s["source"], s["startTime"], s.get("endTime"),
+                s.get("batteryAtStart"), s.get("interruptionCount", 0),
+                _coerce_summary_json(s.get("summaryJSON")),
+            )
+            for s in sessions
+        ]
+        psycopg2.extras.execute_values(
+            cur,
+            """INSERT INTO sensor_sessions (
+                   id, source, start_time, end_time,
+                   battery_at_start, interruption_count, summary_json)
+               VALUES %s
+               ON CONFLICT (id) DO UPDATE SET
+                   source = EXCLUDED.source,
+                   start_time = EXCLUDED.start_time,
+                   end_time = COALESCE(
+                       EXCLUDED.end_time,
+                       sensor_sessions.end_time
+                   ),
+                   battery_at_start = COALESCE(
+                       EXCLUDED.battery_at_start,
+                       sensor_sessions.battery_at_start
+                   ),
+                   interruption_count = EXCLUDED.interruption_count,
+                   summary_json = COALESCE(
+                       EXCLUDED.summary_json,
+                       sensor_sessions.summary_json
+                   )""",
+            rows,
+        )
+        return len(sessions)
+
+    def _upsert_hrv_readings(cur, readings):
+        """Upsert per-minute HRVReading rows produced by HRVSessionRecorder.
+
+        FK to sensor_sessions; the iOS sync orders parent sessions before
+        their children so this never hits an FK violation in normal
+        operation. lf_power / hf_power / lf_hf_ratio are nullable (per-
+        minute windows with <30 RR intervals have time-domain only).
+        """
+        if not readings:
+            return 0
+        rows = [
+            (
+                r["id"], r["sessionId"], r["timestamp"],
+                r["rmssd"], r["sdnn"], r["pnn50"],
+                r.get("lfPower"), r.get("hfPower"), r.get("lfHfRatio"),
+                r["source"],
+            )
+            for r in readings
+        ]
+        psycopg2.extras.execute_values(
+            cur,
+            """INSERT INTO hrv_readings (
+                   id, session_id, timestamp,
+                   rmssd, sdnn, pnn50,
+                   lf_power, hf_power, lf_hf_ratio, source)
+               VALUES %s
+               ON CONFLICT (id) DO UPDATE SET
+                   session_id = EXCLUDED.session_id,
+                   timestamp = EXCLUDED.timestamp,
+                   rmssd = EXCLUDED.rmssd,
+                   sdnn = EXCLUDED.sdnn,
+                   pnn50 = EXCLUDED.pnn50,
+                   lf_power = EXCLUDED.lf_power,
+                   hf_power = EXCLUDED.hf_power,
+                   lf_hf_ratio = EXCLUDED.lf_hf_ratio,
+                   source = EXCLUDED.source""",
+            rows,
+        )
+        return len(readings)
 
     def _upsert_barometric_readings(cur, readings):
         for r in readings:

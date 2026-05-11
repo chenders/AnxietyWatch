@@ -3,7 +3,9 @@ import os
 
 /// Centralized loggers for the app. Use these instead of print().
 /// Filter in Console.app with subsystem "com.groundeffectsoftware.AnxietyWatch".
-enum Log {
+/// `nonisolated` so any actor / nonisolated context can read these without
+/// requiring a main-actor hop.
+nonisolated enum Log {
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.groundeffectsoftware.AnxietyWatch"
 
     /// General app lifecycle events

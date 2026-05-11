@@ -273,7 +273,8 @@ struct AnxietyWatchApp: App {
             do {
                 try await aggregator.aggregateDay(date)
             } catch {
-                Log.data.error("Backfill snapshot failed for \(date.formatted(.dateTime.month().day()), privacy: .public): \(error, privacy: .public)")
+                let label = date.formatted(.dateTime.month().day())
+                Log.data.error("Backfill snapshot failed for \(label, privacy: .public): \(error, privacy: .public)")
             }
             date = Calendar.current.date(byAdding: .day, value: 1, to: date) ?? dateRange.upperBound.addingTimeInterval(1)
         }

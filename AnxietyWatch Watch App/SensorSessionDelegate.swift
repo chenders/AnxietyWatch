@@ -5,7 +5,10 @@ import WatchKit
 
 /// NSObject delegate handler that forwards HKWorkoutSession and
 /// WKExtendedRuntimeSession callbacks to the SensorCaptureSession actor.
-final class SensorSessionDelegate: NSObject,
+/// `nonisolated` so the actor-isolated `SensorCaptureSession.start()` can
+/// instantiate it without a main-actor hop, and so its `nonisolated`
+/// HealthKit/WatchKit delegate callbacks compose cleanly.
+nonisolated final class SensorSessionDelegate: NSObject,
     HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate,
     WKExtendedRuntimeSessionDelegate {
 

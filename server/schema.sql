@@ -353,3 +353,46 @@ CREATE INDEX IF NOT EXISTS idx_song_occurrences_timestamp
 CREATE INDEX IF NOT EXISTS idx_song_occurrences_song_id_timestamp
     ON song_occurrences (song_id, timestamp DESC);
 
+-- Polar H10 chest-strap recording sessions. One row per wear-session
+-- recorded via the iOS BLE pipeline; per-minute HRV rows in hrv_readings
+-- reference this row by id. Optional rr_archive BYTEA carries the
+-- gzipped raw RR-interval stream the iOS side uploads after the session
+-- ends. Source is e.g. "polar_h10".
+CREATE TABLE IF NOT EXISTS sensor_sessions (
+    id                   UUID PRIMARY KEY,
+    source               TEXT NOT NULL,
+    start_time           TIMESTAMPTZ NOT NULL,
+    end_time             TIMESTAMPTZ,
+    battery_at_start     INTEGER,
+    interruption_count   INTEGER NOT NULL DEFAULT 0,
+    summary_json         JSONB,
+    rr_archive           BYTEA,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sensor_sessions_source_start
+    ON sensor_sessions (source, start_time DESC);
+
+-- Per-minute HRV readings produced by HRVSessionRecorder. lf_power,
+-- hf_power, and lf_hf_ratio are nullable: per-minute windows with
+-- <30 RR intervals can compute time-domain HRV but not frequency-domain.
+-- iOS writes the values when the window had ≥30 intervals, NULL otherwise.
+CREATE TABLE IF NOT EXISTS hrv_readings (
+    id            UUID PRIMARY KEY,
+    session_id    UUID NOT NULL REFERENCES sensor_sessions(id) ON DELETE CASCADE,
+    timestamp     TIMESTAMPTZ NOT NULL,
+    rmssd         DOUBLE PRECISION NOT NULL,
+    sdnn          DOUBLE PRECISION NOT NULL,
+    pnn50         DOUBLE PRECISION NOT NULL,
+    lf_power      DOUBLE PRECISION,
+    hf_power      DOUBLE PRECISION,
+    lf_hf_ratio   DOUBLE PRECISION,
+    source        TEXT NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_hrv_readings_session
+    ON hrv_readings (session_id);
+CREATE INDEX IF NOT EXISTS idx_hrv_readings_timestamp
+    ON hrv_readings (timestamp DESC);
+

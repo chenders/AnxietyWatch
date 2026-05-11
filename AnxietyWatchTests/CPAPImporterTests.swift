@@ -185,10 +185,16 @@ struct CPAPImporterTests {
 
     @Test("Imports OSCAR Summary CSV format")
     func importOSCARFormat() throws {
+        // swiftlint:disable line_length
+        // Real OSCAR Summary CSVs have 40+ columns; the test fixture
+        // must replicate the exact header/row layout to exercise the
+        // importer's column-mapping code, so wrapping these lines
+        // would change the input semantics.
         let csv = """
         Date,Session Count,Start,End,Total Time,AHI,CA Count,A Count,OA Count,H Count,UA Count,VS Count,VS2 Count,RE Count,FL Count,SA Count,NR Count,EP Count,LF Count,UF1 Count,UF2 Count,PP Count,Median Pressure,Median Pressure Set,Median IPAP,Median IPAP Set,Median EPAP,Median EPAP Set,Median Flow Limit.,95% Pressure,95% Pressure Set,95% IPAP,95% IPAP Set,95% EPAP,95% EPAP Set,95% Flow Limit.,99.5% Pressure,99.5% Pressure Set,99.5% IPAP,99.5% IPAP Set,99.5% EPAP,99.5% EPAP Set,99.5% Flow Limit.
         2007-12-31,4,2008-01-01T01:16:28,2008-01-01T10:28:09,09:04:59,4.073,15,0,22,0,0,0,0,0,0,0,0,0,0,0,0,0,11.52,0,0,0,11.52,0,0,13.86,0,0,0,13.86,0,0.08,16.66,0,0,0,16.66,0,0.2
         """
+        // swiftlint:enable line_length
         let url = try writeTempCSV(csv)
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -232,10 +238,12 @@ struct CPAPImporterTests {
 
     @Test("Parses OSCAR Total Time HH:MM:SS correctly")
     func parsesOSCARTotalTime() throws {
+        // swiftlint:disable line_length
         let csv = """
         Date,Session Count,Start,End,Total Time,AHI,CA Count,A Count,OA Count,H Count,UA Count,VS Count,VS2 Count,RE Count,FL Count,SA Count,NR Count,EP Count,LF Count,UF1 Count,UF2 Count,PP Count,Median Pressure,Median Pressure Set,Median IPAP,Median IPAP Set,Median EPAP,Median EPAP Set,Median Flow Limit.,95% Pressure,95% Pressure Set,95% IPAP,95% IPAP Set,95% EPAP,95% EPAP Set,95% Flow Limit.,99.5% Pressure,99.5% Pressure Set,99.5% IPAP,99.5% IPAP Set,99.5% EPAP,99.5% EPAP Set,99.5% Flow Limit.
         2008-01-15,1,2008-01-15T22:00:00,2008-01-16T05:30:00,07:30:00,1.5,2,0,5,3,0,0,0,0,0,0,0,0,0,0,0,0,10.0,0,0,0,10.0,0,0,12.0,0,0,0,12.0,0,0,14.0,0,0,0,14.0,0,0
         """
+        // swiftlint:enable line_length
         let url = try writeTempCSV(csv)
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -253,10 +261,12 @@ struct CPAPImporterTests {
         // Session Count > 1. Verbatim row from a 4-session night exported by
         // OSCAR (CA=15.0433, OA=16.1067, H=0.433333). The importer must parse
         // these as Double and round to Int rather than skipping the row.
+        // swiftlint:disable line_length
         let csv = """
         Date,Session Count,Start,End,Total Time,AHI,CA Count,A Count,OA Count,H Count,UA Count,VS Count,VS2 Count,RE Count,FL Count,SA Count,NR Count,EP Count,LF Count,UF1 Count,UF2 Count,PP Count,Median Pressure,Median Pressure Set,Median IPAP,Median IPAP Set,Median EPAP,Median EPAP Set,Median Flow Limit.,95% Pressure,95% Pressure Set,95% IPAP,95% IPAP Set,95% EPAP,95% EPAP Set,95% Flow Limit.,99.5% Pressure,99.5% Pressure Set,99.5% IPAP,99.5% IPAP Set,99.5% EPAP,99.5% EPAP Set,99.5% Flow Limit.
         2026-05-06,4,2026-05-06T22:52:00,2026-05-07T13:28:00,14:16:00,2.229,15.0433,0,16.1067,0.433333,0,0,0,0,0,0,0,0,0,0,0,0,11.5,0,0,0,11.5,0,0,13.5,0,0,0,13.5,0,0,15.5,0,0,0,15.5,0,0
         """
+        // swiftlint:enable line_length
         let url = try writeTempCSV(csv)
         defer { try? FileManager.default.removeItem(at: url) }
 

@@ -53,6 +53,13 @@ def downgrade():
     op.execute("DROP TABLE IF EXISTS prescriptions CASCADE")
     op.execute("DROP TABLE IF EXISTS pharmacies CASCADE")
     op.execute("DROP TABLE IF EXISTS sync_log CASCADE")
+    # 0005 — Polar H10 sensor_sessions + hrv_readings. Added here too
+    # because schema.sql (which the 0001 upgrade replays for fresh DBs)
+    # creates them eagerly; the 0001 downgrade needs to know about them
+    # so the test_round_trip / test_downgrade_removes_all_tables paths
+    # leave a clean slate.
+    op.execute("DROP TABLE IF EXISTS hrv_readings CASCADE")
+    op.execute("DROP TABLE IF EXISTS sensor_sessions CASCADE")
     op.execute("DROP TABLE IF EXISTS sleep_stage_events CASCADE")
     op.execute("DROP TABLE IF EXISTS quantity_health_samples CASCADE")
     op.execute("DROP TABLE IF EXISTS barometric_readings CASCADE")

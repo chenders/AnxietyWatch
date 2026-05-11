@@ -373,8 +373,8 @@ struct SampleSyncTests {
     /// The HealthKit protocol's `quantitySamplesWithSource(...)` does not currently
     /// surface `HKCorrelation` linkage between systolic and diastolic samples — they
     /// arrive as independent rows with distinct `hkUUID`s. groupID is intentionally
-    /// nil until HKCorrelationQuery wiring lands; this test pins that contract so the
-    /// TODO is visible if/when correlation linkage is added.
+    /// nil until HKCorrelationQuery wiring lands; this test pins that contract as
+    /// the assertion that future correlation work has to update.
     @Test("Blood pressure rows are persisted with groupID=nil pending correlation linkage")
     func bloodPressureRowsHaveNilGroupIDPendingCorrelation() async throws {
         let container = try TestHelpers.makeFullContainer()
@@ -407,8 +407,8 @@ struct SampleSyncTests {
         }
         let rows = try context.fetch(FetchDescriptor<QuantityHealthSample>(predicate: bpPredicate))
         #expect(rows.count == 2)
-        // TODO: once HKCorrelationQuery is wired up in HealthKitManager, both rows
-        // should share a non-nil groupID. Until then groupID stays nil.
+        // Future: once HKCorrelationQuery is wired up in HealthKitManager,
+        // both rows should share a non-nil groupID. Until then groupID stays nil.
         #expect(rows.allSatisfy { $0.groupID == nil })
     }
 

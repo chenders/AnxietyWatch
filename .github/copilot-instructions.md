@@ -83,6 +83,7 @@ The iOS app's `SyncService` POSTs JSON to the server's `/api/sync` endpoint. The
 
 - **All new or changed code must include tests.** PRs that add features or fix bugs without corresponding tests should be flagged.
 - **Fixing failing tests is always in scope.** If a PR touches code near a failing test, or if CI is red, fixing the test is part of the work — never flag it as "out of scope."
+- **Fixing compiler warnings is always in scope.** Treat a new warning the same as a failing test. CI enforces zero warnings: Xcode builds use `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES`, SwiftLint runs without `continue-on-error`, and `flake8` runs on the server. There is no "acceptable warning count" — flag any PR that introduces new warnings, period.
 - Use **Swift Testing** (`@Test` macro, `#expect()`) for all new tests — not XCTest.
 - Extract pure logic into testable helpers rather than burying it in views or private methods.
 - Use in-memory `ModelContainer` for SwiftData test isolation.

@@ -554,10 +554,10 @@ final class HealthDataCoordinator {
         }
 
         for sample in samples {
-            // TODO: Link systolic/diastolic via HKCorrelationQuery in a future
-            // pass. The current protocol shape returns each half independently
-            // with distinct `hkUUID`s, so we cannot pair them here without
-            // additional information from HealthKit.
+            // Future: link systolic/diastolic via HKCorrelationQuery so the
+            // pair is stored as one row. The current protocol shape returns
+            // each half independently with distinct `hkUUID`s, so we cannot
+            // pair them here without additional information from HealthKit.
             if let existing = existingByID[sample.hkUUID] {
                 // Update in place so retroactive HealthKit corrections
                 // (same UUID, changed timestamp/value/source) are reflected

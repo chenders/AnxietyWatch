@@ -2,7 +2,9 @@
 import Accelerate
 
 /// Derives anxiety-relevant spectral features from raw accelerometer windows.
-enum AccelerometerProcessor {
+/// `nonisolated` so the watchOS `SensorCaptureSession` actor can invoke it
+/// directly without a main-actor hop on every accelerometer window.
+nonisolated enum AccelerometerProcessor {
 
     struct SpectrogramResult {
         let tremorBandPower: Double     // 4–12 Hz

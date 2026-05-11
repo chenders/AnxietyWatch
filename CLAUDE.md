@@ -256,6 +256,8 @@ NSLocationWhenInUseUsageDescription — "Anxiety Watch optionally tags journal e
 
 **Fixing failing tests is always in scope.** If any test is failing — whether related to your current work or not — fix it. Never dismiss a failing test as "not my problem" or "out of scope." A green test suite is a prerequisite for all work.
 
+**Fixing compiler warnings is also always in scope.** Treat a new warning the same as a failing test: fix it before merging. Don't add new warnings, and don't ship a build with warnings. CI is the enforcement layer: Xcode builds run with `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES`, SwiftLint runs without `continue-on-error`, and `flake8` runs on the server. There is no "acceptable warning count" — zero is the bar.
+
 ### Framework
 
 - **Swift Testing** (`import Testing`) — use `@Test` macro, `#expect()` assertions. Do not use legacy XCTest for new tests.

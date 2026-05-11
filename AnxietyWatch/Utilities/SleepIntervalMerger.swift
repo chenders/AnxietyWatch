@@ -2,7 +2,9 @@ import Foundation
 
 /// Merges overlapping time intervals and returns total non-overlapping duration.
 /// Used by HealthKitManager to deduplicate sleep samples from multiple sources.
-enum SleepIntervalMerger {
+/// `nonisolated` so HealthKitManager's actor-isolated query methods can call
+/// `mergedMinutes` directly without a main-actor hop.
+nonisolated enum SleepIntervalMerger {
 
     /// Returns total minutes covered by the given intervals after merging overlaps.
     static func mergedMinutes(_ intervals: [(Date, Date)]) -> Int {

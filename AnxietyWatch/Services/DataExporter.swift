@@ -137,7 +137,11 @@ enum DataExporter {
         // Songs
         csv = "id,server_id,genius_id,title,artist,album,has_lyrics\n"
         for s in bundle.songs {
-            csv += "\(s.id),\(opt(s.serverId)),\(opt(s.geniusId)),\"\(escapeCsv(s.title))\",\"\(escapeCsv(s.artist))\",\"\(escapeCsv(s.album ?? ""))\",\(s.lyrics != nil)\n"
+            let title = escapeCsv(s.title)
+            let artist = escapeCsv(s.artist)
+            let album = escapeCsv(s.album ?? "")
+            csv += "\(s.id),\(opt(s.serverId)),\(opt(s.geniusId)),"
+            csv += "\"\(title)\",\"\(artist)\",\"\(album)\",\(s.lyrics != nil)\n"
         }
         files.append(("songs.csv", Data(csv.utf8)))
 

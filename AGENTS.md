@@ -18,6 +18,7 @@
   - Server lint: `cd server && flake8 . --max-line-length=120 --exclude=__pycache__`
 - All new or changed code must include tests. Use Swift Testing (`@Test`, `#expect()`) for iOS tests.
 - Fixing failing tests is always in scope — never dismiss a red test as "not my problem."
+- Fixing compiler warnings is always in scope — treat a new warning the same as a failing test. Don't add new warnings; don't ship a build with warnings. CI enforces zero: Xcode builds use `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES`, SwiftLint runs without `continue-on-error`, and `flake8` runs on the server. No "acceptable count" — zero is the bar.
 
 ## Public Repository — Sensitive Data Rules
 

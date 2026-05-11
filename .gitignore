@@ -50,3 +50,45 @@ AnxietyWatch/Utilities/BuildVersion.swift
 /psych_research
 /docs/plans/expert-review-agent-specific/
 /docs/superpowers/plans/
+
+# Local agent state
+.claude/hooks/
+.claude/scheduled_tasks.lock
+
+# Clinical chart pipeline — local-only. Inputs are HIPAA-sensitive
+# prod pulls, outputs are large rendered artifacts; neither belongs in
+# the repo.
+/clinical-charts/
+/clinical-charts copy/
+
+# Local screenshot directories (root level only).
+/screenshots/
+/report-screenshots/
+
+# CSV / PDF / image / Python at the repo root — historical dumping
+# ground for prod-pull CSVs (OSCAR, EMAY oximeter), clinical-context
+# PDFs, scratch images, and ad-hoc Python scripts. Anchored with the
+# leading slash so server/ and AnxietyWatch/ source isn't ignored.
+/*.csv
+/*.spo2
+/*.pdf
+/*.jpg
+/*.txt
+/*.yml
+/*.py
+
+# Scratch markdown at the repo root only — keep the actual project
+# docs by whitelisting them.
+/*.md
+!/README.md
+!/CLAUDE.md
+!/AGENTS.md
+!/REQUIREMENTS.md
+!/DATA_AND_REPORTS.md
+!/SETUP_GUIDE.md
+!/SECURITY.md
+!/CONTRIBUTING.md
+!/CODE_OF_CONDUCT.md
+!/PROJECT_FUTURE_PLAN.md
+!/CHANGELOG.md
+!/LICENSE.md

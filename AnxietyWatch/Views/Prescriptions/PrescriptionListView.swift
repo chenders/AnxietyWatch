@@ -41,7 +41,10 @@ struct PrescriptionListView: View {
                                 Label("Sync Not Configured", systemImage: "exclamationmark.triangle.fill")
                                     .font(.subheadline.bold())
                                     .foregroundStyle(.orange)
-                                Text("Set up your sync server in Settings to automatically import prescriptions. You can also add them manually with +.")
+                                Text(
+                                    "Set up your sync server in Settings to automatically " +
+                                    "import prescriptions. You can also add them manually with +."
+                                )
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

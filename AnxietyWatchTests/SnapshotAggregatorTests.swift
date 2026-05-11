@@ -121,7 +121,10 @@ struct SnapshotAggregatorTests {
         dayComponents.day = 14
         let day = calendar.date(from: dayComponents)!
         let oldStart = calendar.startOfDay(for: day)
-        let oldEnd = calendar.date(byAdding: .day, value: 1, to: oldStart)!
+        // The old (buggy) window was [oldStart, oldStart + 1 day). The
+        // assertion below only needs the lower bound to demonstrate the
+        // bug — sleepStart sat before oldStart so the pre-midnight sleep
+        // never landed in any "Mar 14" window.
 
         // Sleep at 11 PM Mar 13 — OUTSIDE the old midnight-to-midnight window for Mar 14
         let sleepStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 13, hour: 23))!

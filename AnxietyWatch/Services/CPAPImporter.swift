@@ -5,7 +5,10 @@ import SwiftData
 /// Auto-detects two formats:
 /// - Simple: date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea
 /// - OSCAR Summary: 42-column export from OSCAR (Open Source CPAP Analysis Reporter)
-enum CPAPImporter {
+///
+/// `nonisolated` so `CSVImportRouter` can dispatch into us from a detached
+/// task without a main-actor hop.
+nonisolated enum CPAPImporter {
 
     struct ImportResult {
         let inserted: Int
@@ -88,30 +91,36 @@ enum CPAPImporter {
 
     // MARK: - Upsert Helpers
 
+    /// Bundle of mutable per-session fields the importer writes onto either
+    /// a freshly-inserted CPAPSession row or an existing one during replay.
+    /// Extracted into a struct so the upsert call sites don't blow past
+    /// SwiftLint's function-parameter-count rule (and so the field list
+    /// has a single source of truth).
+    struct ImportedFields {
+        let ahi: Double
+        let totalUsageMinutes: Int
+        let leakRate95th: Double?
+        let pressureMin: Double
+        let pressureMax: Double
+        let pressureMean: Double
+        let obstructiveEvents: Int
+        let centralEvents: Int
+        let hypopneaEvents: Int
+        let importSource: String
+    }
+
     /// Update an existing session's fields with new values.
-    private static func updateSession(
-        _ session: CPAPSession,
-        ahi: Double,
-        totalUsageMinutes: Int,
-        leakRate95th: Double?,
-        pressureMin: Double,
-        pressureMax: Double,
-        pressureMean: Double,
-        obstructiveEvents: Int,
-        centralEvents: Int,
-        hypopneaEvents: Int,
-        importSource: String
-    ) {
-        session.ahi = ahi
-        session.totalUsageMinutes = totalUsageMinutes
-        session.leakRate95th = leakRate95th
-        session.pressureMin = pressureMin
-        session.pressureMax = pressureMax
-        session.pressureMean = pressureMean
-        session.obstructiveEvents = obstructiveEvents
-        session.centralEvents = centralEvents
-        session.hypopneaEvents = hypopneaEvents
-        session.importSource = importSource
+    private static func updateSession(_ session: CPAPSession, fields: ImportedFields) {
+        session.ahi = fields.ahi
+        session.totalUsageMinutes = fields.totalUsageMinutes
+        session.leakRate95th = fields.leakRate95th
+        session.pressureMin = fields.pressureMin
+        session.pressureMax = fields.pressureMax
+        session.pressureMean = fields.pressureMean
+        session.obstructiveEvents = fields.obstructiveEvents
+        session.centralEvents = fields.centralEvents
+        session.hypopneaEvents = fields.hypopneaEvents
+        session.importSource = fields.importSource
     }
 
     // MARK: - Format Detection
@@ -240,13 +249,18 @@ enum CPAPImporter {
             if maxDate == nil || normalized > maxDate! { maxDate = normalized }
 
             if let existing = existingByDate[normalized] {
-                updateSession(existing, ahi: parsed.ahi, totalUsageMinutes: parsed.usage,
-                              leakRate95th: parsed.leak, pressureMin: parsed.pMin,
-                              pressureMax: parsed.pMax, pressureMean: parsed.pMean,
-                              obstructiveEvents: parsed.obstructive,
-                              centralEvents: parsed.central,
-                              hypopneaEvents: parsed.hypopnea,
-                              importSource: "csv")
+                updateSession(existing, fields: ImportedFields(
+                    ahi: parsed.ahi,
+                    totalUsageMinutes: parsed.usage,
+                    leakRate95th: parsed.leak,
+                    pressureMin: parsed.pMin,
+                    pressureMax: parsed.pMax,
+                    pressureMean: parsed.pMean,
+                    obstructiveEvents: parsed.obstructive,
+                    centralEvents: parsed.central,
+                    hypopneaEvents: parsed.hypopnea,
+                    importSource: "csv"
+                ))
                 updated += 1
             } else {
                 let session = CPAPSession(
@@ -383,13 +397,18 @@ enum CPAPImporter {
             if maxDate == nil || normalized > maxDate! { maxDate = normalized }
 
             if let existing = existingByDate[normalized] {
-                updateSession(existing, ahi: parsed.ahi, totalUsageMinutes: parsed.usageMinutes,
-                              leakRate95th: nil, pressureMin: parsed.medianPressure,
-                              pressureMax: parsed.pressure995, pressureMean: parsed.medianPressure,
-                              obstructiveEvents: parsed.obstructiveEvents,
-                              centralEvents: parsed.centralEvents,
-                              hypopneaEvents: parsed.hypopneaEvents,
-                              importSource: "oscar")
+                updateSession(existing, fields: ImportedFields(
+                    ahi: parsed.ahi,
+                    totalUsageMinutes: parsed.usageMinutes,
+                    leakRate95th: nil,
+                    pressureMin: parsed.medianPressure,
+                    pressureMax: parsed.pressure995,
+                    pressureMean: parsed.medianPressure,
+                    obstructiveEvents: parsed.obstructiveEvents,
+                    centralEvents: parsed.centralEvents,
+                    hypopneaEvents: parsed.hypopneaEvents,
+                    importSource: "oscar"
+                ))
                 updated += 1
             } else {
                 let session = CPAPSession(

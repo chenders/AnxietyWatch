@@ -55,7 +55,10 @@ struct PolarPairingView: View {
             ContentUnavailableView(
                 "Bluetooth Not Available",
                 systemImage: "antenna.radiowaves.left.and.right.slash",
-                description: Text("This device doesn't support Bluetooth Low Energy. Pairing isn't available here (the iOS Simulator falls into this case too).")
+                description: Text(
+                    "This device doesn't support Bluetooth Low Energy. " +
+                    "Pairing isn't available here (the iOS Simulator falls into this case too)."
+                )
             )
         case .scanning where state.discoveredPeripherals.isEmpty:
             scanningView()

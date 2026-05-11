@@ -2,7 +2,9 @@ import HealthKit
 
 /// Maps HealthKit quantity type identifiers to their canonical units, display names,
 /// and trend thresholds. Used by the anchored query pipeline and dashboard cards.
-struct SampleTypeConfig {
+/// `nonisolated` so the HealthKitManager actor and its background queries can
+/// read the static `anchoredTypes` table without a main-actor hop.
+nonisolated struct SampleTypeConfig {
     let identifier: HKQuantityTypeIdentifier
     let unit: HKUnit
     let displayName: String

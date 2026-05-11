@@ -9,7 +9,10 @@ import SwiftData
 /// Expected format:
 ///   Date,Time,SpO2(%),PR(bpm)
 ///   5/8/2026,4:46:58 PM,98,52
-enum EMAYImporter {
+///
+/// `nonisolated` so `CSVImportRouter` can dispatch into us from a detached
+/// task (large EMAY CSVs would stutter the UI on the main actor).
+nonisolated enum EMAYImporter {
 
     struct ImportResult {
         let inserted: Int

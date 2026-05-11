@@ -51,10 +51,12 @@ struct CSVImportRouterTests {
 
     @Test("Routes OSCAR Summary header to CPAP importer")
     func routesCPAPOSCAR() throws {
+        // swiftlint:disable line_length
         let csv = """
         Date,Session Count,Start,End,Total Time,AHI,CA Count,A Count,OA Count,H Count,UA Count,VS Count,VS2 Count,RE Count,FL Count,SA Count,NR Count,EP Count,LF Count,UF1 Count,UF2 Count,PP Count,Median Pressure,Median Pressure Set,Median IPAP,Median IPAP Set,Median EPAP,Median EPAP Set,Median Flow Limit.,95% Pressure,95% Pressure Set,95% IPAP,95% IPAP Set,95% EPAP,95% EPAP Set,95% Flow Limit.,99.5% Pressure,99.5% Pressure Set,99.5% IPAP,99.5% IPAP Set,99.5% EPAP,99.5% EPAP Set,99.5% Flow Limit.
         2026-03-20,1,2026-03-20T00:00:00,2026-03-20T07:00:00,07:00:00,2.5,1,0,3,2,0,0,0,0,0,0,0,0,0,0,0,0,9.5,0,0,0,9.5,0,0,11.0,0,0,0,11.0,0,0,12.0,0,0,0,12.0,0,0
         """
+        // swiftlint:enable line_length
         let url = try writeTempCSV(csv)
         defer { try? FileManager.default.removeItem(at: url) }
 

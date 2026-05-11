@@ -2,7 +2,9 @@
 import Foundation
 
 /// JSON-serializable payload for watch → iPhone sensor data transfer.
-struct SensorTransferPayload: Codable {
+/// `nonisolated` so JSON encode/decode can run in `PhoneConnectivityManager`'s
+/// `nonisolated` WCSession delegate callbacks without a main-actor hop.
+nonisolated struct SensorTransferPayload: Codable {
 
     struct SpectrogramDTO: Codable {
         let id: UUID
