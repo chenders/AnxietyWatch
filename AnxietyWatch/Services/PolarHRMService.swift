@@ -60,6 +60,10 @@ final class PolarHRMService: NSObject {
     nonisolated static let pairedUUIDKey = "polarH10.peripheralUUID"
     nonisolated static let pairedNameKey = "polarH10.peripheralName"
     nonisolated static let sourceLabel = "polar_h10"
+    /// Stable identifier so iOS can relaunch us and call
+    /// `centralManager(_:willRestoreState:)` for in-flight peripherals.
+    /// MUST stay constant across app launches or restoration breaks.
+    nonisolated static let restoreIdentifier = "com.anxietywatch.polar-h10"
 
     // MARK: - Dependencies
 
@@ -77,6 +81,7 @@ final class PolarHRMService: NSObject {
     private var recorder: HRVSessionRecorder?
     private var tickTask: Task<Void, Never>?
     private var elapsedTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
     /// Latched by `startScan` when CB is in a transient state (`.unknown` /
     /// `.resetting`) or `.poweredOff` so the scan auto-resumes once
     /// `centralManagerDidUpdateState` fires with `.poweredOn`. Cleared by
@@ -84,6 +89,15 @@ final class PolarHRMService: NSObject {
     /// `startScan` itself once a real scan begins. Scan-only — session
     /// start has no equivalent latch in Phase 2.
     private var pendingScan: Bool = false
+    /// Backoff schedule for transient BLE disconnects mid-session, capped
+    /// at the 10-min grace period. Each entry is a delay in seconds; after
+    /// the schedule is exhausted the recorder finalizes and the session
+    /// ends. Empirically the H10 reconnects within 1–8 seconds for
+    /// rolling-over disconnects; the longer trailing intervals soak up
+    /// signal blackouts (bathroom breaks, mattress shielding) without
+    /// finalizing prematurely.
+    private static let reconnectBackoffSeconds: [TimeInterval] = [1, 2, 4, 8, 30, 60, 60, 60, 60, 60, 60, 60, 60, 60, 60]
+    private static let reconnectGraceTotalSeconds: TimeInterval = 600  // 10 min
 
     // MARK: - Init
 
@@ -96,7 +110,16 @@ final class PolarHRMService: NSObject {
         // @MainActor while it was bound to a dedicated background queue (as
         // in the first cut of this file) is a runtime race. The main queue
         // is fine for our load (Polar H10 sends ~1 Hz HR packets).
-        self.central = CBCentralManager(delegate: self, queue: nil)
+        //
+        // Restore identifier enables iOS to relaunch the app for BLE events
+        // when it has been suspended/terminated. When that happens,
+        // `centralManager(_:willRestoreState:)` is called with the in-flight
+        // peripheral so we can reattach without rescanning.
+        self.central = CBCentralManager(
+            delegate: self,
+            queue: nil,
+            options: [CBCentralManagerOptionRestoreIdentifierKey: Self.restoreIdentifier]
+        )
         // Re-hydrate paired state from UserDefaults so the UI shows the
         // remembered strap name without requiring a fresh scan.
         if isPaired {
@@ -244,6 +267,19 @@ final class PolarHRMService: NSObject {
         let finalArchive = archive
         let p = peripheral
 
+        // Close any open SensorInterruption before finalize — without this,
+        // a reconnect-grace expiry would leave a never-closed interruption
+        // attached to a now-finalized session, taint the gap-fraction
+        // calculation, and leak across queries.
+        if let session = finalRecorder?.session {
+            let now = Date()
+            for i in session.interruptions.indices where session.interruptions[i].endTime == nil {
+                var entry = session.interruptions[i]
+                entry.endTime = now
+                session.interruptions[i] = entry
+            }
+        }
+
         peripheral = nil
         hrmCharacteristic = nil
         recorder = nil
@@ -251,6 +287,7 @@ final class PolarHRMService: NSObject {
         buffer = nil
         tickTask?.cancel(); tickTask = nil
         elapsedTask?.cancel(); elapsedTask = nil
+        reconnectTask?.cancel(); reconnectTask = nil
         if let p, p.state == .connected || p.state == .connecting {
             central.cancelPeripheralConnection(p)
         }
@@ -373,6 +410,244 @@ final class PolarHRMService: NSObject {
         finalizeOffline(recorder: rec, archive: arc)
     }
 
+    /// Append a SensorInterruption (open-ended) onto the active session.
+    /// Used by the reconnect loop to track each disconnect gap, so the
+    /// summary can report total gap time and the chart can render lossy
+    /// regions.
+    ///
+    /// Idempotent: if an open-ended interruption already exists (e.g. a
+    /// state-restoration round trip after the disconnect handler already
+    /// logged one), this is a no-op. Without this guard, an interruption
+    /// could be recorded by didDisconnectPeripheral and then again by
+    /// willRestoreState on the next launch, producing overlapping
+    /// open-ended entries that closeInterruption() couldn't clean up
+    /// (it only closes the most recent open one).
+    private func recordInterruption(reason: String) {
+        guard let session = recorder?.session else { return }
+        if session.interruptions.contains(where: { $0.endTime == nil }) {
+            return
+        }
+        session.interruptions.append(SensorInterruption(reason: reason, startTime: Date(), endTime: nil))
+        try? modelContext.save()
+    }
+
+    /// Close out the most recent open SensorInterruption (no endTime). Called
+    /// when the reconnect succeeds.
+    private func closeInterruption() {
+        guard let session = recorder?.session else { return }
+        guard let idx = session.interruptions.lastIndex(where: { $0.endTime == nil }) else { return }
+        var entry = session.interruptions[idx]
+        entry.endTime = Date()
+        session.interruptions[idx] = entry
+        try? modelContext.save()
+    }
+
+    /// Reconnect loop: walks `reconnectBackoffSeconds`, attempts
+    /// `central.connect` on each tick, falls through to finalize once the
+    /// total elapsed disconnect crosses the 10-min grace ceiling. Cancelled
+    /// automatically by `tearDownResources` and on successful didConnect.
+    private func scheduleReconnect(peripheralID: UUID) {
+        reconnectTask?.cancel()
+        let disconnectAt = Date()
+        reconnectTask = Task { @MainActor [weak self] in
+            for delay in Self.reconnectBackoffSeconds {
+                if Task.isCancelled { return }
+                // Check the grace ceiling BEFORE sleeping so we don't
+                // overshoot by up to the length of the final backoff
+                // interval. If only `remaining` seconds are left in the
+                // grace window, cap the sleep at that.
+                guard let self0 = self else { return }
+                let elapsed = Date().timeIntervalSince(disconnectAt)
+                let remaining = Self.reconnectGraceTotalSeconds - elapsed
+                if remaining <= 0 {
+                    self0.log.info("Reconnect grace exhausted (\(Int(elapsed), privacy: .public)s); finalizing session")
+                    self0.stopSession()
+                    return
+                }
+                let sleepFor = min(delay, remaining)
+                try? await Task.sleep(for: .seconds(sleepFor))
+                if Task.isCancelled { return }
+                guard let self else { return }
+                // Bail if user stopped or another stop path cleared state.
+                guard self.state.status == .recording else { return }
+                // Retry connect.
+                guard let known = self.central.retrievePeripherals(withIdentifiers: [peripheralID]).first else {
+                    continue
+                }
+                if known.state == .connected {
+                    // CB says we're already connected to the strap. Treat
+                    // this like a fresh didConnect: cancel the backoff loop,
+                    // re-discover services so we can re-enable notify, and
+                    // wait for didUpdateNotificationStateFor to confirm data
+                    // is flowing before closing the interruption. Without
+                    // this, the loop would exit without ever subscribing to
+                    // HR notifications — leaving the session "Recording"
+                    // while receiving zero packets.
+                    self.peripheral = known
+                    known.delegate = self
+                    self.reconnectTask?.cancel()
+                    self.reconnectTask = nil
+                    known.discoverServices([Self.heartRateServiceUUID])
+                    return
+                }
+                self.peripheral = known
+                known.delegate = self
+                self.central.connect(known, options: nil)
+            }
+            // Schedule exhausted (shouldn't happen given the duration sum
+            // exceeds the 10-min ceiling, but defensive): finalize.
+            guard let self else { return }
+            if !Task.isCancelled && self.state.status == .recording {
+                self.log.info("Reconnect schedule exhausted; finalizing session")
+                self.stopSession()
+            }
+        }
+    }
+
+    /// Pick up any SensorSession that was left open by a previous app
+    /// lifecycle event. Two paths:
+    ///
+    /// 1. **State restoration brought a peripheral back** (`self.peripheral != nil`).
+    ///    Rebuild the in-memory pipeline (buffer + recorder + archive) against
+    ///    the existing row so RR data flowing through the reattached peripheral
+    ///    lands on the same SwiftData session. Returns `true`.
+    ///
+    /// 2. **No peripheral** (cold launch after force-quit / crash, or state
+    ///    restoration didn't bring one back). Finalize the orphaned row so it
+    ///    doesn't shadow future sessions and so `beginRecording`'s
+    ///    `recorder == nil` guard doesn't block the next `startSession`.
+    ///    Returns `false`.
+    ///
+    /// Stale rows (>24h) are always finalized regardless of peripheral state —
+    /// they're presumed to be app-crash residue.
+    @discardableResult
+    func recoverInFlightSessionIfNeeded() -> Bool {
+        let staleCutoff = Date().addingTimeInterval(-24 * 3600)
+        let now = Date()
+        let polarSource = Self.sourceLabel
+        let descriptor = FetchDescriptor<SensorSession>(
+            predicate: #Predicate { $0.endTime == nil && $0.source == polarSource },
+            sortBy: [SortDescriptor(\.startTime, order: .reverse)]
+        )
+        guard let openSessions = try? modelContext.fetch(descriptor) else { return false }
+        guard let candidate = openSessions.first else { return false }
+
+        // Always finalize older opens — multiple endTime == nil rows can
+        // accumulate from repeated crashes/force-quits, and leaving them
+        // open indefinitely pollutes history and any future sync. Only the
+        // newest candidate is a potential recovery target.
+        for olderOpen in openSessions.dropFirst() {
+            log.info("Finalizing stranded older open SensorSession \(olderOpen.id.uuidString, privacy: .public) from \(olderOpen.startTime, privacy: .public)")
+            finalizeOrphan(olderOpen, at: now)
+        }
+
+        if candidate.startTime < staleCutoff {
+            log.warning("Found stale open SensorSession \(candidate.id.uuidString, privacy: .public) from \(candidate.startTime, privacy: .public); finalizing without recovery")
+            finalizeOrphan(candidate, at: now)
+            return false
+        }
+
+        // Without a restored peripheral, we have no data source. Finalize so
+        // the orphaned row doesn't shadow future sessions and doesn't block
+        // beginRecording's `recorder == nil` guard.
+        guard peripheral != nil else {
+            log.info("Found open SensorSession \(candidate.id.uuidString, privacy: .public) without a restored peripheral; finalizing")
+            finalizeOrphan(candidate, at: now)
+            return false
+        }
+
+        // Recovery is idempotent — if a recorder is already attached (e.g. a
+        // re-entrant willRestoreState call), bail.
+        guard recorder == nil else { return false }
+
+        log.info("Recovering in-flight SensorSession \(candidate.id.uuidString, privacy: .public) (started \(candidate.startTime, privacy: .public))")
+
+        // Rehydrate the running aggregates from persisted state so the final
+        // summary covers the whole session, not just post-recovery minutes.
+        // - rmssdValues: each persisted HRVReading row contributed one
+        //   minute's RMSSD; replay them in chronological order.
+        // - totalRRCount: every RR interval ever written to the archive is
+        //   a 10-byte record on disk, so the file size divided by the
+        //   record size is an exact count.
+        let candidateID = candidate.id
+        let priorReadingsDescriptor = FetchDescriptor<HRVReading>(
+            predicate: #Predicate { $0.sensorSessionID == candidateID },
+            sortBy: [SortDescriptor(\.timestamp)]
+        )
+        let priorRMSSDs = (try? modelContext.fetch(priorReadingsDescriptor))?.map(\.rmssd) ?? []
+        let archiveURL = Self.archiveURL(for: candidate.id)
+        // Use the writer's helper so the count stays in sync with what
+        // init(url:append:true) will actually preserve — an unaligned file
+        // is truncated by the writer, and recordCount returns 0 for it
+        // rather than the pre-truncation byte count.
+        let priorRRCount = RRArchiveWriter.recordCount(url: archiveURL)
+
+        let recoveredBuffer = RRIntervalBuffer(window: 60)
+        let recoveredRecorder = HRVSessionRecorder(
+            modelContext: modelContext,
+            buffer: recoveredBuffer,
+            source: Self.sourceLabel,
+            existing: candidate,
+            priorRMSSDs: priorRMSSDs,
+            priorRRCount: priorRRCount
+        )
+
+        buffer = recoveredBuffer
+        recorder = recoveredRecorder
+        // Log archive-open failures explicitly — silently swallowing them
+        // here used to make state-restoration archive drops invisible.
+        // beginRecording logs the same way; the two paths now mirror each
+        // other.
+        do {
+            archive = try RRArchiveWriter(url: archiveURL, append: true)
+        } catch {
+            archive = nil
+            log.warning("RR archive writer failed to open at \(archiveURL.path, privacy: .public) during recovery: \(error.localizedDescription, privacy: .public); recovered session will record without raw archive")
+        }
+        state.sessionStarted = candidate.startTime
+        state.sessionElapsed = now.timeIntervalSince(candidate.startTime)
+        scheduleTicks()
+        return true
+    }
+
+    /// Close out a SensorSession we couldn't recover, including any open-
+    /// ended SensorInterruption rows on it. Computes a best-effort summary
+    /// from persisted state (HRVReading rows for the per-minute RMSSD
+    /// series, the on-disk RR archive for the rrCount) so a force-quit
+    /// orphan still shows up on the Dashboard's "Last session" tile with
+    /// real metrics rather than blanks.
+    ///
+    /// `internal` (not `private`) so unit tests can exercise the orphan-
+    /// finalize behavior without spinning up CoreBluetooth.
+    func finalizeOrphan(_ session: SensorSession, at timestamp: Date) {
+        session.endTime = timestamp
+        for i in session.interruptions.indices where session.interruptions[i].endTime == nil {
+            var entry = session.interruptions[i]
+            entry.endTime = timestamp
+            session.interruptions[i] = entry
+        }
+
+        // Rehydrate aggregates for the back-filled summary. Mirrors the
+        // recovery path's rehydration so finalize-orphan and recover-then-
+        // finalize produce comparable summaries for the same data.
+        let sessionID = session.id
+        let readingsDescriptor = FetchDescriptor<HRVReading>(
+            predicate: #Predicate { $0.sensorSessionID == sessionID }
+        )
+        let rmssds = (try? modelContext.fetch(readingsDescriptor))?.map(\.rmssd) ?? []
+        let rrCount = RRArchiveWriter.recordCount(url: Self.archiveURL(for: session.id))
+        // Skipped minutes weren't tracked across the suspend boundary, so
+        // we report 0 here. Real per-minute "skipped" counts only exist
+        // while the in-memory recorder is alive.
+        session.summaryJSON = HRVSessionRecorder.buildSummaryJSON(
+            rmssdValues: rmssds,
+            totalRRCount: rrCount,
+            skippedMinutes: 0,
+            session: session
+        )
+        try? modelContext.save()
+    }
+
     private static func archiveURL(for sessionID: UUID) -> URL {
         let supportDir = (try? FileManager.default.url(
             for: .applicationSupportDirectory,
@@ -395,6 +670,83 @@ struct DiscoveredPeripheralSummary: Identifiable, Equatable, Sendable {
 // MARK: - CBCentralManagerDelegate
 
 extension PolarHRMService: CBCentralManagerDelegate {
+    /// Called when iOS relaunches the app for a BLE event after we were
+    /// suspended/terminated. The dictionary's `RestoredPeripheralsKey`
+    /// holds any peripheral the OS was tracking on our behalf — we
+    /// reattach to it (set delegate, set self.peripheral) so the rest of
+    /// the recording lifecycle can resume from didConnect /
+    /// didUpdateValueFor as if the app had never gone away. Pairs with
+    /// `recoverInFlightSessionIfNeeded` which rebuilds the SwiftData
+    /// recorder for any session whose endTime is still nil.
+    nonisolated func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
+        let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Unwrap the paired UUID first so the lookup compares
+            // CBPeripheral.identifier (non-optional UUID) against a
+            // concrete UUID rather than the optional accessor. Without
+            // this, a missing pairedPeripheralUUID would yield a nil-vs-
+            // UUID comparison that never matches.
+            guard let pairedID = self.pairedPeripheralUUID else {
+                self.log.info("State restoration received but no paired peripheral on record; ignoring \(restored.count, privacy: .public) restored entries")
+                return
+            }
+            guard let p = restored.first(where: { $0.identifier == pairedID }) else {
+                self.log.info("State restoration received but no matching paired peripheral; ignoring \(restored.count, privacy: .public) restored entries")
+                return
+            }
+            self.log.info("Restoring in-flight peripheral \(p.identifier.uuidString, privacy: .public) (CB state=\(String(describing: p.state), privacy: .public))")
+            p.delegate = self
+            self.peripheral = p
+            // Recover the SwiftData session row that was open when we got
+            // suspended; without this, RR data flowing back in via
+            // didUpdateValueFor would have no recorder to write to.
+            let recovered = self.recoverInFlightSessionIfNeeded()
+            guard recovered else {
+                // State restoration brought a peripheral back, but there's no
+                // open SensorSession to attach to (already-finalized stale
+                // row, or no row at all). Drop the peripheral and return to
+                // idle — the user must explicitly Start a new session. Without
+                // this, RR data flowing through the restored peripheral would
+                // be dropped on the floor while the UI claimed "Recording".
+                self.peripheral = nil
+                if p.state == .connected || p.state == .connecting {
+                    self.central.cancelPeripheralConnection(p)
+                }
+                self.state.status = .idle
+                return
+            }
+            // Recovery succeeded — bring up notifications based on the CB
+            // peripheral state. Without an explicit .disconnected branch, a
+            // restored-but-disconnected peripheral would leave the recovered
+            // recorder hanging with no path back to data and beginRecording
+            // permanently blocked by its `recorder == nil` guard.
+            switch p.state {
+            case .connected:
+                self.state.status = .recording
+                if let svc = p.services?.first(where: { $0.uuid == Self.heartRateServiceUUID }),
+                   let ch = svc.characteristics?.first(where: { $0.uuid == Self.hrMeasurementCharacteristicUUID }) {
+                    p.setNotifyValue(true, for: ch)
+                    self.hrmCharacteristic = ch
+                } else {
+                    p.discoverServices([Self.heartRateServiceUUID])
+                }
+            case .connecting:
+                self.state.status = .connecting
+            case .disconnected, .disconnecting:
+                // Recovered session needs a live peripheral to be useful.
+                // Mark the recording active and kick off the reconnect grace
+                // loop — same path as a mid-session BLE drop. If the grace
+                // ceiling expires, the loop finalizes the session cleanly.
+                self.state.status = .recording
+                self.recordInterruption(reason: "state_restoration_disconnected")
+                self.scheduleReconnect(peripheralID: p.identifier)
+            @unknown default:
+                break
+            }
+        }
+    }
+
     nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
         let newCBState = central.state
         Task { @MainActor [weak self] in
@@ -461,15 +813,24 @@ extension PolarHRMService: CBCentralManagerDelegate {
             guard let self else { return }
             // Drop callbacks for a peripheral the user has already torn down
             // (Stop / Unpair) or that doesn't match the current connecting
-            // target. Also bail if we're no longer in .connecting (a stale
-            // didConnect could otherwise restart discovery for a session we
-            // already finalized).
-            guard let active = self.peripheral,
-                  active.identifier == peripheralID,
-                  self.state.status == .connecting else {
+            // target.
+            guard let active = self.peripheral, active.identifier == peripheralID else { return }
+            // Two paths: fresh session start (.connecting) → discover services;
+            // reconnect during the grace period (.recording) → cancel the
+            // backoff loop and re-discover so notifications resume.
+            switch self.state.status {
+            case .connecting:
+                active.discoverServices([Self.heartRateServiceUUID])
+            case .recording:
+                // Reconnect in progress — cancel the backoff loop, rediscover
+                // so notify can re-enable. The interruption stays open until
+                // didUpdateNotificationStateFor confirms data is flowing.
+                self.reconnectTask?.cancel()
+                self.reconnectTask = nil
+                active.discoverServices([Self.heartRateServiceUUID])
+            default:
                 return
             }
-            active.discoverServices([Self.heartRateServiceUUID])
         }
     }
 
@@ -486,6 +847,14 @@ extension PolarHRMService: CBCentralManagerDelegate {
             // user has already moved past — otherwise the UI flips to .error
             // for a stale connection attempt.
             guard let active = self.peripheral, active.identifier == peripheralID else { return }
+            // During the reconnect grace period, a single failed connect
+            // attempt shouldn't tear down the session — the backoff loop
+            // will try again. The 10-min ceiling is what finalizes a
+            // genuinely-dead strap, not any individual failure.
+            if self.state.status == .recording && self.reconnectTask != nil {
+                self.log.debug("Reconnect attempt failed (\(message, privacy: .public)); backoff loop will retry")
+                return
+            }
             self.failConnection(message: message)
         }
     }
@@ -495,12 +864,31 @@ extension PolarHRMService: CBCentralManagerDelegate {
         didDisconnectPeripheral peripheral: CBPeripheral,
         error: Error?
     ) {
+        let peripheralID = peripheral.identifier
         Task { @MainActor [weak self] in
             guard let self else { return }
-            // Auto-stop if we were recording — Phase 2 is intentionally simple;
-            // Phase 2b adds the 10-min grace-period reconnect logic.
-            if self.state.status == .recording || self.state.status == .connecting {
-                self.stopSession()
+            // Drop callbacks for a peripheral we're no longer tracking.
+            guard let active = self.peripheral, active.identifier == peripheralID else { return }
+            switch self.state.status {
+            case .recording:
+                // Mid-session disconnect: keep the recorder alive and kick
+                // off the reconnect loop. After 10 min of continuous
+                // disconnect the loop will finalize.
+                self.recordInterruption(reason: "ble_disconnect")
+                self.scheduleReconnect(peripheralID: peripheralID)
+            case .connecting:
+                // Disconnect during the connect/discover/notify handshake
+                // (peripheral dropped before beginRecording flipped status
+                // to .recording). Without explicit handling here, the UI
+                // would stay stuck on "Connecting…" with peripheral still
+                // set. Treat as a failed connection so the user gets a
+                // clear error and can retry.
+                let message = error?.localizedDescription ?? "Strap disconnected during connection setup"
+                self.failConnection(message: message)
+            default:
+                // .idle / .scanning / .bluetooth* / .error: disconnect was
+                // user-initiated or post-failConnection; nothing to clean up.
+                return
             }
         }
     }
@@ -588,6 +976,11 @@ extension PolarHRMService: CBPeripheralDelegate {
                 self.failConnection(message: "HR notifications didn't activate")
                 return
             }
+            // Notifications are live — RR data is flowing. If we were
+            // in a reconnect-grace window, this is the right moment to
+            // close the open interruption (closeInterruption is a no-op
+            // if there's nothing to close, so it's safe on fresh starts).
+            self.closeInterruption()
             self.beginRecording()
         }
     }

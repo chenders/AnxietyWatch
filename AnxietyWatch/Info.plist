@@ -18,6 +18,7 @@
 	<array>
 		<string>fetch</string>
 		<string>health-update</string>
+		<string>bluetooth-central</string>
 	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>

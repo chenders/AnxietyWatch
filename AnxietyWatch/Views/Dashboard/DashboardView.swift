@@ -4,6 +4,8 @@ import HealthKit
 
 struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(PolarHRMService.self) private var polarService
+    @State private var showingPolarLiveSession = false
     @Query(sort: \AnxietyEntry.timestamp, order: .reverse)
     private var recentEntries: [AnxietyEntry]
     @Query(sort: \MedicationDose.timestamp, order: .reverse)
@@ -45,6 +47,16 @@ struct DashboardView: View {
                     baselineAlert
                     supplyAlertCard
                     anxietySection
+                    // Only construct HRVSessionCardView when a strap is
+                    // paired — its @Query fires on every appearance, so
+                    // skipping the view entirely for unpaired users keeps
+                    // the Dashboard cheap to render for them.
+                    if polarService.isPaired {
+                        HRVSessionCardView(
+                            service: polarService,
+                            showingLiveSession: $showingPolarLiveSession
+                        )
+                    }
                     healthSection
                     labResultsSection
                     cpapSection
@@ -54,6 +66,9 @@ struct DashboardView: View {
                 .padding()
             }
             .navigationTitle("Dashboard")
+            .sheet(isPresented: $showingPolarLiveSession) {
+                HRVSessionLiveView(service: polarService)
+            }
             .task {
                 // Compute immediately from cached @Query data — no async, no blocking
                 vm.computeSupplyAlerts(from: prescriptions)
@@ -683,5 +698,6 @@ struct DashboardView: View {
     let container = try! PreviewHelpers.makeSeededContainer()
     DashboardView()
         .modelContainer(container)
+        .environment(PolarHRMService(modelContext: ModelContext(container)))
 }
 #endif

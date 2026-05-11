@@ -88,6 +88,58 @@ struct RRArchiveWriterTests {
         try writer.finalize()
     }
 
+    @Test("append=true preserves existing aligned content")
+    func appendPreservesAlignedContent() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // First writer: write 5 records and finalize.
+        let writer1 = try RRArchiveWriter(url: url)
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        for i in 0..<5 {
+            try writer1.append(RRIntervalSample(
+                timestamp: t0.addingTimeInterval(Double(i)),
+                rrMs: Double(800 + i)
+            ))
+        }
+        try writer1.finalize()
+
+        // Second writer: append-mode, add 3 more records.
+        let writer2 = try RRArchiveWriter(url: url, append: true)
+        for i in 5..<8 {
+            try writer2.append(RRIntervalSample(
+                timestamp: t0.addingTimeInterval(Double(i)),
+                rrMs: Double(800 + i)
+            ))
+        }
+        try writer2.finalize()
+
+        let read = try RRArchiveWriter.read(url: url)
+        #expect(read.count == 8)
+        #expect(read.map(\.rrMs) == [800, 801, 802, 803, 804, 805, 806, 807])
+    }
+
+    @Test("append=true truncates when existing file isn't record-aligned")
+    func appendTruncatesUnalignedFile() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Write 15 bytes — 1 complete record (10) + 5 trailing junk bytes.
+        try Data(repeating: 0xAB, count: 15).write(to: url)
+
+        // Append-mode should treat this as corrupt and start fresh.
+        let writer = try RRArchiveWriter(url: url, append: true)
+        try writer.append(RRIntervalSample(
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            rrMs: 800
+        ))
+        try writer.finalize()
+
+        let read = try RRArchiveWriter.read(url: url)
+        #expect(read.count == 1)
+        #expect(read.first?.rrMs == 800)
+    }
+
     @Test("non-finite or pre-1970 timestamps throw rather than trapping")
     func rejectsBadTimestamps() throws {
         let url = tempURL()

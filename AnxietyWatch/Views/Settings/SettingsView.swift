@@ -281,7 +281,13 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                     Button {
                         polarService.startSession()
-                        showingLiveSession = true
+                        // Only present the live sheet on a successful
+                        // transition — startSession may synchronously
+                        // bounce to .bluetoothOff / .error if preconditions
+                        // aren't met, in which case the section already
+                        // shows the right inline status.
+                        if case .connecting = polarService.state.status { showingLiveSession = true }
+                        else if case .recording = polarService.state.status { showingLiveSession = true }
                     } label: {
                         Label("Retry Start", systemImage: "arrow.clockwise")
                     }
@@ -293,7 +299,8 @@ struct SettingsView: View {
                 case .idle, .scanning:
                     Button {
                         polarService.startSession()
-                        showingLiveSession = true
+                        if case .connecting = polarService.state.status { showingLiveSession = true }
+                        else if case .recording = polarService.state.status { showingLiveSession = true }
                     } label: {
                         Label("Start HRV Session", systemImage: "heart.text.square.fill")
                     }

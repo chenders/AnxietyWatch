@@ -31,15 +31,31 @@ nonisolated final class RRArchiveWriter: @unchecked Sendable {
     private let url: URL
     private var pending = Data()
 
-    init(url: URL) throws {
+    convenience init(url: URL) throws {
+        try self.init(url: url, append: false)
+    }
+
+    /// `append: true` opens an existing per-session file without truncating,
+    /// used during state-restoration recovery so RR data flowing in after
+    /// app relaunch lands at the end of the archive rather than rewriting
+    /// the recording from scratch.
+    init(url: URL, append: Bool) throws {
         self.url = url
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        // Truncate any prior content so the file always reflects this writer's
-        // session. Sessions are 1:1 with files keyed by sessionID, so collisions
-        // only happen during retries — truncating is the right choice.
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        if append && exists {
+            // Verify the file is record-aligned; if it isn't, truncate so we
+            // don't append into a partial record and produce a misaligned
+            // archive that read() would refuse with .truncatedArchive.
+            let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+            let size = (attrs[.size] as? Int) ?? 0
+            if size % Self.recordSize == 0 {
+                return  // good to go; file stays as-is, FileHandle will seekToEnd in flush
+            }
+        }
         guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
             throw WriteError.createFileFailed
         }
@@ -85,6 +101,25 @@ nonisolated final class RRArchiveWriter: @unchecked Sendable {
         try handle.seekToEnd()
         try handle.write(contentsOf: pending)
         pending.removeAll(keepingCapacity: true)
+    }
+
+    /// Count the records in an existing archive file. Returns 0 if the file
+    /// doesn't exist or its byte count isn't an exact multiple of the
+    /// record size — both indistinguishable from "nothing usable here"
+    /// from the caller's perspective.
+    ///
+    /// Pairs with `init(url:append:true)`'s alignment behavior: that
+    /// initializer truncates an unaligned file before appending, so any
+    /// caller that wants a count consistent with what the writer will
+    /// actually preserve should use this helper rather than dividing the
+    /// raw byte count by `recordSize`.
+    static func recordCount(url: URL) -> Int {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attrs[.size] as? Int else {
+            return 0
+        }
+        guard size % recordSize == 0 else { return 0 }
+        return size / recordSize
     }
 
     static func read(url: URL) throws -> [RRIntervalSample] {

@@ -96,6 +96,14 @@ struct AnxietyWatchApp: App {
                     PhoneConnectivityManager.shared.modelContainer = sharedModelContainer
                     PhoneConnectivityManager.shared.activate()
 
+                    // After CoreBluetooth has had a chance to call
+                    // willRestoreState (it fires before SwiftUI views attach),
+                    // try to recover any SensorSession that's still open. If
+                    // state restoration brought a peripheral back, this
+                    // attaches the recorder to it; if not (cold launch,
+                    // peripheral gone), this finalizes stale rows.
+                    polarService.recoverInFlightSessionIfNeeded()
+
                     // Link any prescriptions missing a MedicationDefinition
                     let context = ModelContext(sharedModelContainer)
                     try? SyncService.backfillMedicationLinks(modelContext: context)

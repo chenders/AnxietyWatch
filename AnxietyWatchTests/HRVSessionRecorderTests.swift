@@ -90,6 +90,67 @@ struct HRVSessionRecorderTests {
         #expect(sessions.first?.endTime != nil)
     }
 
+    @Test("recovery initializer reuses an existing SensorSession instead of inserting a new one")
+    func recoveryInitReusesExistingSession() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let buffer = RRIntervalBuffer(window: 60)
+
+        // Pre-insert a SensorSession as if it were left open by a previous run.
+        let existing = SensorSession(
+            startTime: Date(timeIntervalSince1970: 1_700_000_000),
+            batteryAtStart: 80
+        )
+        existing.source = "polar_h10"
+        context.insert(existing)
+        try context.save()
+        let existingID = existing.id
+
+        let recorder = HRVSessionRecorder(
+            modelContext: context,
+            buffer: buffer,
+            source: "polar_h10",
+            existing: existing
+        )
+
+        // Should expose the existing session's ID without inserting a new row.
+        #expect(recorder.sessionID == existingID)
+        let allSessions = try context.fetch(FetchDescriptor<SensorSession>())
+        #expect(allSessions.count == 1)
+        #expect(allSessions.first?.id == existingID)
+    }
+
+    @Test("recovered recorder finalizes onto the existing session row")
+    func recoveredRecorderFinalizesExisting() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let buffer = RRIntervalBuffer(window: 60)
+
+        let existing = SensorSession(
+            startTime: Date(timeIntervalSince1970: 1_700_000_000),
+            batteryAtStart: 80
+        )
+        existing.source = "polar_h10"
+        context.insert(existing)
+        try context.save()
+        let existingID = existing.id
+
+        let recorder = HRVSessionRecorder(
+            modelContext: context,
+            buffer: buffer,
+            source: "polar_h10",
+            existing: existing
+        )
+        try recorder.finalize(at: Date(timeIntervalSince1970: 1_700_001_800))
+
+        let sessions = try context.fetch(FetchDescriptor<SensorSession>())
+        #expect(sessions.count == 1)
+        let row = sessions.first!
+        #expect(row.id == existingID)
+        #expect(row.endTime != nil)
+        #expect(row.summaryJSON?.contains("rrCount") == true)
+    }
+
     @Test("finalize before any tick still writes a session row with zeroed summary")
     func finalizeWithNoData() async throws {
         let container = try makeContainer()

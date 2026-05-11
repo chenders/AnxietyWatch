@@ -12,7 +12,12 @@ final class HRVSessionRecorder {
     private let modelContext: ModelContext
     private let buffer: RRIntervalBuffer
     private let source: String
-    private var session: SensorSession?
+    /// Exposed read-only so the owning `PolarHRMService` can append
+    /// `SensorInterruption` entries directly during the reconnect grace
+    /// period. The reference is the SwiftData @Model row; mutating its
+    /// `interruptions` array through the reference is fine, but the
+    /// recorder itself owns the assignment of the property.
+    private(set) var session: SensorSession?
     /// ID of the SensorSession currently being recorded (after `start(at:)`).
     /// Callers like `PolarHRMService` read this to derive matching filenames
     /// for per-session artifacts (e.g. the raw RR archive) so they don't end
@@ -26,6 +31,33 @@ final class HRVSessionRecorder {
         self.modelContext = modelContext
         self.buffer = buffer
         self.source = source
+    }
+
+    /// Recovery initializer used when state restoration finds a SensorSession
+    /// that's still open (endTime == nil) — wires the recorder to that
+    /// existing row instead of inserting a new one. The recorder takes over
+    /// reporting ticks against the recovered session.
+    ///
+    /// `priorRMSSDs` and `priorRRCount` are rehydrated from the existing
+    /// HRVReading children and the on-disk RR archive (size / record-size)
+    /// so the final session summary reflects the entire session, not just
+    /// the post-recovery minutes. Without this, a restart mid-overnight
+    /// would compute the summary over a few late-night minutes only.
+    init(
+        modelContext: ModelContext,
+        buffer: RRIntervalBuffer,
+        source: String,
+        existing: SensorSession,
+        priorRMSSDs: [Double] = [],
+        priorRRCount: Int = 0
+    ) {
+        self.modelContext = modelContext
+        self.buffer = buffer
+        self.source = source
+        self.session = existing
+        self.sessionID = existing.id
+        self.rmssdValues = priorRMSSDs
+        self.totalRRCount = priorRRCount
     }
 
     /// Begin a session. `batteryAtStart` is the iPhone battery percentage
@@ -116,14 +148,38 @@ final class HRVSessionRecorder {
     }
 
     private func sessionSummaryJSON(for session: SensorSession) -> String {
+        Self.buildSummaryJSON(
+            rmssdValues: rmssdValues,
+            totalRRCount: totalRRCount,
+            skippedMinutes: skippedMinutes,
+            session: session
+        )
+    }
+
+    /// Builds the session-summary JSON from explicit inputs rather than the
+    /// recorder's in-memory state. Used by the recorder's own `finalize`
+    /// path (which calls `sessionSummaryJSON(for:)` above) and by
+    /// `PolarHRMService.finalizeOrphan` to back-fill a summary on an
+    /// orphaned session whose recorder never got to run finalize.
+    static func buildSummaryJSON(
+        rmssdValues: [Double],
+        totalRRCount: Int,
+        skippedMinutes: Int,
+        session: SensorSession
+    ) -> String {
         let mean = rmssdValues.isEmpty ? 0 : rmssdValues.reduce(0, +) / Double(rmssdValues.count)
         let mn = rmssdValues.min() ?? 0
         let mx = rmssdValues.max() ?? 0
         let durationSec = session.endTime.map { $0.timeIntervalSince(session.startTime) } ?? 0
         let interruptions = session.interruptions.count
-        // gapFraction populated when interruption tracking lands with the
-        // CoreBluetooth wiring in Phase 2.
-        let gapFraction: Double = 0
+        // Sum the closed interruptions' durations (open ones get closed by
+        // tearDownResources / finalizeOrphan before this runs, but we
+        // defensively skip any that are still open).
+        let gapSec = session.interruptions.reduce(0.0) { acc, gap in
+            guard let end = gap.endTime else { return acc }
+            return acc + max(0, end.timeIntervalSince(gap.startTime))
+        }
+        let gapFraction: Double = durationSec > 0 ? min(1.0, gapSec / durationSec) : 0
         let dict: [String: Any] = [
             "rmssdMean": mean,
             "rmssdMin": mn,
