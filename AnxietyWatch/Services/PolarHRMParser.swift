@@ -4,7 +4,9 @@ import Foundation
 /// Decodes one Heart Rate Measurement characteristic (UUID 0x2A37) frame
 /// per Bluetooth SIG spec. The Polar H10 emits these at ~1 Hz with HR plus
 /// zero-or-more RR intervals (the strap's whole-point feature for HRV).
-enum PolarHRMParser {
+/// Declared `nonisolated` so the CoreBluetooth delegate (running off the
+/// main actor) can invoke `parse` without hopping back.
+nonisolated enum PolarHRMParser {
 
     enum ParseError: Error, Equatable {
         case truncated

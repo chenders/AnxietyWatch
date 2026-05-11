@@ -10,7 +10,13 @@ import Foundation
 /// Phase 1 keeps the format raw on disk. Compression is applied at upload
 /// time in Phase 3 since the on-device size (~300 KB/night) doesn't justify
 /// the streaming-compression complexity locally.
-final class RRArchiveWriter {
+///
+/// Declared `nonisolated` so `PolarHRMService.finalizeOffline` can close the
+/// file from a background `Task.detached` and not block the main actor
+/// during session stop. Instances are owned by a single caller (the BLE
+/// service) and never shared across threads at a time, so internal state
+/// is safe under that ownership invariant.
+nonisolated final class RRArchiveWriter: @unchecked Sendable {
 
     enum WriteError: Error, Equatable {
         case rrOutOfRange

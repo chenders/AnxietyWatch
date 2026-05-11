@@ -48,6 +48,7 @@ struct AnxietyWatchApp: App {
     }()
 
     @State private var coordinator: HealthDataCoordinator?
+    @State private var polarService: PolarHRMService
     @Environment(\.scenePhase) private var scenePhase
     @State private var followUpDose: MedicationDose?
     @State private var followUpMedication: MedicationDefinition?
@@ -68,10 +69,14 @@ struct AnxietyWatchApp: App {
     }
 
     // BGTask registration must happen before app finishes launching.
+    @MainActor
     init() {
         let coord = HealthDataCoordinator(modelContainer: sharedModelContainer)
         _coordinator = State(initialValue: coord)
         coord.registerBackgroundTask()
+
+        let polar = PolarHRMService(modelContext: ModelContext(sharedModelContainer))
+        _polarService = State(initialValue: polar)
 
         // Set notification delegate so notifications show in foreground
         // and taps trigger the pending check-in/follow-up flow.
@@ -81,6 +86,7 @@ struct AnxietyWatchApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(polarService)
                 .overlay {
                     if let coordinator, coordinator.isBackfilling {
                         backfillOverlay(coordinator)

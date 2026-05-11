@@ -1,7 +1,11 @@
 // AnxietyWatch/Services/RRIntervalBuffer.swift
 import Foundation
 
-/// A single RR interval timestamped at the moment of arrival.
+/// A single RR interval. `timestamp` is the approximate beat completion
+/// time, back-projected from the BLE packet's arrival via
+/// `RRTimestampBackprojection.project` — not the raw arrival instant —
+/// so per-minute flushes group beats by the time they actually occurred
+/// rather than collapsing them at the packet boundary.
 struct RRIntervalSample: Sendable, Equatable {
     let timestamp: Date
     let rrMs: Double

@@ -3,12 +3,15 @@ import SwiftData
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(PolarHRMService.self) private var polarService
     @State private var healthKitRequested = false
     @State private var clinicalRecordsRequested = false
     @State private var isRebuilding = false
     @State private var rebuildProgress = 0
     @State private var rebuildTotal = 0
     @State private var showRebuildConfirmation = false
+    @State private var showingPairing = false
+    @State private var showingLiveSession = false
     @Query private var allMeds: [MedicationDefinition]
     @State private var checkInsEnabled = RandomCheckInManager.isEnabled
     @State private var checkInFrequency = RandomCheckInManager.frequencyPerDay
@@ -92,6 +95,8 @@ struct SettingsView: View {
                         Label("CPAP Data", systemImage: "bed.double.fill")
                     }
                 }
+
+                polarSection
 
                 Section("Reports & Export") {
                     NavigationLink {
@@ -206,6 +211,108 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .sheet(isPresented: $showingPairing) {
+                PolarPairingView(service: polarService)
+            }
+            .sheet(isPresented: $showingLiveSession) {
+                HRVSessionLiveView(service: polarService)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var polarSection: some View {
+        Section("Polar H10 Chest Strap") {
+            let state = polarService.state
+            if polarService.isPaired {
+                // Use the persisted name when present; fall back to a generic
+                // label so a corrupted-or-missing `pairedDeviceName` doesn't
+                // make the Settings UI claim "Unpaired" while the underlying
+                // UUID is still on disk (and startSession would still connect).
+                let displayName = state.pairedDeviceName ?? "Polar H10"
+                LabeledContent("Paired", value: displayName)
+                switch state.status {
+                case .recording, .connecting:
+                    Button {
+                        showingLiveSession = true
+                    } label: {
+                        Label("Resume Live View", systemImage: "waveform.path.ecg")
+                    }
+                    Button(role: .destructive) {
+                        polarService.stopSession()
+                    } label: {
+                        Label("Stop Session", systemImage: "stop.circle.fill")
+                    }
+                case .bluetoothOff:
+                    Label("Bluetooth Off", systemImage: "antenna.radiowaves.left.and.right.slash")
+                        .foregroundStyle(.red)
+                    Text("Enable Bluetooth in iOS Settings, then return here to start a session.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button(role: .destructive) {
+                        polarService.unpair()
+                    } label: {
+                        Label("Unpair", systemImage: "xmark.circle")
+                    }
+                case .bluetoothUnauthorized:
+                    Label("Bluetooth Permission Needed", systemImage: "lock.shield")
+                        .foregroundStyle(.red)
+                    Text("Allow Bluetooth access for Anxiety Watch in iOS Settings.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button(role: .destructive) {
+                        polarService.unpair()
+                    } label: {
+                        Label("Unpair", systemImage: "xmark.circle")
+                    }
+                case .bluetoothUnsupported:
+                    Label("Bluetooth Not Available", systemImage: "antenna.radiowaves.left.and.right.slash")
+                        .foregroundStyle(.red)
+                    Text("This device doesn't support Bluetooth Low Energy (the iOS Simulator falls into this case).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button(role: .destructive) {
+                        polarService.unpair()
+                    } label: {
+                        Label("Unpair", systemImage: "xmark.circle")
+                    }
+                case .error(let message):
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                    Button {
+                        polarService.startSession()
+                        showingLiveSession = true
+                    } label: {
+                        Label("Retry Start", systemImage: "arrow.clockwise")
+                    }
+                    Button(role: .destructive) {
+                        polarService.unpair()
+                    } label: {
+                        Label("Unpair", systemImage: "xmark.circle")
+                    }
+                case .idle, .scanning:
+                    Button {
+                        polarService.startSession()
+                        showingLiveSession = true
+                    } label: {
+                        Label("Start HRV Session", systemImage: "heart.text.square.fill")
+                    }
+                    Button(role: .destructive) {
+                        polarService.unpair()
+                    } label: {
+                        Label("Unpair", systemImage: "xmark.circle")
+                    }
+                }
+            } else {
+                Button {
+                    showingPairing = true
+                } label: {
+                    Label("Pair Polar H10", systemImage: "heart.text.square")
+                }
+            }
+            Text("High-fidelity HRV via Bluetooth chest strap. Wear the strap moistened; close Polar Flow before pairing.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -251,5 +358,6 @@ struct SettingsView: View {
     let container = try! PreviewHelpers.makeSeededContainer()
     SettingsView()
         .modelContainer(container)
+        .environment(PolarHRMService(modelContext: ModelContext(container)))
 }
 #endif

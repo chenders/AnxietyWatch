@@ -13,6 +13,11 @@ final class HRVSessionRecorder {
     private let buffer: RRIntervalBuffer
     private let source: String
     private var session: SensorSession?
+    /// ID of the SensorSession currently being recorded (after `start(at:)`).
+    /// Callers like `PolarHRMService` read this to derive matching filenames
+    /// for per-session artifacts (e.g. the raw RR archive) so they don't end
+    /// up orphaned from the SwiftData row.
+    private(set) var sessionID: UUID?
     private(set) var rmssdValues: [Double] = []
     private(set) var totalRRCount: Int = 0
     private(set) var skippedMinutes: Int = 0
@@ -33,6 +38,7 @@ final class HRVSessionRecorder {
         modelContext.insert(session)
         try modelContext.save()
         self.session = session
+        self.sessionID = session.id
     }
 
     /// Drains the trailing-minute window from the buffer, computes HRV, writes
@@ -44,7 +50,10 @@ final class HRVSessionRecorder {
     /// performed off-main via `Task.detached` so the live-session UI stays
     /// responsive. SwiftData writes happen back on the main actor.
     func tick(at now: Date) async throws {
-        guard let session else { return }
+        // Bail if the session has been finalized — without this guard, a tick
+        // suspended on the FFT could resume after stopSession and write an
+        // HRVReading that the session summary doesn't account for.
+        guard let session, session.endTime == nil else { return }
         let intervals = await buffer.flush(at: now)
         let rrs = intervals.map(\.rrMs)
         guard rrs.count >= 2 else {
@@ -61,6 +70,11 @@ final class HRVSessionRecorder {
         let td = await Task.detached(priority: .userInitiated) {
             HRVCalculator.timeDomain(rrIntervals: filtered)
         }.value
+        // Re-check after the FFT await — stopSession may have finalized while
+        // we were suspended. The unwrap matters: `self.session?.endTime == nil`
+        // is true for a nil session, so optional-chained checks short-circuit
+        // in exactly the direction we need to bail on.
+        guard let active = self.session, active.endTime == nil else { return }
         guard let td else {
             skippedMinutes += 1
             return
@@ -68,6 +82,9 @@ final class HRVSessionRecorder {
         let fd = await Task.detached(priority: .userInitiated) {
             HRVCalculator.frequencyDomain(rrIntervals: filtered)
         }.value
+        // Same guard again after the second await; explicit unwrap so a
+        // nil self.session can't slip through.
+        guard let stillActive = self.session, stillActive.id == active.id, stillActive.endTime == nil else { return }
 
         let reading = HRVReading(
             timestamp: now,
@@ -93,6 +110,9 @@ final class HRVSessionRecorder {
         session.summaryJSON = sessionSummaryJSON(for: session)
         try modelContext.save()
         self.session = nil
+        // Also clear sessionID so callers can't accidentally treat a
+        // finalized recorder as still associated with the prior session.
+        self.sessionID = nil
     }
 
     private func sessionSummaryJSON(for session: SensorSession) -> String {
