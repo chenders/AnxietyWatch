@@ -115,10 +115,60 @@ enum PreviewHelpers {
         )
         context.insert(rx)
 
+        seedHRVData(into: context)
+
         do {
             try context.save()
         } catch {
             preconditionFailure("PreviewHelpers.seedData failed to save: \(error)")
+        }
+    }
+
+    private static func seedHRVData(into context: ModelContext) {
+        let now = Date(timeIntervalSince1970: 1_711_929_600) // 2024-04-01
+        let calendar = Calendar.current
+
+        for nightIdx in 0..<4 {
+            let dayOffset = -(nightIdx * 3 + 1)
+            let bedTime = calendar.date(byAdding: .day, value: dayOffset, to: now)!
+                .addingTimeInterval(-5 * 3600)
+            let durationMinutes = 300 + nightIdx * 30
+            let session = SensorSession(startTime: bedTime, batteryAtStart: 85)
+            session.endTime = bedTime.addingTimeInterval(Double(durationMinutes) * 60)
+            session.source = PolarHRMService.sourceLabel
+            context.insert(session)
+
+            let hfBaseline = 50.0 + Double(nightIdx) * 6
+            let lfBaseline = hfBaseline * 1.8
+            for minute in 0..<durationMinutes {
+                let ts = bedTime.addingTimeInterval(Double(minute) * 60)
+                let isSentinel = (minute % 25) == 0
+                let hf = isSentinel ? 0 : hfBaseline + sin(Double(minute) / 30) * 12
+                let lf = isSentinel ? 0 : lfBaseline + cos(Double(minute) / 30) * 22
+                let ratio = (isSentinel || hf == 0) ? 0 : lf / hf
+                context.insert(HRVReading(
+                    timestamp: ts,
+                    rmssd: 40, sdnn: 50, pnn50: 10,
+                    lfPower: lf, hfPower: hf, lfHfRatio: ratio,
+                    sensorSessionID: session.id,
+                    source: PolarHRMService.sourceLabel
+                ))
+            }
+        }
+
+        let manualStart = calendar.date(byAdding: .hour, value: -3, to: now)!
+        let manualSession = SensorSession(startTime: manualStart, batteryAtStart: 90)
+        manualSession.endTime = manualStart.addingTimeInterval(10 * 60)
+        manualSession.source = PolarHRMService.sourceLabel
+        context.insert(manualSession)
+        for minute in 0..<10 {
+            context.insert(HRVReading(
+                timestamp: manualStart.addingTimeInterval(Double(minute) * 60),
+                rmssd: 35, sdnn: 45, pnn50: 8,
+                lfPower: 80, hfPower: 35, lfHfRatio: 2.3,
+                sensorSessionID: manualSession.id,
+                source: PolarHRMService.sourceLabel
+            ))
         }
     }
 }

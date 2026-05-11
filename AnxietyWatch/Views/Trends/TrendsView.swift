@@ -7,6 +7,21 @@ struct TrendsView: View {
     @Query(sort: \AnxietyEntry.timestamp) private var allEntries: [AnxietyEntry]
     @Query(sort: \CPAPSession.date) private var allCPAPSessions: [CPAPSession]
     @Query(sort: \BarometricReading.timestamp) private var allBarometric: [BarometricReading]
+    // Source-filtered at the SwiftData layer so the per-minute HRVReading
+    // table doesn't load non-Polar rows (and won't bloat the Trends tab as
+    // future HRV writers start populating other source labels). String
+    // literal because #Predicate can't reference static properties on
+    // foreign types at macro expansion time.
+    @Query(
+        filter: #Predicate<HRVReading> { $0.source == "polar_h10" },
+        sort: \HRVReading.timestamp
+    )
+    private var allHRVReadings: [HRVReading]
+    @Query(
+        filter: #Predicate<SensorSession> { $0.source == "polar_h10" },
+        sort: \SensorSession.startTime
+    )
+    private var allSensorSessions: [SensorSession]
     @State private var timeRange: TimeRange = .week
     /// 0 = current period (ending now), -1 = previous period, etc.
     @State private var pageOffset = 0
@@ -83,6 +98,34 @@ struct TrendsView: View {
         let cpapSessions = allCPAPSessions.filter { inWindow($0.date, start: ws.start, end: ws.end) }
         let barometricReadings = allBarometric.filter { inWindow($0.timestamp, start: ws.start, end: ws.end) }
 
+        // LF/HF card: overnight (≥overnightThresholdSeconds, finalized)
+        // sessions only. Source-filtering already happens in the @Query so
+        // short manual sessions are the only thing left to filter out here.
+        //
+        // Crucially, the window filter runs on the per-session NightlyMean,
+        // not on per-reading timestamps. An overnight session straddling
+        // the window boundary (started 11 PM, slept past midnight) should
+        // contribute its *full-session* mean anchored to its bedtime, not
+        // a partial mean anchored to the first post-midnight reading.
+        let overnightSessions = allSensorSessions.filter { session in
+            guard let end = session.endTime else { return false }
+            return end.timeIntervalSince(session.startTime) >= LFHFAggregator.overnightThresholdSeconds
+        }
+        let overnightSessionIDs = Set(overnightSessions.map(\.id))
+        let sessionStartTimes = Dictionary(
+            uniqueKeysWithValues: overnightSessions.map { ($0.id, $0.startTime) }
+        )
+        let overnightReadings = allHRVReadings.filter {
+            guard let sid = $0.sensorSessionID else { return false }
+            return overnightSessionIDs.contains(sid)
+        }
+        let lfhfAllMeans = LFHFAggregator.nightlyMeans(
+            from: overnightReadings,
+            sessionStartTimes: sessionStartTimes
+        )
+        let lfhfWindowMeans = lfhfAllMeans
+            .filter { inWindow($0.night, start: ws.start, end: ws.end) }
+
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
@@ -137,6 +180,7 @@ struct TrendsView: View {
 
                     let hasAnyData = !entries.isEmpty || !snapshots.isEmpty
                         || !cpapSessions.isEmpty || !barometricReadings.isEmpty
+                        || !lfhfWindowMeans.isEmpty
 
                     if !hasAnyData {
                         ContentUnavailableView(
@@ -159,6 +203,12 @@ struct TrendsView: View {
                         )
                         GlucoseTrendChart(snapshots: snapshots, entries: entries, dateRange: dateRange)
                         BarometricTrendChart(readings: barometricReadings, entries: entries, allSnapshots: allSnapshots, dateRange: dateRange)
+                        LFHFChartView(
+                            windowMeans: lfhfWindowMeans,
+                            allOvernightMeans: lfhfAllMeans,
+                            dateRange: dateRange,
+                            baselineAnchor: ws.end
+                        )
 
                         // Insights link
                         NavigationLink {
