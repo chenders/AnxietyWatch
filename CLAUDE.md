@@ -42,10 +42,12 @@
 **MANDATORY:** When making changes that affect project structure, conventions, commands, workflows, coding standards, or rules, you MUST update all relevant instruction files in the same commit. These files must stay in sync:
 - **`CLAUDE.md`** — Project context for Claude Code (this file)
 - **`AGENTS.md`** — Multi-agent tooling instructions
-- **`.github/copilot-instructions.md`** — GitHub Copilot review instructions
+- **`.github/copilot-instructions.md`** — GitHub Copilot review instructions (cross-cutting; applies to every review)
+- **`.github/instructions/swift.instructions.md`** — Swift/iOS-specific Copilot review rules (`applyTo: "**/*.swift"`)
+- **`.github/instructions/python.instructions.md`** — Python/server-specific Copilot review rules (`applyTo: "server/**/*.py"`)
 - **`REQUIREMENTS.md`** — Full specification and data model
 
-**When editing any instruction file, check the others for the same topic and update them too.** `CLAUDE.md` and `.github/copilot-instructions.md` cover overlapping ground (coding conventions, testing rules, sensitive data rules, design principles). If you change a rule in one, apply the equivalent change to the other. A rule that exists in `CLAUDE.md` but not `copilot-instructions.md` (or vice versa) is a bug.
+**When editing any instruction file, check the others for the same topic and update them too.** `CLAUDE.md` and the Copilot instruction files cover overlapping ground (coding conventions, testing rules, sensitive data rules, design principles). If you change a rule in one, apply the equivalent change to the other. A rule that exists in `CLAUDE.md` but not the relevant Copilot file (or vice versa) is a bug. Language-specific rules belong in the path-scoped `.github/instructions/*.instructions.md` files so they only activate for matching diffs; cross-cutting rules stay in `.github/copilot-instructions.md`.
 
 ## Commands
 
@@ -154,7 +156,14 @@ AnxietyWatch/
 ├── server/                              # Python sync server (see Sync Server section)
 ├── docs/                                # SERVER_SETUP.md and other docs
 ├── .github/workflows/                   # CI/CD (see below)
-├── .github/copilot-instructions.md      # Copilot review instructions
+├── .github/copilot-instructions.md      # Cross-cutting Copilot review instructions
+├── .github/instructions/                # Path-scoped Copilot review instructions
+│   ├── swift.instructions.md            # applyTo: **/*.swift
+│   └── python.instructions.md           # applyTo: server/**/*.py
+├── .claude/                             # Claude Code config (see .claude/README or per-file docs)
+│   ├── agents/swift-pre-pr-reviewer.md  # Pre-PR Swift review agent (calibrated against PR #132)
+│   ├── commands/                        # Custom slash commands
+│   └── hooks/                           # PostToolUse hooks
 ├── .gitignore
 ├── .env.runners.example                 # Runner credential template
 ├── docker-compose.runners.yml           # GitHub Actions runner config
@@ -175,6 +184,31 @@ AnxietyWatch/
 - **Naming**: Swift API design guidelines. Descriptive names, no abbreviations except well-known ones (HR, HRV, AHI, BP, SpO2).
 - **No storyboards or XIBs** — pure SwiftUI.
 - **Comments**: Comment the "why", not the "what". HealthKit type identifiers should have inline comments explaining what they measure.
+
+## Common pitfalls (catch these before pushing)
+
+These are the recurring categories that have driven ~33% of recent commits into Copilot review rounds. Check the diff against these before opening a PR. See `docs/plans/claude-code-setup-improvements.md` for the full diagnostic and the rationale behind each item.
+
+- **Source-label / constant drift:** Outside `#Predicate` / `@Query` macros, use the typed constant (`PolarHRMService.sourceLabel`), not the literal `"polar_h10"`. String literals are only acceptable where the macro can't capture types.
+- **`@Query` scope:** Any new `@Query` on `HRVReading`, `BarometricReading`, or another unbounded table must filter by `source` *and* bound by date. Don't fetch the whole table to filter in-memory.
+- **Nil-discriminator backwards-compatibility:** When filtering on a recently-added column (`source`, `kind`, `provider`), legacy rows likely have `nil`. Either include `|| col == nil` in the predicate or backfill before adding the filter. Check the `@Model` docstring for the column's history.
+- **VoiceOver consistency:** Round before truncating (`Int(x.rounded())`), and match the on-screen format string. `Int(hf)` vs `%.0f` is a bug.
+- **SwiftUI nav:** Never put a `Button` inside a `NavigationLink` label — the inner button becomes non-interactive. Split hit targets.
+- **State-machine completeness:** Destructive actions (`unpair`, `stopSession`, `disconnect`) must handle all in-flight states, not just the terminal one.
+- **Empty-state gates:** When wiring a new data source into a view, update `hasAnyData`/equivalent so users with only that source don't see "No Data".
+- **Fallback-state UX honesty:** If "latest" or "isEmpty" gates fall back to a filtered or older subset, the user-visible label must say so — don't silently present an older session as "most recent". Status strings that can collapse to "—" should emit a meaningful alternative for that branch.
+- **Deterministic ordering:** `Dictionary(grouping:)` and `Set` produce arbitrary order. Sort explicitly before any rendering or sequential output.
+- **Doc-comment drift:** When you change a sort order or filter, re-read every `///` comment in the diff and update it.
+- **SwiftLint line-length:** 150 warn, 200 error. Long inline `Text("...")` strings must be split with `+` concatenation or multi-line literals.
+- **Magic-number duplication:** Any threshold/window/timeout used in 2+ files belongs in a named constant.
+- **Float-equality in tests:** Never `#expect(x == y)` on `Double`. Use an epsilon tolerance — `abs(actual - expected) < 0.001`.
+- **Day-alignment of date math:** Any "N days ago" cutoff should typically wrap `Calendar.current.startOfDay(for:)` so the boundary doesn't depend on time-of-day.
+- **Padded vs unpadded date range:** A `dateRange.upperBound` padded for chart spacing (e.g., `+12h`) is wrong for baseline math, predicate bounds, or in-window checks. Keep an unpadded sibling for non-visual consumers.
+- **Anchor to authoritative timestamps:** Bucket sessions by `SensorSession.startTime`, not the earliest reading timestamp. Readings can lag start by up to ~60s and mis-bucket near-midnight sessions.
+- **Per-render recomputation:** Any computed property accessed 2+ times in the same `body` should be cached as a `let` at the top of `body`. Don't repeat `.sorted().map { ... }` chains across sub-views.
+- **Testability of view-embedded computation:** If a SwiftUI view body has >5 lines of pure derivation (baselines, deltas, multi-state subtitles), extract to a helper and write Swift Testing coverage.
+- **`.accessibilityElement(children: .combine)` on a container with interactive children:** If a card or container wraps an info `Button` or `NavigationLink` and applies `.accessibilityElement(children: .combine)`, VoiceOver collapses them into a single element and users can't focus or activate them independently. Use `children: .ignore` on the container and put the summary on the interactive label (or as `.accessibilityValue` on it).
+- **Filter granularity vs aggregation unit:** When filtering before aggregation, the filter granularity must match the aggregation unit. Filtering per-reading before per-session aggregation produces partial means for sessions that straddle the window boundary. Filter the resulting per-session values instead, or pass both the unfiltered set and a window predicate.
 
 ## HealthKit Notes
 
@@ -222,15 +256,16 @@ It requires the `NSMotionUsageDescription` key in Info.plist. Readings are only 
 
 ## CI/CD
 
-Three GitHub Actions workflows in `.github/workflows/`:
+GitHub Actions workflows in `.github/workflows/`:
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `ci.yml` | Push/PR to main touching `server/**` | Lint (flake8) + pytest against Postgres |
-| `deploy.yml` | Push to `main`/`master` touching `server/**` | Server deployment |
+| `ios-ci.yml` | Push/PR (excludes `server/`, `docs/`, `*.md`) | iOS unit tests with coverage; SwiftLint `--strict`; warnings treated as errors |
+| `ci.yml` | Push/PR to `main` or `master` (paths `server/**`, `.github/workflows/ci.yml`) | Lint (flake8) + pytest against Postgres |
+| `deploy.yml` | Push to `main` or `master` (paths `server/**`, `.github/workflows/deploy.yml`, runner configs); also `workflow_dispatch` | Server deployment |
 | `release.yml` | Tag pushes (e.g. version tags) | Release workflow |
 
-CI only covers the Python sync server. There is no automated iOS build/test pipeline yet.
+Both iOS and server have CI gates. Lint, type, and test failures block merge.
 
 ## Key Design Principles
 

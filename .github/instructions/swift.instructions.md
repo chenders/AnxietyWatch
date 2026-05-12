@@ -1,0 +1,59 @@
+---
+applyTo: "**/*.swift"
+---
+
+# Swift / iOS Code Review Instructions
+
+These instructions apply when reviewing Swift files (iOS app, watchOS app, widgets, Swift tests). Cross-cutting project standards live in `.github/copilot-instructions.md`.
+
+## Swift Coding Conventions
+
+- **SwiftData models:** Use `@Model` macro. One model per file in `Models/`.
+- **HealthKit:** ALL HealthKit interaction goes through `HealthKitManager` actor. Never query HealthKit directly from views.
+- **Concurrency:** Use async/await and structured concurrency throughout. When system APIs only provide callbacks (e.g., CoreMotion, some HealthKit APIs), wrap them using continuations rather than exposing completion handlers in app code.
+- **Error handling:** Use typed errors where practical. Never force-unwrap optionals from external data (HealthKit, CPAP files, network responses).
+- **Views:** Keep views small and composable. Extract subviews when a view exceeds ~100 lines. Use `@Observable` view models for complex screens.
+- **Naming:** Follow Swift API Design Guidelines. Descriptive names, no abbreviations except well-known ones: HR, HRV, AHI, BP, SpO2.
+- **No storyboards or XIBs** — pure SwiftUI.
+- **Comments:** Comment the "why", not the "what". HealthKit type identifiers should have inline comments explaining what they measure.
+
+## HealthKit Specifics
+
+- HealthKit does NOT tell you whether the user denied a specific read type. `authorizationStatus` returns `.notDetermined` even if denied (Apple privacy protection). Always handle missing data gracefully.
+- Use `HKStatisticsQuery` for aggregations, `HKSampleQuery` for individual samples, `HKStatisticsCollectionQuery` for time-series.
+- Sleep stages: `.asleepREM`, `.asleepDeep`, `.asleepCore`, `.awake`, `.inBed`.
+- Units: HRV in ms, HR in bpm, BP in mmHg, SpO2 in %, temperature in celsius, blood glucose in mg/dL.
+
+## Patterns to actively look for in Swift reviews
+
+Check every Swift diff for these specific patterns, even when not obviously broken. Each has been responsible for multiple review rounds on recent PRs (see `docs/plans/claude-code-setup-improvements.md` for the empirical basis):
+
+- **Hardcoded source-label strings** (`"polar_h10"`, `"healthkit"`) outside `#Predicate`/`@Query` macros where the typed constant (`PolarHRMService.sourceLabel`) is available.
+- **`@Query` predicates filtering on a discriminator column** (`source`, `kind`, `provider`) without nil handling — legacy rows or transfer-pipeline rows may have nil and get silently excluded.
+- **New `@Query` on unbounded tables** (`HRVReading`, `BarometricReading`) that don't bound by date and filter by source in the predicate.
+- **Accessibility numeric formatting** — `Int(x)` (truncates) where the on-screen format uses `%.0f` (rounds). Spoken value ≠ displayed value is a real bug.
+- **`Button` inside `NavigationLink` label** — the inner button becomes non-interactive.
+- **`Dictionary(grouping:).map { }`** immediately before rendering — order is arbitrary; needs explicit sort.
+- **`Date.now` in baseline/window math** where the displayed window's `upperBound` is the correct anchor. Also flag if `upperBound` itself is padded for chart spacing — non-visual consumers need an unpadded sibling.
+- **`Date - N.days` cutoffs without `Calendar.current.startOfDay(for:)`** — the cutoff becomes time-of-day-dependent.
+- **Magic numbers** like `3 * 3600` repeated as literals in 2+ files instead of a named constant (e.g., `LFHFAggregator.overnightThresholdSeconds`).
+- **`#expect(x == y)` on `Double`** — float equality without epsilon tolerance.
+- **Computed properties called 2+ times in the same `View.body`** without caching as a `let` — repeats sort/map/filter work per render.
+- **Empty-state gates derived from a filtered subset** (e.g., `validWindowMeans` filtering out nils) used as both the empty check and the source of "latest" — they need different definitions.
+- **Doc comments** describing chronology, order, or behavior that contradict the `@Query order:` parameter or sort/filter below them.
+- **Anchor timing precision** — bucket sessions by `SensorSession.startTime`, not the earliest reading timestamp. Readings can lag start by up to a minute and mis-bucket near-midnight sessions.
+- **`.accessibilityElement(children: .combine)` on a container with interactive children** (info `Button`, `NavigationLink`) — collapses them into one VoiceOver element so the user can't focus or activate them independently. Use `.accessibilityElement(children: .ignore)` on the container and put the summary on the interactive label (or `.accessibilityValue` on it) instead.
+- **Filter granularity vs aggregation unit** — when filtering data before aggregating it, the filter granularity must match the aggregation unit. Filtering per-reading before computing per-session means produces partial means for sessions that straddle the window boundary (the in-window slice gets averaged instead of the full session). Filter the resulting per-session values instead, or carry both the unfiltered set and a window predicate.
+
+## Swift Testing Conventions
+
+- Use **Swift Testing** (`@Test` macro, `#expect()`) for all new tests — not XCTest.
+- Use in-memory `ModelContainer` for SwiftData test isolation.
+- Use fixed reference dates for deterministic assertions.
+- Extract pure logic into testable helpers rather than burying it in views or private methods.
+
+## Swift-specific Don'ts
+
+- Don't use Core Data — this project uses SwiftData exclusively.
+- Don't query HealthKit from views — always go through `HealthKitManager`.
+- Don't expose completion handlers in app code — use async/await, wrapping callback-based system APIs with continuations.

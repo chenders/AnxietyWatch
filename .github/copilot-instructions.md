@@ -6,9 +6,40 @@ AnxietyWatch is a personal iOS + watchOS anxiety tracking app with a Python sync
 
 This is an open-source personal project — not a commercial product, no App Store plans.
 
-## Keeping Instruction Files in Sync
+## Instruction File Layout
 
-**When reviewing PRs that change coding conventions, project rules, workflows, or add new guidance: flag if the change only appears in one instruction file.** `CLAUDE.md` and this file (`.github/copilot-instructions.md`) cover overlapping ground. A rule added to one must be reflected in the other. Also check `AGENTS.md` and `REQUIREMENTS.md` for relevance. A rule that exists in one instruction file but not the others is a bug — flag it.
+This file holds cross-cutting standards that apply to every review. Language-specific guidance lives in path-scoped files Copilot activates only when matching files are changed:
+
+- `.github/instructions/swift.instructions.md` — applies to `**/*.swift` (iOS app, watchOS app, widgets, Swift tests).
+- `.github/instructions/python.instructions.md` — applies to `server/**/*.py`.
+
+When changing conventions, update the file whose path scope covers the rule. Cross-cutting changes go here. Also keep `CLAUDE.md`, `AGENTS.md`, and `REQUIREMENTS.md` in sync — a rule in one but not the others is a bug, flag it.
+
+## Review Priorities
+
+When you have limited comments to spend, spend them in this order:
+
+1. **Correctness bugs** — wrong output, off-by-one, missing state branches, non-deterministic ordering that affects rendering, predicate scope bugs, nil-discriminator backwards-compatibility.
+2. **Performance footguns** — unbounded queries that filter in-memory, computed properties called repeatedly in one render, `O(n)` rebuilds in hot paths, DoS-by-payload-size on server endpoints.
+3. **Accessibility / a11y consistency** — VoiceOver text not matching on-screen formatting, missing labels, nav/button hit-target conflicts (Swift-side only).
+4. **State-machine gaps** — destructive actions that only handle the obvious state, sheets dismissible mid-recording with no Stop affordance, fallback states that misreport.
+5. **Source-of-truth drift** — hardcoded constants where a typed reference exists, magic numbers duplicated across files, doc comments contradicting the code below them, schema/migration drift between `schema.sql` and Alembic migrations.
+6. **API / public-repo safety** — PII, real-looking test data, leaked secrets.
+
+**Skip or deprioritize:** doc-comment punctuation, naming bikesheds, low-signal style preferences. SwiftLint and flake8 enforce *some* style rules in CI (see `.swiftlint.yml` — `line_length` 200-char hard error is the most notable; several common defaults like `trailing_comma` are explicitly disabled). For *style* rules: don't enumerate by hand if CI catches them; if CI doesn't catch them they're not worth comment budget anyway. **This deprioritization applies only to style.** Substantive issues from priorities 1-4 above (correctness, performance, accessibility, state-machine gaps) must still be flagged whether or not CI catches them — many won't be CI-detectable at all.
+
+## Review philosophy
+
+Only comment when you have HIGH CONFIDENCE (>80%) that an issue exists. Prefer silence over uncertainty. Avoid hedging language like "consider", "maybe", "you might want to" — if a fix is right, state it as a fix; if uncertain, don't comment.
+
+Be concise: one sentence per comment when possible.
+
+## CI context
+
+This repo runs SwiftLint `--strict` and treats Swift warnings as errors in CI (`SWIFT_TREAT_WARNINGS_AS_ERRORS=YES`); the server runs flake8.
+
+- **Don't flag SwiftLint *style* violations** actively enforced by `.swiftlint.yml` *in linted paths* — most notably `line_length` (150 warn, 200 hard error). CI's `swiftlint --strict` blocks these automatically for files under `AnxietyWatch/` and `AnxietyWatchTests/`. **Scope caveat:** `.swiftlint.yml` excludes `AnxietyWatch Watch App/` and `AnxietyWatchWidgets/` — Swift files in those directories are *not* linted in CI, so do flag style issues there manually (or recommend expanding the lint scope if the team wants repo-wide enforcement). Also note that `.swiftlint.yml` disables several common defaults (`trailing_comma`, `force_try`, length limits, etc.) — don't assume an example rule is enforced without checking the config.
+- **Do flag *substantive* warnings whose cause isn't obvious from the diff** — deprecation, force-unwrap risks, unused-but-should-be-used vars, missing-init issues. CI will also fail on these, but your comment explains the *fix* faster than the CI message does. Per Testing Requirements below, fixing new warnings is always in scope for the author.
 
 ## Git Workflow
 
@@ -20,52 +51,8 @@ This is an open-source personal project — not a commercial product, no App Sto
 
 This is a **multi-language monorepo** with two distinct components:
 
-### iOS App and watchOS Targets (Xcode project)
-- **Directories:** iOS app sources live under `AnxietyWatch/`. watchOS app and widget targets live in top-level directories `AnxietyWatch Watch App/` and `AnxietyWatchWidgets/`. When adding new files, place iOS code under `AnxietyWatch/` and watchOS code under the appropriate watch-specific directory.
-- **Language:** Swift 5.9+
-- **UI:** SwiftUI (target OS versions must match the Xcode project deployment targets)
-- **Persistence:** SwiftData (`@Model` macro, not Core Data)
-- **Charts:** Swift Charts framework
-- **Health data:** HealthKit framework
-- **Barometric data:** Core Motion (`CMAltimeter`)
-- **Watch communication:** WatchConnectivity framework
-- **Testing:** Swift Testing framework (`@Test` macro) for unit tests
-
-### Sync Server (`server/`)
-- **Language:** Python 3.12
-- **Framework:** Flask (no ORM — raw SQL with psycopg2)
-- **Database:** PostgreSQL 16
-- **Deployment:** Docker Compose, GitHub Actions CI/CD to GHCR
-- **Required env vars** (set in `.env` or environment): `POSTGRES_PASSWORD`, `ADMIN_PASSWORD` (admin UI login), `SECRET_KEY`
-- **Optional env vars**: `ANTHROPIC_API_KEY` (Claude AI analysis admin page), `GRAPHQL_API_KEY` (ResMed myAir sync). See `server/.env.example` for full descriptions.
-
-## Swift Coding Conventions
-
-- **SwiftData models:** Use `@Model` macro. One model per file in `Models/`.
-- **HealthKit:** ALL HealthKit interaction goes through `HealthKitManager` actor. Never query HealthKit directly from views.
-- **Concurrency:** Use async/await and structured concurrency throughout. When system APIs only provide callbacks (e.g., CoreMotion, some HealthKit APIs), wrap them using continuations rather than exposing completion handlers in app code.
-- **Error handling:** Use typed errors where practical. Never force-unwrap optionals from external data (HealthKit, CPAP files, network responses).
-- **Views:** Keep views small and composable. Extract subviews when a view exceeds ~100 lines. Use `@Observable` view models for complex screens.
-- **Naming:** Follow Swift API Design Guidelines. Descriptive names, no abbreviations except well-known ones: HR, HRV, AHI, BP, SpO2.
-- **No storyboards or XIBs** — pure SwiftUI.
-- **Comments:** Comment the "why", not the "what". HealthKit type identifiers should have inline comments explaining what they measure.
-
-## Python Coding Conventions (server/)
-
-- **Line length:** 120 characters max.
-- **SQL:** Always parameterize user-supplied values (`%s` placeholders with psycopg2). Never interpolate user input into SQL strings (no f-strings, `%` formatting, or `.format()` with user data). If you need dynamic table or column names, only interpolate identifiers selected from a strict server-side allowlist, never directly from user input.
-- **Auth:** API endpoints use Bearer token auth with SHA-256 hashed keys stored in PostgreSQL. Admin pages use session-based auth with `hmac.compare_digest` for password comparison.
-- **Upserts:** All sync operations use `INSERT ... ON CONFLICT ... DO UPDATE` for idempotency.
-- **Error responses:** Never leak internal error details (stack traces, DB connection strings) to API clients.
-
-## HealthKit Specifics
-
-When writing HealthKit code, be aware:
-
-- HealthKit does NOT tell you whether the user denied a specific read type. `authorizationStatus` returns `.notDetermined` even if denied (Apple privacy protection). Always handle missing data gracefully.
-- Use `HKStatisticsQuery` for aggregations, `HKSampleQuery` for individual samples, `HKStatisticsCollectionQuery` for time-series.
-- Sleep stages: `.asleepREM`, `.asleepDeep`, `.asleepCore`, `.awake`, `.inBed`
-- Units: HRV in ms, HR in bpm, BP in mmHg, SpO2 in %, temperature in celsius, blood glucose in mg/dL.
+- **iOS app, watchOS app, widgets:** Swift 5.9+, SwiftUI, SwiftData (`@Model`), Swift Charts, HealthKit, Core Motion (`CMAltimeter`), WatchConnectivity. Test framework is Swift Testing (`@Test`). iOS sources live under `AnxietyWatch/`; watchOS sources under `AnxietyWatch Watch App/` and `AnxietyWatchWidgets/`. Swift-specific review rules live in `.github/instructions/swift.instructions.md`.
+- **Sync server (`server/`):** Python 3.12, Flask, raw SQL with psycopg2 (no ORM), PostgreSQL 16, Docker Compose, GitHub Actions CI/CD to GHCR. Required env vars: `POSTGRES_PASSWORD`, `ADMIN_PASSWORD`, `SECRET_KEY`. Optional: `ANTHROPIC_API_KEY`, `GRAPHQL_API_KEY`. See `server/.env.example` and `.github/instructions/python.instructions.md` for Python-specific review rules.
 
 ## Key Design Principles
 
@@ -75,20 +62,13 @@ When writing HealthKit code, be aware:
 4. **Personal baselines over absolute thresholds** — flag deviations from the user's rolling average, not population norms.
 5. **The journal is the anchor** — all objective data is contextualized by subjective experience.
 
-## Data Flow: iOS App → Server
-
-The iOS app's `SyncService` POSTs JSON to the server's `/api/sync` endpoint. The JSON schema matches `DataExporter`'s output format — camelCase keys with ISO 8601 dates. The server upserts into PostgreSQL using natural keys (timestamp, date, or name). Both full and incremental syncs use the same upsert path.
-
-## Testing Requirements
+## Testing Requirements (cross-cutting)
 
 - **All new or changed code must include tests.** PRs that add features or fix bugs without corresponding tests should be flagged.
 - **Fixing failing tests is always in scope.** If a PR touches code near a failing test, or if CI is red, fixing the test is part of the work — never flag it as "out of scope."
 - **Fixing compiler warnings is always in scope.** Treat a new warning the same as a failing test. CI enforces zero warnings: Xcode builds use `SWIFT_TREAT_WARNINGS_AS_ERRORS=YES`, SwiftLint runs without `continue-on-error`, and `flake8` runs on the server. There is no "acceptable warning count" — flag any PR that introduces new warnings, period.
-- Use **Swift Testing** (`@Test` macro, `#expect()`) for all new tests — not XCTest.
-- Extract pure logic into testable helpers rather than burying it in views or private methods.
-- Use in-memory `ModelContainer` for SwiftData test isolation.
-- Use fixed reference dates for deterministic assertions.
-- Server tests use pytest; run `cd server && python -m pytest tests/`.
+
+Language-specific testing conventions live in the path-scoped instruction files.
 
 ## Public Repository — Sensitive Data Rules
 
@@ -110,12 +90,10 @@ The iOS app's `SyncService` POSTs JSON to the server's `/api/sync` endpoint. The
 ### Project name
 - The project was renamed from AnxietyScope to AnxietyWatch. **Flag** any remaining `AnxietyScope` references.
 
-## What NOT to Do
+## What NOT to Do (cross-cutting)
 
 - Don't add features or fix bugs without adding corresponding tests.
-- Don't use Core Data — this project uses SwiftData exclusively.
-- Don't query HealthKit from views — always go through `HealthKitManager`.
-- Don't expose completion handlers in app code — use async/await, wrapping callback-based system APIs with continuations.
-- Don't use an ORM in the server — raw SQL with psycopg2 is intentional.
 - Don't store secrets in code or commit `.env` files.
 - Don't commit screenshots or images without reviewing for personal data.
+
+Language-specific don'ts live in the path-scoped instruction files.
