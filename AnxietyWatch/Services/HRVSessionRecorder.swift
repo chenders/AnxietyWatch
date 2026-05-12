@@ -24,6 +24,10 @@ final class HRVSessionRecorder {
     /// up orphaned from the SwiftData row.
     private(set) var sessionID: UUID?
     private(set) var rmssdValues: [Double] = []
+    /// Per-window mean HR (BPM) from the same accepted ticks that populate
+    /// `rmssdValues`. Sibling of `rmssdValues` so the session summary can
+    /// emit a `hrMean` field without storing per-minute HR on `HRVReading`.
+    private(set) var hrValues: [Double] = []
     private(set) var totalRRCount: Int = 0
     private(set) var skippedMinutes: Int = 0
 
@@ -38,17 +42,20 @@ final class HRVSessionRecorder {
     /// existing row instead of inserting a new one. The recorder takes over
     /// reporting ticks against the recovered session.
     ///
-    /// `priorRMSSDs` and `priorRRCount` are rehydrated from the existing
-    /// HRVReading children and the on-disk RR archive (size / record-size)
-    /// so the final session summary reflects the entire session, not just
-    /// the post-recovery minutes. Without this, a restart mid-overnight
-    /// would compute the summary over a few late-night minutes only.
+    /// `priorRMSSDs`, `priorHRMeans`, and `priorRRCount` are rehydrated from
+    /// the existing HRVReading children and the on-disk RR archive (size /
+    /// record-size for the count; `rehydratedHRValues` replays the archive
+    /// against each reading's 60s window for the HR series) so the final
+    /// session summary reflects the entire session, not just the post-
+    /// recovery minutes. Without this, a restart mid-overnight would compute
+    /// the summary over a few late-night minutes only.
     init(
         modelContext: ModelContext,
         buffer: RRIntervalBuffer,
         source: String,
         existing: SensorSession,
         priorRMSSDs: [Double] = [],
+        priorHRMeans: [Double] = [],
         priorRRCount: Int = 0
     ) {
         self.modelContext = modelContext
@@ -57,6 +64,7 @@ final class HRVSessionRecorder {
         self.session = existing
         self.sessionID = existing.id
         self.rmssdValues = priorRMSSDs
+        self.hrValues = priorHRMeans
         self.totalRRCount = priorRRCount
     }
 
@@ -133,6 +141,11 @@ final class HRVSessionRecorder {
         try modelContext.save()
 
         rmssdValues.append(td.rmssd)
+        // Window-mean HR derived from the same artifact-filtered RR set used
+        // for HRV math. Filtered already guarantees count >= 2 and that every
+        // RR is in [250, 2000] ms, so this division is bounded and finite.
+        let meanRR = filtered.reduce(0, +) / Double(filtered.count)
+        hrValues.append(60_000.0 / meanRR)
         totalRRCount += filtered.count
     }
 
@@ -150,10 +163,71 @@ final class HRVSessionRecorder {
     private func sessionSummaryJSON(for session: SensorSession) -> String {
         Self.buildSummaryJSON(
             rmssdValues: rmssdValues,
+            hrValues: hrValues,
             totalRRCount: totalRRCount,
             skippedMinutes: skippedMinutes,
             session: session
         )
+    }
+
+    /// Reconstructs per-window mean HR for a recovered session by replaying
+    /// the persisted HRVReading rows against the on-disk RR archive. Each
+    /// returned value corresponds to one `priorReadings` row whose 60s
+    /// window had at least two artifact-filtered RR samples in the archive.
+    /// Mirrors the tick path's filter (`250...2000 ms`) and the same
+    /// `60_000 / mean(filtered)` formula so a recovered session's `hrMean`
+    /// reflects the entire session, not just the post-recovery minutes.
+    ///
+    /// `nonisolated` because the function is pure — declaring it
+    /// main-actor-isolated by default (the containing class is
+    /// `@MainActor`) would force every future off-main caller to hop
+    /// through the main queue.
+    ///
+    /// Uses a two-pointer sweep over time-sorted inputs so the total cost
+    /// is O(N + M) rather than the O(N × M) a per-reading `filter` pass
+    /// would incur. A 5h overnight session has on the order of 17k RR
+    /// samples × 300 reading rows; the naïve form is 5M comparisons and
+    /// the sweep form is ~17k.
+    nonisolated static func rehydratedHRValues(
+        priorReadings: [HRVReading],
+        samples: [RRIntervalSample]
+    ) -> [Double] {
+        guard !priorReadings.isEmpty, !samples.isEmpty else { return [] }
+        let sortedReadings = priorReadings.sorted { $0.timestamp < $1.timestamp }
+        let sortedSamples = samples.sorted { $0.timestamp < $1.timestamp }
+        var result: [Double] = []
+        result.reserveCapacity(sortedReadings.count)
+
+        // `left` tracks the first sample whose timestamp is still inside the
+        // current reading's window; `right` tracks the first sample past the
+        // window's upper bound. Both indices advance monotonically across
+        // readings, so each sample is touched O(1) times overall.
+        var left = 0
+        var right = 0
+        for reading in sortedReadings {
+            let windowStart = reading.timestamp.addingTimeInterval(-60)
+            let windowEnd = reading.timestamp
+            while left < sortedSamples.count, sortedSamples[left].timestamp < windowStart {
+                left += 1
+            }
+            if right < left { right = left }
+            while right < sortedSamples.count, sortedSamples[right].timestamp <= windowEnd {
+                right += 1
+            }
+            var sum = 0.0
+            var count = 0
+            for index in left..<right {
+                let rr = sortedSamples[index].rrMs
+                if rr >= 250 && rr <= 2_000 {
+                    sum += rr
+                    count += 1
+                }
+            }
+            if count >= 2 {
+                result.append(60_000.0 / (sum / Double(count)))
+            }
+        }
+        return result
     }
 
     /// Builds the session-summary JSON from explicit inputs rather than the
@@ -163,6 +237,7 @@ final class HRVSessionRecorder {
     /// orphaned session whose recorder never got to run finalize.
     static func buildSummaryJSON(
         rmssdValues: [Double],
+        hrValues: [Double],
         totalRRCount: Int,
         skippedMinutes: Int,
         session: SensorSession
@@ -170,6 +245,7 @@ final class HRVSessionRecorder {
         let mean = rmssdValues.isEmpty ? 0 : rmssdValues.reduce(0, +) / Double(rmssdValues.count)
         let mn = rmssdValues.min() ?? 0
         let mx = rmssdValues.max() ?? 0
+        let hrMean = hrValues.isEmpty ? 0 : hrValues.reduce(0, +) / Double(hrValues.count)
         let durationSec = session.endTime.map { $0.timeIntervalSince(session.startTime) } ?? 0
         let interruptions = session.interruptions.count
         // Sum the closed interruptions' durations (open ones get closed by
@@ -184,6 +260,7 @@ final class HRVSessionRecorder {
             "rmssdMean": mean,
             "rmssdMin": mn,
             "rmssdMax": mx,
+            "hrMean": hrMean,
             "rrCount": totalRRCount,
             "durationSec": durationSec,
             "gapFraction": gapFraction,

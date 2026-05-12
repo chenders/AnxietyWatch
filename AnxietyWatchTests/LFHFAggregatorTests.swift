@@ -27,7 +27,9 @@ struct LFHFAggregatorTests {
         lf: Double,
         hf: Double,
         ratio: Double? = nil,
-        sessionID: UUID? = nil
+        sessionID: UUID? = nil,
+        rmssd: Double = 40,
+        sdnn: Double = 50
     ) -> HRVReading {
         let ts = referenceDate.addingTimeInterval(Double(minutesAfterReference) * 60)
         let resolvedRatio: Double
@@ -40,8 +42,8 @@ struct LFHFAggregatorTests {
         }
         return HRVReading(
             timestamp: ts,
-            rmssd: 40,
-            sdnn: 50,
+            rmssd: rmssd,
+            sdnn: sdnn,
             pnn50: 10,
             lfPower: lf,
             hfPower: hf,
@@ -440,6 +442,295 @@ struct LFHFAggregatorTests {
 
         #expect(means.count == 1)
         #expect(means[0].night == sessionStart)
+    }
+
+    // MARK: - nightlyRMSSD
+
+    @Test("nightlyRMSSD returns an empty array for empty input")
+    func nightlyRMSSDEmpty() {
+        let values = LFHFAggregator.nightlyRMSSD(from: [])
+        #expect(values.isEmpty)
+    }
+
+    @Test("nightlyRMSSD drops readings missing a sensorSessionID")
+    func nightlyRMSSDDropsUngrouped() {
+        let readings = [
+            reading(minutesAfterReference: 0, lf: 1, hf: 2, sessionID: nil, rmssd: 40),
+            reading(minutesAfterReference: 1, lf: 1, hf: 2, sessionID: nil, rmssd: 50),
+        ]
+        let values = LFHFAggregator.nightlyRMSSD(from: readings)
+        #expect(values.isEmpty)
+    }
+
+    @Test("nightlyRMSSD groups valid readings by sensorSessionID and computes the outlier-trimmed mean")
+    func nightlyRMSSDPerSession() {
+        let sessionID = UUID()
+        let readings = [
+            reading(minutesAfterReference: 0, lf: 1, hf: 2, sessionID: sessionID, rmssd: 30),
+            reading(minutesAfterReference: 1, lf: 1, hf: 2, sessionID: sessionID, rmssd: 40),
+            reading(minutesAfterReference: 2, lf: 1, hf: 2, sessionID: sessionID, rmssd: 50),
+        ]
+
+        let values = LFHFAggregator.nightlyRMSSD(from: readings)
+
+        #expect(values.count == 1)
+        let result = values[0]
+        #expect(result.id == sessionID)
+        #expect(abs((result.value ?? .nan) - 40) < 0.001)
+        #expect(result.validWindowCount == 3)
+    }
+
+    @Test("nightlyRMSSD treats rmssd == 0 as the no-data sentinel")
+    func nightlyRMSSDIgnoresZeroSentinel() {
+        let sessionID = UUID()
+        let readings = [
+            reading(minutesAfterReference: 0, lf: 1, hf: 2, sessionID: sessionID, rmssd: 30),
+            reading(minutesAfterReference: 1, lf: 0, hf: 0, ratio: 0, sessionID: sessionID, rmssd: 0),
+            reading(minutesAfterReference: 2, lf: 1, hf: 2, sessionID: sessionID, rmssd: 50),
+        ]
+
+        let values = LFHFAggregator.nightlyRMSSD(from: readings)
+
+        #expect(values.count == 1)
+        let result = values[0]
+        #expect(abs((result.value ?? .nan) - 40) < 0.001)
+        #expect(result.validWindowCount == 2)
+    }
+
+    @Test("nightlyRMSSD returns nil value and zero count when every reading is a sentinel")
+    func nightlyRMSSDAllSentinel() {
+        let sessionID = UUID()
+        let readings = (0..<5).map {
+            reading(minutesAfterReference: $0, lf: 0, hf: 0, ratio: 0, sessionID: sessionID, rmssd: 0)
+        }
+
+        let values = LFHFAggregator.nightlyRMSSD(from: readings)
+
+        #expect(values.count == 1)
+        #expect(values[0].id == sessionID)
+        #expect(values[0].value == nil)
+        #expect(values[0].validWindowCount == 0)
+    }
+
+    @Test("nightlyRMSSD returns sessions sorted ascending by night")
+    func nightlyRMSSDSortedAscending() {
+        let oldID = UUID()
+        let newID = UUID()
+        let readings = [
+            reading(minutesAfterReference: 0, lf: 1, hf: 2, sessionID: newID, rmssd: 40),
+            reading(minutesAfterReference: -1440, lf: 1, hf: 2, sessionID: oldID, rmssd: 40),
+        ]
+
+        let values = LFHFAggregator.nightlyRMSSD(from: readings)
+
+        #expect(values.count == 2)
+        #expect(values[0].id == oldID)
+        #expect(values[1].id == newID)
+        #expect(values[0].night < values[1].night)
+    }
+
+    @Test("nightlyRMSSD uses provided session start time over earliest reading timestamp")
+    func nightlyRMSSDSessionStartOverride() {
+        let sessionID = UUID()
+        let sessionStart = referenceDate.addingTimeInterval(-60)
+        let readings = [
+            reading(minutesAfterReference: 0, lf: 1, hf: 2, sessionID: sessionID, rmssd: 40),
+            reading(minutesAfterReference: 1, lf: 1, hf: 2, sessionID: sessionID, rmssd: 40),
+        ]
+
+        let values = LFHFAggregator.nightlyRMSSD(
+            from: readings,
+            sessionStartTimes: [sessionID: sessionStart]
+        )
+
+        #expect(values.count == 1)
+        #expect(values[0].night == sessionStart)
+    }
+
+    // MARK: - nightlySDNN
+
+    @Test("nightlySDNN returns an empty array for empty input")
+    func nightlySDNNEmpty() {
+        let values = LFHFAggregator.nightlySDNN(from: [])
+        #expect(values.isEmpty)
+    }
+
+    @Test("nightlySDNN groups valid readings by sensorSessionID and computes the outlier-trimmed mean")
+    func nightlySDNNPerSession() {
+        let sessionID = UUID()
+        let readings = [
+            reading(minutesAfterReference: 0, lf: 1, hf: 2, sessionID: sessionID, sdnn: 40),
+            reading(minutesAfterReference: 1, lf: 1, hf: 2, sessionID: sessionID, sdnn: 50),
+            reading(minutesAfterReference: 2, lf: 1, hf: 2, sessionID: sessionID, sdnn: 60),
+        ]
+
+        let values = LFHFAggregator.nightlySDNN(from: readings)
+
+        #expect(values.count == 1)
+        let result = values[0]
+        #expect(result.id == sessionID)
+        #expect(abs((result.value ?? .nan) - 50) < 0.001)
+        #expect(result.validWindowCount == 3)
+    }
+
+    @Test("nightlySDNN treats sdnn == 0 as the no-data sentinel")
+    func nightlySDNNIgnoresZeroSentinel() {
+        let sessionID = UUID()
+        let readings = [
+            reading(minutesAfterReference: 0, lf: 1, hf: 2, sessionID: sessionID, sdnn: 40),
+            reading(minutesAfterReference: 1, lf: 0, hf: 0, ratio: 0, sessionID: sessionID, sdnn: 0),
+            reading(minutesAfterReference: 2, lf: 1, hf: 2, sessionID: sessionID, sdnn: 60),
+        ]
+
+        let values = LFHFAggregator.nightlySDNN(from: readings)
+
+        #expect(values.count == 1)
+        let result = values[0]
+        #expect(abs((result.value ?? .nan) - 50) < 0.001)
+        #expect(result.validWindowCount == 2)
+    }
+
+    // MARK: - nightlyAggregates (bundled)
+
+    @Test("nightlyAggregates returns empty arrays for empty input")
+    func nightlyAggregatesEmpty() {
+        let result = LFHFAggregator.nightlyAggregates(from: [])
+        #expect(result.means.isEmpty)
+        #expect(result.sdnn.isEmpty)
+        #expect(result.rmssd.isEmpty)
+    }
+
+    @Test("nightlyAggregates output matches three separate nightlyMeans/SDNN/RMSSD calls on the same input")
+    func nightlyAggregatesMatchesSeparateCalls() {
+        let sessionA = UUID()
+        let sessionB = UUID()
+        let readings = [
+            reading(minutesAfterReference: 0, lf: 1.0, hf: 2.0, ratio: 0.5, sessionID: sessionA, rmssd: 35, sdnn: 45),
+            reading(minutesAfterReference: 1, lf: 2.0, hf: 4.0, ratio: 0.5, sessionID: sessionA, rmssd: 40, sdnn: 50),
+            reading(minutesAfterReference: -1440, lf: 3.0, hf: 6.0, ratio: 0.5, sessionID: sessionB, rmssd: 55, sdnn: 65),
+        ]
+        let starts: [UUID: Date] = [
+            sessionA: referenceDate.addingTimeInterval(-30),
+            sessionB: referenceDate.addingTimeInterval(-1440 * 60 - 30),
+        ]
+
+        let bundle = LFHFAggregator.nightlyAggregates(from: readings, sessionStartTimes: starts)
+        let separateMeans = LFHFAggregator.nightlyMeans(from: readings, sessionStartTimes: starts)
+        let separateSDNN = LFHFAggregator.nightlySDNN(from: readings, sessionStartTimes: starts)
+        let separateRMSSD = LFHFAggregator.nightlyRMSSD(from: readings, sessionStartTimes: starts)
+
+        #expect(bundle.means.map(\.id) == separateMeans.map(\.id))
+        #expect(bundle.means.map(\.night) == separateMeans.map(\.night))
+        #expect(bundle.means.map(\.hfMean) == separateMeans.map(\.hfMean))
+        #expect(bundle.sdnn.map(\.id) == separateSDNN.map(\.id))
+        #expect(bundle.sdnn.map(\.value) == separateSDNN.map(\.value))
+        #expect(bundle.rmssd.map(\.id) == separateRMSSD.map(\.id))
+        #expect(bundle.rmssd.map(\.value) == separateRMSSD.map(\.value))
+    }
+
+    @Test("nightlyAggregates applies the sentinel rules independently per metric (one session, mixed validity)")
+    func nightlyAggregatesPerMetricSentinels() {
+        let sessionID = UUID()
+        let readings = [
+            // SDNN valid, RMSSD valid, LF/HF valid
+            reading(minutesAfterReference: 0, lf: 1, hf: 2, sessionID: sessionID, rmssd: 40, sdnn: 50),
+            // SDNN sentinel, RMSSD valid, LF/HF valid
+            reading(minutesAfterReference: 1, lf: 1, hf: 2, sessionID: sessionID, rmssd: 40, sdnn: 0),
+            // SDNN valid, RMSSD sentinel, LF/HF sentinel
+            reading(minutesAfterReference: 2, lf: 0, hf: 0, ratio: 0, sessionID: sessionID, rmssd: 0, sdnn: 50),
+        ]
+
+        let bundle = LFHFAggregator.nightlyAggregates(from: readings)
+
+        #expect(bundle.means.count == 1)
+        #expect(bundle.sdnn.count == 1)
+        #expect(bundle.rmssd.count == 1)
+        // Two LF/HF valid, two SDNN valid, two RMSSD valid (different rows)
+        #expect(bundle.means[0].validWindowCount == 2)
+        #expect(bundle.sdnn[0].validWindowCount == 2)
+        #expect(bundle.rmssd[0].validWindowCount == 2)
+    }
+
+    // MARK: - nightlyHRFromSummaries
+
+    private func session(
+        sessionStart: Date,
+        hrMean: Double?
+    ) -> SensorSession {
+        let s = SensorSession(startTime: sessionStart, batteryAtStart: 80)
+        s.endTime = sessionStart.addingTimeInterval(5 * 3600)
+        if let hrMean {
+            let dict: [String: Any] = ["hrMean": hrMean, "rmssdMean": 0.0, "rrCount": 0]
+            let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])
+            s.summaryJSON = data.flatMap { String(data: $0, encoding: .utf8) }
+        }
+        return s
+    }
+
+    @Test("nightlyHRFromSummaries returns empty array for empty input")
+    func nightlyHRFromSummariesEmpty() {
+        let result = LFHFAggregator.nightlyHRFromSummaries(from: [])
+        #expect(result.isEmpty)
+    }
+
+    @Test("nightlyHRFromSummaries extracts hrMean per session, anchored at startTime")
+    func nightlyHRFromSummariesHappy() {
+        let day0 = referenceDate
+        let day1 = referenceDate.addingTimeInterval(-86_400)
+        let s0 = session(sessionStart: day0, hrMean: 62)
+        let s1 = session(sessionStart: day1, hrMean: 70)
+
+        let result = LFHFAggregator.nightlyHRFromSummaries(from: [s0, s1])
+
+        #expect(result.count == 2)
+        // Sorted ascending by night
+        #expect(result[0].night == day1)
+        #expect(abs((result[0].value ?? .nan) - 70) < 0.001)
+        #expect(result[1].night == day0)
+        #expect(abs((result[1].value ?? .nan) - 62) < 0.001)
+    }
+
+    @Test("nightlyHRFromSummaries skips sessions with no summaryJSON")
+    func nightlyHRFromSummariesNoSummary() {
+        let s = SensorSession(startTime: referenceDate, batteryAtStart: 80)
+        s.endTime = referenceDate.addingTimeInterval(3_600)
+        // No summaryJSON set
+        let result = LFHFAggregator.nightlyHRFromSummaries(from: [s])
+        #expect(result.isEmpty)
+    }
+
+    @Test("nightlyHRFromSummaries skips sessions whose summary has hrMean == 0 (sentinel)")
+    func nightlyHRFromSummariesZeroSentinel() {
+        let s = session(sessionStart: referenceDate, hrMean: 0)
+        let result = LFHFAggregator.nightlyHRFromSummaries(from: [s])
+        #expect(result.isEmpty)
+    }
+
+    @Test("nightlyHRFromSummaries skips sessions where summaryJSON has no hrMean key (legacy rows)")
+    func nightlyHRFromSummariesLegacyMissing() {
+        let s = SensorSession(startTime: referenceDate, batteryAtStart: 80)
+        s.endTime = referenceDate.addingTimeInterval(3_600)
+        // Legacy session: summary present but missing hrMean
+        let dict: [String: Any] = ["rmssdMean": 40.0, "rrCount": 100]
+        let data = try? JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])
+        s.summaryJSON = data.flatMap { String(data: $0, encoding: .utf8) }
+
+        let result = LFHFAggregator.nightlyHRFromSummaries(from: [s])
+        #expect(result.isEmpty)
+    }
+
+    @Test("nightlySDNN returns nil value and zero count when every reading is a sentinel")
+    func nightlySDNNAllSentinel() {
+        let sessionID = UUID()
+        let readings = (0..<3).map {
+            reading(minutesAfterReference: $0, lf: 0, hf: 0, ratio: 0, sessionID: sessionID, sdnn: 0)
+        }
+
+        let values = LFHFAggregator.nightlySDNN(from: readings)
+
+        #expect(values.count == 1)
+        #expect(values[0].value == nil)
+        #expect(values[0].validWindowCount == 0)
     }
 
     @Test("nightlyMeans anchors each session to its earliest reading timestamp")

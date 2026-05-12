@@ -579,13 +579,25 @@ final class PolarHRMService: NSObject {
             predicate: #Predicate { $0.sensorSessionID == candidateID },
             sortBy: [SortDescriptor(\.timestamp)]
         )
-        let priorRMSSDs = (try? modelContext.fetch(priorReadingsDescriptor))?.map(\.rmssd) ?? []
+        let priorReadings = (try? modelContext.fetch(priorReadingsDescriptor)) ?? []
+        let priorRMSSDs = priorReadings.map(\.rmssd)
         let archiveURL = RRArchiveWriter.archiveURL(for: candidate.id)
         // Use the writer's helper so the count stays in sync with what
         // init(url:append:true) will actually preserve — an unaligned file
         // is truncated by the writer, and recordCount returns 0 for it
         // rather than the pre-truncation byte count.
         let priorRRCount = RRArchiveWriter.recordCount(url: archiveURL)
+
+        // Rehydrate priorHRMeans by replaying the RR archive against each
+        // persisted HRVReading row's 60s window. HR isn't stored on
+        // HRVReading (only the time-domain rmssd/sdnn/pnn50 and frequency-
+        // domain LF/HF) so the archive is the only source. Without this
+        // the summary's hrMean would reflect only post-recovery minutes.
+        let priorSamples = (try? RRArchiveWriter.read(url: archiveURL)) ?? []
+        let priorHRMeans = HRVSessionRecorder.rehydratedHRValues(
+            priorReadings: priorReadings,
+            samples: priorSamples
+        )
 
         let recoveredBuffer = RRIntervalBuffer(window: 60)
         let recoveredRecorder = HRVSessionRecorder(
@@ -594,6 +606,7 @@ final class PolarHRMService: NSObject {
             source: Self.sourceLabel,
             existing: candidate,
             priorRMSSDs: priorRMSSDs,
+            priorHRMeans: priorHRMeans,
             priorRRCount: priorRRCount
         )
 
@@ -649,8 +662,13 @@ final class PolarHRMService: NSObject {
         // Skipped minutes weren't tracked across the suspend boundary, so
         // we report 0 here. Real per-minute "skipped" counts only exist
         // while the in-memory recorder is alive.
+        // Orphan recovery can rehydrate RMSSDs from HRVReading rows but not
+        // per-window HR (we don't persist it per minute). Pass an empty
+        // hrValues so the summary's hrMean lands at 0 and the trend chart's
+        // `hrMean > 0` gate correctly skips this session.
         session.summaryJSON = HRVSessionRecorder.buildSummaryJSON(
             rmssdValues: rmssds,
+            hrValues: [],
             totalRRCount: rrCount,
             skippedMinutes: 0,
             session: session

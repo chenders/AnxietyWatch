@@ -119,11 +119,23 @@ struct TrendsView: View {
             guard let sid = $0.sensorSessionID else { return false }
             return overnightSessionIDs.contains(sid)
         }
-        let lfhfAllMeans = LFHFAggregator.nightlyMeans(
+        // Single grouping pass over `overnightReadings` produces all three
+        // session-derived series (frequency-domain NightlyMean, SDNN, RMSSD)
+        // so the body doesn't re-group the per-minute table three times per
+        // render.
+        let nightlyAggregates = LFHFAggregator.nightlyAggregates(
             from: overnightReadings,
             sessionStartTimes: sessionStartTimes
         )
+        let lfhfAllMeans = nightlyAggregates.means
         let lfhfWindowMeans = lfhfAllMeans
+            .filter { inWindow($0.night, start: ws.start, end: ws.end) }
+        let sdnnWindowMeans = nightlyAggregates.sdnn
+            .filter { inWindow($0.night, start: ws.start, end: ws.end) }
+        let rmssdWindowMeans = nightlyAggregates.rmssd
+            .filter { inWindow($0.night, start: ws.start, end: ws.end) }
+        let polarHRWindowMeans = LFHFAggregator
+            .nightlyHRFromSummaries(from: overnightSessions)
             .filter { inWindow($0.night, start: ws.start, end: ws.end) }
 
         NavigationStack {
@@ -178,9 +190,15 @@ struct TrendsView: View {
                     }
                     .padding(.horizontal)
 
+                    // hasAnyData includes the Polar-derived series explicitly
+                    // so a user with only Polar H10 data (no HealthKit
+                    // backfill yet) still sees the Trends tab populated.
                     let hasAnyData = !entries.isEmpty || !snapshots.isEmpty
                         || !cpapSessions.isEmpty || !barometricReadings.isEmpty
                         || !lfhfWindowMeans.isEmpty
+                        || !sdnnWindowMeans.isEmpty
+                        || !rmssdWindowMeans.isEmpty
+                        || !polarHRWindowMeans.isEmpty
 
                     if !hasAnyData {
                         ContentUnavailableView(
@@ -190,8 +208,37 @@ struct TrendsView: View {
                         )
                     } else {
                         AnxietySeverityChart(entries: entries, dateRange: dateRange)
-                        HRVTrendChart(snapshots: snapshots, allSnapshots: allSnapshots, entries: entries, dateRange: dateRange)
-                        HeartRateTrendChart(snapshots: snapshots, entries: entries, dateRange: dateRange)
+                        // HRV cards grouped together. SDNN trend now overlays
+                        // Polar overnight aggregates onto the existing HK line;
+                        // RMSSD and HF Power are Polar-only sibling cards in
+                        // the same vocabulary. LF/HF Ratio is no longer
+                        // surfaced from Trends — kept only in the per-session
+                        // detail view.
+                        HRVTrendChart(
+                            snapshots: snapshots,
+                            allSnapshots: allSnapshots,
+                            entries: entries,
+                            polarSeries: sdnnWindowMeans,
+                            dateRange: dateRange
+                        )
+                        RMSSDTrendChart(
+                            polarSeries: rmssdWindowMeans,
+                            entries: entries,
+                            dateRange: dateRange
+                        )
+                        HFPowerTrendChart(
+                            windowMeans: lfhfWindowMeans,
+                            allOvernightMeans: lfhfAllMeans,
+                            entries: entries,
+                            dateRange: dateRange,
+                            baselineAnchor: ws.end
+                        )
+                        HeartRateTrendChart(
+                            snapshots: snapshots,
+                            entries: entries,
+                            polarSeries: polarHRWindowMeans,
+                            dateRange: dateRange
+                        )
                         SleepTrendChart(snapshots: snapshots, dateRange: dateRange)
                         ActivityTrendChart(snapshots: snapshots, dateRange: dateRange)
                         SleepRespiratoryTrendChart(
@@ -203,12 +250,6 @@ struct TrendsView: View {
                         )
                         GlucoseTrendChart(snapshots: snapshots, entries: entries, dateRange: dateRange)
                         BarometricTrendChart(readings: barometricReadings, entries: entries, allSnapshots: allSnapshots, dateRange: dateRange)
-                        LFHFChartView(
-                            windowMeans: lfhfWindowMeans,
-                            allOvernightMeans: lfhfAllMeans,
-                            dateRange: dateRange,
-                            baselineAnchor: ws.end
-                        )
 
                         // Insights link
                         NavigationLink {

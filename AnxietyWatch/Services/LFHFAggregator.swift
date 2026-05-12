@@ -27,12 +27,32 @@ enum LFHFAggregator {
         let lfHfRatio: Double?
     }
 
+    /// Single-metric per-session aggregate, anchored at a sensor session.
+    /// Sibling of `NightlyMean` for the time-domain trend charts (SDNN, RMSSD)
+    /// where one number per night is the natural shape.
+    struct NightlyValue: Identifiable {
+        /// `sensorSessionID` of the originating SensorSession row.
+        let id: UUID
+        /// Bedtime anchor for the x-axis — the authoritative
+        /// `SensorSession.startTime` when provided, otherwise the earliest
+        /// reading timestamp in the session.
+        let night: Date
+        /// Outlier-trimmed mean across valid windows for the chosen metric.
+        /// Nil when every reading carried the zero sentinel — render this as a
+        /// "no data" mark, not as zero.
+        let value: Double?
+        /// Count of readings where the source metric was positive (i.e., not a
+        /// zero sentinel from `<30 RR intervals`).
+        let validWindowCount: Int
+    }
+
     /// One point in the multi-night trend series, anchored at a sensor session.
     struct NightlyMean: Identifiable {
         /// `sensorSessionID` of the originating SensorSession row.
         let id: UUID
-        /// Timestamp of the earliest reading in the session — the natural
-        /// x-axis anchor for plotting one mark per night.
+        /// Bedtime anchor for the x-axis — the authoritative
+        /// `SensorSession.startTime` when provided via `sessionStartTimes`,
+        /// otherwise the earliest reading timestamp in the session.
         let night: Date
         let hfMean: Double?
         let lfMean: Double?
@@ -182,7 +202,180 @@ enum LFHFAggregator {
         }
     }
 
+    /// Per-session outlier-trimmed mean of `rmssd` for the time-domain trend
+    /// chart. Mirrors `nightlyMeans` but reads a single metric and follows the
+    /// same `rmssd > 0` sentinel convention used elsewhere in the recorder.
+    nonisolated static func nightlyRMSSD(
+        from readings: [HRVReading],
+        sessionStartTimes: [UUID: Date] = [:]
+    ) -> [NightlyValue] {
+        nightlyValues(
+            from: readings,
+            sessionStartTimes: sessionStartTimes,
+            metric: \.rmssd
+        )
+    }
+
+    /// Per-session outlier-trimmed mean of `sdnn` for the time-domain trend
+    /// chart. Same shape as `nightlyRMSSD`; separate function for naming
+    /// clarity at call sites.
+    nonisolated static func nightlySDNN(
+        from readings: [HRVReading],
+        sessionStartTimes: [UUID: Date] = [:]
+    ) -> [NightlyValue] {
+        nightlyValues(
+            from: readings,
+            sessionStartTimes: sessionStartTimes,
+            metric: \.sdnn
+        )
+    }
+
+    /// Bundled per-session aggregates for the trend stack — groups
+    /// `readings` by `sensorSessionID` ONCE and computes the
+    /// frequency-domain `NightlyMean`, time-domain SDNN, and time-domain
+    /// RMSSD series together. Equivalent to calling `nightlyMeans`,
+    /// `nightlySDNN`, and `nightlyRMSSD` separately, but avoids three
+    /// independent passes over the same per-minute reading set.
+    nonisolated static func nightlyAggregates(
+        from readings: [HRVReading],
+        sessionStartTimes: [UUID: Date] = [:]
+    ) -> (means: [NightlyMean], sdnn: [NightlyValue], rmssd: [NightlyValue]) {
+        let grouped = Dictionary(grouping: readings.compactMap(sessionGrouping)) { $0.sessionID }
+        var meansUnsorted: [NightlyMean] = []
+        var sdnnUnsorted: [NightlyValue] = []
+        var rmssdUnsorted: [NightlyValue] = []
+        meansUnsorted.reserveCapacity(grouped.count)
+        sdnnUnsorted.reserveCapacity(grouped.count)
+        rmssdUnsorted.reserveCapacity(grouped.count)
+
+        for (sessionID, groupedEntries) in grouped {
+            let sessionReadings = groupedEntries.map(\.reading)
+            let earliestReading = sessionReadings.map(\.timestamp).min() ?? .distantPast
+            let anchor = sessionStartTimes[sessionID] ?? earliestReading
+
+            // Frequency-domain
+            let validFreq = sessionReadings.filter(hasFrequencyData)
+            if validFreq.isEmpty {
+                meansUnsorted.append(NightlyMean(
+                    id: sessionID,
+                    night: anchor,
+                    hfMean: nil,
+                    lfMean: nil,
+                    lfHfMean: nil,
+                    validWindowCount: 0
+                ))
+            } else {
+                meansUnsorted.append(NightlyMean(
+                    id: sessionID,
+                    night: anchor,
+                    hfMean: outlierTrimmedMean(of: validFreq.map(\.hfPower)),
+                    lfMean: outlierTrimmedMean(of: validFreq.map(\.lfPower)),
+                    lfHfMean: outlierTrimmedMean(of: validFreq.map(\.lfHfRatio)),
+                    validWindowCount: validFreq.count
+                ))
+            }
+
+            // SDNN
+            let validSDNN = sessionReadings.map(\.sdnn).filter { $0 > 0 }
+            sdnnUnsorted.append(NightlyValue(
+                id: sessionID,
+                night: anchor,
+                value: validSDNN.isEmpty ? nil : outlierTrimmedMean(of: validSDNN),
+                validWindowCount: validSDNN.count
+            ))
+
+            // RMSSD
+            let validRMSSD = sessionReadings.map(\.rmssd).filter { $0 > 0 }
+            rmssdUnsorted.append(NightlyValue(
+                id: sessionID,
+                night: anchor,
+                value: validRMSSD.isEmpty ? nil : outlierTrimmedMean(of: validRMSSD),
+                validWindowCount: validRMSSD.count
+            ))
+        }
+
+        return (
+            means: sortByNight(meansUnsorted, night: \.night, id: \.id),
+            sdnn: sortByNight(sdnnUnsorted, night: \.night, id: \.id),
+            rmssd: sortByNight(rmssdUnsorted, night: \.night, id: \.id)
+        )
+    }
+
+    nonisolated private static func sortByNight<T>(
+        _ array: [T],
+        night: (T) -> Date,
+        id: (T) -> UUID
+    ) -> [T] {
+        array.sorted { lhs, rhs in
+            if night(lhs) != night(rhs) { return night(lhs) < night(rhs) }
+            return id(lhs).uuidString < id(rhs).uuidString
+        }
+    }
+
+    /// Per-session mean HR extracted from each session's `summaryJSON`. Used
+    /// to overlay an overnight-average source onto the HR trend chart.
+    /// Sessions whose summary is missing, unparseable, lacks `hrMean`, or
+    /// emits the `0` sentinel (orphan-recovered or legacy pre-Phase-4a rows)
+    /// are skipped — real overnight HR is never 0.
+    nonisolated static func nightlyHRFromSummaries(
+        from sessions: [SensorSession]
+    ) -> [NightlyValue] {
+        let unordered: [NightlyValue] = sessions.compactMap { session in
+            guard let summaryJSON = session.summaryJSON,
+                  let data = summaryJSON.data(using: .utf8),
+                  let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let hrMean = dict["hrMean"] as? Double,
+                  hrMean > 0 else {
+                return nil
+            }
+            return NightlyValue(
+                id: session.id,
+                night: session.startTime,
+                value: hrMean,
+                validWindowCount: 1
+            )
+        }
+        return unordered.sorted { lhs, rhs in
+            if lhs.night != rhs.night { return lhs.night < rhs.night }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
     // MARK: - Private
+
+    nonisolated private static func nightlyValues(
+        from readings: [HRVReading],
+        sessionStartTimes: [UUID: Date],
+        metric: KeyPath<HRVReading, Double>
+    ) -> [NightlyValue] {
+        let grouped = Dictionary(grouping: readings.compactMap(sessionGrouping)) { $0.sessionID }
+        let unordered: [NightlyValue] = grouped.map { sessionID, entries in
+            let sessionReadings = entries.map(\.reading)
+            let earliestReading = sessionReadings.map(\.timestamp).min() ?? .distantPast
+            let anchor = sessionStartTimes[sessionID] ?? earliestReading
+            let validValues = sessionReadings
+                .map { $0[keyPath: metric] }
+                .filter { $0 > 0 }
+            guard !validValues.isEmpty else {
+                return NightlyValue(
+                    id: sessionID,
+                    night: anchor,
+                    value: nil,
+                    validWindowCount: 0
+                )
+            }
+            return NightlyValue(
+                id: sessionID,
+                night: anchor,
+                value: outlierTrimmedMean(of: validValues),
+                validWindowCount: validValues.count
+            )
+        }
+        return unordered.sorted { lhs, rhs in
+            if lhs.night != rhs.night { return lhs.night < rhs.night }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
 
     nonisolated private static func point(from reading: HRVReading) -> LFHFPoint {
         let valid = hasFrequencyData(reading)
