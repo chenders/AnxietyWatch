@@ -160,10 +160,13 @@ AnxietyWatch/
 ├── .github/instructions/                # Path-scoped Copilot review instructions
 │   ├── swift.instructions.md            # applyTo: **/*.swift
 │   └── python.instructions.md           # applyTo: server/**/*.py
-├── .claude/                             # Claude Code config (see .claude/README or per-file docs)
+├── .claude/                             # Claude Code config
+│   ├── settings.json                    # Project-scoped permissions, env, hooks (committed)
+│   ├── settings.local.json              # Personal overrides (gitignored)
 │   ├── agents/swift-pre-pr-reviewer.md  # Pre-PR Swift review agent (calibrated against PR #132)
 │   ├── commands/                        # Custom slash commands
-│   └── hooks/                           # PostToolUse hooks
+│   └── hooks/                           # PostToolUse hooks (most are local-only and gitignored)
+│       └── swiftlint-edited.py          # Runs SwiftLint on edited .swift files; surfaces violations to model
 ├── .gitignore
 ├── .env.runners.example                 # Runner credential template
 ├── docker-compose.runners.yml           # GitHub Actions runner config

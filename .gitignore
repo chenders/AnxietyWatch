@@ -52,8 +52,14 @@ AnxietyWatch/Utilities/BuildVersion.swift
 /docs/superpowers/plans/
 
 # Local agent state
-.claude/hooks/
 .claude/scheduled_tasks.lock
+
+# .claude/hooks: ignore by default (most hooks are personal/local-only,
+# e.g. post-tool-call.py keyed to the maintainer's provenance server).
+# Add an explicit `!` exception below for each hook that should ship
+# with the repo and run for every contributor.
+.claude/hooks/*
+!.claude/hooks/swiftlint-edited.py
 
 # Clinical chart pipeline — local-only. Inputs are HIPAA-sensitive
 # prod pulls, outputs are large rendered artifacts; neither belongs in

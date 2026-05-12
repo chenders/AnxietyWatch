@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(swiftlint:*)",
+      "Bash(xcodebuild build:*)",
+      "Bash(xcodebuild test:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git status:*)"
+    ],
+    "deny": [
+      "Read(.env*)",
+      "Write(.env*)",
+      "Read(**/Secrets.swift)",
+      "Write(**/Secrets.swift)",
+      "Bash(rm -rf *)"
+    ]
+  },
+  "env": {
+    "PROJECT_NAME": "AnxietyWatch",
+    "DEFAULT_SIMULATOR": "iPhone 17 Pro",
+    "IOS_DEPLOYMENT_TARGET": "18.0"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/swiftlint-edited.py"
+          }
+        ]
+      }
+    ]
+  }
+}

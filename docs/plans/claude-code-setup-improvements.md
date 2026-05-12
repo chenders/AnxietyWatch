@@ -118,7 +118,7 @@ Quick scorecard against this repo:
 |---|---|---|---|
 | Native CLI install | Yes | — | |
 | Model selection (Opus plan / Sonnet exec) | Implicit | — | We already do this implicitly via `/fast`, etc. |
-| Tiered settings (user / project / local) | Partial | **Improve** | The maintainer's machine has a local `.claude/settings.local.json` (gitignored); the repo has no committed `.claude/settings.json` yet — adding one is planned for the SwiftLint-hook follow-up PR. |
+| Tiered settings (user / project / local) | Yes (as of PR #134) | **Done** | The repo ships `.claude/settings.json` (permissions, env, the SwiftLint hook); the maintainer's machine layers `.claude/settings.local.json` (gitignored) on top for personal/per-machine settings. |
 | Tight `CLAUDE.md` with quick-ref + DO-NOT | Yes (verbose) | **Refine** | Ours is comprehensive but missing a few of the recurring patterns above |
 | Feature-scoped `CLAUDE.md` (`Features/X/CLAUDE.md`) | No | **No** | Our folder layout is by type (`Views/`, `Services/`), not by feature |
 | PRD / specs / tasks scaffold (`docs/PRD.md`, `docs/specs/`, `docs/tasks/`) | Partial (`REQUIREMENTS.md`, `PROJECT_FUTURE_PLAN.md`) | **No** | Overkill for solo public-repo project; we already plan in those files |
@@ -183,7 +183,7 @@ This agent is the one most likely to compress 16 rounds into 3-4. (Some cascade-
 
 ### P0 — `PostToolUse` SwiftLint hook on Swift edits
 
-When the SwiftLint-hook follow-up PR lands, this block will be added to a new `.claude/settings.json` (project-scoped, committed — does not exist yet in this repo):
+Shipped in PR #134. The relevant block in `.claude/settings.json` (project-scoped, committed):
 
 ```json
 {
@@ -194,7 +194,7 @@ When the SwiftLint-hook follow-up PR lands, this block will be added to a new `.
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/swiftlint-edited.sh"
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/swiftlint-edited.py"
           }
         ]
       }
@@ -203,7 +203,7 @@ When the SwiftLint-hook follow-up PR lands, this block will be added to a new `.
 }
 ```
 
-`swiftlint-edited.sh` runs `swiftlint lint --strict --quiet --path <file>` on `.swift` files only; non-blocking but it feeds violations back into the conversation so Claude fixes them immediately rather than discovering them in CI after push.
+`.claude/hooks/swiftlint-edited.py` runs `swiftlint lint --strict --quiet <file>` on `.swift` files only; non-blocking but it feeds violations back into the conversation so Claude fixes them immediately rather than discovering them in CI after push.
 
 This **alone** would have killed several of the recurring `line_length` round-trips and probably 1-2 unrelated lint issues per PR.
 
@@ -284,7 +284,7 @@ Swift-specific items go into `.github/instructions/swift.instructions.md` (path-
 
 ### P1 — Project-scoped `.claude/settings.json` (committed)
 
-Today the repo has no committed `.claude/settings.json`; the maintainer's machine has a local `.claude/settings.local.json` (gitignored) but that's per-machine. The guide's distinction is right: stuff like the SwiftLint hook, the `xcodebuild test` permission allowlist, and project env vars (`DEFAULT_SIMULATOR=iPhone 17 Pro`) belong in a committed file so any future contributor (or the maintainer on a new machine) gets them automatically. Personal stuff (`DEVELOPMENT_TEAM`, model preferences) stays in the gitignored `.local.json`.
+As of PR #134 the repo ships a committed `.claude/settings.json` with permissions, env vars, and the SwiftLint hook wired up. The maintainer's machine layers `.claude/settings.local.json` (gitignored) for personal/per-machine settings. The guide's distinction is right: the SwiftLint hook, the `xcodebuild test` permission allowlist, and project env vars (`DEFAULT_SIMULATOR=iPhone 17 Pro`) belong in the committed file so any future contributor (or the maintainer on a new machine) gets them automatically. Personal stuff (`DEVELOPMENT_TEAM`, model preferences) stays in the gitignored `.local.json`.
 
 Suggested minimum:
 
@@ -579,7 +579,7 @@ instruction pushes.
 
 1. **Done.** Pitfalls list landed in the path-scoped layout that earlier steps in this PR introduce, not in both files as originally written. The author-facing "Common pitfalls" section lives in `CLAUDE.md`; the reviewer-facing "Patterns to actively look for in Swift reviews" with the same items lives in `.github/instructions/swift.instructions.md` (path-scoped to `**/*.swift`); cross-cutting review priorities, philosophy, and CI context live in `.github/copilot-instructions.md`. The four-file sync rule is documented in `CLAUDE.md`'s "Keeping Instruction Files Updated" section.
 2. **Done.** Review-priorities, philosophy, CI context, and the "Patterns to actively look for" pattern enumeration shipped in `.github/copilot-instructions.md` (cross-cutting) and `.github/instructions/swift.instructions.md` (path-scoped) earlier in this PR. The "manually re-request a Copilot review" tip remains a live tactic — automated reviews use a cached context and may ignore fresh instruction-file edits; manually re-requesting forces a refresh. **Round-1 baseline measurement** was captured on this PR (PR #133) and recorded in its review history.
-3. **Next PR.** SwiftLint `PostToolUse` hook + project-scoped `.claude/settings.json`. (~1 hour.) Neither file exists in the repo yet.
+3. **Done (PR #134).** SwiftLint `PostToolUse` hook (`.claude/hooks/swiftlint-edited.py`) + project-scoped `.claude/settings.json` both shipped. The hook runs `swiftlint lint --strict --quiet <file>` on every `Write`/`Edit`/`MultiEdit` of a `.swift` file; if SwiftLint reports any violation, the hook prints it to stderr and exits with code 2 so Claude Code surfaces the violation in the same turn. Watch App / Widgets files are silently skipped because SwiftLint itself respects `.swiftlint.yml`'s `excluded:` list — the reviewer-facing scope caveat (flag style issues in those paths manually) still applies.
 4. **Done.** Drafted `.claude/agents/swift-pre-pr-reviewer.md` and ran a manual calibration pass against PR #132's first commit (`fa2f184`). Result: **30 of 32 substantive Copilot comments caught (94%)** before the agent was even formalized; the remaining 7 of 39 were cascade-revelation comments not present at `fa2f184` (issues introduced by intermediate Copilot-round fixes). The 2 misses surfaced two checklist additions now reflected in `CLAUDE.md`, `.github/instructions/swift.instructions.md`, and this doc's pre-PR agent checklist: (a) `.accessibilityElement(children: .combine)` on a container with interactive children, and (b) filter-granularity vs aggregation-unit at window boundaries.
 5. **Next branch:** Add `/pre-pr-review` slash command that wraps the agent. Use it on the next non-trivial PR before pushing. Compare round count to historical baseline (and to the Copilot-tuning-only baseline from step 2).
 6. **After 3-5 PRs with the new flow:** Decide whether `swiftdata-query-auditor` warrants its own skill or stays as a checklist item in the main reviewer.

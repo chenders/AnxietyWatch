@@ -84,7 +84,7 @@ Organized by Review Priority from `.github/copilot-instructions.md`. Overlapping
 
 ### SwiftLint pre-check
 
-- **`line_length` 200-char error** in *linted paths only*: Long inline `Text("...")` strings or chained expressions in `AnxietyWatch/` or `AnxietyWatchTests/`. If SwiftLint is installed locally, run `swiftlint lint --strict --quiet --path <changed-files>` and surface any violations. Repo CI runs `swiftlint --strict` so violations in those paths block merge. **Scope caveat:** `.swiftlint.yml` excludes `AnxietyWatch Watch App/` and `AnxietyWatchWidgets/` — Swift files in those directories are *not* linted in CI, so the same style issues there must be flagged manually if you see them.
+- **`line_length` 200-char error** in *linted paths only*: Long inline `Text("...")` strings or chained expressions in `AnxietyWatch/` or `AnxietyWatchTests/`. If SwiftLint is installed locally, run `swiftlint lint --strict --quiet <changed-files>` and surface any violations. Repo CI runs `swiftlint --strict` so violations in those paths block merge. **Scope caveat:** `.swiftlint.yml` excludes `AnxietyWatch Watch App/` and `AnxietyWatchWidgets/` — Swift files in those directories are *not* linted in CI, so the same style issues there must be flagged manually if you see them.
 
 ### Compiler warning pre-check
 
@@ -126,7 +126,7 @@ The proposal doc (`docs/plans/claude-code-setup-improvements.md`) discusses *cas
 
 ## What NOT to flag
 
-- **SwiftLint *style* violations** actively enforced by this repo's `.swiftlint.yml` — most notably `line_length` (150 warn, 200 hard error). CI's `swiftlint --strict` blocks these automatically; don't enumerate by hand. If SwiftLint is installed locally, run `swiftlint lint --strict --quiet --path <changed-files>` and report its raw output as a single block. Note: `.swiftlint.yml` disables several common defaults (`trailing_comma`, `force_try`, length-limit rules) because the team considered them low-signal — don't flag those as SwiftLint violations either. If a disabled rule overlaps with a recurring-issue checklist entry (e.g., a `force_try` in a network handler where "force-unwrap risk" applies), flag via the checklist rule, not as a lint violation.
+- **SwiftLint *style* violations** actively enforced by this repo's `.swiftlint.yml` — most notably `line_length` (150 warn, 200 hard error). CI's `swiftlint --strict` blocks these automatically; don't enumerate by hand. If SwiftLint is installed locally, run `swiftlint lint --strict --quiet <changed-files>` and report its raw output as a single block. Note: `.swiftlint.yml` disables several common defaults (`trailing_comma`, `force_try`, length-limit rules) because the team considered them low-signal — don't flag those as SwiftLint violations either. If a disabled rule overlaps with a recurring-issue checklist entry (e.g., a `force_try` in a network handler where "force-unwrap risk" applies), flag via the checklist rule, not as a lint violation.
 - Idiomatic style preferences that compile and work correctly (e.g., `Chart(content:)` vs trailing-closure form). Not bugs.
 - General Swift advice unrelated to AnxietyWatch's recurring categories (e.g., generic refactoring suggestions, "consider a protocol here").
 - The same finding repeated for every occurrence — note cross-file patterns once in the Summary section instead.
