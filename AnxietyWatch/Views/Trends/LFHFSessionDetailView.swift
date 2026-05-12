@@ -6,20 +6,31 @@ import SwiftUI
 /// shows nightly means; this view shows the full ~300-point trajectory of
 /// an overnight session with true gaps where the recorder couldn't compute
 /// frequency-domain values (windows of <30 RR intervals).
-struct LFHFSessionDetailView: View {
+struct LFHFSessionDetailView: View, Equatable {
     let sessionID: UUID
 
     @Query private var readings: [HRVReading]
 
+    // Equatable on `sessionID` only: paired with `.equatable()` at the
+    // NavigationLink destination call site so SwiftUI dedupes rebuilds
+    // when the parent's body re-runs. The default memberwise comparison
+    // can't dedupe because `@Query` state is part of the struct.
+    static func == (lhs: LFHFSessionDetailView, rhs: LFHFSessionDetailView) -> Bool {
+        lhs.sessionID == rhs.sessionID
+    }
+
     init(sessionID: UUID) {
         self.sessionID = sessionID
-        // Capture the shared constant into a local so the macro picks it up
-        // — keeps the source label in one place if it ever changes.
-        let polarSource = PolarHRMService.sourceLabel
+        // Single-clause predicate by design: the compound form
+        // `$0.sensorSessionID == sessionID && $0.source == polarSource`
+        // causes SwiftData/CoreData on iOS 26 to spin in
+        // `+[_NSPredicateUtilities _predicateEnforceRestrictionsOnSelector:...]`
+        // while generating the SQL ORDER BY (10s scene-update watchdog
+        // kill). The `source == polar_h10` defense moved to a post-fetch
+        // filter in body, which costs O(n) on the already-bounded
+        // session set and preserves the future-proofing intent.
         _readings = Query(
-            filter: #Predicate<HRVReading> {
-                $0.sensorSessionID == sessionID && $0.source == polarSource
-            },
+            filter: #Predicate<HRVReading> { $0.sensorSessionID == sessionID },
             sort: \.timestamp
         )
     }
@@ -30,10 +41,13 @@ struct LFHFSessionDetailView: View {
     }
 
     var body: some View {
+        // Source defense moved out of the @Query predicate — see `init` comment.
+        let polarSource = PolarHRMService.sourceLabel
+        let sourceFiltered = readings.filter { $0.source == polarSource }
         // Compute once per render — `gappedPerMinutePoints` does a sort + map
         // of the full readings array, and it used to fan out to ~5 callsites
         // (empty check, title, summary, sessionRange, each sub-chart).
-        let points = LFHFAggregator.gappedPerMinutePoints(from: readings)
+        let points = LFHFAggregator.gappedPerMinutePoints(from: sourceFiltered)
         let title = points.first?.timestamp.formatted(date: .abbreviated, time: .shortened) ?? "Session"
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -92,15 +106,18 @@ struct LFHFSessionDetailView: View {
 
     @ViewBuilder
     private func hfChart(points: [LFHFAggregator.LFHFPoint], range: ClosedRange<Date>) -> some View {
-        // Passing .nan when a window has no frequency data tells Swift Charts
-        // to break the line at that x — the visual gap the clinical lens asked
-        // for, instead of silently connecting across missing minutes.
+        // Clip outliers at the data layer rather than via `chartYScale(domain:)`.
+        // The combination of NaN sentinels (for gap drawing) and a finite
+        // chartYScale domain measurably slows Swift Charts layout on real
+        // devices. Pre-clipping each value gives the same visual result —
+        // the chart auto-scales to the clipped max — with none of the
+        // NaN-vs-domain resolution work.
         let upper = LFHFAggregator.robustUpperBound(of: points.compactMap(\.hfPower))
-        sectionedChart(title: "HF Power (ms²)", range: range, yMax: upper) {
+        sectionedChart(title: "HF Power (ms²)", range: range) {
             ForEach(points) { point in
                 LineMark(
                     x: .value("Time", point.timestamp),
-                    y: .value("HF", point.hfPower ?? .nan)
+                    y: .value("HF", point.hfPower.map { min($0, upper) } ?? .nan)
                 )
                 .foregroundStyle(.teal)
             }
@@ -110,11 +127,11 @@ struct LFHFSessionDetailView: View {
     @ViewBuilder
     private func lfChart(points: [LFHFAggregator.LFHFPoint], range: ClosedRange<Date>) -> some View {
         let upper = LFHFAggregator.robustUpperBound(of: points.compactMap(\.lfPower))
-        sectionedChart(title: "LF Power (ms²)", range: range, yMax: upper) {
+        sectionedChart(title: "LF Power (ms²)", range: range) {
             ForEach(points) { point in
                 LineMark(
                     x: .value("Time", point.timestamp),
-                    y: .value("LF", point.lfPower ?? .nan)
+                    y: .value("LF", point.lfPower.map { min($0, upper) } ?? .nan)
                 )
                 .foregroundStyle(.indigo)
             }
@@ -123,9 +140,9 @@ struct LFHFSessionDetailView: View {
 
     @ViewBuilder
     private func ratioChart(points: [LFHFAggregator.LFHFPoint], range: ClosedRange<Date>) -> some View {
-        // Ratio doesn't get y-clipping — it's already bounded in practice and
+        // Ratio is left unclipped — it's already bounded in practice and
         // the balance reference line at 1.0 needs the natural scale to read.
-        sectionedChart(title: "LF/HF Ratio", range: range, yMax: nil) {
+        sectionedChart(title: "LF/HF Ratio", range: range) {
             ForEach(points) { point in
                 LineMark(
                     x: .value("Time", point.timestamp),
@@ -143,7 +160,6 @@ struct LFHFSessionDetailView: View {
     private func sectionedChart<Marks: ChartContent>(
         title: String,
         range: ClosedRange<Date>,
-        yMax: Double?,
         @ChartContentBuilder content: () -> Marks
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -151,18 +167,10 @@ struct LFHFSessionDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)
-            if let yMax {
-                Chart { content() }
-                    .chartXScale(domain: range)
-                    .chartYScale(domain: 0...yMax)
-                    .frame(height: 140)
-                    .padding(.horizontal)
-            } else {
-                Chart { content() }
-                    .chartXScale(domain: range)
-                    .frame(height: 140)
-                    .padding(.horizontal)
-            }
+            Chart { content() }
+                .chartXScale(domain: range)
+                .frame(height: 140)
+                .padding(.horizontal)
         }
     }
 

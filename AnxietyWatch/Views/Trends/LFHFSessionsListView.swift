@@ -62,8 +62,14 @@ struct LFHFSessionsListView: View {
                 )
             } else {
                 ForEach(sessions) { session in
+                    // `.equatable()` lets SwiftUI use the destination's
+                    // sessionID-only `==` to dedupe rebuilds when this
+                    // view's body re-runs. Without it, the destination's
+                    // @Query state defeats SwiftUI's default memberwise
+                    // comparison and a parent re-render storm cascades
+                    // into a CA::Layer use-after-free on iOS 26.
                     NavigationLink {
-                        LFHFSessionDetailView(sessionID: session.id)
+                        LFHFSessionDetailView(sessionID: session.id).equatable()
                     } label: {
                         LFHFSessionRow(session: session, mean: means[session.id])
                     }

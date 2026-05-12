@@ -78,6 +78,9 @@ AnxietyWatch/Utilities/BuildVersion.swift
 /*.csv
 /*.spo2
 /*.pdf
+# iOS hang / crash reports re-exported from Settings → Analytics &
+# Improvements → Analytics Data during local debugging.
+/*.ips
 /*.jpg
 /*.txt
 /*.yml

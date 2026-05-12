@@ -88,8 +88,17 @@ struct AnxietyWatchApp: App {
             ContentView()
                 .environment(polarService)
                 .overlay {
-                    if let coordinator, coordinator.isBackfilling {
-                        backfillOverlay(coordinator)
+                    // Coordinator's @Observable properties (isBackfilling,
+                    // backfillProgress, backfillTotal) were previously read
+                    // inline here, which registered observation at the App
+                    // scope. backfillProgress increments per-day during a
+                    // multi-day backfill (~28 increments/sec), invalidating
+                    // the entire WindowGroup→ContentView→TabView tree on
+                    // every increment and pegging the main thread. Wrapping
+                    // the reads in a child View struct scopes the
+                    // observation to just that child.
+                    if let coordinator {
+                        BackfillOverlay(coordinator: coordinator)
                     }
                 }
                 .task {
@@ -324,19 +333,30 @@ struct AnxietyWatchApp: App {
         showingRandomCheckIn = true
     }
 
-    private func backfillOverlay(_ coordinator: HealthDataCoordinator) -> some View {
-        VStack(spacing: 12) {
-            ProgressView(value: Double(coordinator.backfillProgress),
-                         total: Double(coordinator.backfillTotal))
-                .tint(.blue)
-            Text("Loading health history… \(coordinator.backfillProgress)/\(coordinator.backfillTotal) days")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+}
+
+/// Owns observation of the backfill progress so that increment-per-day updates
+/// during a multi-day backfill invalidate only this view, not the entire App
+/// body / WindowGroup. See the comment at the `.overlay` call site for why
+/// this matters.
+private struct BackfillOverlay: View {
+    let coordinator: HealthDataCoordinator
+
+    var body: some View {
+        if coordinator.isBackfilling {
+            VStack(spacing: 12) {
+                ProgressView(value: Double(coordinator.backfillProgress),
+                             total: Double(coordinator.backfillTotal))
+                    .tint(.blue)
+                Text("Loading health history… \(coordinator.backfillProgress)/\(coordinator.backfillTotal) days")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(24)
+            .background(.ultraThinMaterial, in: .rect(cornerRadius: 16))
+            .padding(40)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .allowsHitTesting(false)
         }
-        .padding(24)
-        .background(.ultraThinMaterial, in: .rect(cornerRadius: 16))
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .allowsHitTesting(false)
     }
 }
