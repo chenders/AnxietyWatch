@@ -35,7 +35,7 @@ struct HRVSessionLiveView: View {
                     )
                     metricCell(
                         label: "Elapsed",
-                        value: formatElapsed(state.sessionElapsed)
+                        value: RecordingFormatters.formatElapsed(state.sessionElapsed)
                     )
                 }
 
@@ -66,15 +66,22 @@ struct HRVSessionLiveView: View {
             .padding(.bottom, 16)
             .navigationTitle("HRV Session")
             .navigationBarTitleDisplayMode(.inline)
-            // Prevent swipe-to-dismiss while recording so the user always has
-            // to make an explicit Stop choice. Settings still offers a Stop
-            // affordance as a backstop if this view is dismissed anyway.
-            .interactiveDismissDisabled(state.status == .recording || state.status == .connecting)
+            // Swipe-to-dismiss is intentionally allowed during recording.
+            // The persistent RecordingStatusPill at the root of ContentView
+            // is now the always-visible session indicator and re-entry
+            // point, so dismissing this sheet no longer loses track of the
+            // in-progress session. The user can journal, browse Trends,
+            // etc. with the pill as their tether back.
             .toolbar {
-                if state.status != .recording && state.status != .connecting {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Close") { dismiss() }
-                    }
+                // Always offer an explicit dismiss affordance — VoiceOver
+                // and keyboard users can't reach the swipe-to-dismiss
+                // gesture, so without this they'd have no way to leave the
+                // sheet without ending the session. Label switches from
+                // "Hide" (recording continues; pill is the re-entry path)
+                // to "Close" (session already ended; pill is gone).
+                ToolbarItem(placement: .cancellationAction) {
+                    let isLive = state.status == .recording || state.status == .connecting
+                    Button(isLive ? "Hide" : "Close") { dismiss() }
                 }
             }
         }
@@ -114,14 +121,4 @@ struct HRVSessionLiveView: View {
         }
     }
 
-    private func formatElapsed(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds)
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        if h > 0 {
-            return String(format: "%d:%02d:%02d", h, m, s)
-        }
-        return String(format: "%d:%02d", m, s)
-    }
 }

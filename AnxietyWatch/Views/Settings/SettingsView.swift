@@ -11,7 +11,7 @@ struct SettingsView: View {
     @State private var rebuildTotal = 0
     @State private var showRebuildConfirmation = false
     @State private var showingPairing = false
-    @State private var showingLiveSession = false
+    @Environment(RecordingPresentationCoordinator.self) private var recordingPresentation
     @Query private var allMeds: [MedicationDefinition]
     @State private var checkInsEnabled = RandomCheckInManager.isEnabled
     @State private var checkInFrequency = RandomCheckInManager.frequencyPerDay
@@ -222,9 +222,6 @@ struct SettingsView: View {
             .sheet(isPresented: $showingPairing) {
                 PolarPairingView(service: polarService)
             }
-            .sheet(isPresented: $showingLiveSession) {
-                HRVSessionLiveView(service: polarService)
-            }
         }
     }
 
@@ -242,7 +239,7 @@ struct SettingsView: View {
                 switch state.status {
                 case .recording, .connecting:
                     Button {
-                        showingLiveSession = true
+                        recordingPresentation.showingLiveView = true
                     } label: {
                         Label("Resume Live View", systemImage: "waveform.path.ecg")
                     }
@@ -294,8 +291,8 @@ struct SettingsView: View {
                         // bounce to .bluetoothOff / .error if preconditions
                         // aren't met, in which case the section already
                         // shows the right inline status.
-                        if case .connecting = polarService.state.status { showingLiveSession = true }
-                        else if case .recording = polarService.state.status { showingLiveSession = true }
+                        if case .connecting = polarService.state.status { recordingPresentation.showingLiveView = true }
+                        else if case .recording = polarService.state.status { recordingPresentation.showingLiveView = true }
                     } label: {
                         Label("Retry Start", systemImage: "arrow.clockwise")
                     }
@@ -307,8 +304,8 @@ struct SettingsView: View {
                 case .idle, .scanning:
                     Button {
                         polarService.startSession()
-                        if case .connecting = polarService.state.status { showingLiveSession = true }
-                        else if case .recording = polarService.state.status { showingLiveSession = true }
+                        if case .connecting = polarService.state.status { recordingPresentation.showingLiveView = true }
+                        else if case .recording = polarService.state.status { recordingPresentation.showingLiveView = true }
                     } label: {
                         Label("Start HRV Session", systemImage: "heart.text.square.fill")
                     }
@@ -374,5 +371,6 @@ struct SettingsView: View {
     SettingsView()
         .modelContainer(container)
         .environment(PolarHRMService(modelContext: ModelContext(container)))
+        .environment(RecordingPresentationCoordinator())
 }
 #endif

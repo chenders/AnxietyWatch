@@ -49,6 +49,11 @@ struct AnxietyWatchApp: App {
 
     @State private var coordinator: HealthDataCoordinator?
     @State private var polarService: PolarHRMService
+    /// Shared sheet-presentation state for the in-progress recording UI.
+    /// Lives on the App so the in-app pill (rendered at ContentView root)
+    /// and entry-point views (Dashboard card, Settings polar section) all
+    /// flip the same flag — see `RecordingPresentationCoordinator`.
+    @State private var recordingPresentation = RecordingPresentationCoordinator()
     @Environment(\.scenePhase) private var scenePhase
     @State private var followUpDose: MedicationDose?
     @State private var followUpMedication: MedicationDefinition?
@@ -87,6 +92,7 @@ struct AnxietyWatchApp: App {
         WindowGroup {
             ContentView()
                 .environment(polarService)
+                .environment(recordingPresentation)
                 .overlay {
                     // Coordinator's @Observable properties (isBackfilling,
                     // backfillProgress, backfillTotal) were previously read

@@ -19,7 +19,7 @@ import SwiftUI
 ///   matching the Pairing view copy.
 struct HRVSessionCardView: View {
     let service: PolarHRMService
-    @Binding var showingLiveSession: Bool
+    @Environment(RecordingPresentationCoordinator.self) private var presentation
     /// Just the most recent completed Polar session — used for the
     /// "Last session" summary. Limited to one row so the Dashboard
     /// doesn't drag a growing history into memory on every render.
@@ -27,9 +27,8 @@ struct HRVSessionCardView: View {
     /// predicate/sort definition in one place.
     @Query private var pastSessions: [SensorSession]
 
-    init(service: PolarHRMService, showingLiveSession: Binding<Bool>) {
+    init(service: PolarHRMService) {
         self.service = service
-        self._showingLiveSession = showingLiveSession
         // Bind the source label to a local so the #Predicate macro can
         // capture it as a literal at compile time — referencing
         // PolarHRMService.sourceLabel directly inside the predicate isn't
@@ -113,13 +112,17 @@ struct HRVSessionCardView: View {
                 label: "RMSSD"
             )
             metric(
-                value: formatElapsed(state.sessionElapsed),
+                // Same clock format the pill uses, so the live elapsed
+                // figure on the dashboard card matches the pill above
+                // the tab bar instead of drifting to "3m 45s" while the
+                // pill says "3:45".
+                value: RecordingFormatters.formatElapsed(state.sessionElapsed),
                 unit: "",
                 label: "Elapsed"
             )
         }
         HStack {
-            Button { showingLiveSession = true } label: {
+            Button { presentation.showingLiveView = true } label: {
                 Label("Resume Live View", systemImage: "waveform.path.ecg")
             }
             .buttonStyle(.bordered)
@@ -172,7 +175,7 @@ struct HRVSessionCardView: View {
             // the card, and the sheet would be a misleading dead-end.
             switch service.state.status {
             case .connecting, .recording:
-                showingLiveSession = true
+                presentation.showingLiveView = true
             default:
                 break
             }
@@ -255,13 +258,15 @@ struct HRVSessionCardView: View {
         return ParsedSummary(rmssdLabel: rmssd, rrCountLabel: rrCount)
     }
 
+    /// Natural-language duration for the "Last session" summary
+    /// (`"2h 15m"`, `"3m 45s"`, `"45s"`). Distinct from
+    /// `RecordingFormatters.formatElapsed` which uses clock format
+    /// (`"2:15:00"`, `"3:45"`) — the in-progress elapsed cell uses the
+    /// clock formatter to match the pill, while a completed-session
+    /// summary reads better with the natural-language form.
     private func formatSessionDuration(_ session: SensorSession) -> String {
         guard let end = session.endTime else { return "—" }
-        return formatElapsed(end.timeIntervalSince(session.startTime))
-    }
-
-    private func formatElapsed(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds)
+        let total = Int(end.timeIntervalSince(session.startTime))
         let h = total / 3600
         let m = (total % 3600) / 60
         let s = total % 60
