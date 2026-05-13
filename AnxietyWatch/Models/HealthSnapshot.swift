@@ -30,12 +30,24 @@ final class HealthSnapshot {
     var skinTempWrist: Double?
     var respiratoryRate: Double?
     var spo2Avg: Double?
-    /// Lowest SpO2 (%) during overnight window — single most clinically interesting value.
+    /// Lowest SpO2 (%) during overnight window — single most clinically
+    /// interesting value. Populated with the preferred (overnight oximeter)
+    /// nadir when an EMAY/Wellue device covered the window; falls back to
+    /// the opportunistic (Apple Watch) nadir only when no dedicated device
+    /// was present. See `DeviceProvenance.partition(samples:metricType:)`.
     var spo2NadirOvernight: Double?
+    /// Apple-Watch-only nadir for the same window — kept separately so the
+    /// trends chart can plot a second line showing the Apple Watch source
+    /// for nights where both devices have data. Nil when no opportunistic
+    /// SpO2 samples exist for the window.
+    var spo2NadirOpportunistic: Double?
     /// Minutes spent below 90% during overnight window (T90 — hypoxic burden).
+    /// Computed from the preferred source subset; opportunistic samples are
+    /// dropped when a dedicated overnight oximeter is present.
     var spo2TimeBelow90Min: Int?
     /// Rough ODI-style desaturation event count overnight. Not clinical-grade ODI4 —
     /// manufacturer-app reports remain authoritative; this is for trending only.
+    /// Computed from the preferred source subset.
     var spo2DesatsCount: Int?
 
     // Activity

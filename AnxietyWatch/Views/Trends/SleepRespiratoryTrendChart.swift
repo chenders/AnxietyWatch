@@ -33,16 +33,40 @@ struct SleepRespiratoryTrendChart: View {
     }
 
     /// Date doubles as the stable identity — one snapshot per calendar day.
+    /// `series` separates the oximeter-preferred line from the Apple Watch
+    /// line so `chartForegroundStyleScale` can assign distinct colors and
+    /// the chart legend tells the two sources apart.
     private struct NadirDatum: Identifiable {
-        var id: Date { date }
+        var id: String { "\(series)-\(date.timeIntervalSince1970)" }
         let date: Date
         let value: Double
+        let series: NadirSeries
     }
 
+    private enum NadirSeries: String, Plottable {
+        case oximeter = "Oximeter"
+        case appleWatch = "Apple Watch"
+    }
+
+    /// Combined data for both lines. `spo2NadirOvernight` is the
+    /// oximeter-preferred value (falls back to Apple Watch when no
+    /// oximeter covered the night); `spo2NadirOpportunistic` is the
+    /// Apple-Watch-only value, plotted as a second line for source
+    /// contrast. When both values exist for the same night and are
+    /// identical (oximeter wasn't present so HK-direct == Apple Watch)
+    /// the lines overlap — visually one line, semantically still both
+    /// sources reporting consistently.
     private var nadirData: [NadirDatum] {
-        snapshots.compactMap { snap in
-            snap.spo2NadirOvernight.map { NadirDatum(date: snap.date, value: $0) }
+        var data: [NadirDatum] = []
+        for snap in snapshots {
+            if let oximeter = snap.spo2NadirOvernight {
+                data.append(NadirDatum(date: snap.date, value: oximeter, series: .oximeter))
+            }
+            if let watch = snap.spo2NadirOpportunistic {
+                data.append(NadirDatum(date: snap.date, value: watch, series: .appleWatch))
+            }
         }
+        return data
     }
 
     private struct T90Datum: Identifiable {
@@ -83,12 +107,20 @@ struct SleepRespiratoryTrendChart: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    private var hasAnyData: Bool {
-        !sessions.isEmpty || !nadirData.isEmpty || !t90Data.isEmpty
-    }
-
     var body: some View {
-        ChartCard(
+        // Cache `nadirData` once per render. After the dual-series refactor
+        // it's accessed in `hasAnyData`, the `if !nadirData.isEmpty` guard,
+        // the `nadirData.map(\.value).min()` domain-floor computation, and
+        // the `Chart(nadirData)` initializer — four iterations of the same
+        // [snapshot → NadirDatum] mapping per body re-render. Caching as
+        // a local `let` keeps the chart sub-views consuming the same array
+        // instead of re-deriving it. (CLAUDE.md "Per-render recomputation".)
+        let nadirData = self.nadirData
+        let hasAnyData = !sessions.isEmpty || !nadirData.isEmpty || !t90Data.isEmpty
+        let observedMin = nadirData.map(\.value).min() ?? 75
+        let nadirDomainFloor = min(75, observedMin - 2)
+
+        return ChartCard(
             title: "Sleep Respiratory",
             subtitle: subtitle,
             isEmpty: !hasAnyData
@@ -111,26 +143,32 @@ struct SleepRespiratoryTrendChart: View {
                 .frame(height: 160)
             }
 
-            // SpO₂ nadir line. Domain floor adapts to the actual data so a
-            // severe night (e.g., nadir 65%) isn't clipped at the chart
-            // floor; default cap is 75 so day-to-day variation in the
-            // common 85–99 range stays legible.
+            // SpO₂ nadir lines — one per source (oximeter green, Apple
+            // Watch orange). Domain floor adapts to the actual data so a
+            // severe night isn't clipped at the chart floor; default cap
+            // is 75 so day-to-day variation in the common 85–99 range
+            // stays legible. The two lines let you see when an Apple
+            // Watch positional artifact is dragging the apparent nadir
+            // below what the dedicated overnight oximeter recorded.
             if !nadirData.isEmpty {
-                let observedMin = nadirData.map(\.value).min() ?? 75
-                let domainFloor = min(75, observedMin - 2)
                 Chart(nadirData) { n in
                     LineMark(
                         x: .value("Date", n.date, unit: .day),
-                        y: .value("Nadir %", n.value)
+                        y: .value("Nadir %", n.value),
+                        series: .value("Source", n.series)
                     )
-                    .foregroundStyle(.green)
-                    .symbol(.circle)
+                    .foregroundStyle(by: .value("Source", n.series))
+                    .symbol(by: .value("Source", n.series))
                     .symbolSize(30)
                 }
+                .chartForegroundStyleScale([
+                    NadirSeries.oximeter: Color.green,
+                    NadirSeries.appleWatch: Color.orange,
+                ])
                 .chartXScale(domain: dateRange)
-                .chartYScale(domain: domainFloor...100)
+                .chartYScale(domain: nadirDomainFloor...100)
                 .chartYAxisLabel("SpO₂ nadir (%)")
-                .frame(height: 110)
+                .frame(height: 130)
             }
 
             // T90 bars

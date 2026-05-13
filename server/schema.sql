@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS health_snapshots (
     respiratory_rate        DOUBLE PRECISION,
     spo2_avg                DOUBLE PRECISION,
     spo2_nadir_overnight    DOUBLE PRECISION,
+    spo2_nadir_opportunistic DOUBLE PRECISION,
     spo2_time_below_90_min  INTEGER,
     spo2_desats_count       INTEGER,
     steps                   INTEGER,

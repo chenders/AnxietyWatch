@@ -208,6 +208,7 @@ enum DataExporter {
                                   skinTempWrist: h.skinTempWrist,
                                   respiratoryRate: h.respiratoryRate, spo2Avg: h.spo2Avg,
                                   spo2NadirOvernight: h.spo2NadirOvernight,
+                                  spo2NadirOpportunistic: h.spo2NadirOpportunistic,
                                   spo2TimeBelow90Min: h.spo2TimeBelow90Min,
                                   spo2DesatsCount: h.spo2DesatsCount,
                                   steps: h.steps, activeCalories: h.activeCalories,
@@ -321,7 +322,8 @@ enum DataExporter {
         let sleepCoreMin: Int?; let sleepAwakeMin: Int?; let skinTempDeviation: Double?
         let skinTempWrist: Double?
         let respiratoryRate: Double?; let spo2Avg: Double?
-        let spo2NadirOvernight: Double?; let spo2TimeBelow90Min: Int?; let spo2DesatsCount: Int?
+        let spo2NadirOvernight: Double?; let spo2NadirOpportunistic: Double?
+        let spo2TimeBelow90Min: Int?; let spo2DesatsCount: Int?
         let steps: Int?
         let activeCalories: Double?; let exerciseMinutes: Int?
         let environmentalSoundAvg: Double?; let bpSystolic: Double?

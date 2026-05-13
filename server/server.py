@@ -415,6 +415,12 @@ def create_app(test_config=None):
     # flag in the payload to disambiguate at the server boundary.
     _OVERNIGHT_STATS_COLUMNS = (
         "spo2_nadir_overnight",
+        # spo2_nadir_opportunistic — source-stratified Apple-Watch-only nadir
+        # added in PR #142. Same clear-on-missing semantics as the other
+        # overnight stats: v>=2 clients (which is everything currently
+        # shipping) send EXCLUDED for the actual value; older clients
+        # don't know the key so it stays null via the COALESCE branch.
+        "spo2_nadir_opportunistic",
         "spo2_time_below_90_min",
         "spo2_desats_count",
         "glucose_std_dev",
@@ -480,7 +486,8 @@ def create_app(test_config=None):
                        date, hrv_avg, hrv_min, resting_hr,
                        sleep_duration_min, sleep_deep_min, sleep_rem_min, sleep_core_min, sleep_awake_min,
                        skin_temp_deviation, skin_temp_wrist, respiratory_rate, spo2_avg,
-                       spo2_nadir_overnight, spo2_time_below_90_min, spo2_desats_count,
+                       spo2_nadir_overnight, spo2_nadir_opportunistic,
+                       spo2_time_below_90_min, spo2_desats_count,
                        steps, active_calories, exercise_minutes,
                        environmental_sound_avg, bp_systolic, bp_diastolic, blood_glucose_avg,
                        glucose_std_dev, glucose_cv, glucose_min, glucose_max,
@@ -488,7 +495,7 @@ def create_app(test_config=None):
                        barometric_pressure_avg_kpa, barometric_pressure_change_kpa,
                        data_quality)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (date) DO UPDATE SET
                        hrv_avg = EXCLUDED.hrv_avg,
                        hrv_min = EXCLUDED.hrv_min,
@@ -520,7 +527,8 @@ def create_app(test_config=None):
                     s.get("sleepDurationMin"), s.get("sleepDeepMin"), s.get("sleepREMMin"),
                     s.get("sleepCoreMin"), s.get("sleepAwakeMin"),
                     s.get("skinTempDeviation"), s.get("skinTempWrist"), s.get("respiratoryRate"), s.get("spo2Avg"),
-                    s.get("spo2NadirOvernight"), s.get("spo2TimeBelow90Min"), s.get("spo2DesatsCount"),
+                    s.get("spo2NadirOvernight"), s.get("spo2NadirOpportunistic"),
+                    s.get("spo2TimeBelow90Min"), s.get("spo2DesatsCount"),
                     s.get("steps"), s.get("activeCalories"), s.get("exerciseMinutes"),
                     s.get("environmentalSoundAvg"), s.get("bpSystolic"), s.get("bpDiastolic"),
                     s.get("bloodGlucoseAvg"),

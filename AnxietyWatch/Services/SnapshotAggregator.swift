@@ -366,21 +366,171 @@ struct SnapshotAggregator {
             }
         }
 
+        // Source-precedence override: when a high-fidelity device covers
+        // the window (EMAY/Wellue oximeter for overnight SpO2, Polar H10
+        // for HR/RHR/HRV), recompute the corresponding aggregate from the
+        // preferred subset only and overwrite the HealthKit-direct value
+        // above. Layered ON TOP of the HK path rather than replacing it
+        // so existing HealthKit-mock test coverage stays intact: when no
+        // preferred SwiftData rows exist for the window, the HK-direct
+        // value remains the snapshot's authoritative value.
+        //
+        // Order matters: SpO2 first (uses overnight window), then daily
+        // heart metrics (use full day window). The two windows can overlap
+        // but the fetches are filtered by metricType so they're disjoint.
+        try applyOvernightSpO2Precedence(
+            on: snapshot, overnightStart: overnightStart, overnightEnd: overnightEnd
+        )
+        try applyDailyHeartMetricsPrecedence(
+            on: snapshot, start: start, end: end
+        )
+
         // Compute reliability + source-summary JSON from the local SwiftData
-        // mirror of `QuantityHealthSample` rows. This is a hybrid step:
-        // the aggregate fields above still come from the HealthKit-direct
-        // path (preserving PR #120's semantics and SnapshotAggregatorMockTests
-        // coverage), while reliability/source metadata is derived from the
-        // local mirror — the authoritative source for source/device fields.
-        // A follow-up PR can complete the migration so aggregates also derive
-        // from the mirror; until the mirror is fully primed in production,
-        // running both in parallel is the defensible interim step.
+        // mirror of `QuantityHealthSample` rows. Reliability/source metadata
+        // is derived from the local mirror — the authoritative source for
+        // source/device fields.
         snapshot.dataQuality = try computeDataQuality(
             dayStart: start, dayEnd: end,
             overnightStart: overnightStart, overnightEnd: overnightEnd
         )
 
         try modelContext.save()
+    }
+
+    // MARK: - Source-precedence overrides
+
+    /// Replace HealthKit-direct SpO2 aggregates with values computed from
+    /// the high-fidelity tier (EMAY/Wellue oximeters) when those samples
+    /// cover the overnight window. Also always populates
+    /// `spo2NadirOpportunistic` so the trends chart can show the Apple
+    /// Watch line independently.
+    ///
+    /// No-op when no high-fidelity samples exist for the window: the HK-
+    /// direct values (which in that case were already all-opportunistic)
+    /// remain the snapshot's authoritative value.
+    private func applyOvernightSpO2Precedence(
+        on snapshot: HealthSnapshot,
+        overnightStart: Date,
+        overnightEnd: Date
+    ) throws {
+        let spo2Type = HKQuantityTypeIdentifier.oxygenSaturation.rawValue
+        // Date-only predicate + in-memory metricType filter. A compound
+        // `&&` predicate with a captured `String` local (here `spo2Type`)
+        // can trip the iOS 26 SwiftData footgun documented in CLAUDE.md
+        // (`+[_NSPredicateUtilities _predicateEnforceRestrictionsOnSelector:…]`
+        // hang during SQL ORDER BY generation, scene-update watchdog
+        // `0x8BADF00D`). Keep the predicate single-table-of-comparisons
+        // on indexed primitive `Date` fields and filter strings post-fetch.
+        let descriptor = FetchDescriptor<QuantityHealthSample>(
+            predicate: #Predicate {
+                $0.timestamp >= overnightStart && $0.timestamp < overnightEnd
+            }
+        )
+        let windowRows = try modelContext.fetch(descriptor)
+        let rows = windowRows.filter { $0.metricType == spo2Type }
+        let parts = DeviceProvenance.partition(samples: rows, metricType: spo2Type)
+
+        // Opportunistic nadir is always reported when any opportunistic
+        // samples exist — it feeds the trends chart's Apple Watch line
+        // regardless of whether a preferred source also covers the window.
+        let opportunisticValues = parts.opportunistic.map(\.value)
+        snapshot.spo2NadirOpportunistic = opportunisticValues.min().map { $0 * 100 }
+
+        // No preferred-tier samples → keep the HK-direct values, which are
+        // already opportunistic-only in this case.
+        guard !parts.preferred.isEmpty else { return }
+
+        // Recompute avg + nadir from the preferred tier alone.
+        let preferredValues = parts.preferred.map(\.value)
+        let preferredAvg = preferredValues.reduce(0, +) / Double(preferredValues.count)
+        snapshot.spo2Avg = preferredAvg * 100
+        if let preferredNadir = preferredValues.min() {
+            snapshot.spo2NadirOvernight = preferredNadir * 100
+        }
+
+        // T90 + desat count need start/end intervals. Synthesize 1-second
+        // intervals — overnight oximeters write at 1 Hz so this matches
+        // both the cadence and what HealthKit reports for the same writes.
+        let preferredQS = parts.preferred.map { sample in
+            QuantitySample(
+                start: sample.timestamp,
+                end: sample.timestamp.addingTimeInterval(1.0),
+                value: sample.value
+            )
+        }
+        let monitored = Self.totalMonitoredDuration(preferredQS)
+        if preferredQS.count >= Self.minSamplesForOvernightStats,
+           monitored >= Self.minMonitoredDurationForOvernightStats {
+            snapshot.spo2TimeBelow90Min = Statistics.timeBelowThresholdMinutes(
+                preferredQS, threshold: 0.90
+            )
+            snapshot.spo2DesatsCount = Statistics.countDesatEvents(
+                preferredQS, dropThreshold: 0.04, recoveryThreshold: 0.02
+            )
+        } else {
+            snapshot.spo2TimeBelow90Min = nil
+            snapshot.spo2DesatsCount = nil
+        }
+    }
+
+    /// Replace HealthKit-direct HR/RHR/HRV aggregates with values from the
+    /// chest-strap tier (Polar H10) when present for the day. Each metric
+    /// is handled independently — Polar might cover HR but not HRV on a
+    /// given day, in which case only HR is overridden.
+    ///
+    /// No-op for metrics whose preferred subset is empty: the HK-direct
+    /// value is kept.
+    private func applyDailyHeartMetricsPrecedence(
+        on snapshot: HealthSnapshot,
+        start: Date,
+        end: Date
+    ) throws {
+        let hrType = HKQuantityTypeIdentifier.heartRate.rawValue
+        let rhrType = HKQuantityTypeIdentifier.restingHeartRate.rawValue
+        let hrvType = HKQuantityTypeIdentifier.heartRateVariabilitySDNN.rawValue
+        let wantedMetrics: Set<String> = [hrType, rhrType, hrvType]
+
+        // Date-only predicate + in-memory metricType filter — same iOS 26
+        // SwiftData footgun avoidance as `applyOvernightSpO2Precedence`.
+        // Captured `String` locals inside a compound `#Predicate &&` clause
+        // can hang the main thread during SQL ORDER BY generation; keep
+        // the predicate restricted to indexed primitive `Date` comparisons
+        // and partition by metric type in memory.
+        let descriptor = FetchDescriptor<QuantityHealthSample>(
+            predicate: #Predicate {
+                $0.timestamp >= start && $0.timestamp < end
+            }
+        )
+        let windowRows = try modelContext.fetch(descriptor)
+        let rows = windowRows.filter { wantedMetrics.contains($0.metricType) }
+        let byMetric = Dictionary(grouping: rows, by: \.metricType)
+
+        // HRV — preferred subset, mean of SDNN values (already stored in ms
+        // by the HealthKit mirror).
+        if let hrv = byMetric[hrvType] {
+            let parts = DeviceProvenance.partition(samples: hrv, metricType: hrvType)
+            if !parts.preferred.isEmpty {
+                let vals = parts.preferred.map(\.value)
+                snapshot.hrvAvg = vals.reduce(0, +) / Double(vals.count)
+                snapshot.hrvMin = vals.min()
+            }
+        }
+
+        // Resting HR — preferred subset, mean. Apple Watch writes one
+        // daily value; Polar samples could be more numerous over a session.
+        if let rhr = byMetric[rhrType] {
+            let parts = DeviceProvenance.partition(samples: rhr, metricType: rhrType)
+            if !parts.preferred.isEmpty {
+                let vals = parts.preferred.map(\.value)
+                snapshot.restingHR = vals.reduce(0, +) / Double(vals.count)
+            }
+        }
+
+        // Plain HR is fetched alongside RHR/HRV (cheaper than three
+        // separate descriptors) but not stored as a snapshot field —
+        // only the nocturnal-dip ratio uses raw HR aggregates. When
+        // an HR-mean column lands, fetch the partition for `hrType`
+        // and overwrite here.
     }
 
     /// Build the `dataQuality` JSON object describing reliability tier + source

@@ -24,8 +24,27 @@ enum DeviceProvenance {
     static let overnightPulseOximeters: Set<String> = [
         "com.emay.sleepo2",
         "com.emay.SleepO2",
+        // Bundle used when the EMAY iOS companion app writes SpO2/PR samples
+        // to HealthKit (vs. `com.emay.SleepO2` for CSV-imported sessions —
+        // see `EMAYImporter.sourceBundleID`). Both are the same device class
+        // and should be treated as high-fidelity overnight oximetry.
+        "com.emay.oximeter",
         "io.wellue.health",
         "com.viatomtech.wellue.O2Ring"
+    ]
+
+    /// Chest-strap heart-rate / HRV monitors. Polar H10 in particular records
+    /// HR + RR-interval / SDNN at clinical fidelity vs. the wrist-PPG noise
+    /// floor of the Apple Watch. Two bundle-style identifiers appear in
+    /// practice: `fi.polar.polarflow` is what the Polar Flow companion app
+    /// writes when it mirrors a session into HealthKit, while `polar_h10`
+    /// is the typed source label our own BLE pipeline stamps onto
+    /// `SensorSession` / `HRVReading` rows (see `PolarHRMService.sourceLabel`).
+    /// Both routes represent the same device and should win precedence for
+    /// HR/HRV aggregates over Apple Watch samples in the same window.
+    static let chestStrapHRMonitors: Set<String> = [
+        "fi.polar.polarflow",
+        "polar_h10"
     ]
 
     /// Apple ecosystem writers — Apple Watch HR/HRV/RR/wrist-temp samples and any manual
@@ -58,6 +77,68 @@ enum DeviceProvenance {
         medicalGradeBPCuffs.contains(bundleID)
     }
 
+    static func isChestStrapHRMonitor(_ bundleID: String) -> Bool {
+        chestStrapHRMonitors.contains(bundleID)
+    }
+
+    /// Which writing-source bundle IDs count as "high fidelity" for a given
+    /// HealthKit metric type. Returns nil for metrics where no special
+    /// high-fidelity tier is defined (glucose / BP — those have their own
+    /// classifiers above; no Apple Watch overlap to filter against).
+    ///
+    /// The returned set is used by `partition(samples:metricType:)` to split
+    /// a window's samples into a preferred subset (high-fidelity device
+    /// present in the window — e.g. EMAY for overnight SpO2, Polar for HR/HRV)
+    /// and an opportunistic subset (Apple Watch / unknown). Aggregates are
+    /// then computed from the preferred subset when non-empty so a single
+    /// positional artifact from the Apple Watch can't drag a clinically
+    /// meaningful EMAY/Polar value off-target.
+    static func highFidelitySources(for metricType: String) -> Set<String>? {
+        switch metricType {
+        case "HKQuantityTypeIdentifierOxygenSaturation":
+            return overnightPulseOximeters
+        case "HKQuantityTypeIdentifierHeartRate",
+             "HKQuantityTypeIdentifierRestingHeartRate",
+             "HKQuantityTypeIdentifierHeartRateVariabilitySDNN":
+            return chestStrapHRMonitors
+        default:
+            return nil
+        }
+    }
+
+    /// Partition a window's samples by source-fidelity tier for the metric.
+    /// `preferred` = samples from the high-fidelity tier (e.g. EMAY oximeter
+    /// for SpO2, Polar H10 for HR/HRV). `opportunistic` = everything else
+    /// (Apple Watch, manual entries, unclassified).
+    ///
+    /// Use the preferred subset for aggregate computation when non-empty;
+    /// fall back to the opportunistic subset when no high-fidelity sample
+    /// covers the window. The opportunistic subset is also retained
+    /// separately so source-contrast charts (e.g. the SpO2 nadir trend)
+    /// can plot both lines without re-fetching.
+    ///
+    /// For metrics without a high-fidelity tier (`highFidelitySources`
+    /// returns nil), all samples land in `opportunistic` and `preferred` is
+    /// empty — callers naturally fall back to the opportunistic subset.
+    static func partition(
+        samples: [QuantityHealthSample],
+        metricType: String
+    ) -> (preferred: [QuantityHealthSample], opportunistic: [QuantityHealthSample]) {
+        guard let highFidelity = highFidelitySources(for: metricType) else {
+            return (preferred: [], opportunistic: samples)
+        }
+        var preferred: [QuantityHealthSample] = []
+        var opportunistic: [QuantityHealthSample] = []
+        for sample in samples {
+            if highFidelity.contains(sample.sourceBundleID) {
+                preferred.append(sample)
+            } else {
+                opportunistic.append(sample)
+            }
+        }
+        return (preferred, opportunistic)
+    }
+
     static func displayName(for bundleID: String) -> String {
         switch bundleID {
         case "com.dexcom.stelo": return "Stelo"
@@ -67,7 +148,10 @@ enum DeviceProvenance {
         case "com.abbottdiabetescare.libre2": return "FreeStyle Libre 2"
         case "com.abbottdiabetescare.libre3": return "FreeStyle Libre 3"
         case "com.emay.sleepo2", "com.emay.SleepO2": return "EMAY SleepO2"
+        case "com.emay.oximeter": return "EMAY Oximeter"
         case "io.wellue.health", "com.viatomtech.wellue.O2Ring": return "Wellue O2Ring"
+        case "fi.polar.polarflow": return "Polar Flow"
+        case "polar_h10": return "Polar H10"
         case "com.apple.health", "com.apple.Health": return "Apple Watch"
         case "com.withings.wiscale2": return "Withings"
         case "com.omronhealthcare.OmronConnect": return "Omron"

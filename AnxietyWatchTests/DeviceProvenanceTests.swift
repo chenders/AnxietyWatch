@@ -49,6 +49,127 @@ struct DeviceProvenanceClassificationTests {
     func appleHealthNotMedicalBP() {
         #expect(DeviceProvenance.isMedicalGradeBPCuff("com.apple.health") == false)
     }
+
+    @Test("EMAY HealthKit bundle classified as overnight pulse oximeter")
+    func emayHealthKitBundleIsOvernight() {
+        // `com.emay.oximeter` is what the EMAY iOS companion app stamps onto
+        // samples it writes into HealthKit (vs. `com.emay.SleepO2` for our
+        // own CSV imports). Both routes are the same device class and must
+        // be classified the same way so source-precedence sees them as
+        // high-fidelity.
+        #expect(DeviceProvenance.isOvernightPulseOximeter("com.emay.oximeter") == true)
+    }
+
+    @Test("Polar Flow bundle classified as chest strap HR monitor")
+    func polarFlowIsChestStrap() {
+        #expect(DeviceProvenance.isChestStrapHRMonitor("fi.polar.polarflow") == true)
+    }
+
+    @Test("polar_h10 typed label classified as chest strap HR monitor")
+    func polarH10TypedLabelIsChestStrap() {
+        // The app's own BLE pipeline stamps `polar_h10` (not a bundle ID
+        // shape) onto `SensorSession` / `HRVReading` rows — verify it's
+        // recognized alongside the Polar Flow HealthKit-side bundle.
+        #expect(DeviceProvenance.isChestStrapHRMonitor("polar_h10") == true)
+    }
+
+    @Test("Apple Health is not a chest strap HR monitor")
+    func appleHealthNotChestStrap() {
+        #expect(DeviceProvenance.isChestStrapHRMonitor("com.apple.health") == false)
+    }
+}
+
+@Suite("DeviceProvenance.partition source-precedence")
+struct DeviceProvenancePartitionTests {
+    private func sample(_ bundle: String, value: Double = 0.95, metric: String) -> QuantityHealthSample {
+        QuantityHealthSample(
+            timestamp: Date.ref(0),
+            metricType: metric,
+            value: value,
+            unitString: "%",
+            sourceBundleID: bundle,
+            sourceName: bundle
+        )
+    }
+
+    @Test("SpO2 partition: EMAY samples → preferred, Apple Watch → opportunistic")
+    func spo2EmaySplit() {
+        let metric = "HKQuantityTypeIdentifierOxygenSaturation"
+        let samples = [
+            sample("com.emay.SleepO2", value: 0.92, metric: metric),
+            sample("com.emay.oximeter", value: 0.93, metric: metric),
+            sample("com.apple.health", value: 0.78, metric: metric),
+            sample("com.apple.Health", value: 0.84, metric: metric),
+        ]
+        let parts = DeviceProvenance.partition(samples: samples, metricType: metric)
+        #expect(parts.preferred.count == 2)
+        #expect(parts.opportunistic.count == 2)
+        #expect(parts.preferred.allSatisfy { DeviceProvenance.isOvernightPulseOximeter($0.sourceBundleID) })
+        #expect(parts.opportunistic.allSatisfy { DeviceProvenance.isAppleEcosystemSource($0.sourceBundleID) })
+    }
+
+    @Test("HR partition: Polar samples → preferred, Apple Watch → opportunistic")
+    func hrPolarSplit() {
+        let metric = "HKQuantityTypeIdentifierHeartRate"
+        let samples = [
+            sample("fi.polar.polarflow", value: 62, metric: metric),
+            sample("polar_h10", value: 64, metric: metric),
+            sample("com.apple.health", value: 88, metric: metric),
+        ]
+        let parts = DeviceProvenance.partition(samples: samples, metricType: metric)
+        #expect(parts.preferred.count == 2)
+        #expect(parts.opportunistic.count == 1)
+    }
+
+    @Test("HRV partition: Polar samples → preferred, Apple Watch → opportunistic")
+    func hrvPolarSplit() {
+        let metric = "HKQuantityTypeIdentifierHeartRateVariabilitySDNN"
+        let samples = [
+            sample("fi.polar.polarflow", value: 45.0, metric: metric),
+            sample("com.apple.health", value: 28.0, metric: metric),
+        ]
+        let parts = DeviceProvenance.partition(samples: samples, metricType: metric)
+        #expect(parts.preferred.count == 1)
+        #expect(parts.opportunistic.count == 1)
+    }
+
+    @Test("RestingHR partition: Polar samples → preferred")
+    func restingHRPolarSplit() {
+        let metric = "HKQuantityTypeIdentifierRestingHeartRate"
+        let samples = [
+            sample("fi.polar.polarflow", value: 58, metric: metric),
+            sample("com.apple.health", value: 65, metric: metric),
+        ]
+        let parts = DeviceProvenance.partition(samples: samples, metricType: metric)
+        #expect(parts.preferred.count == 1)
+        #expect(parts.opportunistic.count == 1)
+    }
+
+    @Test("Glucose partition: no high-fidelity tier defined → everything opportunistic")
+    func glucoseNoPreferredTier() {
+        // CGMs have their own classifier (`Reliability.glucoseDaily`) — the
+        // partition helper intentionally returns nil for metrics without a
+        // defined high-fidelity vs Apple Watch overlap, so callers naturally
+        // fall back to the opportunistic subset (= all samples).
+        let metric = "HKQuantityTypeIdentifierBloodGlucose"
+        let samples = [
+            sample("com.dexcom.stelo", value: 90, metric: metric),
+            sample("com.apple.health", value: 110, metric: metric),
+        ]
+        let parts = DeviceProvenance.partition(samples: samples, metricType: metric)
+        #expect(parts.preferred.isEmpty)
+        #expect(parts.opportunistic.count == 2)
+    }
+
+    @Test("Empty input → both subsets empty")
+    func emptyInput() {
+        let parts = DeviceProvenance.partition(
+            samples: [],
+            metricType: "HKQuantityTypeIdentifierOxygenSaturation"
+        )
+        #expect(parts.preferred.isEmpty)
+        #expect(parts.opportunistic.isEmpty)
+    }
 }
 
 @Suite("DeviceProvenance display names")
