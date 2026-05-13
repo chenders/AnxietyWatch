@@ -11,6 +11,11 @@
 		839563792F6D2DF3002DA90A /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 839563782F6D2DF3002DA90A /* WidgetKit.framework */; };
 		8395637B2F6D2DF3002DA90A /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8395637A2F6D2DF3002DA90A /* SwiftUI.framework */; };
 		839563862F6D2DF4002DA90A /* AnxietyWatchWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 839563762F6D2DF3002DA90A /* AnxietyWatchWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		83B1FAE62FB4009800584A97 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 839563782F6D2DF3002DA90A /* WidgetKit.framework */; };
+		83B1FAE72FB4009800584A97 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8395637A2F6D2DF3002DA90A /* SwiftUI.framework */; };
+		83B1FAF42FB4009A00584A97 /* AnxietyWatchLiveActivitiesExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 83B1FAE52FB4009800584A97 /* AnxietyWatchLiveActivitiesExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		83EE00022F6E300000B45286 /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 83EE00012F6E300000B45286 /* ActivityKit.framework */; };
+		83EE00032F6E300000B45286 /* ActivityKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 83EE00012F6E300000B45286 /* ActivityKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -27,6 +32,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 839563752F6D2DF3002DA90A;
 			remoteInfo = AnxietyWatchWidgetsExtension;
+		};
+		83B1FAF22FB4009A00584A97 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 833535F12F6D0B3D00B45286 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 83B1FAE42FB4009800584A97;
+			remoteInfo = AnxietyWatchLiveActivitiesExtension;
 		};
 		83BB00012F6E100000B45286 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -60,6 +72,17 @@
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		83B1FAF52FB4009A00584A97 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				83B1FAF42FB4009A00584A97 /* AnxietyWatchLiveActivitiesExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -71,7 +94,9 @@
 		839563782F6D2DF3002DA90A /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		8395637A2F6D2DF3002DA90A /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		8395638C2F6D2EE7002DA90A /* AnxietyWatchWidgetsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AnxietyWatchWidgetsExtension.entitlements; sourceTree = "<group>"; };
+		83B1FAE52FB4009800584A97 /* AnxietyWatchLiveActivitiesExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AnxietyWatchLiveActivitiesExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		83BB00022F6E100000B45286 /* AnxietyWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnxietyWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		83EE00012F6E300000B45286 /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = System/Library/Frameworks/ActivityKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -89,6 +114,13 @@
 			);
 			target = 833535F82F6D0B3D00B45286 /* AnxietyWatch */;
 		};
+		83B1FAF92FB4009A00584A97 /* Exceptions for "AnxietyWatchLiveActivities" folder in "AnxietyWatchLiveActivitiesExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 83B1FAE42FB4009800584A97 /* AnxietyWatchLiveActivitiesExtension */;
+		};
 		83CC00012F6E200000B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatch Watch App" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -103,6 +135,13 @@
 			);
 			target = 8335360C2F6D0BFF00B45286 /* AnxietyWatch Watch App */;
 		};
+		83DD00012F6E200000B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatchLiveActivitiesExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Services/HRVRecordingActivityAttributes.swift,
+			);
+			target = 83B1FAE42FB4009800584A97 /* AnxietyWatchLiveActivitiesExtension */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -111,6 +150,7 @@
 			exceptions = (
 				83AA00012F6D0B3D00B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatch" target */,
 				83CC00012F6E200000B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatch Watch App" target */,
+				83DD00012F6E200000B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatchLiveActivitiesExtension" target */,
 			);
 			path = AnxietyWatch;
 			sourceTree = "<group>";
@@ -128,6 +168,14 @@
 			path = AnxietyWatchWidgets;
 			sourceTree = "<group>";
 		};
+		83B1FAE82FB4009800584A97 /* AnxietyWatchLiveActivities */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				83B1FAF92FB4009A00584A97 /* Exceptions for "AnxietyWatchLiveActivities" folder in "AnxietyWatchLiveActivitiesExtension" target */,
+			);
+			path = AnxietyWatchLiveActivities;
+			sourceTree = "<group>";
+		};
 		83BB00032F6E100000B45286 /* AnxietyWatchTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = AnxietyWatchTests;
@@ -140,6 +188,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				83EE00022F6E300000B45286 /* ActivityKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -156,6 +205,16 @@
 			files = (
 				8395637B2F6D2DF3002DA90A /* SwiftUI.framework in Frameworks */,
 				839563792F6D2DF3002DA90A /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		83B1FAE22FB4009800584A97 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				83B1FAE72FB4009800584A97 /* SwiftUI.framework in Frameworks */,
+				83B1FAE62FB4009800584A97 /* WidgetKit.framework in Frameworks */,
+				83EE00032F6E300000B45286 /* ActivityKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -187,6 +246,7 @@
 				83BB00032F6E100000B45286 /* AnxietyWatchTests */,
 				8335360E2F6D0BFF00B45286 /* AnxietyWatch Watch App */,
 				8395637C2F6D2DF3002DA90A /* AnxietyWatchWidgets */,
+				83B1FAE82FB4009800584A97 /* AnxietyWatchLiveActivities */,
 				839563772F6D2DF3002DA90A /* Frameworks */,
 				833535FA2F6D0B3D00B45286 /* Products */,
 			);
@@ -199,6 +259,7 @@
 				83BB00022F6E100000B45286 /* AnxietyWatchTests.xctest */,
 				8335360D2F6D0BFF00B45286 /* AnxietyWatch Watch App.app */,
 				839563762F6D2DF3002DA90A /* AnxietyWatchWidgetsExtension.appex */,
+				83B1FAE52FB4009800584A97 /* AnxietyWatchLiveActivitiesExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -208,6 +269,7 @@
 			children = (
 				839563782F6D2DF3002DA90A /* WidgetKit.framework */,
 				8395637A2F6D2DF3002DA90A /* SwiftUI.framework */,
+				83EE00012F6E300000B45286 /* ActivityKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -223,11 +285,13 @@
 				833535F62F6D0B3D00B45286 /* Frameworks */,
 				833535F72F6D0B3D00B45286 /* Resources */,
 				8335361B2F6D0C0100B45286 /* Embed Watch Content */,
+				83B1FAF52FB4009A00584A97 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				833536162F6D0C0100B45286 /* PBXTargetDependency */,
+				83B1FAF32FB4009A00584A97 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				833535FB2F6D0B3D00B45286 /* AnxietyWatch */,
@@ -285,6 +349,28 @@
 			productReference = 839563762F6D2DF3002DA90A /* AnxietyWatchWidgetsExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		83B1FAE42FB4009800584A97 /* AnxietyWatchLiveActivitiesExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 83B1FAF82FB4009A00584A97 /* Build configuration list for PBXNativeTarget "AnxietyWatchLiveActivitiesExtension" */;
+			buildPhases = (
+				83B1FAE12FB4009800584A97 /* Sources */,
+				83B1FAE22FB4009800584A97 /* Frameworks */,
+				83B1FAE32FB4009800584A97 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				83B1FAE82FB4009800584A97 /* AnxietyWatchLiveActivities */,
+			);
+			name = AnxietyWatchLiveActivitiesExtension;
+			packageProductDependencies = (
+			);
+			productName = AnxietyWatchLiveActivitiesExtension;
+			productReference = 83B1FAE52FB4009800584A97 /* AnxietyWatchLiveActivitiesExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		83BB00052F6E100000B45286 /* AnxietyWatchTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 83BB000C2F6E100000B45286 /* Build configuration list for PBXNativeTarget "AnxietyWatchTests" */;
@@ -315,8 +401,8 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2630;
-				LastUpgradeCheck = 2630;
+				LastSwiftUpdateCheck = 2650;
+				LastUpgradeCheck = 2650;
 				TargetAttributes = {
 					833535F82F6D0B3D00B45286 = {
 						CreatedOnToolsVersion = 26.3;
@@ -326,6 +412,9 @@
 					};
 					839563752F6D2DF3002DA90A = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					83B1FAE42FB4009800584A97 = {
+						CreatedOnToolsVersion = 26.5;
 					};
 					83BB00052F6E100000B45286 = {
 						CreatedOnToolsVersion = 26.3;
@@ -351,6 +440,7 @@
 				83BB00052F6E100000B45286 /* AnxietyWatchTests */,
 				8335360C2F6D0BFF00B45286 /* AnxietyWatch Watch App */,
 				839563752F6D2DF3002DA90A /* AnxietyWatchWidgetsExtension */,
+				83B1FAE42FB4009800584A97 /* AnxietyWatchLiveActivitiesExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -371,6 +461,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		839563742F6D2DF3002DA90A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		83B1FAE32FB4009800584A97 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -408,6 +505,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		83B1FAE12FB4009800584A97 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		83BB00062F6E100000B45286 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -427,6 +531,11 @@
 			isa = PBXTargetDependency;
 			target = 839563752F6D2DF3002DA90A /* AnxietyWatchWidgetsExtension */;
 			targetProxy = 839563842F6D2DF4002DA90A /* PBXContainerItemProxy */;
+		};
+		83B1FAF32FB4009A00584A97 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 83B1FAE42FB4009800584A97 /* AnxietyWatchLiveActivitiesExtension */;
+			targetProxy = 83B1FAF22FB4009A00584A97 /* PBXContainerItemProxy */;
 		};
 		83BB00082F6E100000B45286 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -472,6 +581,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -494,6 +604,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -535,6 +646,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -550,6 +662,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -564,7 +677,6 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnxietyWatch/Info.plist;
@@ -604,7 +716,6 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnxietyWatch/Info.plist;
@@ -644,7 +755,6 @@
 				CODE_SIGN_ENTITLEMENTS = "AnxietyWatch Watch App/AnxietyWatch Watch App.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Anxiety Watch";
@@ -680,7 +790,6 @@
 				CODE_SIGN_ENTITLEMENTS = "AnxietyWatch Watch App/AnxietyWatch Watch App.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Anxiety Watch";
@@ -716,7 +825,6 @@
 				CODE_SIGN_ENTITLEMENTS = AnxietyWatchWidgetsExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnxietyWatchWidgets/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Anxiety Watch Widgets";
@@ -750,7 +858,6 @@
 				CODE_SIGN_ENTITLEMENTS = AnxietyWatchWidgetsExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = AnxietyWatchWidgets/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Anxiety Watch Widgets";
@@ -775,13 +882,72 @@
 			};
 			name = Release;
 		};
+		83B1FAF62FB4009A00584A97 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AnxietyWatchLiveActivities/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AnxietyWatchLiveActivities;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.groundeffectsoftware.AnxietyWatch.AnxietyWatchLiveActivities;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		83B1FAF72FB4009A00584A97 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = AnxietyWatchLiveActivities/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AnxietyWatchLiveActivities;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.groundeffectsoftware.AnxietyWatch.AnxietyWatchLiveActivities;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		83BB00092F6E100000B45286 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.groundeffectsoftware.AnxietyWatchTests;
@@ -802,7 +968,6 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7GPLS9UF3W;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.groundeffectsoftware.AnxietyWatchTests;
@@ -852,6 +1017,15 @@
 			buildConfigurations = (
 				839563892F6D2DF4002DA90A /* Debug */,
 				8395638A2F6D2DF4002DA90A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		83B1FAF82FB4009A00584A97 /* Build configuration list for PBXNativeTarget "AnxietyWatchLiveActivitiesExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				83B1FAF62FB4009A00584A97 /* Debug */,
+				83B1FAF72FB4009A00584A97 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -54,6 +54,12 @@ struct AnxietyWatchApp: App {
     /// and entry-point views (Dashboard card, Settings polar section) all
     /// flip the same flag — see `RecordingPresentationCoordinator`.
     @State private var recordingPresentation = RecordingPresentationCoordinator()
+    /// Drives the Lock Screen + Dynamic Island Live Activity for an
+    /// in-progress session. Constructed once and held as @State so the
+    /// observation-tracking subscription installed in its init stays
+    /// alive for the app's lifetime. No environment injection needed —
+    /// the coordinator is internal; nothing reads it.
+    @State private var liveActivityCoordinator: LiveActivityCoordinator?
     @Environment(\.scenePhase) private var scenePhase
     @State private var followUpDose: MedicationDose?
     @State private var followUpMedication: MedicationDefinition?
@@ -82,6 +88,7 @@ struct AnxietyWatchApp: App {
 
         let polar = PolarHRMService(modelContext: ModelContext(sharedModelContainer))
         _polarService = State(initialValue: polar)
+        _liveActivityCoordinator = State(initialValue: LiveActivityCoordinator(polarService: polar))
 
         // Set notification delegate so notifications show in foreground
         // and taps trigger the pending check-in/follow-up flow.

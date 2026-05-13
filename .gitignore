@@ -60,6 +60,7 @@ AnxietyWatch/Utilities/BuildVersion.swift
 # with the repo and run for every contributor.
 .claude/hooks/*
 !.claude/hooks/swiftlint-edited.py
+!.claude/hooks/pre-pr-reviewer-reminder.py
 
 # Clinical chart pipeline — local-only. Inputs are HIPAA-sensitive
 # prod pulls, outputs are large rendered artifacts; neither belongs in

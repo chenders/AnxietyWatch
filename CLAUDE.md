@@ -188,6 +188,16 @@ AnxietyWatch/
 - **No storyboards or XIBs** — pure SwiftUI.
 - **Comments**: Comment the "why", not the "what". HealthKit type identifiers should have inline comments explaining what they measure.
 
+## Pre-PR review (required before `git push`)
+
+**MANDATORY:** Before any `git push` that includes substantive Swift changes (new files, new behavior, non-trivial modifications, or new tests), run the `swift-pre-pr-reviewer` agent on the unpushed diff. Address any **Will Block** findings before pushing. Address **Should Address** findings unless explicitly deferred with a reason recorded in the commit message or PR description.
+
+Skip the review only for trivial pushes — comments, README, version bumps, build-config tweaks, scheme-file bookkeeping. When in doubt, run it. The cost (~5 minutes) is small relative to catching a real bug in Copilot review (each round of which takes longer than the agent run) or, worse, post-merge.
+
+The agent definition lives at `.claude/agents/swift-pre-pr-reviewer.md`. A `PreToolUse` hook in `.claude/settings.json` (`pre-pr-reviewer-reminder.py`) surfaces a reminder when a `git push` command is about to run; the reminder is non-blocking, but you are expected to follow the policy.
+
+The pattern over the last several PRs: pre-PR review consistently catches 3-6 substantive issues per PR that would otherwise be flagged by Copilot. Running the reviewer first is significantly cheaper than the multi-round Copilot dance.
+
 ## Common pitfalls (catch these before pushing)
 
 These are the recurring categories that have driven ~33% of recent commits into Copilot review rounds. Check the diff against these before opening a PR. See `docs/plans/claude-code-setup-improvements.md` for the full diagnostic and the rationale behind each item.

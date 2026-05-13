@@ -28,27 +28,17 @@ struct ContentView: View {
                 SettingsView()
             }
         }
-        // `.safeAreaInset` reserves a strip ABOVE the tab bar for the
-        // pill rather than overlaying on top of it. An overlay-style
-        // placement (ZStack alignment .bottom) sits *on* the tab bar,
-        // which would intercept taps in the pill's hit-test region and
-        // make tab switching unreliable during recording — the worst
-        // possible time for it. With `.safeAreaInset` the pill gets its
-        // own non-overlapping zone, and when it renders `EmptyView`
-        // (the non-recording state) the inset height collapses to zero
-        // so the tab content reclaims the space.
-        //
-        // RecordingStatusPill is rendered unconditionally; the pill's
-        // own body decides whether to draw content. Keeping the
-        // visibility branch inside that child view scopes
-        // polarService.state observation to the pill only — otherwise
-        // every HR tick would re-render the tab tree (iOS 26 pitfall).
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            // No padding applied here — RecordingStatusPill applies its
-            // own padding INSIDE the `if let content` conditional so
-            // that when the pill is hidden no inset is contributed at
-            // all. Wrapping with .padding(...) here would leave a
-            // permanent gap above the tab bar in idle states.
+        // The pill is rendered as a free-floating overlay rather than
+        // a safe-area inset because iOS 18+'s `Tab { ... }` TabView
+        // ships a floating "liquid glass" tab bar that does NOT
+        // contribute to the safe-area inset — so `.safeAreaInset(edge:
+        // .bottom)` ends up placing the pill on top of the tab bar
+        // visually. An overlay with the pill's own draggable position
+        // sidesteps that entirely. The pill manages its own visibility
+        // (returns no content when not recording) so the overlay is
+        // effectively a no-op in idle states; observation of
+        // polarService.state is scoped inside the pill view, not here.
+        .overlay(alignment: .topLeading) {
             RecordingStatusPill()
         }
         .sheet(isPresented: $presentation.showingLiveView) {

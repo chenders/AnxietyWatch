@@ -10,6 +10,14 @@
 - **Stage specific files by name.** Never use `git add -A` or `git add .` — this prevents committing tool artifacts or sensitive files.
 - Use `git pull --rebase` instead of `git pull`. Avoid `git reset --hard` and other destructive operations.
 
+## Pre-PR review (required before `git push`)
+
+**Mandatory:** Before any `git push` that includes substantive Swift changes (new files, new behavior, non-trivial modifications, or new tests), run the `swift-pre-pr-reviewer` agent on the unpushed diff. Address any **Will Block** findings before pushing. Address **Should Address** findings unless explicitly deferred with a reason recorded in the commit message or PR description.
+
+Skip the review only for trivial pushes (comments, README, version bumps, build-config tweaks, scheme-file bookkeeping). When in doubt, run it.
+
+The agent definition lives at `.claude/agents/swift-pre-pr-reviewer.md` and is calibrated against the recurring Copilot-review categories observed in this repo. A `PreToolUse` hook (`.claude/hooks/pre-pr-reviewer-reminder.py`, wired in `.claude/settings.json`) surfaces a non-blocking reminder at push time; the policy is enforced by convention, not by the hook.
+
 ## Testing
 
 - After writing or modifying code, run the relevant tests to verify your changes:
