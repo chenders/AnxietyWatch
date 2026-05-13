@@ -12,17 +12,24 @@ struct MultiFileImportAlertTests {
             updated: updated,
             dateRange: nil,
             skippedRowCount: skipped,
+            sensorGapRowCount: 0,
             warnings: warnings
         )
     }
 
-    private func emayResult(inserted: Int, skipped: Int = 0, warnings: [String] = []) -> CSVImportRouter.Result {
+    private func emayResult(
+        inserted: Int,
+        skipped: Int = 0,
+        sensorGaps: Int = 0,
+        warnings: [String] = []
+    ) -> CSVImportRouter.Result {
         CSVImportRouter.Result(
             kind: .emay,
             inserted: inserted,
             updated: 0,
             dateRange: nil,
             skippedRowCount: skipped,
+            sensorGapRowCount: sensorGaps,
             warnings: warnings
         )
     }

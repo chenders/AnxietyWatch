@@ -23,20 +23,34 @@ extension CSVImportRouter.Result {
             }
         case .emay:
             if inserted == 0 {
-                // Two paths land here: (a) re-import where every parsed row
-                // was deduped against existing samples, and (b) a file where
+                // Three paths land here that we can't distinguish without
+                // additional tracking: (a) re-import where every parsed row
+                // was deduped against existing samples, (b) a file where
                 // every row's SpO2 and pulse values were zero (EMAY emits
-                // zeros during signal dropout) and got dropped at parse time.
-                // Use neutral wording that's correct for both.
+                // zeros during signal dropout) and got dropped at parse
+                // time, or (c) a file containing only sensor-disconnect
+                // (blank SpO2 + PR) rows. Neutral wording is correct for
+                // all three; the sensor-gap trailer below provides
+                // additional context when (c) applies.
                 head = "No new EMAY samples imported."
             } else {
                 head = "Imported \(inserted) EMAY sample\(inserted == 1 ? "" : "s")."
             }
         }
-        if skippedRowCount > 0 {
-            return head + " Skipped \(skippedRowCount) row\(skippedRowCount == 1 ? "" : "s")."
+        var trailers: [String] = []
+        if sensorGapRowCount > 0 {
+            // EMAY's own report flags these as "loose finger-probe contact"
+            // and excludes them from clinical stats. Surface as a neutral
+            // count, separate from skipped-as-malformed rows.
+            trailers.append("\(sensorGapRowCount) sensor-disconnect row\(sensorGapRowCount == 1 ? "" : "s") (excluded by EMAY)")
         }
-        return head
+        if skippedRowCount > 0 {
+            trailers.append("Skipped \(skippedRowCount) malformed row\(skippedRowCount == 1 ? "" : "s")")
+        }
+        if trailers.isEmpty {
+            return head
+        }
+        return head + " " + trailers.joined(separator: "; ") + "."
     }
 
     /// Summary + warning lines for an alert body. Warnings are pre-capped at

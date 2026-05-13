@@ -34,6 +34,8 @@ Only comment when you have HIGH CONFIDENCE (>80%) that an issue exists. Prefer s
 
 Be concise: one sentence per comment when possible.
 
+**Watch for interaction bugs between fixes within a single PR or branch.** When a diff combines a bug fix with an optimization (or two fixes in different rounds of review), check whether the optimization preserves the invariants the fix established. Common pattern: a fix introduces "always do X before Y" as a correctness invariant; a later optimization adds a branch that skips X conditionally but leaves Y unconditional — silently breaking the invariant in a smaller window. This is the kind of bug that's invisible when reviewing each commit independently but obvious when reviewing the combined diff. See the "conditional-skip optimizations" pitfall in `.github/instructions/swift.instructions.md` for the canonical example (sync drain `bulkOnly` flag + cursor advance).
+
 ## CI context
 
 This repo runs SwiftLint `--strict` and treats Swift warnings as errors in CI (`SWIFT_TREAT_WARNINGS_AS_ERRORS=YES`); the server runs flake8.

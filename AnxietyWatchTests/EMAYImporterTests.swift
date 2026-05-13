@@ -217,6 +217,61 @@ struct EMAYImporterTests {
         #expect(samples.first?.metricType == EMAYImporter.heartRateMetricType)
     }
 
+    @Test("Sensor-gap rows (blank SpO2 + PR) are counted separately from skips")
+    func sensorGapRowsCountedSeparately() throws {
+        // EMAY emits a per-second row even when the finger probe is off; in
+        // those rows SpO2 and PR are both blank. Those rows must NOT inflate
+        // skippedRowCount (the user-facing "malformed row" counter) and must
+        // NOT generate "invalid SpO2 ''" warnings — they're documented sensor
+        // gaps that the device itself excludes from its clinical stats.
+        let csv = """
+        Date,Time,SpO2(%),PR(bpm)
+        5/10/2026,5:10:28 AM,94,90
+        5/10/2026,5:10:29 AM,95,90
+        5/10/2026,5:10:30 AM,,
+        5/10/2026,5:10:31 AM,,
+        5/10/2026,5:10:32 AM,,
+        5/10/2026,5:10:33 AM,96,91
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let result = try EMAYImporter.importCSV(from: url, into: context)
+        #expect(result.inserted == 6)              // 3 valid rows × (SpO2 + HR)
+        #expect(result.skippedRowCount == 0)       // no malformed rows
+        #expect(result.sensorGapRowCount == 3)     // three probe-off rows
+        #expect(result.warnings.isEmpty)           // gaps don't generate warnings
+    }
+
+    @Test("All-sensor-gap file returns a zero-insert result instead of throwing noData")
+    func sensorGapOnlyFileReturnsZeroInsertResult() throws {
+        // A file that's entirely sensor-disconnect rows isn't a parse failure
+        // — it's a valid but empty capture. The dialog needs the gap count to
+        // explain "your file was 100% probe-off"; throwing noData hides it
+        // and surfaces a misleading "no data" error instead.
+        let csv = """
+        Date,Time,SpO2(%),PR(bpm)
+        5/10/2026,5:10:30 AM,,
+        5/10/2026,5:10:31 AM,,
+        5/10/2026,5:10:32 AM,,
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let result = try EMAYImporter.importCSV(from: url, into: context)
+        #expect(result.inserted == 0)
+        #expect(result.skippedRowCount == 0)
+        #expect(result.sensorGapRowCount == 3)
+        #expect(result.warnings.isEmpty)
+        #expect(result.dateRange == nil)  // no valid rows → no range to report
+    }
+
     @Test("Throws noData on header-only file")
     func headerOnly() throws {
         let csv = "Date,Time,SpO2(%),PR(bpm)\n"

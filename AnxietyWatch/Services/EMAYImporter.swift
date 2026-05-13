@@ -16,7 +16,15 @@ nonisolated enum EMAYImporter {
 
     struct ImportResult {
         let inserted: Int
+        /// Rows we couldn't make sense of — malformed dates, non-numeric values,
+        /// wrong column count. These produce user-visible `warnings`.
         let skippedRowCount: Int
+        /// Rows where EMAY itself reported "no reading" by leaving both SpO2 and
+        /// PR blank. EMAY's summary report explicitly excludes these from its
+        /// clinical stats ("loose contact with finger probe"), so we track them
+        /// separately from genuine parse failures and surface them with neutral
+        /// wording in the import dialog.
+        let sensorGapRowCount: Int
         let dateRange: ClosedRange<Date>?
         let warnings: [String]
     }
@@ -81,6 +89,7 @@ nonisolated enum EMAYImporter {
         // is cheap compared to scanning the entire QuantityHealthSample table
         // for dedup keys on every import.
         var tracker = ImportSkipTracker()
+        var sensorGapCount = 0
         var parsed: [ParsedEMAYRow] = []
         parsed.reserveCapacity(lines.count)
         var minDate: Date?
@@ -97,6 +106,8 @@ nonisolated enum EMAYImporter {
                 if minDate == nil || row.timestamp < minDate! { minDate = row.timestamp }
                 if maxDate == nil || row.timestamp > maxDate! { maxDate = row.timestamp }
                 parsed.append(row)
+            case .sensorGap:
+                sensorGapCount += 1
             case .skip(let reason):
                 tracker.record(row: rowNumber, reason: reason)
             }
@@ -122,6 +133,21 @@ nonisolated enum EMAYImporter {
         // rows were all already imported" (success with zero new inserts).
         // Re-importing a clean file should not look like a parse failure.
         guard !parsed.isEmpty else {
+            // A file containing only sensor-disconnect rows is a valid but
+            // empty parse — not a failure. Return a zero-insert result so the
+            // dialog surfaces the gap count instead of an opaque "no data"
+            // error. The same path also catches mostly-gap files with a few
+            // malformed rows: the gap count is still informative even if some
+            // rows were unparseable.
+            if sensorGapCount > 0 {
+                return ImportResult(
+                    inserted: 0,
+                    skippedRowCount: tracker.count,
+                    sensorGapRowCount: sensorGapCount,
+                    dateRange: nil,
+                    warnings: tracker.warnings
+                )
+            }
             throw ImportError.noData(skippedRowCount: tracker.count, warnings: tracker.warnings)
         }
 
@@ -141,6 +167,7 @@ nonisolated enum EMAYImporter {
         return ImportResult(
             inserted: inserted,
             skippedRowCount: tracker.count,
+            sensorGapRowCount: sensorGapCount,
             dateRange: dateRange,
             warnings: tracker.warnings
         )
@@ -156,6 +183,11 @@ nonisolated enum EMAYImporter {
 
     private enum ParseOutcome {
         case parsed(ParsedEMAYRow)
+        /// EMAY emits a row per second even when the finger probe is off; in
+        /// those rows both SpO2 and PR fields are blank. The device's own
+        /// report excludes these from clinical stats — we drop them silently
+        /// (separately counted) rather than reporting them as parse errors.
+        case sensorGap
         case skip(reason: String)
     }
 
@@ -166,6 +198,9 @@ nonisolated enum EMAYImporter {
         let combined = "\(fields[0]) \(fields[1])"
         guard let timestamp = formatter.date(from: combined) else {
             return .skip(reason: "invalid date/time '\(combined)'")
+        }
+        if fields[2].isEmpty && fields[3].isEmpty {
+            return .sensorGap
         }
         guard let spo2Pct = Double(fields[2]) else {
             return .skip(reason: "invalid SpO2 '\(fields[2])'")

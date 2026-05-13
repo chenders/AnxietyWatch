@@ -94,84 +94,202 @@ final class SyncService {
         isSyncing = true
         lastSyncResult = "Syncing..."
 
+        // Resolve the /api/sync URL up front; reused for every round-trip below.
+        let url: URL
         do {
-            // Read HealthKit demographics before entering the sync payload build
-            // (HealthKitManager is an actor, so these calls require await)
-            var demographics: [String: String] = [:]
-            let hkManager = HealthKitManager.shared
-            do {
-                if let dobComponents = try await hkManager.dateOfBirth(),
-                   let year = dobComponents.year,
-                   let month = dobComponents.month,
-                   let day = dobComponents.day {
-                    demographics["dateOfBirth"] = String(format: "%04d-%02d-%02d", year, month, day)
-                }
-            } catch {
-                // HealthKit may deny access — non-fatal
-            }
-            do {
-                let sex = try await hkManager.biologicalSex()
-                switch sex {
-                case .male: demographics["biologicalSex"] = "male"
-                case .female: demographics["biologicalSex"] = "female"
-                case .other: demographics["biologicalSex"] = "other"
-                case .notSet: break
-                @unknown default: break
-                }
-            } catch {
-                // HealthKit may deny access — non-fatal
-            }
-
-            // Incremental: only records since last sync
-            let payload = try buildPayload(from: modelContext, demographics: demographics.isEmpty ? nil : demographics)
-            // Capture the ids included in the payload so we can flip
-            // syncedToServer = true after the server confirms 200 OK.
-            let uploadedIDs = extractUploadedSyncedIDs(from: payload)
-
             guard var urlComponents = URLComponents(string: serverURL) else {
                 throw SyncError.invalidURL
             }
-            // Append /api/sync if the URL doesn't already have a path
             if urlComponents.path.isEmpty || urlComponents.path == "/" {
                 urlComponents.path = "/api/sync"
             }
-            guard let url = urlComponents.url else {
+            guard let resolved = urlComponents.url else {
                 throw SyncError.invalidURL
             }
-
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = payload
-            request.timeoutInterval = 30
-
-            let (responseData, response) = try await URLSession.shared.data(for: request)
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw SyncError.noConnection
-            }
-
-            guard (200...299).contains(httpResponse.statusCode) else {
-                let body = String(data: responseData, encoding: .utf8)
-                throw SyncError.serverError(httpResponse.statusCode, body)
-            }
-
-            lastSyncDate = .now
-
-            lastSyncResult = await applyPostUploadResponse(
-                responseData: responseData,
-                payloadByteCount: payload.count,
-                uploadedIDs: uploadedIDs,
-                modelContext: modelContext
-            )
-        } catch is URLError {
-            lastSyncResult = "Connection failed — check server URL"
+            url = resolved
         } catch {
             lastSyncResult = error.localizedDescription
+            isSyncing = false
+            return
+        }
+
+        let demographics = await readDemographicsForSync()
+
+        // Drain loop. Each iteration ships up to `sampleBatchLimit` rows of
+        // each bulk type (quantitySamples, sleepStageEvents, sensorSessions,
+        // hrvReadings). When an iteration hits that cap on any type, there
+        // might be more behind it — loop until the queue drains, a round
+        // trip fails, or `markSamplesSynced` fails (which would otherwise
+        // cause us to re-upload the same 1000 rows forever).
+        //
+        // `lastSyncDate` is advanced after each successful round trip so
+        // subsequent iterations only carry bulk rows (the incremental
+        // small-volume tables filter out by lastSyncDate). Bulk types
+        // filter by `syncedToServer == false` (not by date), so a flag
+        // failure on iteration N means the same rows would be fetched
+        // again on iteration N+1 — that's the loop-forever risk this code
+        // explicitly breaks on below.
+        //
+        // The hard cap of `maxRoundTrips` matches `sampleBatchLimit` as a
+        // safety belt: 1000 rows × 4 bulk types × 1000 trips = 4M rows per
+        // `sync()` invocation, well beyond any realistic backlog.
+        let maxRoundTrips = Self.sampleBatchLimit
+        var roundTrips = 0
+        var totalBytes = 0
+        var lastTripOutcome: PostUploadOutcome?
+
+        do {
+            while roundTrips < maxRoundTrips {
+                // Capture the cursor upper bound BEFORE building the payload
+                // so records created during the round trip don't fall into a
+                // hole. The naive pattern `lastSyncDate = .now` post-trip
+                // would have skipped any record whose timestamp landed
+                // between buildPayload and the cursor assignment: not in the
+                // current payload (created after the fetch returned) AND
+                // less than the new cursor (so the next sync's `since`
+                // filter would exclude it). Pinning the upper bound at
+                // payload-build time keeps the cursor in lockstep with what
+                // we actually sent. Bulk types filter by `syncedToServer`
+                // (not by date) so they're unaffected by this race either way.
+                let cursorUpperBound = Date.now
+                // First iteration carries the small-volume tables. Subsequent
+                // iterations request bulk-only payloads: `DataExporter`
+                // scans every row of every small-volume table with no
+                // predicate, so re-running it per iteration would turn a
+                // multi-batch drain into N full-table scans on the MainActor.
+                let iterationIsBulkOnly = roundTrips > 0
+                let payload = try buildPayload(
+                    from: modelContext,
+                    demographics: demographics.isEmpty ? nil : demographics,
+                    upperBound: cursorUpperBound,
+                    bulkOnly: iterationIsBulkOnly
+                )
+                let uploadedIDs = extractUploadedSyncedIDs(from: payload)
+
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = payload
+                request.timeoutInterval = 30
+
+                let (responseData, response) = try await URLSession.shared.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw SyncError.noConnection
+                }
+                guard (200...299).contains(httpResponse.statusCode) else {
+                    let body = String(data: responseData, encoding: .utf8)
+                    throw SyncError.serverError(httpResponse.statusCode, body)
+                }
+
+                // Advance the small-volume cursor ONLY when this iteration
+                // actually exported the small-volume tables. Bulk-only
+                // iterations don't carry anxiety entries / med doses / etc.,
+                // so advancing past them here would silently skip any
+                // small-volume record created between iter 1's upperBound
+                // and a later iter's cursor — the same race the round-1 fix
+                // closed, just with a smaller window. Bulk types filter by
+                // `syncedToServer == false` (not by date) so their progress
+                // is tracked by the post-upload flag, not by `lastSyncDate`.
+                if !iterationIsBulkOnly {
+                    lastSyncDate = cursorUpperBound
+                }
+
+                let outcome = await applyPostUploadResponse(
+                    responseData: responseData,
+                    payloadByteCount: payload.count,
+                    uploadedIDs: uploadedIDs,
+                    modelContext: modelContext
+                )
+                lastTripOutcome = outcome
+
+                roundTrips += 1
+                totalBytes += payload.count
+
+                // If flagging failed, the SAME rows would be fetched and
+                // POSTed on the next iteration — silent perpetual re-upload
+                // until `maxRoundTrips`. Bail to surface the partial-failure
+                // message and let the next sync invocation retry from a
+                // clean state.
+                if !outcome.flaggingSucceeded {
+                    break
+                }
+
+                // No bulk type hit its cap on this round → queue drained.
+                if !uploadedIDs.hitBulkLimit(Self.sampleBatchLimit) {
+                    break
+                }
+
+                // Long-running drain — surface progress so users don't think
+                // the app is hung. `roundTrips` was just incremented, so this
+                // reads as "N batches sent" referring to completed work.
+                let bytesFmt = ByteCountFormatter.string(fromByteCount: Int64(totalBytes), countStyle: .file)
+                lastSyncResult = "Syncing… \(roundTrips) batch\(roundTrips == 1 ? "" : "es") sent (\(bytesFmt))"
+            }
+
+            // Final status. Flag-failure paths preserve the detailed
+            // single-trip message (which includes the underlying error).
+            // Multi-batch successes get a rolled-up summary; single-batch
+            // successes keep the per-trip message verbatim.
+            if let outcome = lastTripOutcome, !outcome.flaggingSucceeded {
+                lastSyncResult = outcome.message
+            } else if roundTrips > 1 {
+                let bytesFmt = ByteCountFormatter.string(fromByteCount: Int64(totalBytes), countStyle: .file)
+                let time = Date.now.formatted(.dateTime.hour().minute())
+                lastSyncResult = "Synced \(roundTrips) batches (\(bytesFmt)) at \(time)"
+            } else if let outcome = lastTripOutcome {
+                lastSyncResult = outcome.message
+            }
+        } catch is URLError {
+            // Network failure. If earlier iterations committed, surface that
+            // partial progress rather than erasing it in the status line.
+            if roundTrips > 0 {
+                lastSyncResult = "Synced \(roundTrips) batch\(roundTrips == 1 ? "" : "es"), then connection failed — will retry"
+            } else {
+                lastSyncResult = "Connection failed — check server URL"
+            }
+        } catch {
+            if roundTrips > 0 {
+                lastSyncResult = "Synced \(roundTrips) batch\(roundTrips == 1 ? "" : "es"), then failed: \(error.localizedDescription)"
+            } else {
+                lastSyncResult = error.localizedDescription
+            }
         }
 
         isSyncing = false
+    }
+
+    /// Read HealthKit demographics for the sync payload. Both reads tolerate
+    /// HealthKit access denial — the resulting demographics dict is just
+    /// smaller, never thrown.
+    @MainActor
+    private func readDemographicsForSync() async -> [String: String] {
+        var demographics: [String: String] = [:]
+        let hkManager = HealthKitManager.shared
+        do {
+            if let dobComponents = try await hkManager.dateOfBirth(),
+               let year = dobComponents.year,
+               let month = dobComponents.month,
+               let day = dobComponents.day {
+                demographics["dateOfBirth"] = String(format: "%04d-%02d-%02d", year, month, day)
+            }
+        } catch {
+            // HealthKit may deny access — non-fatal
+        }
+        do {
+            let sex = try await hkManager.biologicalSex()
+            switch sex {
+            case .male: demographics["biologicalSex"] = "male"
+            case .female: demographics["biologicalSex"] = "female"
+            case .other: demographics["biologicalSex"] = "other"
+            case .notSet: break
+            @unknown default: break
+            }
+        } catch {
+            // HealthKit may deny access — non-fatal
+        }
+        return demographics
     }
 
     /// Run the post-200-OK side effects: flag uploaded samples as synced,
@@ -191,6 +309,16 @@ final class SyncService {
     /// the body fetches/mutates via `ModelContext` after the
     /// `await SongService.fetchCatalog(...)` suspension point, so isolation
     /// must be guaranteed regardless of which task suspended.
+    /// Outcome of a single post-upload step. The drain loop in `sync()` uses
+    /// `flaggingSucceeded` to decide whether to attempt another round trip:
+    /// if `markSamplesSynced` failed, looping would re-fetch the same unsynced
+    /// rows and POST them again indefinitely. The loop breaks instead so the
+    /// next `sync()` invocation can retry from a clean state.
+    struct PostUploadOutcome: Equatable {
+        let message: String
+        let flaggingSucceeded: Bool
+    }
+
     @MainActor
     func applyPostUploadResponse(
         responseData: Data,
@@ -198,7 +326,7 @@ final class SyncService {
         uploadedIDs: UploadedSyncedIDs,
         modelContext: ModelContext,
         markSamples: ((_ ids: UploadedSyncedIDs, _ ctx: ModelContext) throws -> Void)? = nil
-    ) async -> String {
+    ) async -> PostUploadOutcome {
         // Mark uploaded raw rows as synced so we don't resend them.
         // Failures here used to be swallowed via `try?`, which meant the
         // app would re-upload the same first 1000 rows forever if the
@@ -244,9 +372,15 @@ final class SyncService {
 
         let size = ByteCountFormatter.string(fromByteCount: Int64(payloadByteCount), countStyle: .file)
         if let sampleFlagError {
-            return "Synced \(size), but failed to flag samples — will re-send: \(sampleFlagError.localizedDescription)"
+            return PostUploadOutcome(
+                message: "Synced \(size), but failed to flag samples — will re-send: \(sampleFlagError.localizedDescription)",
+                flaggingSucceeded: false
+            )
         } else {
-            return "Synced \(size) at \(Date.now.formatted(.dateTime.hour().minute()))"
+            return PostUploadOutcome(
+                message: "Synced \(size) at \(Date.now.formatted(.dateTime.hour().minute()))",
+                flaggingSucceeded: true
+            )
         }
     }
 
@@ -415,15 +549,40 @@ final class SyncService {
     /// `DataExporter` and the unsynced-samples helpers). Called from
     /// `sync(modelContext:)`, which is itself MainActor.
     @MainActor
-    func buildPayload(from context: ModelContext, demographics: [String: String]? = nil) throws -> Data {
+    func buildPayload(
+        from context: ModelContext,
+        demographics: [String: String]? = nil,
+        upperBound: Date? = nil,
+        bulkOnly: Bool = false
+    ) throws -> Data {
         let since = lastSyncDate
 
-        // Reuse DataExporter's JSON format — the server gets the same schema as file exports
-        let jsonData = try DataExporter.exportJSON(from: context, start: since, end: nil)
-
-        // Wrap with sync metadata
-        guard var json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-            return jsonData
+        // `bulkOnly`: subsequent iterations of the drain loop skip the
+        // `DataExporter.exportJSON` call entirely. `DataExporter.buildBundle`
+        // fetches every row of every small-volume table (anxiety entries,
+        // medication doses, CPAP sessions, barometric readings, lab results,
+        // …) with no predicate and filters in memory — so a 100-iteration
+        // drain would do 100 full table scans across 12+ tables on the
+        // MainActor. After iteration 1 has already drained the small-volume
+        // window through `upperBound`, iterations 2+ only need the bulk
+        // arrays (which use indexed `syncedToServer == false` predicates).
+        // The trade-off: small-volume records modified DURING a long drain
+        // wait until the next `sync()` invocation rather than syncing
+        // mid-drain. Acceptable: drain windows are bounded, and the next
+        // sync correctly picks them up via the advanced `lastSyncDate`.
+        var json: [String: Any]
+        if bulkOnly {
+            json = [:]
+        } else {
+            // Reuse DataExporter's JSON format — the server gets the same schema as file exports.
+            // `upperBound` (when supplied) caps the small-volume range so the sync
+            // loop can advance `lastSyncDate` to a known upper edge without skipping
+            // records created during the round trip. See `sync()` for the rationale.
+            let jsonData = try DataExporter.exportJSON(from: context, start: since, end: upperBound)
+            guard let parsed = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+                return jsonData
+            }
+            json = parsed
         }
         json["syncType"] = since == nil ? "full" : "incremental"
         if let since {
@@ -814,4 +973,14 @@ struct UploadedSyncedIDs: Equatable {
     var sleepStageEvents: [UUID] = []
     var sensorSessions: [UUID] = []
     var hrvReadings: [UUID] = []
+
+    /// True if any bulk-type array filled the per-call cap. The sync loop uses
+    /// this as the signal that another round-trip is worth attempting: if we
+    /// just shipped 1000 of any type, there might be 1000 more behind them.
+    func hitBulkLimit(_ cap: Int) -> Bool {
+        quantitySamples.count >= cap
+            || sleepStageEvents.count >= cap
+            || sensorSessions.count >= cap
+            || hrvReadings.count >= cap
+    }
 }

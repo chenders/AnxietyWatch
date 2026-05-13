@@ -349,6 +349,136 @@ struct SyncServiceTests {
 
     // MARK: - Payload metadata
 
+    @Test("buildPayload upperBound caps the small-volume export range")
+    @MainActor
+    func payloadUpperBoundCapsExportRange() throws {
+        // The drain loop relies on `upperBound` cutting off the small-volume
+        // payload at a known timestamp so `lastSyncDate` can be advanced to
+        // that same timestamp after the round trip. Without the cap, a
+        // record inserted between buildPayload and the cursor advance would
+        // fall into a hole: not in the current payload, but its timestamp is
+        // less than the new lastSyncDate so the next iteration also skips it.
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let baseDate = Date(timeIntervalSince1970: 1_711_300_000)
+        // Two anxiety entries: one before the cutoff, one after.
+        context.insert(AnxietyEntry(
+            timestamp: baseDate,
+            severity: 5,
+            notes: "before-cutoff"
+        ))
+        context.insert(AnxietyEntry(
+            timestamp: baseDate.addingTimeInterval(120),
+            severity: 6,
+            notes: "after-cutoff"
+        ))
+        try context.save()
+
+        // Cap the payload at baseDate + 60s — only the "before-cutoff" entry
+        // should appear in the export.
+        let cutoff = baseDate.addingTimeInterval(60)
+        let data = try SyncService().buildPayload(from: context, upperBound: cutoff)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let entries = json?["anxietyEntries"] as? [[String: Any]] ?? []
+        let notes = entries.compactMap { $0["notes"] as? String }
+        #expect(notes.contains("before-cutoff"))
+        #expect(!notes.contains("after-cutoff"), "Entries past the upperBound must be excluded so the cursor advance can't skip them")
+    }
+
+    @Test("buildPayload bulkOnly does NOT report a small-volume export so callers can skip cursor advance")
+    @MainActor
+    func payloadBulkOnlyAndCursorAdvanceContract() throws {
+        // Regression guard for a cursor-race-redux that round-2 of the
+        // Copilot review caught: if `sync()` advances `lastSyncDate` on
+        // every successful round trip but uses `bulkOnly: true` on
+        // iterations 2+, then small-volume records created between iter 1's
+        // upperBound and a later iter's cursor advance get silently
+        // skipped — the same race the round-1 fix closed. The contract
+        // we want here is structural: a `bulkOnly: true` payload must
+        // not contain any of the small-volume keys, so the caller can
+        // safely make cursor advance conditional on `bulkOnly == false`
+        // via the same flag.
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        context.insert(AnxietyEntry(timestamp: .now, severity: 5, notes: "during-drain"))
+        try context.save()
+
+        let bulkData = try SyncService().buildPayload(from: context, bulkOnly: true)
+        let bulkJSON = try JSONSerialization.jsonObject(with: bulkData) as? [String: Any]
+
+        // None of the small-volume keys may appear in a bulkOnly payload.
+        // If any one of these starts appearing, the caller MUST audit
+        // whether their cursor-advance logic still matches what the
+        // payload actually contained.
+        let smallVolumeKeys = [
+            "anxietyEntries",
+            "medicationDefinitions",
+            "medicationDoses",
+            "cpapSessions",
+            "healthSnapshots",
+            "barometricReadings",
+            "labResults",
+            "pharmacies",
+            "prescriptions",
+            "pharmacyCallLogs",
+            "songs",
+            "songOccurrences",
+        ]
+        for key in smallVolumeKeys {
+            #expect(bulkJSON?[key] == nil, "bulkOnly payload must not contain '\(key)' — cursor-advance contract depends on this")
+        }
+    }
+
+    @Test("buildPayload bulkOnly skips small-volume tables but keeps bulk arrays")
+    @MainActor
+    func payloadBulkOnlyOmitsSmallVolumeTables() throws {
+        // Subsequent drain-loop iterations request bulk-only payloads to
+        // avoid `DataExporter.buildBundle` re-scanning every small-volume
+        // table on the MainActor each iteration. Pin the contract: an
+        // anxiety entry that would normally appear in the payload is
+        // absent under `bulkOnly: true`, while the bulk arrays still
+        // appear (empty here, but present so the server's `data.get(...)`
+        // fallbacks behave consistently).
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        context.insert(AnxietyEntry(
+            timestamp: Date(timeIntervalSince1970: 1_711_300_000),
+            severity: 5,
+            notes: "in-payload"
+        ))
+        try context.save()
+
+        // Sanity: non-bulkOnly payload includes the entry.
+        let normalData = try SyncService().buildPayload(from: context)
+        let normalJSON = try JSONSerialization.jsonObject(with: normalData) as? [String: Any]
+        let normalEntries = normalJSON?["anxietyEntries"] as? [[String: Any]] ?? []
+        try #require(normalEntries.contains { ($0["notes"] as? String) == "in-payload" })
+
+        // bulkOnly path: small-volume tables are absent entirely.
+        let bulkData = try SyncService().buildPayload(from: context, bulkOnly: true)
+        let bulkJSON = try JSONSerialization.jsonObject(with: bulkData) as? [String: Any]
+        #expect(bulkJSON?["anxietyEntries"] == nil, "bulkOnly must not run the small-volume DataExporter scan")
+        // Bulk arrays still present (even if empty) so the server's payload
+        // handler keys exist as expected.
+        #expect(bulkJSON?["quantitySamples"] != nil)
+        #expect(bulkJSON?["sleepStageEvents"] != nil)
+        #expect(bulkJSON?["sensorSessions"] != nil)
+        #expect(bulkJSON?["hrvReadings"] != nil)
+    }
+
     @Test("buildPayload includes syncSchemaVersion=4 in the wrapper metadata")
     @MainActor
     func payloadIncludesSchemaVersion() throws {
@@ -517,6 +647,39 @@ struct SyncServiceTests {
         #expect(array?.count == 3)
     }
 
+    // MARK: - UploadedSyncedIDs.hitBulkLimit
+
+    @Test("hitBulkLimit returns true when any bulk array fills the cap")
+    func hitBulkLimitTrueWhenCapReached() {
+        let ids = (0..<1000).map { _ in UUID() }
+        // quantitySamples at cap
+        #expect(UploadedSyncedIDs(quantitySamples: ids).hitBulkLimit(1000))
+        // sleepStageEvents at cap
+        #expect(UploadedSyncedIDs(sleepStageEvents: ids).hitBulkLimit(1000))
+        // sensorSessions at cap
+        #expect(UploadedSyncedIDs(sensorSessions: ids).hitBulkLimit(1000))
+        // hrvReadings at cap
+        #expect(UploadedSyncedIDs(hrvReadings: ids).hitBulkLimit(1000))
+    }
+
+    @Test("hitBulkLimit returns false when all bulk arrays are below the cap")
+    func hitBulkLimitFalseWhenBelowCap() {
+        let ids = (0..<999).map { _ in UUID() }
+        let uploaded = UploadedSyncedIDs(
+            quantitySamples: ids,
+            sleepStageEvents: ids,
+            sensorSessions: ids,
+            hrvReadings: ids
+        )
+        // Even with 999 × 4 types, none hit the 1000 cap → no more rounds needed.
+        #expect(!uploaded.hitBulkLimit(1000))
+    }
+
+    @Test("hitBulkLimit returns false on an empty payload")
+    func hitBulkLimitFalseWhenEmpty() {
+        #expect(!UploadedSyncedIDs().hitBulkLimit(1000))
+    }
+
     @Test("buildPayload caps the sample batch at 1000")
     @MainActor
     func payloadCapsBatchAt1000() throws {
@@ -682,7 +845,7 @@ struct SyncServiceTests {
         // the regression covers. Real production code path uses `markSamplesSynced`
         // (default nil → real implementation runs); the closure injection only
         // exists for test-time fault injection.
-        let result = await SyncService().applyPostUploadResponse(
+        let outcome = await SyncService().applyPostUploadResponse(
             responseData: responseData,
             payloadByteCount: 1024,
             uploadedIDs: UploadedSyncedIDs(
@@ -698,14 +861,16 @@ struct SyncServiceTests {
         #expect(correlations.count == 1, "Correlations apply must run even when sample-flagging fails")
         #expect(correlations.first?.signalName == "hrv_low")
 
-        // Result string surfaces the partial failure rather than reporting clean success.
+        // Outcome signals the partial failure so the drain loop can break
+        // instead of re-uploading the same unflagged rows forever.
+        #expect(!outcome.flaggingSucceeded, "Outcome must report flagging failure to the caller")
         #expect(
-            result.contains("failed to flag samples"),
-            "Partial-failure status must surface the sample-flag failure: got \(result)"
+            outcome.message.contains("failed to flag samples"),
+            "Partial-failure status must surface the sample-flag failure: got \(outcome.message)"
         )
         #expect(
-            result.contains("forced save failure"),
-            "Partial-failure status must include the underlying error description: got \(result)"
+            outcome.message.contains("forced save failure"),
+            "Partial-failure status must include the underlying error description: got \(outcome.message)"
         )
     }
 
@@ -721,15 +886,16 @@ struct SyncServiceTests {
 
         let responseData = try JSONSerialization.data(withJSONObject: [String: Any]())
 
-        let result = await SyncService().applyPostUploadResponse(
+        let outcome = await SyncService().applyPostUploadResponse(
             responseData: responseData,
             payloadByteCount: 512,
             uploadedIDs: UploadedSyncedIDs(),
             modelContext: context
         )
 
-        #expect(result.hasPrefix("Synced "))
-        #expect(!result.contains("failed to flag samples"))
+        #expect(outcome.flaggingSucceeded)
+        #expect(outcome.message.hasPrefix("Synced "))
+        #expect(!outcome.message.contains("failed to flag samples"))
     }
 
     @Test("buildPayload includes the standard wrapper metadata")

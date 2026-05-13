@@ -28,6 +28,11 @@ nonisolated enum CSVImportRouter {
         let updated: Int
         let dateRange: ClosedRange<Date>?
         let skippedRowCount: Int
+        /// EMAY-only: rows the device itself flagged as sensor-disconnected
+        /// (blank SpO2 + PR). Always 0 for CPAP imports. Surfaced separately
+        /// in the import dialog so a long disconnect window doesn't read as
+        /// a parse failure.
+        let sensorGapRowCount: Int
         let warnings: [String]
     }
 
@@ -79,6 +84,7 @@ nonisolated enum CSVImportRouter {
                     updated: 0,
                     dateRange: result.dateRange,
                     skippedRowCount: result.skippedRowCount,
+                    sensorGapRowCount: result.sensorGapRowCount,
                     warnings: result.warnings
                 )
             } catch let error as EMAYImporter.ImportError {
@@ -95,6 +101,7 @@ nonisolated enum CSVImportRouter {
                     updated: result.updated,
                     dateRange: result.dateRange,
                     skippedRowCount: result.skippedRowCount,
+                    sensorGapRowCount: 0,
                     warnings: result.warnings
                 )
             } catch let error as CPAPImporter.ImportError {
