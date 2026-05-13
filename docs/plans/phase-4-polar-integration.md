@@ -1,5 +1,17 @@
 # Phase 4 — Polar H10 surface-area integration
 
+## Status
+
+| Sub-phase | Status | PR |
+|---|---|---|
+| **4a** — Trend chart integration | ✅ Shipped | [#136](https://github.com/chenders/AnxietyWatch/pull/136) |
+| **4b.1** — In-app ambient recording UX (pill) | ✅ Shipped | [#138](https://github.com/chenders/AnxietyWatch/pull/138) |
+| **4b.2** — Live Activity (Lock Screen + Dynamic Island) | ✅ Shipped | [#139](https://github.com/chenders/AnxietyWatch/pull/139) |
+| **4c** — Session detail entry points (chart-tap → detail) | ⏳ Pending | — |
+| **4d** — Persona-review tier 1 polish (interpretation sentence, Simple/Advanced toggle, anxiety-sensitive mode) | ⏳ Pending | — |
+
+Original plan is preserved below as a historical record. Scope-deltas, decisions made during execution, and lessons-learned are captured in **[Implementation notes (post-merge)](#implementation-notes-post-merge)** at the end of this document.
+
 ## Why
 
 PRs #131 / #132 (Phase 3a-c) shipped real Polar H10 data plumbing — sensor sessions, HRV readings, frequency-domain math, sync — but introduced the new physiological capability behind **parallel surfaces** instead of extending the existing app. Three concrete instances of the same architectural drift:
@@ -18,7 +30,7 @@ This plan also captures the implications surfaced by the ten-persona UX review i
 
 Three restructurings, each independently shippable.
 
-### 4a — Trend chart integration
+### 4a — Trend chart integration ✅ Shipped — [#136](https://github.com/chenders/AnxietyWatch/pull/136)
 
 Pull the Polar HRV data **into** existing trend charts rather than presenting it next to them.
 
@@ -41,7 +53,7 @@ Pull the Polar HRV data **into** existing trend charts rather than presenting it
 - `AnxietyWatch/Views/Trends/RMSSDTrendChart.swift` *(new)*, `HFPowerTrendChart.swift` *(new)* — new chart cards modeled on existing `HRVTrendChart`.
 - `AnxietyWatch/Services/LFHFAggregator.swift` — kept, used by the new HF Power trend (`nightlyMeans` already returns what's needed). Possibly extended with `nightlySDNN` / `nightlyRMSSD` helpers if the per-session aggregation isn't already there.
 
-### 4b — Live recording ambient UX
+### 4b — Live recording ambient UX ✅ Shipped — split into [#138](https://github.com/chenders/AnxietyWatch/pull/138) (in-app pill) + [#139](https://github.com/chenders/AnxietyWatch/pull/139) (Live Activity)
 
 Convert recording from "modal that owns the foreground" to "ambient activity the app navigates around."
 
@@ -62,7 +74,7 @@ Convert recording from "modal that owns the foreground" to "ambient activity the
 - `AnxietyWatch/Views/Settings/HRVSessionLiveView.swift` — change from `.fullScreenCover` / `.sheet(.large)` presentation to a `.sheet` with a smaller detent that can be dismissed without ending the session. Or convert to a navigation destination.
 - `AnxietyWatchActivity/` *(new target)* — `ActivityKit` widget extension. New Xcode target, modest scope.
 
-### 4c — Session detail entry points
+### 4c — Session detail entry points ⏳ Pending
 
 Make `LFHFSessionDetailView` reachable from the trend charts themselves, not just from a separate list.
 
@@ -113,3 +125,40 @@ Some of these are 30-minute fixes (the David / accessibility items in particular
 A user opening the app sees one coherent set of trend charts. The fact that data came from Polar vs HealthKit is a visual detail (different marker, footnoted in the chart), not a separate section of the app. Tapping a point on any HRV-related chart opens the session detail. Starting a recording shows a small pill at the top of the screen and continues to let the user journal, log medications, or browse Trends while the strap is recording. The Lock Screen shows a Live Activity for the ongoing session.
 
 No new UX surfaces have been added. Existing surfaces have absorbed the new capability. The complexity of the app *decreases* even as functionality increases.
+
+## Implementation notes (post-merge)
+
+Captured here so future-you (or a fresh contributor) doesn't have to reconstruct what changed *during* execution from git archaeology. The plan above is the **intent as it stood pre-execution** and is preserved verbatim. Anything below is what actually happened.
+
+### 4a — Trend chart integration ([#136](https://github.com/chenders/AnxietyWatch/pull/136))
+
+Shipped substantially as designed. Notable scope-deltas:
+
+- **HR persistence schema.** To overlay Polar HR onto `HeartRateTrendChart` without re-aggregating per render, we added `hrMean` (Double) into `SensorSession.summaryJSON` (existing JSON blob — no schema migration). The chart reads it directly. If we later want min/max/p95, they go in the same blob.
+- **SDNN comparability decision.** Resolved the open question from "Risks" in favor of **same chart, distinct marker style** + a small footnote when Polar data is present. Two persona-reviewers (Lena, Sam) had specifically asked to see them on the same axis, and the analytic story ("Polar shows wider variance because it's longer-window") was more legible visually than two separate cards.
+- **LF/HF ratio retention.** Removed from Trends as planned. Kept in `LFHFSessionDetailView` *and* `LFHFExplainerSheet` (so the data is still inspectable, just not headlined). The explainer sheet is now reached from the HF Power trend's info button.
+- **`LFHFSessionsListView` survived 4a** — the plan called for it to be removed or demoted in 4c, but since 4c was deferred, it's still in place as a destination from the HF Power chart. No functional change.
+
+### 4b — Live recording ambient UX (split into [#138](https://github.com/chenders/AnxietyWatch/pull/138) + [#139](https://github.com/chenders/AnxietyWatch/pull/139))
+
+The original plan treated this as one shippable unit. During execution it became obvious the two halves had different risk profiles and review surface area, and bundling them risked a slow review of #138 because reviewers would have to reason about an unfamiliar `ActivityKit` target at the same time. Split mid-stream:
+
+- **4b.1 — In-app pill (#138).** `RecordingStatusPill`, `RecordingFormatters`, `RecordingPresentationCoordinator`. The pill is the persistent recording indicator the user can tap to expand the live session as a sheet. Originally placed at the bottom via `safeAreaInset(edge: .bottom)`, but iOS 18+ liquid-glass `TabView` doesn't contribute to safe area the same way, so the pill overlapped the tab bar. Moved to top via `.overlay`. **Sheet dismiss is allowed** (recording continues in background) — earlier iteration disabled dismiss, which made the journal unreachable during recording (the exact regression the phase was supposed to *fix*).
+- **4b.2 — Live Activity (#139).** New `AnxietyWatchLiveActivities` iOS extension target. `HRVRecordingLiveActivity` (Lock Screen + Dynamic Island), `LiveActivityCoordinator` (`@MainActor @Observable`, drives state via `withObservationTracking` re-arming), `LiveActivityUpdateThrottle` (10 s minimum gap with status-transition bypass), `HRVRecordingActivityAttributes`. Disconnect alerts wired via `AlertConfiguration`. `staleDate` kept in sync with the throttle window so the Lock Screen visibly dims when updates stop.
+- **Draggable pill emerged from on-device testing.** Static top placement worked but obscured the navigation title on some screens. Added `PillPositionStore` (UserDefaults persistence, safe-area-aware clamp via `EdgeInsets` parameter) and `.highPriorityGesture(DragGesture(minimumDistance: 3))` on the pill. The `minimumDistance` + `highPriorityGesture` combo was the fix for pure-horizontal drags being misread as taps and opening the live sheet.
+- **DEVELOPMENT_TEAM bleed into project file.** Xcode injected a hardcoded `DEVELOPMENT_TEAM` and `IPHONEOS_DEPLOYMENT_TARGET = 26.5` into the new target's build configs. Deployment target was removed in-PR (xcconfig is the source of truth); the `DEVELOPMENT_TEAM` extraction was deferred to its own follow-up rather than expand #139's scope.
+- **PBXFileSystemSynchronizedBuildFileExceptionSet dual semantics** (file-sharing across targets) tripped one Copilot review round. Documented inline so the next person editing the pbxproj doesn't re-litigate.
+
+### Newly-discovered work (not in the original "Out of scope" list)
+
+These surfaced during execution and belong in Phase 4d (or earlier as ride-alongs):
+
+- **DEVELOPMENT_TEAM and signing-config extraction** from the project file into xcconfig — the new Live Activity target perpetuated the pattern. Whole-project cleanup, not just this target.
+- **Pill position persistence per-orientation.** Currently `PillPositionStore` saves a single point; rotating between portrait and landscape can leave the pill in a weird spot until next drag. Not blocking but visible on iPad.
+- **Live Activity dismissal policy.** Right now the activity ends when recording stops; it does not currently end if the user terminates the session by removing the strap. Acceptable for v1; a "missing data → end after N minutes" timer would be more polished.
+- **Pre-PR review enforcement automation.** Made discipline-level real via `CLAUDE.md` policy + `pre-pr-reviewer-reminder.py` hook. Not strictly project-feature work, but the policy lives in this repo so noting it here.
+
+### Process notes for future phases
+
+- **Plan should call out "split candidates" up front.** 4b had two natural halves (in-app pill, Live Activity) with very different risk surfaces. The plan treated them as one bundle; the right call was to split. Future plans should explicitly mark "this could ship in two PRs if X feels heavy at the time."
+- **Persona-review polish (4d) is non-trivially distinct from technical phase work.** Worth its own writeup, not a phase appendage. It deserves its own plan doc (`phase-4d-persona-polish.md`) with the persona-mapped checklist when it's ready to start.

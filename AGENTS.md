@@ -18,6 +18,10 @@ Skip the review only for trivial pushes (comments, README, version bumps, build-
 
 The agent definition lives at `.claude/agents/swift-pre-pr-reviewer.md` and is calibrated against the recurring Copilot-review categories observed in this repo. A `PreToolUse` hook (`.claude/hooks/pre-pr-reviewer-reminder.py`, wired in `.claude/settings.json`) surfaces a non-blocking reminder at push time; the policy is enforced by convention, not by the hook.
 
+## Keeping Phase Plan Docs Updated
+
+**Mandatory:** When shipping work that has a corresponding plan doc in `docs/plans/`, update the doc with shipped/pending status markers, PR links, and any scope-deltas (decisions made during execution, splits, additions, deferrals) in the same commit as the merge — or as an immediate follow-up PR. The original plan stays preserved verbatim as a historical record; new notes go under an `## Implementation notes (post-merge)` section at the end of the doc. A plan doc that doesn't reflect what actually shipped is a defect: the next contributor can't pick up where the work left off without re-doing the archaeology.
+
 ## Testing
 
 - After writing or modifying code, run the relevant tests to verify your changes:

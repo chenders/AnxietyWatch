@@ -49,6 +49,10 @@
 
 **When editing any instruction file, check the others for the same topic and update them too.** `CLAUDE.md` and the Copilot instruction files cover overlapping ground (coding conventions, testing rules, sensitive data rules, design principles). If you change a rule in one, apply the equivalent change to the other. A rule that exists in `CLAUDE.md` but not the relevant Copilot file (or vice versa) is a bug. Language-specific rules belong in the path-scoped `.github/instructions/*.instructions.md` files so they only activate for matching diffs; cross-cutting rules stay in `.github/copilot-instructions.md`.
 
+## Keeping Phase Plan Docs Updated
+
+**MANDATORY:** When shipping work that has a corresponding plan doc in `docs/plans/`, update the doc with shipped/pending status markers, PR links, and any scope-deltas (decisions made during execution, splits, additions, deferrals) in the same commit as the merge — or as an immediate follow-up PR. The original plan stays preserved verbatim as a historical record; new notes go under an `## Implementation notes (post-merge)` section at the end of the doc. A plan doc that doesn't reflect what actually shipped is a defect: the next contributor (or the next-you) can't pick up where the work left off without re-doing the archaeology.
+
 ## Commands
 
 ```bash
