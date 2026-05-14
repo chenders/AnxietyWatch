@@ -44,5 +44,8 @@ struct ContentView: View {
         .sheet(isPresented: $presentation.showingLiveView) {
             HRVSessionLiveView(service: polarService)
         }
+        #if DEBUG
+        .modifier(DebugShakeCapture())
+        #endif
     }
 }

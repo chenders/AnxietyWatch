@@ -8,6 +8,10 @@
 	<string>Anxiety Watch reads health data to track anxiety patterns and correlate physiological signals with your journal entries.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Anxiety Watch saves screenshots to your Photos library so you can review long scrollable views in a single image.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Anxiety Watch lets you select an existing photo of a prescription label when the camera isn't available, such as in the iOS Simulator.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Anxiety Watch reads beat-to-beat heart-rate intervals from a paired Polar H10 chest strap to compute high-fidelity HRV during stress check-ins.</string>
 	<key>NSSupportsLiveActivities</key>

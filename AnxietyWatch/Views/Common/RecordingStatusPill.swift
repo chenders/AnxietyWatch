@@ -24,6 +24,15 @@ import SwiftUI
 /// placing the pill on top of the tab bar visually. An overlay with
 /// explicit positioning + drag gesture sidesteps that entirely.
 struct RecordingStatusPill: View {
+    #if DEBUG
+    /// Stable accessibility identifier consumed by DEBUG-build screen
+    /// capture (see DebugScreenCapture.swift) to find and hide this
+    /// pill during full-screen capture. Fenced so it adds no Release
+    /// binary symbol; the consumer (`DebugScreenCapture.swift`) is also
+    /// DEBUG-only.
+    static let debugAccessibilityIdentifier = "debug-recording-pill"
+    #endif
+
     @Environment(PolarHRMService.self) private var polarService
     @Environment(RecordingPresentationCoordinator.self) private var presentation
 
@@ -99,6 +108,9 @@ struct RecordingStatusPill: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(accessibilityLabel(content))
                     .accessibilityHint("Opens the live session view. Drag to move the pill.")
+                    #if DEBUG
+                    .accessibilityIdentifier(Self.debugAccessibilityIdentifier)
+                    #endif
                     .background(
                         // Measure the pill's natural size once so drag
                         // clamping has accurate bounds. Reads only on

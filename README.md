@@ -184,6 +184,18 @@ If you're browsing this codebase to learn from it, here are the parts worth stud
 - **Physiological correlation engine** — `PhysiologicalCorrelation` pairs daily health snapshots with anxiety entries to compute per-metric correlations, p-values, and "anxiety on abnormal vs. normal days" comparisons. A good example of turning health data into actionable insight without ML.
 - **Test suite** — Swift Testing (`@Test`, `#expect`) with in-memory SwiftData containers, fixed reference dates, a model factory, and a `MockHealthKitDataSource` for deterministic HealthKit testing. Good reference for testing SwiftData services and HealthKit-dependent logic without mocking frameworks.
 
+### Debug screenshot capture
+
+In **debug builds only**, shake the device to save a full-length PNG of the current screen (chrome + unfurled scrollable content) to the Photos library. Useful for reviewing long views (the Dashboard chart stack, Trends, etc.) as a single image rather than a string of taped-together viewport screenshots. The unfurled content is captured by scrolling through the scrollview in viewport-sized steps and stitching the snapshots — lazy `List` / `LazyVStack` rows materialize as they enter the viewport, so they appear correctly in the final PNG. Implemented in `AnxietyWatch/Utilities/DebugScreenCapture.swift`; the file and the one-line `RecordingStatusPill` accessibility-identifier hook are both `#if DEBUG`-fenced so Release builds contain zero capture code (verified by `nm` on the Release binary). The two `NSPhotoLibrary*UsageDescription` strings in `Info.plist` ship in all builds — those are tiny static strings, not capture code, and the picker fallback string is independently needed by `PrescriptionScannerView` on Simulator.
+
+**Cap:** Scrollviews with content taller than 10,000 pt are skipped (would risk OOM); the capture falls back to chrome-only with a log message.
+
+**Keyboard caveat:** Shake events only reach the current first responder, so a focused `TextField` / `TextEditor` will swallow them. Tap outside the field to dismiss the keyboard, then shake. (The capture pipeline reclaims first-responder status on keyboard-hide and app-foreground, so this is only an issue while the keyboard is actually on screen.)
+
+**Permission prompt:** The first shake prompts for Photos write access. If denied, re-prompt via Settings → AnxietyWatch → Photos.
+
+Design spec: [`docs/superpowers/specs/2026-05-13-debug-screen-capture-design.md`](docs/superpowers/specs/2026-05-13-debug-screen-capture-design.md).
+
 ---
 
 ## Getting Started

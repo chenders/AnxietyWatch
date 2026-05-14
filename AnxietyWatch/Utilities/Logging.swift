@@ -19,4 +19,11 @@ nonisolated enum Log {
 
     /// SwiftData operations, migrations, backfill
     static let data = Logger(subsystem: subsystem, category: "data")
+
+    #if DEBUG
+    /// Debug-only shake-to-capture screenshot pipeline. See
+    /// `DebugScreenCapture.swift`; fenced because the only call sites
+    /// live behind the same `#if DEBUG` fence.
+    static let debugScreenCapture = Logger(subsystem: subsystem, category: "debug-screen-capture")
+    #endif
 }
