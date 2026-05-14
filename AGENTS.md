@@ -2,6 +2,8 @@
 
 ## XcodeBuildMCP
 
+- Prefer XcodeBuildMCP tools (`build_sim`, `test_sim`, `build_run_sim`, `clean`, `screenshot`, `record_sim_video`, `snapshot_ui`, etc.) over raw `xcodebuild` shell commands. Project/scheme/simulator defaults are persisted in `.xcodebuildmcp/config.yaml`, so most calls need no arguments.
+- Call `session_show_defaults` once per session before the first build/test/run to confirm defaults are active.
 - If using XcodeBuildMCP, use the installed XcodeBuildMCP skill before calling XcodeBuildMCP tools.
 
 ## Git Workflow
@@ -25,7 +27,7 @@ The agent definition lives at `.claude/agents/swift-pre-pr-reviewer.md` and is c
 ## Testing
 
 - After writing or modifying code, run the relevant tests to verify your changes:
-  - iOS: `xcodebuild test -scheme AnxietyWatch -destination 'generic/platform=iOS Simulator' -only-testing:AnxietyWatchTests`
+  - iOS: use the XcodeBuildMCP `test_sim` tool when available; the shell equivalent is `xcodebuild test -scheme AnxietyWatch -destination 'generic/platform=iOS Simulator' -only-testing:AnxietyWatchTests`
   - Server: `cd server && python -m pytest tests/`
   - Server lint: `cd server && flake8 . --max-line-length=120 --exclude=__pycache__`
 - All new or changed code must include tests. Use Swift Testing (`@Test`, `#expect()`) for iOS tests.

@@ -55,6 +55,8 @@
 
 ## Commands
 
+**For Claude Code / agentic workers:** Prefer the XcodeBuildMCP tools (`build_sim`, `test_sim`, `build_run_sim`, `clean`, `screenshot`, `record_sim_video`, etc.) over raw `xcodebuild` shell invocations for Apple-platform tasks. The MCP tools have session defaults already configured (project + scheme + simulator persisted in `.xcodebuildmcp/config.yaml`), parse build errors more cleanly, and don't burn context on the noise that bare `xcodebuild` emits. Call `session_show_defaults` once per session before the first build/test/run to confirm. The `xcodebuild` commands below are the ground-truth equivalents for use in a terminal, CI scripts, or when MCP isn't available.
+
 ```bash
 # Build iOS app (use generic destination to avoid hardcoding simulator names)
 xcodebuild build -scheme AnxietyWatch -destination 'generic/platform=iOS Simulator'
