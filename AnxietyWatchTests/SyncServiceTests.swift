@@ -419,12 +419,19 @@ struct SyncServiceTests {
         // If any one of these starts appearing, the caller MUST audit
         // whether their cursor-advance logic still matches what the
         // payload actually contained.
+        // `healthSnapshots` is intentionally NOT in this list: bulkOnly
+        // iterations OVERWRITE that key with the capped `!syncedToServer`
+        // selection (see `fetchUnsyncedHealthSnapshots`), so a multi-year
+        // rebuild streams dirty snapshots across drain-loop iterations.
+        // The cursor-advance contract still holds because snapshots are
+        // flag-tracked (not date-tracked) — `flagSnapshotsSynced` flips
+        // them clean after upload, so the next iteration's fetch returns
+        // the next batch without re-shipping the same rows.
         let smallVolumeKeys = [
             "anxietyEntries",
             "medicationDefinitions",
             "medicationDoses",
             "cpapSessions",
-            "healthSnapshots",
             "barometricReadings",
             "labResults",
             "pharmacies",
@@ -645,6 +652,396 @@ struct SyncServiceTests {
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let array = json?["quantitySamples"] as? [[String: Any]]
         #expect(array?.count == 3)
+    }
+
+    // MARK: - HealthSnapshot sync via syncedToServer flag
+
+    @Test("buildPayload includes unsynced past-date snapshots regardless of lastSyncDate")
+    @MainActor
+    func payloadIncludesUnsyncedPastDateSnapshots() throws {
+        // Regression for the May 12 bug: re-aggregated past-day snapshots
+        // (e.g. from "Rebuild All History" after the SpO2 precedence fix)
+        // were silently dropped by the strict date-range filter, so the
+        // server retained the old wrong values. The dirty-flag path picks
+        // them up regardless of when the calendar day was.
+        let restore = saveSyncDefaults()
+        defer { restore() }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        // lastSyncDate sits past both snapshots — the date-range filter
+        // would exclude both if it were the only path.
+        let now = Date(timeIntervalSince1970: 1_711_300_000)
+        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "lastSyncDate")
+
+        // Step calendar days via `Calendar.date(byAdding: .day, ...)` rather
+        // than `addingTimeInterval(86400)` — a "day" is not always 86,400
+        // seconds across DST boundaries, and the latter can silently shift a
+        // test by an hour onto the wrong calendar day in zones that observe
+        // DST.
+        let cal = Calendar.current
+        let tenDaysAgo = cal.date(byAdding: .day, value: -10, to: now)!
+        let fiveDaysAgo = cal.date(byAdding: .day, value: -5, to: now)!
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: now)!
+
+        // Old clean snapshot — should NOT appear in payload.
+        let cleanSnap = HealthSnapshot(date: tenDaysAgo)
+        cleanSnap.syncedToServer = true
+        context.insert(cleanSnap)
+
+        // Old dirty snapshot — SHOULD appear despite its date being before lastSyncDate.
+        let dirtySnap = HealthSnapshot(date: fiveDaysAgo)
+        dirtySnap.syncedToServer = false
+        context.insert(dirtySnap)
+
+        try context.save()
+
+        // Sync path: buildPayload OVERWRITES `healthSnapshots` with the
+        // capped `!syncedToServer` selection (see
+        // `SyncService.fetchUnsyncedHealthSnapshots`), so the dirty
+        // past-day snapshot ships regardless of where its `date` sits
+        // relative to `lastSyncDate`. `SyncService()` reads
+        // `lastSyncDate` from `UserDefaults` at init — must be
+        // constructed AFTER the `set(...)` above, or it would capture a
+        // stale value.
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let snapshots = json?["healthSnapshots"] as? [[String: Any]] ?? []
+        #expect(snapshots.count == 1, "Only the dirty snapshot should be in the payload")
+
+        // Cross-check with the file-export path which keeps strict date
+        // bounds for snapshots (no dirty-flag pickup — that's
+        // sync-specific).
+        let fileData = try DataExporter.exportJSON(
+            from: context,
+            start: tomorrow,
+            end: nil
+        )
+        let fileJSON = try JSONSerialization.jsonObject(with: fileData) as? [String: Any]
+        let fileSnaps = fileJSON?["healthSnapshots"] as? [[String: Any]] ?? []
+        #expect(fileSnaps.isEmpty, "File export with future-only window must not pick up dirty past-day rows")
+    }
+
+    @Test("extractUploadedSyncedIDs parses HealthSnapshot dates from payload")
+    @MainActor
+    func extractsSnapshotDatesForPostUploadFlip() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        // Three dirty snapshots spanning consecutive calendar days. Step via
+        // `Calendar.date(byAdding: .day, ...)` rather than `+ 86400s` so a
+        // DST transition between `base` and `base + 2` doesn't shift one of
+        // the snapshots onto the wrong calendar day.
+        let cal = Calendar.current
+        let base = cal.startOfDay(for: Date(timeIntervalSince1970: 1_711_300_000))
+        for i in 0..<3 {
+            let snap = HealthSnapshot(date: cal.date(byAdding: .day, value: i, to: base)!)
+            snap.syncedToServer = false
+            context.insert(snap)
+        }
+        try context.save()
+
+        let service = SyncService()
+        let data = try service.buildPayload(from: context)
+        let uploaded = service.extractUploadedSyncedIDs(from: data)
+        #expect(uploaded.healthSnapshotDates.count == 3,
+                "All three dirty snapshots must round-trip through the date-extraction step")
+    }
+
+    @Test("markSamplesSynced flips HealthSnapshot.syncedToServer by date")
+    @MainActor
+    func markSamplesSyncedFlipsSnapshotsByDate() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        // Step calendar days via `Calendar.date(byAdding: .day, ...)` so DST
+        // transitions don't shift `day2`/`day3` onto the wrong calendar day.
+        let cal = Calendar.current
+        let day1 = cal.startOfDay(for: Date(timeIntervalSince1970: 1_711_300_000))
+        let day2 = cal.date(byAdding: .day, value: 1, to: day1)!
+        let day3 = cal.date(byAdding: .day, value: 2, to: day1)!
+
+        // Two dirty rows that we'll mark synced, plus one untouched control.
+        for date in [day1, day2, day3] {
+            let snap = HealthSnapshot(date: date)
+            snap.syncedToServer = false
+            context.insert(snap)
+        }
+        try context.save()
+
+        let uploaded = UploadedSyncedIDs(healthSnapshotDates: [day1, day2])
+        try SyncService().markSamplesSynced(uploaded, modelContext: context)
+
+        let snaps = try context.fetch(FetchDescriptor<HealthSnapshot>(sortBy: [SortDescriptor(\.date)]))
+        #expect(snaps[0].syncedToServer == true)
+        #expect(snaps[1].syncedToServer == true)
+        #expect(snaps[2].syncedToServer == false, "Untouched day must stay dirty")
+    }
+
+    /// Full sync (`since == nil`) must still ship pre-migration snapshots
+    /// that default to `syncedToServer = true`. Without the date-range
+    /// fallback, the dirty-flag path would silently emit zero snapshots —
+    /// regression a user upgrading from the pre-flag schema would hit on
+    /// their first explicit "Full Sync" press.
+    @Test("Full sync ships date-range snapshots even when all are syncedToServer = true")
+    @MainActor
+    func fullSyncIncludesCleanSnapshots() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        // No `lastSyncDate` set → since == nil → full sync.
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let cal = Calendar.current
+        let base = cal.startOfDay(for: Date(timeIntervalSince1970: 1_711_300_000))
+
+        // Pre-migration row: snapshot exists locally, was synced before
+        // the dirty-flag feature shipped, defaults to syncedToServer=true.
+        let preMigration = HealthSnapshot(date: base)
+        preMigration.syncedToServer = true
+        preMigration.spo2NadirOvernight = 95.0
+        context.insert(preMigration)
+
+        try context.save()
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(json?["syncType"] as? String == "full")
+        let snaps = json?["healthSnapshots"] as? [[String: Any]] ?? []
+        #expect(snaps.count == 1,
+                "Full sync must include the pre-migration snapshot even though syncedToServer is true")
+    }
+
+    /// Server schema treats a missing `dataQuality` key in the snapshot
+    /// payload as an intentional clear (`data_quality = EXCLUDED.data_quality`
+    /// on syncSchemaVersion >= 3). If `fetchUnsyncedHealthSnapshots` omits
+    /// the field, every sync nulls the column server-side and there's no way
+    /// to populate it. Verify the dict carries `dataQuality` when populated
+    /// locally — and omits it (matching local nil → server nil) otherwise.
+    @Test("buildPayload includes dataQuality on snapshots when populated")
+    @MainActor
+    func payloadIncludesSnapshotDataQuality() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        // Pin `lastSyncDate` to a past instant so this is an *incremental*
+        // sync — the dataQuality emit/omit contract lives in
+        // `fetchUnsyncedHealthSnapshots`, which only runs on the
+        // incremental path. Full syncs fall back to DataExporter and
+        // would route around this code.
+        UserDefaults.standard.set(
+            Date(timeIntervalSince1970: 1_700_000_000).timeIntervalSince1970,
+            forKey: "lastSyncDate"
+        )
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let cal = Calendar.current
+        let baseDate = cal.startOfDay(for: Date(timeIntervalSince1970: 1_711_300_000))
+        let withQualityDate = baseDate
+        let withoutQualityDate = cal.date(byAdding: .day, value: 1, to: baseDate)!
+
+        let withQuality = HealthSnapshot(date: withQualityDate)
+        withQuality.dataQuality = #"{"spo2":{"reliability":"high","sources":{}}}"#
+        withQuality.syncedToServer = false
+        context.insert(withQuality)
+
+        let withoutQuality = HealthSnapshot(date: withoutQualityDate)
+        // dataQuality stays nil
+        withoutQuality.syncedToServer = false
+        context.insert(withoutQuality)
+
+        try context.save()
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let snaps = json?["healthSnapshots"] as? [[String: Any]] ?? []
+        try #require(snaps.count == 2)
+
+        // Look up each snapshot by its ISO8601 date (matches the format
+        // `fetchUnsyncedHealthSnapshots` emits) so we can check the
+        // `dataQuality` field's presence on the right dict.
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withInternetDateTime]
+        let withKey = dateFormatter.string(from: withQualityDate)
+        let withoutKey = dateFormatter.string(from: withoutQualityDate)
+
+        let populatedSnap = try #require(snaps.first { $0["date"] as? String == withKey })
+        let nilSnap = try #require(snaps.first { $0["date"] as? String == withoutKey })
+
+        #expect(populatedSnap["dataQuality"] as? String == #"{"spo2":{"reliability":"high","sources":{}}}"#,
+                "Populated dataQuality must reach the payload")
+        // `keys.contains` explicitly distinguishes "key absent" (correct)
+        // from "key present with NSNull" (would also coerce to `String?
+        // == nil` and silently pass `qualities.contains(nil)` — the
+        // earlier shape of this assertion). The server treats missing
+        // and present-null differently (missing = leave alone? actually
+        // both clear under EXCLUDED.data_quality, but the on-wire
+        // contract still matters).
+        #expect(!nilSnap.keys.contains("dataQuality"),
+                "nil dataQuality must omit the key, not emit `\"dataQuality\": NSNull`")
+    }
+
+    /// Multi-year "Rebuild All History" produces a lot of dirty snapshots
+    /// at once. Without a per-call cap, the sync payload would balloon to
+    /// thousands of rows in a single JSON request and risk request-size
+    /// limits or timeouts. The cap matches `sampleBatchLimit` (1000) so
+    /// the drain loop streams batches across iterations.
+    @Test("buildPayload caps healthSnapshots at sampleBatchLimit and signals hitBulkLimit")
+    @MainActor
+    func payloadCapsHealthSnapshotsAtBatchLimit() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        // Pin `lastSyncDate` to a past instant so this is an *incremental*
+        // sync — the per-call cap lives in `fetchUnsyncedHealthSnapshots`,
+        // which only runs on the incremental path. Full syncs fall back
+        // to DataExporter and emit uncapped date-range snapshots.
+        UserDefaults.standard.set(
+            Date(timeIntervalSince1970: 1_700_000_000).timeIntervalSince1970,
+            forKey: "lastSyncDate"
+        )
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        // Seed 1500 dirty snapshots on consecutive calendar days. Exceeds
+        // the 1000-row cap so the cap-and-signal contract is exercised.
+        let cal = Calendar.current
+        let base = cal.startOfDay(for: Date(timeIntervalSince1970: 1_711_300_000))
+        for i in 0..<1500 {
+            let snap = HealthSnapshot(date: cal.date(byAdding: .day, value: i, to: base)!)
+            snap.syncedToServer = false
+            context.insert(snap)
+        }
+        try context.save()
+
+        let service = SyncService()
+        let data = try service.buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let snaps = json?["healthSnapshots"] as? [[String: Any]] ?? []
+        #expect(snaps.count == 1000, "Per-call cap must bound the snapshot payload")
+
+        // The cap must surface in `hitBulkLimit` so the drain loop keeps
+        // going for the remaining 500 dirty rows. Otherwise a multi-year
+        // rebuild would silently strand most of its snapshots until the
+        // next `sync()` invocation.
+        let uploaded = service.extractUploadedSyncedIDs(from: data)
+        #expect(uploaded.healthSnapshotDates.count == 1000)
+        #expect(uploaded.hitBulkLimit(1000),
+                "Snapshot count at cap must trigger another drain iteration")
+    }
+
+    /// Race-window guard: if a concurrent `aggregateDay` bumps the
+    /// snapshot's `pendingSyncVersion` between payload-build time and the
+    /// post-upload flag-flip, the row must stay dirty so its new changes
+    /// still sync. Simulates the race by manually incrementing
+    /// `pendingSyncVersion` after the version was captured.
+    @Test("markSamplesSynced respects pendingSyncVersion guard against in-flight re-aggregation")
+    @MainActor
+    func markSamplesSyncedRespectsVersionGuard() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let cal = Calendar.current
+        let date = cal.startOfDay(for: Date(timeIntervalSince1970: 1_711_300_000))
+
+        // Row is currently dirty, at version 5 (matches what the payload
+        // captured).
+        let snap = HealthSnapshot(date: date)
+        snap.syncedToServer = false
+        snap.pendingSyncVersion = 5
+        context.insert(snap)
+        try context.save()
+
+        // Simulate a concurrent aggregateDay that ran during the sync's
+        // URLSession await: version bumps to 6, row stays dirty.
+        snap.pendingSyncVersion = 6
+        try context.save()
+
+        // Post-upload flag-flip uses the version that was IN THE PAYLOAD (5).
+        // Current row version is 6 → guard fires → row stays dirty.
+        let uploaded = UploadedSyncedIDs(
+            healthSnapshotDates: [date],
+            healthSnapshotVersions: [5]
+        )
+        try SyncService().markSamplesSynced(uploaded, modelContext: context)
+
+        let after = try #require(try context.fetch(FetchDescriptor<HealthSnapshot>()).first)
+        #expect(after.syncedToServer == false,
+                "Row mutated during sync must stay dirty so the new changes still sync")
+    }
+
+    /// Companion to the version-guard test: when versions DO match
+    /// (no concurrent re-aggregation happened), the row flips clean
+    /// as expected.
+    @Test("markSamplesSynced flips clean when pendingSyncVersion matches")
+    @MainActor
+    func markSamplesSyncedFlipsCleanWhenVersionMatches() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let cal = Calendar.current
+        let date = cal.startOfDay(for: Date(timeIntervalSince1970: 1_711_300_000))
+
+        let snap = HealthSnapshot(date: date)
+        snap.syncedToServer = false
+        snap.pendingSyncVersion = 3
+        context.insert(snap)
+        try context.save()
+
+        // Versions match — no concurrent mutation — flip proceeds.
+        let uploaded = UploadedSyncedIDs(
+            healthSnapshotDates: [date],
+            healthSnapshotVersions: [3]
+        )
+        try SyncService().markSamplesSynced(uploaded, modelContext: context)
+
+        let after = try #require(try context.fetch(FetchDescriptor<HealthSnapshot>()).first)
+        #expect(after.syncedToServer == true)
+    }
+
+    /// Regression: an earlier implementation re-applied
+    /// `Calendar.current.startOfDay(for:)` to the parsed dates inside
+    /// `flagSnapshotsSynced`. Because `HealthSnapshot.date` is stored as
+    /// `startOfDay` in the *creation-time* timezone, re-normalizing in a
+    /// different current timezone shifts the comparison key and the row
+    /// never flips synced — perpetual re-uploads. The fix is to compare
+    /// the parsed absolute `Date` directly to `row.date`; this test pins
+    /// that contract by inserting a snapshot whose `date` does NOT line up
+    /// with the current timezone's midnight (00:00 UTC ≠ 00:00 in any
+    /// non-UTC zone), and confirming the post-upload flag flip still works.
+    @Test("markSamplesSynced matches by absolute Date (no startOfDay re-normalization)")
+    @MainActor
+    func markSamplesSyncedMatchesAbsoluteDateNotLocalStartOfDay() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        // Construct a row whose `date` is midnight UTC. Bypass
+        // `HealthSnapshot(date:)` (which would re-apply the local
+        // startOfDay) and set the field directly, simulating a snapshot
+        // created on a device whose timezone was UTC at the time —
+        // matching the dirty-flag contract that markSamplesSynced must
+        // satisfy across timezone moves.
+        let utcMidnight = Date(timeIntervalSince1970: 1_711_324_800)  // 2024-03-25 00:00:00 UTC
+        let snap = HealthSnapshot(date: utcMidnight)
+        snap.date = utcMidnight
+        snap.syncedToServer = false
+        context.insert(snap)
+        try context.save()
+
+        let uploaded = UploadedSyncedIDs(healthSnapshotDates: [utcMidnight])
+        try SyncService().markSamplesSynced(uploaded, modelContext: context)
+
+        let snaps = try context.fetch(FetchDescriptor<HealthSnapshot>())
+        #expect(snaps.first?.syncedToServer == true,
+                "Absolute-Date match must succeed regardless of current timezone")
     }
 
     // MARK: - UploadedSyncedIDs.hitBulkLimit

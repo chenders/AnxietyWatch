@@ -203,6 +203,233 @@ struct SnapshotAggregatorSourcePrecedenceTests {
         #expect(snap?.spo2NadirOpportunistic == nil)
     }
 
+    /// Regression for the May 12 scenario: a fresh device install where the
+    /// HealthKit→SwiftData mirror hasn't populated SpO2 yet, but HealthKit
+    /// itself (iCloud-synced) has both an Apple Watch positional artifact
+    /// (0.78) and the EMAY iOS app's overnight samples (≥0.90). Before the
+    /// source-aware HK fallback the precedence override saw an empty
+    /// `QuantityHealthSample` table, early-returned, and the HK-direct
+    /// `minimumQuantity` (which mixes sources) surfaced the 0.78 artifact
+    /// as the green "Oximeter" line on the trends chart.
+    @Test("HK has EMAY + Apple Watch, SwiftData empty → precedence still picks EMAY nadir")
+    func sourceAwareHKFallbackOverridesAppleWatchArtifact() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+
+        // HK-direct min mixes sources (Apple Watch wins because 0.78 < 0.92).
+        // This is what `minimumQuantity` returns in production and what the
+        // override must clear when sourced samples are available.
+        await mock.setMinimum(.oxygenSaturation, value: 0.78)
+        await mock.setAverage(.oxygenSaturation, value: 0.93)
+
+        // Source-tagged samples available to the new HK fallback path.
+        // Same shape as `HKQuantitySample` would yield post-`HKSourceQuery`.
+        let emaySamples: [SourcedQuantitySample] = (0..<30).map { i in
+            SourcedQuantitySample(
+                timestamp: overnightAnchor.addingTimeInterval(Double(i)),
+                value: 0.92,
+                sourceBundleID: "com.emay.oximeter",
+                sourceName: "EMAY Oximeter",
+                deviceModel: nil,
+                hkUUID: UUID()
+            )
+        }
+        let watchSamples: [SourcedQuantitySample] = (0..<3).map { i in
+            SourcedQuantitySample(
+                // After the EMAY block so the timestamps stay inside the window.
+                timestamp: overnightAnchor.addingTimeInterval(Double(30 + i)),
+                value: 0.78,
+                sourceBundleID: "com.apple.health",
+                sourceName: "Apple Watch",
+                deviceModel: nil,
+                hkUUID: UUID()
+            )
+        }
+        await mock.setQuantitySamplesWithSource(.oxygenSaturation, emaySamples + watchSamples)
+
+        // No SwiftData mirror rows — that's the whole point of this test.
+
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        // Green Oximeter line: EMAY 0.92 — NOT the Apple Watch 0.78 artifact
+        // that the HK-direct minimumQuantity returned.
+        #expect(abs((snap?.spo2NadirOvernight ?? 0) - 92.0) < 0.001)
+        // Orange Apple Watch line: 0.78 kept on its own series.
+        #expect(abs((snap?.spo2NadirOpportunistic ?? 0) - 78.0) < 0.001)
+        // Avg reflects EMAY-only (preferred), not the mixed HK-direct 0.93.
+        #expect(abs((snap?.spo2Avg ?? 0) - 92.0) < 0.001)
+    }
+
+    /// When SwiftData already has HK-mirrored SpO2 rows for the window
+    /// (any row with a non-CSV-only bundle ID), the precedence override
+    /// does NOT issue a `quantitySamplesWithSource` query to HealthKit.
+    /// The mirror pulls every HK sample for its lookback window, so any
+    /// HK-attributed SwiftData coverage implies HK-row parity; the HK
+    /// fallback is reserved for the empty-SwiftData or CSV-only cases.
+    ///
+    /// Pins this contract by setting up a scenario where the HK sample
+    /// (if fetched) would change the result. HK has a "stale" 0.91
+    /// reading with a *different* UUID than the SwiftData row, so a
+    /// regression that drops the gate would mix both into the partition
+    /// (avg = 93, nadir = 91) instead of returning the SwiftData-only
+    /// 0.95. Using a distinct UUID is deliberate — the dedup-by-hkUUID
+    /// in the merge step would mask the regression if the UUIDs matched.
+    @Test("SwiftData has HK-mirrored coverage → skip HK round-trip; SwiftData value wins")
+    func hkSwiftDataOverlapDedupedByUUID() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+
+        // Distinct UUID so the unified-list dedup wouldn't mask a gate
+        // regression. The HK sample's lower value (0.91) is the canary —
+        // it should NEVER reach the partition because the gate prevents
+        // the round trip.
+        let staleFromHK = SourcedQuantitySample(
+            timestamp: overnightAnchor,
+            value: 0.91,
+            sourceBundleID: "com.emay.oximeter",
+            sourceName: "EMAY Oximeter",
+            deviceModel: nil,
+            hkUUID: UUID()
+        )
+        await mock.setQuantitySamplesWithSource(.oxygenSaturation, [staleFromHK])
+
+        // SwiftData row at 0.95 tagged with the HK-app bundle ID
+        // (`com.emay.oximeter`) so it counts as HK-mirrored coverage and
+        // triggers the gate.
+        context.insert(QuantityHealthSample(
+            id: UUID(),
+            timestamp: overnightAnchor,
+            metricType: HKQuantityTypeIdentifier.oxygenSaturation.rawValue,
+            value: 0.95,
+            unitString: "%",
+            sourceBundleID: "com.emay.oximeter",
+            sourceName: "EMAY Oximeter"
+        ))
+        try context.save()
+
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        // Gate working → HK 0.91 never enters the partition → avg/nadir = 95.0.
+        // Gate regressed → HK 0.91 mixes in → avg = 93.0, nadir = 91.0.
+        #expect(abs((snap?.spo2NadirOvernight ?? 0) - 95.0) < 0.001)
+        #expect(abs((snap?.spo2Avg ?? 0) - 95.0) < 0.001)
+    }
+
+    /// CSV-imported EMAY rows (`com.emay.SleepO2`) live only in SwiftData,
+    /// never in HealthKit. If the lazy gate treated their presence as "the
+    /// mirror has covered this window," it would suppress the HK fetch
+    /// even when HK has Apple Watch / EMAY-iOS-app data the precedence
+    /// override needs to surface on the opportunistic line. This test
+    /// pins the tightened gate: CSV-only SwiftData coverage must still
+    /// trigger the HK fallback.
+    @Test(
+        "CSV-only SwiftData coverage still triggers the HK fallback",
+        arguments: ["com.emay.SleepO2", "com.emay.sleepo2"]
+    )
+    func csvOnlySwiftDataStillFetchesHK(csvBundleID: String) async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+
+        // HK has the Apple Watch artifact we want surfaced on the
+        // opportunistic line — only reachable via the HK fallback.
+        let watchSamples: [SourcedQuantitySample] = (0..<3).map { i in
+            SourcedQuantitySample(
+                timestamp: overnightAnchor.addingTimeInterval(Double(i * 30)),
+                value: 0.78,
+                sourceBundleID: "com.apple.health",
+                sourceName: "Apple Watch",
+                deviceModel: nil,
+                hkUUID: UUID()
+            )
+        }
+        await mock.setQuantitySamplesWithSource(.oxygenSaturation, watchSamples)
+
+        // SwiftData has only CSV-imported EMAY samples. Parameterized over
+        // both case variants — the importer writes upper-case, but the
+        // lower-case variant exists in `overnightPulseOximeters` for
+        // legacy attribution and must also be classified as CSV-only.
+        seedOvernightSpO2(
+            bundle: csvBundleID,
+            count: 30,
+            value: 0.92,
+            in: context,
+            startingAt: overnightAnchor
+        )
+        try context.save()
+
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        // EMAY preferred wins for the green line.
+        #expect(abs((snap?.spo2NadirOvernight ?? 0) - 92.0) < 0.001)
+        // The HK-only Apple Watch reading must reach the opportunistic
+        // field via the fallback fetch — would be nil if the gate had
+        // suppressed the round trip.
+        #expect(abs((snap?.spo2NadirOpportunistic ?? 0) - 78.0) < 0.001)
+    }
+
+    /// `HealthSnapshot.syncedToServer` must flip back to `false` whenever
+    /// `aggregateDay` actually changes a value, so the next sync includes
+    /// the row regardless of `lastSyncDate`. The pre-fix sync filter
+    /// dropped past-day snapshots by their `date` field, which made
+    /// "Rebuild All History" a no-op on the server — exactly the path the
+    /// user hit on May 12.
+    @Test("aggregateDay marks the snapshot dirty when an aggregate field changes")
+    func aggregateDayMarksSnapshotDirty() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        await mock.setMinimum(.oxygenSaturation, value: 0.95)
+
+        // Pre-seed a "clean" snapshot to verify the flip back to false.
+        let preexisting = HealthSnapshot(date: referenceDate)
+        preexisting.syncedToServer = true
+        context.insert(preexisting)
+        try context.save()
+
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        #expect(snap?.syncedToServer == false)
+    }
+
+    /// Counter-test for `aggregateDayMarksSnapshotDirty`: re-aggregating a
+    /// snapshot whose inputs didn't change must NOT flip dirty. Without
+    /// this guard, today's snapshot (which is re-aggregated on every
+    /// observer trigger and app launch) would be re-uploaded on every
+    /// sync — persistent extra traffic for unchanged days.
+    @Test("aggregateDay leaves syncedToServer alone when no field changes")
+    func aggregateDayStaysCleanWhenNothingChanged() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        // First aggregation: writes initial values.
+        await mock.setMinimum(.oxygenSaturation, value: 0.95)
+        await mock.setAverage(.oxygenSaturation, value: 0.97)
+        let aggregator = makeAggregator(mock: mock, context: context)
+        try await aggregator.aggregateDay(referenceDate)
+
+        // Mark the row "synced" — simulating a successful upload, exactly
+        // the state the next aggregation should respect.
+        let snap = try #require(try context.fetch(FetchDescriptor<HealthSnapshot>()).first)
+        snap.syncedToServer = true
+        try context.save()
+
+        // Second aggregation with identical mock inputs → no field
+        // changes → `syncedToServer` must remain `true` (the row stays
+        // clean / not-dirty), not flip back to `false`.
+        try await aggregator.aggregateDay(referenceDate)
+
+        let snapAfter = try #require(try context.fetch(FetchDescriptor<HealthSnapshot>()).first)
+        #expect(snapAfter.syncedToServer == true,
+                "No-op aggregation must not mark snapshot dirty")
+    }
+
     @Test("Sparse preferred samples (below threshold) clear T90/desats rather than mix")
     func sparsePreferredClearsT90Desats() async throws {
         let container = try TestHelpers.makeFullContainer()

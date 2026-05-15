@@ -116,9 +116,44 @@ final class HealthSnapshot {
     /// Surfaced in the Claude prompt and Glucose Detail UI.
     var dataQuality: String?
 
+    /// Dirty flag for sync. `SnapshotAggregator.aggregateDay` flips this to
+    /// `false` only when re-aggregation actually changes an aggregate field
+    /// (compared via `SnapshotFingerprint`), not on every touch — today's
+    /// snapshot would otherwise re-upload on every observer trigger and
+    /// app launch. Sync uploads all rows where `!syncedToServer` (regardless
+    /// of date) and the post-upload step flips it back to `true`.
+    ///
+    /// Default `true` so SwiftData lightweight migration treats existing rows
+    /// (which were uploaded with the prior date-range-filtered sync path) as
+    /// clean. Re-aggregation with new precedence logic produces different
+    /// field values, the fingerprint diff catches it, and the row gets
+    /// re-uploaded — closing the gap where the old date-range filter
+    /// silently dropped past-day corrections from the sync payload.
+    var syncedToServer: Bool = true
+
+    /// Monotonic counter bumped by `SnapshotAggregator.aggregateDay`
+    /// alongside every `syncedToServer = false` flip — i.e. exactly when a
+    /// fingerprint diff fires. Sync includes this value in the payload and
+    /// the post-upload `flagSnapshotsSynced` step only marks a row clean if
+    /// its current `pendingSyncVersion` STILL matches the uploaded value.
+    ///
+    /// Closes the race where `sync()` is suspended on
+    /// `URLSession.shared.data(for:)` while
+    /// `HealthDataCoordinator.scheduleRefresh` runs `aggregateDay` on the
+    /// main actor: the in-flight aggregation can mutate snapshot fields
+    /// after the payload was built but before `flagSnapshotsSynced` runs.
+    /// Without this token, the post-upload flip would mark the row
+    /// `syncedToServer = true` and the new changes would only re-sync the
+    /// next time some other mutation happened to bump the dirty flag.
+    var pendingSyncVersion: Int = 0
+
     init(date: Date) {
         self.id = UUID()
         // Normalize to start of day so the unique constraint works on calendar days
         self.date = Calendar.current.startOfDay(for: date)
+        // Freshly-created snapshots must reach the server. The property
+        // default of `true` exists only so SwiftData lightweight migration
+        // doesn't mark every pre-existing row dirty on first launch.
+        self.syncedToServer = false
     }
 }

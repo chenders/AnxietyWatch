@@ -16,14 +16,25 @@ final class HealthDataCoordinator {
     private var hasSetupObservers = false
     private var pendingRefreshTask: Task<Void, Never>?
     private var lastClinicalImport: Date = .distantPast
-    /// Serialization guard for `mirrorHealthKitSamples()`. Multiple call sites
-    /// (debounced observer refresh, BG-refresh task, and `setupIfNeeded`) can
-    /// fire in overlapping orders. Without this guard, two concurrent runs can
-    /// both prefetch the same UUID set into separate ModelContexts and then
-    /// race their inserts, producing unique-constraint save failures (and on
-    /// `QuantityHealthSample.id`, dropped writes). The flag is touched only
-    /// from `mirrorHealthKitSamples()` itself, which is `@MainActor`-bound, so
-    /// reads/writes are serialized by the main actor without extra locking.
+    /// Per-instance serialization guard for `mirrorHealthKitSamples()`.
+    /// Multiple call sites (debounced observer refresh, BG-refresh task,
+    /// `setupIfNeeded`) on the SAME coordinator can fire in overlapping
+    /// orders; without this guard, two concurrent runs would both prefetch
+    /// the same UUID set into separate ModelContexts and race their inserts.
+    /// The flag is touched only from `mirrorHealthKitSamples()` itself,
+    /// which is `@MainActor`-bound, so reads/writes are serialized by the
+    /// main actor without extra locking.
+    ///
+    /// Cross-instance racing (e.g. an inline coordinator created by
+    /// `SettingsView.rebuildAllSnapshots` running alongside the app-level
+    /// coordinator) is NOT serialized here — that would break per-test
+    /// isolation in `SampleSyncTests` which spins up its own coordinator
+    /// per test. In production the cross-instance race is recoverable:
+    /// `@Attribute(.unique)` on `QuantityHealthSample.id` causes the second
+    /// insert to fail at save time, and that coordinator's anchor stays at
+    /// its prior position so the next mirror pass re-fetches the same
+    /// window, finds the row already inserted via the prefetched-keys path,
+    /// and noops. No data loss; at worst one wasted HK round trip.
     @MainActor private var isMirroring = false
 
     /// Exposed so the UI can show backfill progress.

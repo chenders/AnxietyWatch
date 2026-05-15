@@ -136,6 +136,30 @@ struct SettingsView: View {
         rebuildTotal = totalDays
         rebuildProgress = 0
 
+        // Run the HealthKit→SwiftData mirror before re-aggregating so the SpO2
+        // precedence override has the source-tagged rows it needs in
+        // `QuantityHealthSample` for the most recent ~9 days. The mirror's
+        // initial lookback is bounded by `HealthDataCoordinator.initialMirrorLookbackDays`
+        // (currently 7) + a 48h rolling correction window — by design, so a
+        // first launch doesn't pull years of data — which means the rebuild
+        // loop iterating over older days still won't have SwiftData-mirrored
+        // rows there. For SpO2 the source-aware HK fallback in
+        // `applyOvernightSpO2Precedence` covers older days regardless. For
+        // HR/HRV (`applyDailyHeartMetricsPrecedence` still reads only
+        // SwiftData) older-day Polar precedence requires that the row
+        // already exists in `QuantityHealthSample`, e.g. from prior
+        // incremental sync passes that mirrored it at the time. A future
+        // "rebuild also extends the mirror anchor" change could close that
+        // gap, but is out of scope here. Anchor + 48h look-back means a
+        // fully-synced device no-ops in under a second.
+        //
+        // Constructing a fresh coordinator (rather than reusing the app-level
+        // one via Environment plumbing) is fine here: the cross-instance race
+        // with the app's own coordinator is recoverable via `@Attribute(.unique)`
+        // on `QuantityHealthSample.id` — see the `isMirroring` docstring.
+        let coordinator = HealthDataCoordinator(modelContainer: modelContext.container)
+        await coordinator.mirrorHealthKitSamples()
+
         let aggregator = SnapshotAggregator(
             healthKit: HealthKitManager.shared,
             modelContext: modelContext

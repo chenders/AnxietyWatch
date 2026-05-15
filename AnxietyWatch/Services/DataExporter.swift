@@ -28,8 +28,21 @@ enum DataExporter {
         let songOccurrences: [SongOccurrenceDTO]
     }
 
-    static func exportJSON(from context: ModelContext, start: Date? = nil, end: Date? = nil) throws -> Data {
-        let bundle = try buildBundle(from: context, start: start, end: end)
+    /// JSON export. `healthSnapshots` are date-range-filtered like every
+    /// other small-volume table; the sync path overwrites this key with a
+    /// capped `!syncedToServer` selection in `SyncService.buildPayload`,
+    /// so a re-aggregated past-day snapshot still reaches the server
+    /// without ballooning every file export to include every dirty row.
+    ///
+    /// `omitHealthSnapshots`: when `true`, skip the snapshot fetch and
+    /// emit an empty `healthSnapshots` array. The sync path passes `true`
+    /// because it overwrites the key anyway via
+    /// `SyncService.fetchUnsyncedHealthSnapshots`; the snapshot fetch +
+    /// encoding would otherwise be wasted main-actor work on every sync.
+    static func exportJSON(from context: ModelContext, start: Date? = nil, end: Date? = nil,
+                           omitHealthSnapshots: Bool = false) throws -> Data {
+        let bundle = try buildBundle(from: context, start: start, end: end,
+                                     omitHealthSnapshots: omitHealthSnapshots)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(bundle)
@@ -39,7 +52,7 @@ enum DataExporter {
 
     /// Returns array of (filename, csvData) pairs — one per entity type.
     static func exportCSV(from context: ModelContext, start: Date? = nil, end: Date? = nil) throws -> [(String, Data)] {
-        let bundle = try buildBundle(from: context, start: start, end: end)
+        let bundle = try buildBundle(from: context, start: start, end: end, omitHealthSnapshots: false)
         var files: [(String, Data)] = []
 
         // Anxiety entries
@@ -157,12 +170,25 @@ enum DataExporter {
 
     // MARK: - Private
 
-    private static func buildBundle(from context: ModelContext, start: Date?, end: Date?) throws -> ExportBundle {
+    private static func buildBundle(from context: ModelContext, start: Date?, end: Date?,
+                                    omitHealthSnapshots: Bool) throws -> ExportBundle {
         let entries = try context.fetch(FetchDescriptor<AnxietyEntry>(sortBy: [SortDescriptor(\.timestamp)]))
         let defs = try context.fetch(FetchDescriptor<MedicationDefinition>(sortBy: [SortDescriptor(\.name)]))
         let doses = try context.fetch(FetchDescriptor<MedicationDose>(sortBy: [SortDescriptor(\.timestamp)]))
         let cpap = try context.fetch(FetchDescriptor<CPAPSession>(sortBy: [SortDescriptor(\.date)]))
-        let snapshots = try context.fetch(FetchDescriptor<HealthSnapshot>(sortBy: [SortDescriptor(\.date)]))
+        // Skip the unbounded HealthSnapshot fetch when the caller will
+        // overwrite the key anyway (sync path). For databases with a
+        // multi-year history this is a meaningful main-actor saving.
+        // Note: when NOT omitting, this uses plain `try` (not `try?`) so a
+        // fetch failure surfaces as a thrown error rather than silently
+        // producing an export missing every snapshot. The sync path's own
+        // `fetchUnsyncedHealthSnapshots` similarly throws.
+        let snapshots: [HealthSnapshot]
+        if omitHealthSnapshots {
+            snapshots = []
+        } else {
+            snapshots = try context.fetch(FetchDescriptor<HealthSnapshot>(sortBy: [SortDescriptor(\.date)]))
+        }
         let barometric = try context.fetch(FetchDescriptor<BarometricReading>(sortBy: [SortDescriptor(\.timestamp)]))
         let labResults = try context.fetch(FetchDescriptor<ClinicalLabResult>(sortBy: [SortDescriptor(\.effectiveDate)]))
         let pharmacies: [Pharmacy] = (try? context.fetch(FetchDescriptor<Pharmacy>(sortBy: [SortDescriptor(\.name)]))) ?? []

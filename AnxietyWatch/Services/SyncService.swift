@@ -578,7 +578,24 @@ final class SyncService {
             // `upperBound` (when supplied) caps the small-volume range so the sync
             // loop can advance `lastSyncDate` to a known upper edge without skipping
             // records created during the round trip. See `sync()` for the rationale.
-            let jsonData = try DataExporter.exportJSON(from: context, start: since, end: upperBound)
+            //
+            // `omitHealthSnapshots`: incremental syncs overwrite the
+            // `healthSnapshots` key below with the dirty-flag selection
+            // (cheap, capped, sufficient post-migration), so DataExporter's
+            // unbounded snapshot fetch + DTO encode would be discarded
+            // work. A full sync (`since == nil`) instead falls back to
+            // DataExporter's date-range snapshot export: existing pre-
+            // migration rows default to `syncedToServer = true` to avoid
+            // a migration-time dirty storm, which means the dirty-flag
+            // path would silently ship zero snapshots on a fullSync even
+            // though the user explicitly asked to re-send everything.
+            // The date-range path preserves the pre-migration "full
+            // sync = upload everything" semantic for that case.
+            let isFullSync = since == nil
+            let jsonData = try DataExporter.exportJSON(
+                from: context, start: since, end: upperBound,
+                omitHealthSnapshots: !isFullSync
+            )
             guard let parsed = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
                 return jsonData
             }
@@ -612,6 +629,22 @@ final class SyncService {
         // intent to receive them on the next round-trip.
         json["sensorSessions"] = try fetchUnsyncedSensorSessions(from: context)
         json["hrvReadings"] = try fetchUnsyncedHRVReadings(from: context)
+        // Overwrite `healthSnapshots` with the capped `!syncedToServer`
+        // selection ONLY on incremental syncs. DataExporter has supplied
+        // a date-range-filtered copy intended for file exports; for
+        // incremental sync we want the dirty-flag set instead, with the
+        // same per-call cap as the other bulk types so a multi-year
+        // "Rebuild All History" doesn't blow the payload size limit on
+        // a single request. Server upserts by `date`, so a row that's
+        // both in the date-range AND dirty (the common overlap case)
+        // simply lands once.
+        //
+        // On a full sync (`since == nil`) we leave DataExporter's
+        // date-range export in place — see the comment up top about
+        // pre-migration rows defaulting to `syncedToServer = true`.
+        if since != nil {
+            json["healthSnapshots"] = try fetchUnsyncedHealthSnapshots(from: context)
+        }
 
         return try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
     }
@@ -664,6 +697,111 @@ final class SyncService {
                 )
             }
         }
+        if !uploaded.healthSnapshotDates.isEmpty {
+            try Self.flagSnapshotsSynced(
+                dates: uploaded.healthSnapshotDates,
+                expectedVersions: uploaded.healthSnapshotVersions,
+                in: modelContext
+            )
+        }
+    }
+
+    /// Flip `syncedToServer = true` on `HealthSnapshot` rows whose `date`
+    /// matches one of `dates`. Dates come from a round-trip through
+    /// `Self.snapshotDateFormatter` (in both directions — the sync path
+    /// formats snapshot dates via `fetchUnsyncedHealthSnapshots` and
+    /// parses them back via `extractUploadedSyncedIDs`). The format
+    /// matches `DataExporter`'s ISO8601 whole-second format so a future
+    /// switch back to date-range-based snapshot export would still
+    /// round-trip cleanly. No fractional-second component on either
+    /// side, so the absolute instant is preserved byte-for-byte.
+    ///
+    /// **No `Calendar.startOfDay` normalization on either side.** The stored
+    /// `row.date` is already `Calendar.current.startOfDay(for:)` of the
+    /// snapshot's calendar day in the *creation-time* timezone; the parsed
+    /// date is the identical absolute instant from the payload. Re-running
+    /// `Calendar.current.startOfDay(for:)` here would shift the date if the
+    /// user travels between creation and sync (e.g. a PT-created snapshot
+    /// at `00:00 PT == 08:00 UTC`, normalized in ET, becomes `00:00 ET ==
+    /// 05:00 UTC` — no match against the original 08:00 UTC row → row never
+    /// flips synced → perpetual re-uploads). Compare absolute `Date`
+    /// equality directly.
+    ///
+    /// Fetches by `$0.date >= min && $0.date <= max` (the smallest range
+    /// containing every uploaded date) and applies the `!syncedToServer`
+    /// filter in memory afterwards, rather than `#Predicate { batch.contains($0.date) }`.
+    /// `Set<UUID>.contains` in `#Predicate` translates cleanly through the
+    /// SwiftData predicate compiler (used elsewhere in this file for sample-id
+    /// flag flipping), but `Set<Date>.contains` rides a less-exercised path
+    /// over SQLite `REAL`-typed columns that has produced silent zero-row
+    /// matches in some iOS 17/18 builds. The range-bounded fetch keeps the
+    /// predicate over indexed primitive `Date` comparisons — matching the
+    /// safe pattern used in `SnapshotAggregator.apply*Precedence` — while
+    /// still narrowing the candidate set far below "every dirty row in the
+    /// table" for the common-case incremental upload.
+    @MainActor
+    private static func flagSnapshotsSynced(
+        dates: [Date],
+        expectedVersions: [Int],
+        in context: ModelContext
+    ) throws {
+        // Build per-date version expectations. Empty expectedVersions
+        // (full-sync path / pre-version payloads) maps every date to
+        // `nil`, which `flagSnapshotsSynced` treats as "no check, flip
+        // unconditionally" — matching pre-race-fix behavior for the
+        // full-sync path where the version isn't carried.
+        var expectedByDate: [Date: Int] = [:]
+        if expectedVersions.count == dates.count {
+            for (date, version) in zip(dates, expectedVersions) where version >= 0 {
+                // Last-write wins if the same date appears twice; in
+                // practice the payload doesn't duplicate dates.
+                expectedByDate[date] = version
+            }
+        }
+        let uploadedDates = Set(dates)
+        guard let minDate = uploadedDates.min(),
+              let maxDate = uploadedDates.max() else { return }
+        // Date-range predicate narrows the fetch to the smallest box
+        // containing every uploaded date. A multi-year incremental sync
+        // upload typically spans a contiguous run of days so this is
+        // tight; a sparse upload still bounds the fetch to a known
+        // calendar range rather than scanning every dirty row in the
+        // table. The `!$0.syncedToServer` filter is applied in memory
+        // afterwards.
+        //
+        // The compound `&&` here is safe because both captured locals
+        // are `Date` (a value-type wrapper around `Double`) — the iOS 26
+        // SwiftData footgun documented in CLAUDE.md is specifically
+        // about compound predicates capturing **non-primitive** locals
+        // (`UUID`, `String`), which trip a pathologically slow translator
+        // path. The matching pattern in
+        // `SnapshotAggregator.applyOvernightSpO2Precedence` uses the
+        // same shape (two Date clauses) and is the canonical reference.
+        // Don't add a third-clause `Bool` predicate here without
+        // re-checking — keep the bool filter in memory.
+        let descriptor = FetchDescriptor<HealthSnapshot>(
+            predicate: #Predicate { $0.date >= minDate && $0.date <= maxDate }
+        )
+        let candidates = try context.fetch(descriptor)
+        var didChange = false
+        for row in candidates where !row.syncedToServer && uploadedDates.contains(row.date) {
+            // Race-window guard: if the row's `pendingSyncVersion`
+            // advanced between payload-build and now, a concurrent
+            // `aggregateDay` (running while `sync()` was suspended on
+            // its URLSession await) mutated the row out from under the
+            // payload. Leave it dirty so the new changes still sync.
+            // `nil` means the payload didn't carry a version (full-sync
+            // / DataExporter path) — fall through to the date-only
+            // unconditional flip, matching pre-race-fix behavior.
+            if let expected = expectedByDate[row.date], expected != row.pendingSyncVersion {
+                continue
+            }
+            row.syncedToServer = true
+            didChange = true
+        }
+        if didChange {
+            try context.save()
+        }
     }
 
     /// Fetch the rows whose ids are in `ids` in batches of
@@ -704,6 +842,111 @@ final class SyncService {
         return f
     }()
 
+    /// Used by `fetchUnsyncedHealthSnapshots` (formats `HealthSnapshot.date`
+    /// into the outgoing payload) AND `extractUploadedSyncedIDs` (parses
+    /// those dates back out so `flagSnapshotsSynced` can match by absolute
+    /// `Date`). No fractional seconds so the round-trip preserves the
+    /// stored start-of-day instant byte-for-byte.
+    ///
+    /// Format matches `DataExporter.isoFormatter` deliberately — DataExporter
+    /// uses the same whole-second ISO8601 for file-export snapshots, so the
+    /// server sees one consistent date format regardless of which export
+    /// path produced the payload. Sample timestamps elsewhere in the sync
+    /// payload go through the fractional-seconds `isoFormatter` above; the
+    /// two formats coexist because they serve different keys.
+    private static let snapshotDateFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    /// Fetch up to `sampleBatchLimit` dirty `HealthSnapshot` rows ordered by
+    /// `date` ascending, formatted as dicts the server upserts into the
+    /// `health_snapshots` table.
+    ///
+    /// The on-wire shape is a superset of `DataExporter.HealthSnapshotDTO`:
+    /// every field the DTO encodes, plus `dataQuality` (the JSON-encoded
+    /// reliability/source breakdown). The DTO doesn't currently include
+    /// `dataQuality` — a pre-existing gap in the file-export schema — but
+    /// the server's upsert *does* read it (treats a missing key as
+    /// `EXCLUDED.data_quality` → NULL), so omitting it from the sync
+    /// payload would silently null the column on every push. We emit it
+    /// here even though DTO doesn't; the file-export DTO is the part
+    /// that's stale, not this dict. (If a future change extends the DTO
+    /// to include `dataQuality`, this divergence collapses.)
+    ///
+    /// Cap means a multi-year rebuild streams across multiple drain-loop
+    /// iterations rather than blowing the payload limit in one shot; the
+    /// post-upload `flagSnapshotsSynced` step flips the uploaded rows clean
+    /// so the next iteration's fetch returns the next batch. Counted by
+    /// `hitBulkLimit` so the loop keeps going while batches are at the cap.
+    @MainActor
+    private func fetchUnsyncedHealthSnapshots(from context: ModelContext) throws -> [[String: Any]] {
+        var descriptor = FetchDescriptor<HealthSnapshot>(
+            predicate: #Predicate { !$0.syncedToServer },
+            sortBy: [SortDescriptor(\.date)]
+        )
+        descriptor.fetchLimit = Self.sampleBatchLimit
+        let rows = try context.fetch(descriptor)
+        return rows.map { s in
+            var dict: [String: Any] = [
+                "date": Self.snapshotDateFormatter.string(from: s.date)
+            ]
+            // Optional fields only emit when present so the on-wire shape
+            // matches `JSONEncoder`'s default-encode-with-omitted-nils
+            // behavior on `HealthSnapshotDTO`.
+            func put<V>(_ key: String, _ value: V?) {
+                if let value { dict[key] = value }
+            }
+            put("hrvAvg", s.hrvAvg)
+            put("hrvMin", s.hrvMin)
+            put("restingHR", s.restingHR)
+            put("sleepDurationMin", s.sleepDurationMin)
+            put("sleepDeepMin", s.sleepDeepMin)
+            put("sleepREMMin", s.sleepREMMin)
+            put("sleepCoreMin", s.sleepCoreMin)
+            put("sleepAwakeMin", s.sleepAwakeMin)
+            put("skinTempDeviation", s.skinTempDeviation)
+            put("skinTempWrist", s.skinTempWrist)
+            put("respiratoryRate", s.respiratoryRate)
+            put("spo2Avg", s.spo2Avg)
+            put("spo2NadirOvernight", s.spo2NadirOvernight)
+            put("spo2NadirOpportunistic", s.spo2NadirOpportunistic)
+            put("spo2TimeBelow90Min", s.spo2TimeBelow90Min)
+            put("spo2DesatsCount", s.spo2DesatsCount)
+            put("steps", s.steps)
+            put("activeCalories", s.activeCalories)
+            put("exerciseMinutes", s.exerciseMinutes)
+            put("environmentalSoundAvg", s.environmentalSoundAvg)
+            put("bpSystolic", s.bpSystolic)
+            put("bpDiastolic", s.bpDiastolic)
+            put("bloodGlucoseAvg", s.bloodGlucoseAvg)
+            put("glucoseStdDev", s.glucoseStdDev)
+            put("glucoseCV", s.glucoseCV)
+            put("glucoseMin", s.glucoseMin)
+            put("glucoseMax", s.glucoseMax)
+            put("cpapAHI", s.cpapAHI)
+            put("cpapUsageMinutes", s.cpapUsageMinutes)
+            put("barometricPressureAvgKPa", s.barometricPressureAvgKPa)
+            put("barometricPressureChangeKPa", s.barometricPressureChangeKPa)
+            // The server treats a missing `dataQuality` on syncSchemaVersion>=3
+            // as an intentional clear (`data_quality = EXCLUDED.data_quality`),
+            // so omitting this key on every sync would silently null out the
+            // column. Emit when non-nil; emitting an absent key for a locally
+            // nil value still matches local state (both become NULL server-side).
+            put("dataQuality", s.dataQuality)
+            // Client-internal token for the race-window check in
+            // `flagSnapshotsSynced` — the server ignores it. Underscored
+            // so a future schema review treats it as deliberately
+            // out-of-band rather than a stray field. Captured at fetch
+            // time so a concurrent `aggregateDay` running during the
+            // sync's URLSession await can bump the field, and the
+            // post-upload step will notice the mismatch.
+            dict["_pendingSyncVersion"] = s.pendingSyncVersion
+            return dict
+        }
+    }
+
     @MainActor
     private func fetchUnsyncedQuantitySamples(from context: ModelContext) throws -> [[String: Any]] {
         var descriptor = FetchDescriptor<QuantityHealthSample>(
@@ -736,7 +979,12 @@ final class SyncService {
     /// their `syncedToServer` flag after the server returns 200. Reading from
     /// the payload (instead of re-querying SwiftData) guarantees we mark
     /// exactly what was uploaded — no race with new mirrored rows.
-    private func extractUploadedSyncedIDs(from payload: Data) -> UploadedSyncedIDs {
+    /// Internal (not private) so `SyncServiceTests` can directly verify the
+    /// payload → ID-extraction step without invoking a real network sync.
+    /// The post-upload mark-synced flow depends on this returning a faithful
+    /// breakdown of what's actually in the payload, including the
+    /// non-UUID-keyed `healthSnapshotDates`.
+    func extractUploadedSyncedIDs(from payload: Data) -> UploadedSyncedIDs {
         guard let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
             return UploadedSyncedIDs()
         }
@@ -745,11 +993,44 @@ final class SyncService {
                 (dict["id"] as? String).flatMap(UUID.init(uuidString:))
             }
         }
+        // Snapshot dates can come from either of two formatters depending
+        // on sync mode:
+        //   - Incremental (`since != nil`): formatted by
+        //     `fetchUnsyncedHealthSnapshots` via `Self.snapshotDateFormatter`.
+        //   - Full (`since == nil`): formatted by `DataExporter.isoFormatter`.
+        // Both use `[.withInternetDateTime]` (whole-second, no fractional
+        // component) — deliberately, so this single-formatter parse works
+        // for either source. `Self.isoFormatter` is the strict
+        // fractional-seconds variant used for sample timestamps and would
+        // fail to parse the snapshot's whole-second format, hence the
+        // separate non-fractional `snapshotDateFormatter` used here.
+        // Parsing failures drop the entry — the row stays dirty and
+        // re-uploads next time, which beats silently marking the wrong
+        // day clean.
+        // Snapshot payloads carry both `date` (ISO8601 string) and
+        // `_pendingSyncVersion` (Int, client-internal — see
+        // `fetchUnsyncedHealthSnapshots`). Pull them in lockstep so the
+        // index alignment between `healthSnapshotDates` and
+        // `healthSnapshotVersions` is preserved. A snapshot from the
+        // full-sync (DataExporter) path won't carry the version key;
+        // it gets a parallel slot, treated as "no check" downstream.
+        var snapshotDates: [Date] = []
+        var snapshotVersions: [Int] = []
+        for dict in (json["healthSnapshots"] as? [[String: Any]]) ?? [] {
+            guard let dateString = dict["date"] as? String,
+                  let date = Self.snapshotDateFormatter.date(from: dateString) else {
+                continue
+            }
+            snapshotDates.append(date)
+            snapshotVersions.append((dict["_pendingSyncVersion"] as? Int) ?? -1)
+        }
         return UploadedSyncedIDs(
             quantitySamples: ids(forKey: "quantitySamples"),
             sleepStageEvents: ids(forKey: "sleepStageEvents"),
             sensorSessions: ids(forKey: "sensorSessions"),
-            hrvReadings: ids(forKey: "hrvReadings")
+            hrvReadings: ids(forKey: "hrvReadings"),
+            healthSnapshotDates: snapshotDates,
+            healthSnapshotVersions: snapshotVersions
         )
     }
 
@@ -973,14 +1254,36 @@ struct UploadedSyncedIDs: Equatable {
     var sleepStageEvents: [UUID] = []
     var sensorSessions: [UUID] = []
     var hrvReadings: [UUID] = []
+    /// `HealthSnapshot` uses `date` as its server-side primary key (not a UUID),
+    /// so post-upload flag-flipping for snapshots happens by date rather than ID.
+    /// Carried separately so the existing UUID-keyed path stays untouched.
+    var healthSnapshotDates: [Date] = []
+
+    /// Per-row `pendingSyncVersion` captured at fetch time for the rows
+    /// in `healthSnapshotDates`. Same-index alignment: index `i` of this
+    /// array is the version that was on the row at index `i` of the date
+    /// array when the payload was built. `flagSnapshotsSynced` compares
+    /// the captured version against each row's CURRENT version to detect
+    /// snapshots that got re-aggregated during the sync's URLSession
+    /// await window — those rows stay dirty so their new changes still
+    /// sync. Empty for the full-sync path (DataExporter doesn't emit
+    /// `_pendingSyncVersion`); flagSnapshotsSynced treats a missing
+    /// version as "no check" and flips by date alone (matching pre-PR
+    /// full-sync semantics where this race wasn't addressable).
+    var healthSnapshotVersions: [Int] = []
 
     /// True if any bulk-type array filled the per-call cap. The sync loop uses
     /// this as the signal that another round-trip is worth attempting: if we
-    /// just shipped 1000 of any type, there might be 1000 more behind them.
+    /// just shipped `cap` rows of any type, there might be `cap` more behind
+    /// them. Includes `healthSnapshotDates`: `fetchUnsyncedHealthSnapshots`
+    /// caps the per-call selection at `sampleBatchLimit` so a multi-year
+    /// rebuild streams across iterations instead of blowing the payload in
+    /// one shot.
     func hitBulkLimit(_ cap: Int) -> Bool {
         quantitySamples.count >= cap
             || sleepStageEvents.count >= cap
             || sensorSessions.count >= cap
             || hrvReadings.count >= cap
+            || healthSnapshotDates.count >= cap
     }
 }

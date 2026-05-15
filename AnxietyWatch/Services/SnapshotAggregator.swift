@@ -1,5 +1,6 @@
 import Foundation
 import HealthKit
+import os
 import SwiftData
 
 /// Pulls a day's worth of HealthKit data into a local HealthSnapshot for efficient trending.
@@ -70,6 +71,16 @@ struct SnapshotAggregator {
         if existing.isEmpty {
             modelContext.insert(snapshot)
         }
+
+        // Capture the row's aggregate-field state BEFORE we overwrite it, so
+        // we can flip `syncedToServer` only when an aggregation actually
+        // changes a value. Without this guard, today's snapshot (which gets
+        // re-aggregated on every observer trigger and app launch) would be
+        // re-uploaded on every sync even when no inputs changed, producing
+        // persistent extra sync traffic for unchanged days. A new snapshot's
+        // fingerprint is all-nil; if aggregation puts values in, the diff is
+        // non-trivial and dirty fires correctly.
+        let preAggregateFingerprint = SnapshotFingerprint(from: snapshot)
 
         // Run all HealthKit queries concurrently — they're independent reads
         // of different data types for the same time window.
@@ -378,7 +389,7 @@ struct SnapshotAggregator {
         // Order matters: SpO2 first (uses overnight window), then daily
         // heart metrics (use full day window). The two windows can overlap
         // but the fetches are filtered by metricType so they're disjoint.
-        try applyOvernightSpO2Precedence(
+        try await applyOvernightSpO2Precedence(
             on: snapshot, overnightStart: overnightStart, overnightEnd: overnightEnd
         )
         try applyDailyHeartMetricsPrecedence(
@@ -394,64 +405,319 @@ struct SnapshotAggregator {
             overnightStart: overnightStart, overnightEnd: overnightEnd
         )
 
+        // Only mark dirty when an aggregate field actually changed. This
+        // keeps "Rebuild All History" (and any other re-aggregation flow)
+        // re-uploading past-day snapshots whose values shifted under the
+        // SpO2 precedence fix, while sparing today's snapshot the
+        // every-observer-trigger re-upload churn it would otherwise see.
+        //
+        // Bump `pendingSyncVersion` alongside the dirty flip so the
+        // post-upload `flagSnapshotsSynced` step can detect when an
+        // in-flight `aggregateDay` (running while `sync()` is suspended on
+        // its URLSession await) has mutated the row out from under the
+        // payload. The version is the only thing that distinguishes "row
+        // is clean and matches what we uploaded" from "row was re-dirtied
+        // during the sync and has new pending changes."
+        let postAggregateFingerprint = SnapshotFingerprint(from: snapshot)
+        if postAggregateFingerprint != preAggregateFingerprint {
+            snapshot.syncedToServer = false
+            snapshot.pendingSyncVersion &+= 1
+        }
+
         try modelContext.save()
+    }
+
+    // MARK: - Dirty-flag fingerprinting
+
+    /// Equatable snapshot of every aggregate field `aggregateDay` writes,
+    /// used to decide whether re-aggregation actually changed anything.
+    /// Excludes `id`, `date`, `syncedToServer` — those aren't aggregates and
+    /// shouldn't drive the dirty flag.
+    private struct SnapshotFingerprint: Equatable {
+        let hrvAvg: Double?
+        let hrvMin: Double?
+        let restingHR: Double?
+        let sleepDurationMin: Int?
+        let sleepDeepMin: Int?
+        let sleepREMMin: Int?
+        let sleepCoreMin: Int?
+        let sleepAwakeMin: Int?
+        let skinTempDeviation: Double?
+        let skinTempWrist: Double?
+        let respiratoryRate: Double?
+        let spo2Avg: Double?
+        let spo2NadirOvernight: Double?
+        let spo2NadirOpportunistic: Double?
+        let spo2TimeBelow90Min: Int?
+        let spo2DesatsCount: Int?
+        let steps: Int?
+        let activeCalories: Double?
+        let exerciseMinutes: Int?
+        let environmentalSoundAvg: Double?
+        let bpSystolic: Double?
+        let bpDiastolic: Double?
+        let bloodGlucoseAvg: Double?
+        let glucoseStdDev: Double?
+        let glucoseCV: Double?
+        let glucoseMin: Double?
+        let glucoseMax: Double?
+        let vo2Max: Double?
+        let walkingHeartRateAvg: Double?
+        let walkingSteadiness: Double?
+        let atrialFibrillationBurden: Double?
+        let headphoneAudioExposure: Double?
+        let walkingSpeed: Double?
+        let walkingStepLength: Double?
+        let walkingDoubleSupportPct: Double?
+        let walkingAsymmetryPct: Double?
+        let timeInDaylightMin: Int?
+        let physicalEffortAvg: Double?
+        let cpapAHI: Double?
+        let cpapUsageMinutes: Int?
+        let barometricPressureAvgKPa: Double?
+        let barometricPressureChangeKPa: Double?
+        let nocturnalHRDip: Double?
+        let tremorBandPowerAvg: Double?
+        let breathingRateAvg: Double?
+        let fidgetIndexAvg: Double?
+        let dataQuality: String?
+
+        init(from s: HealthSnapshot) {
+            hrvAvg = s.hrvAvg
+            hrvMin = s.hrvMin
+            restingHR = s.restingHR
+            sleepDurationMin = s.sleepDurationMin
+            sleepDeepMin = s.sleepDeepMin
+            sleepREMMin = s.sleepREMMin
+            sleepCoreMin = s.sleepCoreMin
+            sleepAwakeMin = s.sleepAwakeMin
+            skinTempDeviation = s.skinTempDeviation
+            skinTempWrist = s.skinTempWrist
+            respiratoryRate = s.respiratoryRate
+            spo2Avg = s.spo2Avg
+            spo2NadirOvernight = s.spo2NadirOvernight
+            spo2NadirOpportunistic = s.spo2NadirOpportunistic
+            spo2TimeBelow90Min = s.spo2TimeBelow90Min
+            spo2DesatsCount = s.spo2DesatsCount
+            steps = s.steps
+            activeCalories = s.activeCalories
+            exerciseMinutes = s.exerciseMinutes
+            environmentalSoundAvg = s.environmentalSoundAvg
+            bpSystolic = s.bpSystolic
+            bpDiastolic = s.bpDiastolic
+            bloodGlucoseAvg = s.bloodGlucoseAvg
+            glucoseStdDev = s.glucoseStdDev
+            glucoseCV = s.glucoseCV
+            glucoseMin = s.glucoseMin
+            glucoseMax = s.glucoseMax
+            vo2Max = s.vo2Max
+            walkingHeartRateAvg = s.walkingHeartRateAvg
+            walkingSteadiness = s.walkingSteadiness
+            atrialFibrillationBurden = s.atrialFibrillationBurden
+            headphoneAudioExposure = s.headphoneAudioExposure
+            walkingSpeed = s.walkingSpeed
+            walkingStepLength = s.walkingStepLength
+            walkingDoubleSupportPct = s.walkingDoubleSupportPct
+            walkingAsymmetryPct = s.walkingAsymmetryPct
+            timeInDaylightMin = s.timeInDaylightMin
+            physicalEffortAvg = s.physicalEffortAvg
+            cpapAHI = s.cpapAHI
+            cpapUsageMinutes = s.cpapUsageMinutes
+            barometricPressureAvgKPa = s.barometricPressureAvgKPa
+            barometricPressureChangeKPa = s.barometricPressureChangeKPa
+            nocturnalHRDip = s.nocturnalHRDip
+            tremorBandPowerAvg = s.tremorBandPowerAvg
+            breathingRateAvg = s.breathingRateAvg
+            fidgetIndexAvg = s.fidgetIndexAvg
+            dataQuality = s.dataQuality
+        }
     }
 
     // MARK: - Source-precedence overrides
 
-    /// Replace HealthKit-direct SpO2 aggregates with values computed from
-    /// the high-fidelity tier (EMAY/Wellue oximeters) when those samples
-    /// cover the overnight window. Also always populates
-    /// `spo2NadirOpportunistic` so the trends chart can show the Apple
-    /// Watch line independently.
+    /// Provenance-tagged sample value used for SpO2 partitioning. Decoupled
+    /// from `QuantityHealthSample` so the precedence path can also consume
+    /// `SourcedQuantitySample` values pulled live from HealthKit when the
+    /// SwiftData mirror hasn't backfilled yet.
+    private struct ProvSpO2Sample {
+        let timestamp: Date
+        let value: Double
+        let sourceBundleID: String
+    }
+
+    /// Compute SpO2 aggregates (avg, nadir, opportunistic nadir, T90, desats)
+    /// from the high-fidelity tier (EMAY/Wellue oximeters) when present,
+    /// falling back to opportunistic (Apple Watch / unknown) otherwise.
+    /// Always populates `spo2NadirOpportunistic` so the trends chart can show
+    /// the Apple Watch line independently.
     ///
-    /// No-op when no high-fidelity samples exist for the window: the HK-
-    /// direct values (which in that case were already all-opportunistic)
-    /// remain the snapshot's authoritative value.
+    /// Pulls samples from BOTH layers so the override doesn't silently no-op
+    /// on a fresh install or before the HealthKit→SwiftData mirror has caught
+    /// up: HK live samples cover Apple-Watch + EMAY-iOS-app writes, SwiftData
+    /// rows additionally cover CSV-imported EMAY sessions. Dedupe by hkUUID
+    /// so HK samples already mirrored into SwiftData aren't double-counted.
+    ///
+    /// Pre-fix: the override only read SwiftData. On a fresh install the
+    /// SwiftData table was empty, partition returned (preferred: [], opp: []),
+    /// the function early-returned, and the HK-direct nadir (which mixes ALL
+    /// sources via `minimumQuantity`) remained — surfacing Apple Watch
+    /// off-finger artifacts (e.g. a single 0.78 afternoon reading) as the
+    /// green "Oximeter" line.
     private func applyOvernightSpO2Precedence(
         on snapshot: HealthSnapshot,
         overnightStart: Date,
         overnightEnd: Date
-    ) throws {
+    ) async throws {
         let spo2Type = HKQuantityTypeIdentifier.oxygenSaturation.rawValue
-        // Date-only predicate + in-memory metricType filter. A compound
-        // `&&` predicate with a captured `String` local (here `spo2Type`)
-        // can trip the iOS 26 SwiftData footgun documented in CLAUDE.md
-        // (`+[_NSPredicateUtilities _predicateEnforceRestrictionsOnSelector:…]`
-        // hang during SQL ORDER BY generation, scene-update watchdog
-        // `0x8BADF00D`). Keep the predicate single-table-of-comparisons
-        // on indexed primitive `Date` fields and filter strings post-fetch.
+
+        // 1) SwiftData rows (mirror + CSV imports). Date-only predicate +
+        // in-memory metricType filter to dodge the iOS 26 SwiftData footgun
+        // documented in CLAUDE.md (compound `&&` with captured `String`
+        // locals hangs during SQL ORDER BY generation).
         let descriptor = FetchDescriptor<QuantityHealthSample>(
             predicate: #Predicate {
                 $0.timestamp >= overnightStart && $0.timestamp < overnightEnd
             }
         )
         let windowRows = try modelContext.fetch(descriptor)
-        let rows = windowRows.filter { $0.metricType == spo2Type }
-        let parts = DeviceProvenance.partition(samples: rows, metricType: spo2Type)
+        let swiftDataRows = windowRows.filter { $0.metricType == spo2Type }
 
-        // Opportunistic nadir is always reported when any opportunistic
-        // samples exist — it feeds the trends chart's Apple Watch line
+        // 2) HealthKit live samples with source provenance, but only when
+        // SwiftData LACKS HK-mirrored coverage for this window. The mirror
+        // pulls every HK SpO2 sample (Apple Watch + EMAY iOS app) for its
+        // lookback window, so any HK-attributed SwiftData row means the
+        // mirror has touched this window and we already have the rows we'd
+        // get from HK live. Skipping the round-trip in that case avoids a
+        // second per-sample HK query for the same window — on a 1 Hz EMAY
+        // night that's ~32k samples doubled on every `aggregateDay` call,
+        // and `aggregateDay` runs on launch from several views.
+        //
+        // CSV-imported EMAY rows (`com.emay.SleepO2`) DON'T count as HK-
+        // mirrored coverage: those rows live only in SwiftData, never in
+        // HealthKit, and a window populated entirely from CSV import
+        // wouldn't have caught any Apple Watch readings via the mirror.
+        // Still fetch HK in that case so the precedence partition can see
+        // Watch/EMAY-iOS-app samples that complement the CSV data.
+        //
+        // The empty-SwiftData / CSV-only cases are what motivated this
+        // whole fallback — they're the paths the May 12 bug took, and the
+        // ones we MUST keep wired up. Failure is non-fatal: with no
+        // SwiftData rows AND no HK rows we just leave the HK-direct
+        // avg/nadir values in place rather than crashing the day's
+        // aggregation.
+        // Authoritative list lives on `DeviceProvenance` so the gate stays
+        // in sync with the bundle IDs the EMAY CSV importer is allowed to
+        // write — and covers both case variants (the upper-cased form the
+        // importer currently uses AND the lower-cased legacy form).
+        let hasHKMirroredCoverage = swiftDataRows.contains { row in
+            !DeviceProvenance.csvOnlySpO2Bundles.contains(row.sourceBundleID)
+        }
+        let hkSourced: [SourcedQuantitySample]
+        if !hasHKMirroredCoverage {
+            do {
+                hkSourced = try await healthKit.quantitySamplesWithSource(
+                    .oxygenSaturation, unit: .percent(),
+                    start: overnightStart, end: overnightEnd
+                )
+            } catch {
+                // Don't swallow silently — if HK auth is denied or the API
+                // call breaks, this fallback is the only thing keeping the
+                // precedence override correct on an unprimed mirror, and a
+                // failed query here will quietly degrade the chart back to
+                // mixed-source HK aggregates. Log with the metric + window
+                // so production issues can be triaged from device logs.
+                let isoFormatter = ISO8601DateFormatter()
+                Log.health.error(
+                    """
+                    SpO2 sourced-fallback fetch failed for \
+                    [\(isoFormatter.string(from: overnightStart), privacy: .public)..\
+                    \(isoFormatter.string(from: overnightEnd), privacy: .public)): \
+                    \(error, privacy: .public)
+                    """
+                )
+                hkSourced = []
+            }
+        } else {
+            hkSourced = []
+        }
+
+        // 3) Union by hkUUID. SwiftData rows mirroring HK samples share the
+        // same UUID as their HK origin, so prefer SwiftData (which can carry
+        // a retroactive correction from a later mirror pass) and add HK rows
+        // only when their UUID isn't already represented.
+        //
+        // NB: CSV-imported EMAY rows (`com.emay.SleepO2`) carry app-generated
+        // UUIDs by design (see `QuantityHealthSample` docstring) — they
+        // cannot collide with `hkUUID` and so won't be deduped by this step.
+        // That's intentional: those rows live only in SwiftData and are not
+        // mirrored from HealthKit. The corner case where this still
+        // double-counts is a user who runs BOTH paths for the same overnight
+        // session — exporting the EMAY device's CSV AND letting the EMAY
+        // iOS app write `com.emay.oximeter` samples to HealthKit. The two
+        // datasets land under different `sourceBundleID`s, both classify as
+        // preferred, and both contribute to avg/nadir/T90. Pre-existing
+        // behavior; `EMAYImporter`'s `(timestamp, metricType, sourceBundleID)`
+        // dedup is intentionally scoped to its own bundle ID for clarity and
+        // doesn't deduplicate against the HK-app's writes.
+        let swiftDataUUIDs = Set(swiftDataRows.map(\.id))
+        var unified: [ProvSpO2Sample] = []
+        unified.reserveCapacity(swiftDataRows.count + hkSourced.count)
+        for row in swiftDataRows {
+            unified.append(ProvSpO2Sample(
+                timestamp: row.timestamp,
+                value: row.value,
+                sourceBundleID: row.sourceBundleID
+            ))
+        }
+        for sample in hkSourced where !swiftDataUUIDs.contains(sample.hkUUID) {
+            unified.append(ProvSpO2Sample(
+                timestamp: sample.timestamp,
+                value: sample.value,
+                sourceBundleID: sample.sourceBundleID
+            ))
+        }
+
+        // 4) Partition by bundle-ID provenance.
+        let preferredBundles = DeviceProvenance.overnightPulseOximeters
+        var preferred: [ProvSpO2Sample] = []
+        var opportunistic: [ProvSpO2Sample] = []
+        for sample in unified {
+            if preferredBundles.contains(sample.sourceBundleID) {
+                preferred.append(sample)
+            } else {
+                opportunistic.append(sample)
+            }
+        }
+
+        // 5) Opportunistic nadir is always reported when any opportunistic
+        // samples exist — feeds the trends chart's Apple Watch line
         // regardless of whether a preferred source also covers the window.
-        let opportunisticValues = parts.opportunistic.map(\.value)
-        snapshot.spo2NadirOpportunistic = opportunisticValues.min().map { $0 * 100 }
+        snapshot.spo2NadirOpportunistic = opportunistic.map(\.value).min().map { $0 * 100 }
 
-        // No preferred-tier samples → keep the HK-direct values, which are
-        // already opportunistic-only in this case.
-        guard !parts.preferred.isEmpty else { return }
+        // 6) No preferred-tier coverage: keep the HK-direct avg/nadir/T90/desats
+        // already set by the HealthKit aggregate calls in `aggregateDay` (those
+        // mix sources, but with no dedicated oximeter they collapse to
+        // opportunistic-only, which is the right answer when no oximeter ran).
+        // T90/desats specifically: leave them untouched here — they were
+        // computed from the HK-direct `quantitySamples` array against the same
+        // continuous-monitoring thresholds, so wiping them would lose
+        // legitimate Apple-Watch-derived overnight stats on watch-only nights.
+        guard !preferred.isEmpty else { return }
 
-        // Recompute avg + nadir from the preferred tier alone.
-        let preferredValues = parts.preferred.map(\.value)
+        // 7) Preferred-tier coverage: recompute avg + nadir from preferred
+        // only so a single Apple Watch positional artifact (e.g. 0.78 wrist
+        // reading at 3 PM) can't drag the clinically-meaningful EMAY nadir.
+        let preferredValues = preferred.map(\.value)
         let preferredAvg = preferredValues.reduce(0, +) / Double(preferredValues.count)
         snapshot.spo2Avg = preferredAvg * 100
         if let preferredNadir = preferredValues.min() {
             snapshot.spo2NadirOvernight = preferredNadir * 100
         }
 
-        // T90 + desat count need start/end intervals. Synthesize 1-second
+        // 8) T90 + desat count need start/end intervals. Synthesize 1-second
         // intervals — overnight oximeters write at 1 Hz so this matches
         // both the cadence and what HealthKit reports for the same writes.
-        let preferredQS = parts.preferred.map { sample in
+        let preferredQS = preferred.map { sample in
             QuantitySample(
                 start: sample.timestamp,
                 end: sample.timestamp.addingTimeInterval(1.0),

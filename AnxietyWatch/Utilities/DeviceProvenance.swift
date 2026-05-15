@@ -21,9 +21,22 @@ enum DeviceProvenance {
         "com.abbottdiabetescare.libre3"
     ]
 
-    static let overnightPulseOximeters: Set<String> = [
-        "com.emay.sleepo2",
+    /// Bundle IDs that ONLY the local CSV importer writes — never the
+    /// HealthKit→SwiftData mirror. A SwiftData row tagged with one of these
+    /// implies "the user imported a CSV here," NOT "the mirror has covered
+    /// this window." The SpO2 source-precedence path uses this distinction
+    /// to decide whether to also query HealthKit live samples when judging
+    /// SwiftData coverage. Both case variants are listed because (a) the
+    /// importer writes the upper-cased form (`EMAYImporter.sourceBundleID`)
+    /// and (b) the lower-cased form appears in `overnightPulseOximeters`
+    /// from older bundle attributions — treating only the upper variant as
+    /// CSV-only would let a legacy lower-cased row slip the gate.
+    static let csvOnlySpO2Bundles: Set<String> = [
         "com.emay.SleepO2",
+        "com.emay.sleepo2"
+    ]
+
+    static let overnightPulseOximeters: Set<String> = csvOnlySpO2Bundles.union([
         // Bundle used when the EMAY iOS companion app writes SpO2/PR samples
         // to HealthKit (vs. `com.emay.SleepO2` for CSV-imported sessions —
         // see `EMAYImporter.sourceBundleID`). Both are the same device class
@@ -31,7 +44,7 @@ enum DeviceProvenance {
         "com.emay.oximeter",
         "io.wellue.health",
         "com.viatomtech.wellue.O2Ring"
-    ]
+    ])
 
     /// Chest-strap heart-rate / HRV monitors. Polar H10 in particular records
     /// HR + RR-interval / SDNN at clinical fidelity vs. the wrist-PPG noise
