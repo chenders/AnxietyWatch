@@ -16,6 +16,93 @@ enum LFHFAggregator {
     /// trend card and the sessions list.
     nonisolated static let overnightThresholdSeconds: TimeInterval = 3 * 3600
 
+    // MARK: - Session coalescing
+
+    /// One coalesced "logical night" formed by merging adjacent SensorSessions
+    /// whose inter-session gaps are ≤ `gapTolerance`. Lets a fragmented Polar
+    /// strap night (BLE drops + reconnects) count as one overnight reading.
+    struct CoalescedNight: Identifiable, Equatable, Sendable {
+        /// Stable group identifier — equal to the FIRST member session's UUID.
+        /// Using a member's UUID instead of a fresh one keeps the chart datum
+        /// identity stable across renders so SwiftUI Charts doesn't re-animate
+        /// every body recompute.
+        let id: UUID
+        /// startTime of the earliest member session.
+        let startTime: Date
+        /// endTime of the latest member session.
+        let endTime: Date
+        /// Sum of (endTime - startTime) across MEMBER sessions. NOT
+        /// (endTime - startTime) of the coalesced span — gap time (when the
+        /// strap was disconnected) doesn't count as wear time.
+        let wearTimeSeconds: TimeInterval
+        /// Raw SensorSession IDs that contributed to this night, chronological.
+        let memberSessionIDs: [UUID]
+    }
+
+    /// Coalesce raw SensorSessions into logical nights. Sessions with `nil`
+    /// endTime (in-progress / never-finalized) are excluded. Sessions whose
+    /// `startTime` is at most `gapTolerance` after the previous session's
+    /// `endTime` get merged into the same night.
+    ///
+    /// Default gapTolerance: 45 minutes. Covers BLE drop+reconnect storms and
+    /// short bathroom breaks; below the duration of any realistic daytime nap
+    /// so two separate sleep events don't accidentally merge.
+    nonisolated static func coalesce(
+        sessions: [SensorSession],
+        gapTolerance: TimeInterval = 45 * 60
+    ) -> [CoalescedNight] {
+        // Only finalized sessions (non-nil endTime) can contribute wear time.
+        let finalized = sessions
+            .filter { $0.endTime != nil }
+            .sorted { lhs, rhs in
+                if lhs.startTime != rhs.startTime { return lhs.startTime < rhs.startTime }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
+        guard !finalized.isEmpty else { return [] }
+
+        var nights: [CoalescedNight] = []
+        // Seed with the first session.
+        var groupID = finalized[0].id
+        var groupStart = finalized[0].startTime
+        var groupEnd = finalized[0].endTime! // safe: filtered above
+        var groupWear: TimeInterval = groupEnd.timeIntervalSince(finalized[0].startTime)
+        var groupMembers: [UUID] = [finalized[0].id]
+
+        for session in finalized.dropFirst() {
+            let gap = session.startTime.timeIntervalSince(groupEnd)
+            if gap <= gapTolerance {
+                // Merge into current night.
+                let sessionEnd = session.endTime! // safe: filtered above
+                if sessionEnd > groupEnd { groupEnd = sessionEnd }
+                groupWear += session.endTime!.timeIntervalSince(session.startTime)
+                groupMembers.append(session.id)
+            } else {
+                // Flush the current night and start a new one.
+                nights.append(CoalescedNight(
+                    id: groupID,
+                    startTime: groupStart,
+                    endTime: groupEnd,
+                    wearTimeSeconds: groupWear,
+                    memberSessionIDs: groupMembers
+                ))
+                groupID = session.id
+                groupStart = session.startTime
+                groupEnd = session.endTime! // safe: filtered above
+                groupWear = session.endTime!.timeIntervalSince(session.startTime)
+                groupMembers = [session.id]
+            }
+        }
+        // Flush the final group.
+        nights.append(CoalescedNight(
+            id: groupID,
+            startTime: groupStart,
+            endTime: groupEnd,
+            wearTimeSeconds: groupWear,
+            memberSessionIDs: groupMembers
+        ))
+        return nights
+    }
+
     /// One point in the per-minute series for a single session.
     struct LFHFPoint: Identifiable {
         let id: UUID
@@ -299,6 +386,140 @@ enum LFHFAggregator {
             sdnn: sortByNight(sdnnUnsorted, night: \.night, id: \.id),
             rmssd: sortByNight(rmssdUnsorted, night: \.night, id: \.id)
         )
+    }
+
+    // MARK: - Coalesced-night overloads
+
+    /// Bundled per-coalesced-night aggregates. Groups `readings` by the
+    /// coalesced night that owns their `sensorSessionID`, computing the
+    /// frequency-domain `NightlyMean`, time-domain SDNN, and time-domain
+    /// RMSSD series in a single pass. Results are anchored at
+    /// `coalescedNight.startTime` and keyed by `coalescedNight.id`.
+    nonisolated static func nightlyAggregates(
+        from readings: [HRVReading],
+        coalescedNights: [CoalescedNight]
+    ) -> (means: [NightlyMean], sdnn: [NightlyValue], rmssd: [NightlyValue]) {
+        guard !coalescedNights.isEmpty else {
+            return (means: [], sdnn: [], rmssd: [])
+        }
+        // Build a sessionID → CoalescedNight lookup so each reading can be
+        // routed to its owning logical night in O(1).
+        var sessionToNight: [UUID: CoalescedNight] = [:]
+        for night in coalescedNights {
+            for memberID in night.memberSessionIDs {
+                sessionToNight[memberID] = night
+            }
+        }
+
+        // Group readings by coalesced-night ID.
+        var readingsByNight: [UUID: [HRVReading]] = [:]
+        for reading in readings {
+            guard let sessionID = reading.sensorSessionID,
+                  let night = sessionToNight[sessionID] else { continue }
+            readingsByNight[night.id, default: []].append(reading)
+        }
+
+        // Build a nightID → CoalescedNight lookup for anchor dates.
+        let nightByID = Dictionary(uniqueKeysWithValues: coalescedNights.map { ($0.id, $0) })
+
+        var meansUnsorted: [NightlyMean] = []
+        var sdnnUnsorted: [NightlyValue] = []
+        var rmssdUnsorted: [NightlyValue] = []
+        meansUnsorted.reserveCapacity(coalescedNights.count)
+        sdnnUnsorted.reserveCapacity(coalescedNights.count)
+        rmssdUnsorted.reserveCapacity(coalescedNights.count)
+
+        for (nightID, nightReadings) in readingsByNight {
+            guard let night = nightByID[nightID] else { continue }
+            let anchor = night.startTime
+
+            // Frequency-domain
+            let validFreq = nightReadings.filter(hasFrequencyData)
+            if validFreq.isEmpty {
+                meansUnsorted.append(NightlyMean(
+                    id: nightID,
+                    night: anchor,
+                    hfMean: nil,
+                    lfMean: nil,
+                    lfHfMean: nil,
+                    validWindowCount: 0
+                ))
+            } else {
+                meansUnsorted.append(NightlyMean(
+                    id: nightID,
+                    night: anchor,
+                    hfMean: outlierTrimmedMean(of: validFreq.map(\.hfPower)),
+                    lfMean: outlierTrimmedMean(of: validFreq.map(\.lfPower)),
+                    lfHfMean: outlierTrimmedMean(of: validFreq.map(\.lfHfRatio)),
+                    validWindowCount: validFreq.count
+                ))
+            }
+
+            // SDNN
+            let validSDNN = nightReadings.map(\.sdnn).filter { $0 > 0 }
+            sdnnUnsorted.append(NightlyValue(
+                id: nightID,
+                night: anchor,
+                value: validSDNN.isEmpty ? nil : outlierTrimmedMean(of: validSDNN),
+                validWindowCount: validSDNN.count
+            ))
+
+            // RMSSD
+            let validRMSSD = nightReadings.map(\.rmssd).filter { $0 > 0 }
+            rmssdUnsorted.append(NightlyValue(
+                id: nightID,
+                night: anchor,
+                value: validRMSSD.isEmpty ? nil : outlierTrimmedMean(of: validRMSSD),
+                validWindowCount: validRMSSD.count
+            ))
+        }
+
+        return (
+            means: sortByNight(meansUnsorted, night: \.night, id: \.id),
+            sdnn: sortByNight(sdnnUnsorted, night: \.night, id: \.id),
+            rmssd: sortByNight(rmssdUnsorted, night: \.night, id: \.id)
+        )
+    }
+
+    /// Per-coalesced-night weighted-mean HR extracted from member session
+    /// summaryJSON values. Each member's `hrMean` is weighted by its individual
+    /// wear duration. Members with missing, unparseable, or zero `hrMean` are
+    /// skipped. If ALL members in a night are unreadable, that night is omitted.
+    nonisolated static func nightlyHRFromSummaries(
+        from sessions: [SensorSession],
+        coalescedNights: [CoalescedNight]
+    ) -> [NightlyValue] {
+        guard !coalescedNights.isEmpty else { return [] }
+        // Build sessionID → session lookup for fast member resolution.
+        let sessionByID = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
+
+        let unordered: [NightlyValue] = coalescedNights.compactMap { night in
+            var weightedSum: Double = 0
+            var totalWeight: Double = 0
+            for memberID in night.memberSessionIDs {
+                guard let session = sessionByID[memberID],
+                      let end = session.endTime,
+                      let summaryJSON = session.summaryJSON,
+                      let data = summaryJSON.data(using: .utf8),
+                      let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let hrMean = dict["hrMean"] as? Double,
+                      hrMean > 0 else { continue }
+                let duration = end.timeIntervalSince(session.startTime)
+                weightedSum += hrMean * duration
+                totalWeight += duration
+            }
+            guard totalWeight > 0 else { return nil }
+            return NightlyValue(
+                id: night.id,
+                night: night.startTime,
+                value: weightedSum / totalWeight,
+                validWindowCount: night.memberSessionIDs.count
+            )
+        }
+        return unordered.sorted { lhs, rhs in
+            if lhs.night != rhs.night { return lhs.night < rhs.night }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
     }
 
     nonisolated private static func sortByNight<T>(

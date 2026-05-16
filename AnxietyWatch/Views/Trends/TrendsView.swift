@@ -98,34 +98,35 @@ struct TrendsView: View {
         let cpapSessions = allCPAPSessions.filter { inWindow($0.date, start: ws.start, end: ws.end) }
         let barometricReadings = allBarometric.filter { inWindow($0.timestamp, start: ws.start, end: ws.end) }
 
-        // LF/HF card: overnight (≥overnightThresholdSeconds, finalized)
-        // sessions only. Source-filtering already happens in the @Query so
-        // short manual sessions are the only thing left to filter out here.
+        // LF/HF card: coalesce all Polar sessions into logical nights first,
+        // then filter to nights whose total wear time meets the overnight
+        // threshold. This lets a fragmented night (BLE drops + reconnects)
+        // qualify even when no single session is ≥3h, as long as the
+        // combined wear time across the night is.
         //
-        // Crucially, the window filter runs on the per-session NightlyMean,
-        // not on per-reading timestamps. An overnight session straddling
-        // the window boundary (started 11 PM, slept past midnight) should
-        // contribute its *full-session* mean anchored to its bedtime, not
-        // a partial mean anchored to the first post-midnight reading.
-        let overnightSessions = allSensorSessions.filter { session in
-            guard let end = session.endTime else { return false }
-            return end.timeIntervalSince(session.startTime) >= LFHFAggregator.overnightThresholdSeconds
+        // Crucially, the window filter runs on the per-night NightlyMean
+        // (anchored to the earliest member's startTime), not on per-reading
+        // timestamps. An overnight session straddling the window boundary
+        // (started 11 PM, slept past midnight) contributes its full-night
+        // mean anchored to bedtime, not a partial mean anchored to the first
+        // post-midnight reading.
+        let coalescedNights = LFHFAggregator.coalesce(sessions: allSensorSessions)
+        let overnightNights = coalescedNights.filter {
+            $0.wearTimeSeconds >= LFHFAggregator.overnightThresholdSeconds
         }
-        let overnightSessionIDs = Set(overnightSessions.map(\.id))
-        let sessionStartTimes = Dictionary(
-            uniqueKeysWithValues: overnightSessions.map { ($0.id, $0.startTime) }
-        )
+        let overnightMemberIDs = Set(overnightNights.flatMap(\.memberSessionIDs))
         let overnightReadings = allHRVReadings.filter {
             guard let sid = $0.sensorSessionID else { return false }
-            return overnightSessionIDs.contains(sid)
+            return overnightMemberIDs.contains(sid)
         }
+        let overnightSessions = allSensorSessions.filter { overnightMemberIDs.contains($0.id) }
         // Single grouping pass over `overnightReadings` produces all three
-        // session-derived series (frequency-domain NightlyMean, SDNN, RMSSD)
-        // so the body doesn't re-group the per-minute table three times per
-        // render.
+        // series (frequency-domain NightlyMean, SDNN, RMSSD) anchored to the
+        // coalesced-night start time so the body doesn't re-group the
+        // per-minute table three times per render.
         let nightlyAggregates = LFHFAggregator.nightlyAggregates(
             from: overnightReadings,
-            sessionStartTimes: sessionStartTimes
+            coalescedNights: overnightNights
         )
         let lfhfAllMeans = nightlyAggregates.means
         let lfhfWindowMeans = lfhfAllMeans
@@ -135,7 +136,7 @@ struct TrendsView: View {
         let rmssdWindowMeans = nightlyAggregates.rmssd
             .filter { inWindow($0.night, start: ws.start, end: ws.end) }
         let polarHRWindowMeans = LFHFAggregator
-            .nightlyHRFromSummaries(from: overnightSessions)
+            .nightlyHRFromSummaries(from: overnightSessions, coalescedNights: overnightNights)
             .filter { inWindow($0.night, start: ws.start, end: ws.end) }
 
         NavigationStack {

@@ -22,10 +22,11 @@ struct LFHFSessionsListView: View {
     private var allReadings: [HRVReading]
 
     private var overnightSessions: [SensorSession] {
-        allSessions.filter { session in
-            guard let end = session.endTime else { return false }
-            return end.timeIntervalSince(session.startTime) >= LFHFAggregator.overnightThresholdSeconds
-        }
+        let nights = LFHFAggregator.coalesce(sessions: allSessions)
+        let memberIDs = Set(nights
+            .filter { $0.wearTimeSeconds >= LFHFAggregator.overnightThresholdSeconds }
+            .flatMap(\.memberSessionIDs))
+        return allSessions.filter { memberIDs.contains($0.id) }
     }
 
     /// Accepts the already-filtered sessions array rather than re-filtering
@@ -58,7 +59,10 @@ struct LFHFSessionsListView: View {
                 ContentUnavailableView(
                     "No Overnight Sessions",
                     systemImage: "moon.zzz",
-                    description: Text("Sessions of 3 hours or longer will appear here.")
+                    description: Text(
+                        "Polar overnight readings (≥3 hours of wear time per night) will appear here. " +
+                        "Short fragmented sessions on the same night now count toward the total."
+                    )
                 )
             } else {
                 ForEach(sessions) { session in
