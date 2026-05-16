@@ -1,41 +1,50 @@
 import SwiftUI
 import SwiftData
-import HealthKit
 
 struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(PolarHRMService.self) private var polarService
-    @Query(sort: \AnxietyEntry.timestamp, order: .reverse)
-    private var recentEntries: [AnxietyEntry]
-    @Query(sort: \MedicationDose.timestamp, order: .reverse)
-    private var recentDoses: [MedicationDose]
+    // These four queries are bounded to a 30-day window in init() below.
+    // AnxietyEntry, MedicationDose, CPAPSession, and ClinicalLabResult can
+    // grow unbounded. The dashboard only reads .first from each, so anything
+    // older is dead weight. The cutoffs are captured once at view init via a
+    // `let`-bound constant because SwiftData's #Predicate macro can't
+    // reference a runtime-evaluated Date.now directly.
+    @Query private var recentEntries: [AnxietyEntry]
+    @Query private var recentDoses: [MedicationDose]
     @Query(sort: \HealthSnapshot.date, order: .reverse)
     private var recentSnapshots: [HealthSnapshot]
-    // SleepStageEvent rows can be thousands per night × hundreds of nights.
-    // Bound the query to the last 30 days so the dashboard never loads the
-    // full history into memory. The cutoff is captured once at view init via
-    // the `let`-bound `sleepCutoff` because SwiftData's `@Query(filter:)`
-    // can't reference a runtime-evaluated `Date.now` directly inside the
-    // predicate macro.
-    @Query private var recentSleepEvents: [SleepStageEvent]
-    @Query(sort: \CPAPSession.date, order: .reverse)
-    private var recentCPAP: [CPAPSession]
-    @Query(sort: \ClinicalLabResult.effectiveDate, order: .reverse)
-    private var recentLabResults: [ClinicalLabResult]
+    @Query private var recentCPAP: [CPAPSession]
+    @Query private var recentLabResults: [ClinicalLabResult]
     @Query(sort: \Prescription.dateFilled, order: .reverse)
     private var prescriptions: [Prescription]
+    @Query private var recentSleepEvents: [SleepStageEvent]
 
     @State private var vm = DashboardViewModel()
     private let barometer = BarometerService.shared
 
     init() {
-        let sleepCutoff = Date.now.addingTimeInterval(-30 * 24 * 3600)
+        let recentCutoff = Calendar.current.startOfDay(for: Date.now.addingTimeInterval(-30 * 24 * 3600))
+
+        _recentEntries = Query(
+            filter: #Predicate<AnxietyEntry> { $0.timestamp >= recentCutoff },
+            sort: \AnxietyEntry.timestamp, order: .reverse
+        )
+        _recentDoses = Query(
+            filter: #Predicate<MedicationDose> { $0.timestamp >= recentCutoff },
+            sort: \MedicationDose.timestamp, order: .reverse
+        )
+        _recentCPAP = Query(
+            filter: #Predicate<CPAPSession> { $0.date >= recentCutoff },
+            sort: \CPAPSession.date, order: .reverse
+        )
+        _recentLabResults = Query(
+            filter: #Predicate<ClinicalLabResult> { $0.effectiveDate >= recentCutoff },
+            sort: \ClinicalLabResult.effectiveDate, order: .reverse
+        )
         _recentSleepEvents = Query(
-            filter: #Predicate<SleepStageEvent> { event in
-                event.startTime >= sleepCutoff
-            },
-            sort: \SleepStageEvent.startTime,
-            order: .reverse
+            filter: #Predicate<SleepStageEvent> { $0.startTime >= recentCutoff },
+            sort: \SleepStageEvent.startTime, order: .reverse
         )
     }
 
@@ -43,21 +52,49 @@ struct DashboardView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    baselineAlert
-                    supplyAlertCard
-                    anxietySection
-                    // Only construct HRVSessionCardView when a strap is
-                    // paired — its @Query fires on every appearance, so
-                    // skipping the view entirely for unpaired users keeps
-                    // the Dashboard cheap to render for them.
+                    // 1. Alerts strip
+                    AlertsSectionView(snapshots: recentSnapshots, vm: vm)
+
+                    // 2. Smart Summary "What changed today"
+                    SmartSummaryCard(summary: vm.smartSummary(
+                        snapshots: recentSnapshots,
+                        sleepEvents: recentSleepEvents,
+                        lastAnxiety: recentEntries.first,
+                        activeAlerts: vm.lowSupplyCount > 0 ? 1 : 0
+                    ))
+
+                    // 3. Polar HRV start-session (always visible when paired per Q4)
                     if polarService.isPaired {
                         HRVSessionCardView(service: polarService)
                     }
-                    healthSection
-                    labResultsSection
-                    cpapSection
-                    barometricSection
-                    medicationSection
+
+                    // 4. Last Anxiety (spine signal)
+                    anxietySection
+
+                    // 5. Last Night merged hero (sleep efficiency + AHI + nadir + WASO)
+                    lastNightSection
+
+                    // 6+7. Vitals hero (HR + HRV) — wraps the two highest-priority autonomic signals
+                    VitalsHeroSectionView(vm: vm)
+
+                    // 8. Vitals 2-col grid (RHR, SpO2, RR, VO2, Walking HR, Steadiness, AFib, BP, Glucose)
+                    VitalsGridSectionView(vm: vm, snapshots: recentSnapshots)
+
+                    // 9. Activity row (Steps + Cal + Exercise)
+                    ActivityRowSectionView(vm: vm, snapshots: recentSnapshots)
+
+                    // 10. Environment & background disclosure (default collapsed)
+                    EnvironmentDisclosureSectionView(
+                        vm: vm, snapshots: recentSnapshots, barometer: barometer
+                    )
+
+                    // 11. Last Medication compact row
+                    LastMedicationRowView(lastDose: recentDoses.first)
+
+                    // 12. Care section row (Lab Results entry)
+                    CareSectionRowView(
+                        recentLabResultsCount: vm.latestLabResultPerTest(from: recentLabResults).count
+                    )
                 }
                 .padding()
             }
@@ -96,102 +133,6 @@ struct DashboardView: View {
     // MARK: - Sections
 
     @ViewBuilder
-    private var baselineAlert: some View {
-        if let baseline = vm.hrvBaseline,
-           let recent = BaselineCalculator.recentAverage(from: recentSnapshots, days: 3, keyPath: \.hrvAvg),
-           recent < baseline.lowerBound {
-            baselineAlertCard(
-                icon: "heart.fill",
-                title: "HRV Below Baseline",
-                message: "Your 3-day HRV average is below your 30-day baseline",
-                color: .orange
-            )
-        }
-        if let baseline = vm.sleepBaseline,
-           let lastSleep = recentSnapshots.first?.sleepDurationMin.map(Double.init),
-           lastSleep < baseline.lowerBound, baseline.mean > 0 {
-            let pct = Int(((baseline.mean - lastSleep) / baseline.mean) * 100)
-            baselineAlertCard(
-                icon: "bed.double.fill",
-                title: "Sleep Below Baseline",
-                message: "Last night's sleep was \(pct)% below your 30-day average",
-                color: .indigo
-            )
-        }
-        if let baseline = vm.respiratoryBaseline,
-           let lastRR = recentSnapshots.first?.respiratoryRate,
-           lastRR > baseline.upperBound, baseline.mean > 0 {
-            let pct = Int(((lastRR - baseline.mean) / baseline.mean) * 100)
-            baselineAlertCard(
-                icon: "lungs.fill",
-                title: "Respiratory Rate Elevated",
-                message: "Your respiratory rate is \(pct)% above your 30-day average",
-                color: .teal
-            )
-        }
-        if let baseline = vm.cpapAHIBaseline,
-           let recentAHI = BaselineCalculator.recentAverage(from: recentSnapshots, days: 3, keyPath: \.cpapAHI),
-           recentAHI > baseline.upperBound, baseline.mean > 0 {
-            let pct = Int(((recentAHI - baseline.mean) / baseline.mean) * 100)
-            baselineAlertCard(
-                icon: "lungs.fill",
-                title: "CPAP AHI Elevated",
-                message: "Your 3-night AHI average is \(pct)% above your 30-day baseline",
-                color: .purple
-            )
-        }
-        if let baseline = vm.barometricBaseline,
-           let todaySnapshot = vm.todaySnapshot(from: recentSnapshots),
-           let todayPressure = todaySnapshot.barometricPressureAvgKPa,
-           todayPressure < baseline.lowerBound {
-            baselineAlertCard(
-                icon: "barometer",
-                title: "Low Barometric Pressure",
-                message: "Pressure is significantly below your 30-day average",
-                color: .gray
-            )
-        }
-    }
-
-    private func baselineAlertCard(icon: String, title: String, message: String, color: Color) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon)
-                .foregroundStyle(color)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.bold())
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding()
-        .background(color.opacity(0.1), in: .rect(cornerRadius: 12))
-    }
-
-    @ViewBuilder
-    private var supplyAlertCard: some View {
-        if vm.lowSupplyCount > 0 {
-            let lowCount = vm.lowSupplyCount
-            HStack(spacing: 8) {
-                Image(systemName: "pills.fill")
-                    .foregroundStyle(.red)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(lowCount) Prescription\(lowCount == 1 ? "" : "s") Running Low")
-                        .font(.subheadline.bold())
-                    Text("Check the Medications tab for details")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .padding()
-            .background(.red.opacity(0.1), in: .rect(cornerRadius: 12))
-        }
-    }
-
-    @ViewBuilder
     private var anxietySection: some View {
         if let latest = recentEntries.first {
             MetricCard(
@@ -211,476 +152,45 @@ struct DashboardView: View {
     }
 
     @ViewBuilder
-    private var healthSection: some View {
-        vitalsCards
-        lastNightSection
-        activityCards
-        sleepCard
-        audioCards
-        bloodPressureAndGlucoseCards
-    }
-
-    @ViewBuilder
     private var lastNightSection: some View {
-        // Scan the already-loaded recentSnapshots @Query rather than issuing a
-        // fresh SwiftData fetch on every body recompute. The list is sorted
-        // descending by date so .first(where:) returns the most recent
-        // overnight-stat-bearing snapshot in O(n) over the in-memory window.
         if let snapshot = recentSnapshots.first(where: {
             $0.spo2NadirOvernight != nil
-                || $0.spo2TimeBelow90Min != nil
-                || $0.spo2DesatsCount != nil
+                || $0.sleepDurationMin != nil
+                || $0.cpapAHI != nil
         }) {
-            LastNightCard(snapshot: snapshot)
-                .padding(.horizontal)
-        }
-    }
-
-    // MARK: - Vitals (HR, HRV, Resting HR, SpO2, RR, VO2 Max, Walking HR, Steadiness, AFib)
-
-    @ViewBuilder
-    private var vitalsCards: some View {
-        // Heart Rate — sparkline
-        let hrType = HKQuantityTypeIdentifier.heartRate.rawValue
-        if let latest = vm.latestSample(for: hrType) {
-            LiveMetricCard(
-                title: "Heart Rate",
-                value: String(format: "%.0f", latest.value),
-                unitLabel: "bpm",
-                trend: vm.trend(for: hrType),
-                freshness: vm.freshnessLabel(latest.timestamp),
-                color: .red,
-                visualization: .sparkline(
-                    segments: vm.sparklineSegments(for: hrType),
-                    color: .red
-                )
-            )
-        }
-
-        // HRV — sparkline
-        let hrvType = HKQuantityTypeIdentifier.heartRateVariabilitySDNN.rawValue
-        if let latest = vm.latestSample(for: hrvType) {
-            LiveMetricCard(
-                title: "HRV",
-                value: String(format: "%.0f", latest.value),
-                unitLabel: "ms",
-                trend: vm.trend(for: hrvType),
-                freshness: vm.freshnessLabel(latest.timestamp),
-                color: vm.baselineColor(value: latest.value, baseline: vm.hrvBaseline, higherIsBetter: true),
-                visualization: .sparkline(
-                    segments: vm.sparklineSegments(for: hrvType),
-                    color: .blue
-                )
-            )
-        }
-
-        // Resting HR — recent bars
-        let rhrType = HKQuantityTypeIdentifier.restingHeartRate.rawValue
-        if let latest = vm.latestSample(for: rhrType) {
-            LiveMetricCard(
-                title: "Resting HR",
-                value: String(format: "%.0f", latest.value),
-                unitLabel: "bpm",
-                trend: vm.trend(for: rhrType),
-                freshness: vm.freshnessLabel(latest.timestamp),
-                color: vm.baselineColor(value: latest.value, baseline: vm.rhrBaseline, higherIsBetter: false),
-                visualization: .recentBars(values: vm.recentValues(for: rhrType), color: .red)
-            )
-        }
-
-        // SpO2 — sparkline
-        let spo2Type = HKQuantityTypeIdentifier.oxygenSaturation.rawValue
-        if let latest = vm.latestSample(for: spo2Type) {
-            LiveMetricCard(
-                title: "Blood Oxygen",
-                value: String(format: "%.0f", latest.value * 100),
-                unitLabel: "%",
-                trend: vm.trend(for: spo2Type),
-                freshness: vm.freshnessLabel(latest.timestamp),
-                color: .green,
-                visualization: .sparkline(
-                    segments: vm.sparklineSegments(for: spo2Type),
-                    color: .green
-                )
-            )
-        }
-
-        // Respiratory Rate — sparkline
-        let rrType = HKQuantityTypeIdentifier.respiratoryRate.rawValue
-        if let latest = vm.latestSample(for: rrType) {
-            LiveMetricCard(
-                title: "Respiratory Rate",
-                value: String(format: "%.0f", latest.value),
-                unitLabel: "breaths/min",
-                trend: vm.trend(for: rrType),
-                freshness: vm.freshnessLabel(latest.timestamp),
-                color: .mint,
-                visualization: .sparkline(
-                    segments: vm.sparklineSegments(for: rrType),
-                    color: .mint
-                )
-            )
-        }
-
-        // VO2 Max — recent bars
-        let vo2Type = HKQuantityTypeIdentifier.vo2Max.rawValue
-        if let latest = vm.latestSample(for: vo2Type) {
-            LiveMetricCard(
-                title: "VO₂ Max",
-                value: String(format: "%.1f", latest.value),
-                unitLabel: "mL/kg/min",
-                trend: vm.trend(for: vo2Type),
-                freshness: vm.freshnessLabel(latest.timestamp),
-                color: .indigo,
-                visualization: .recentBars(values: vm.recentValues(for: vo2Type), color: .indigo)
-            )
-        }
-
-        // Walking HR — recent bars
-        let walkHRType = HKQuantityTypeIdentifier.walkingHeartRateAverage.rawValue
-        if let latest = vm.latestSample(for: walkHRType) {
-            LiveMetricCard(
-                title: "Walking HR",
-                value: String(format: "%.0f", latest.value),
-                unitLabel: "bpm",
-                trend: vm.trend(for: walkHRType),
-                freshness: vm.freshnessLabel(latest.timestamp),
-                color: .orange,
-                visualization: .recentBars(values: vm.recentValues(for: walkHRType), color: .orange)
-            )
-        }
-
-        // Walking Steadiness — recent bars
-        let steadyType = HKQuantityTypeIdentifier.appleWalkingSteadiness.rawValue
-        if let latest = vm.latestSample(for: steadyType) {
-            LiveMetricCard(
-                title: "Walking Steadiness",
-                value: String(format: "%.0f", latest.value * 100),
-                unitLabel: "%",
-                trend: vm.trend(for: steadyType),
-                freshness: vm.freshnessLabel(latest.timestamp),
-                color: .cyan,
-                visualization: .recentBars(values: vm.recentValues(for: steadyType), color: .cyan)
-            )
-        }
-
-        // AFib Burden — from daily snapshot
-        if let (snapshot, isToday) = vm.lastSnapshotWith(\.atrialFibrillationBurden, from: recentSnapshots) {
-            let burden = snapshot.atrialFibrillationBurden!
-            LiveMetricCard(
-                title: "AFib Burden",
-                value: String(format: "%.1f", burden * 100),
-                unitLabel: "%",
-                trend: nil,
-                freshness: isToday ? "today" : vm.staleLabel(snapshot.date),
-                color: burden < 0.01 ? .green : .orange,
-                visualization: .none
-            )
-        }
-    }
-
-    // MARK: - Activity (Steps, Calories, Exercise)
-
-    @ViewBuilder
-    private var activityCards: some View {
-        // Steps — progress bar
-        if let (snapshot, isToday) = vm.lastSnapshotWith(\.steps, from: recentSnapshots) {
-            let steps = snapshot.steps!
-            LiveMetricCard(
-                title: "Steps",
-                value: steps.formatted(),
-                unitLabel: "",
-                trend: nil,
-                freshness: isToday ? "today" : vm.staleLabel(snapshot.date),
-                color: isToday ? vm.stepsColor(steps) : .secondary,
-                visualization: .progressBar(current: Double(steps), goal: 8000, color: vm.stepsColor(steps))
-            )
-        }
-
-        // Active Calories — progress bar
-        if let (snapshot, isToday) = vm.lastSnapshotWith(\.activeCalories, from: recentSnapshots) {
-            let cals = snapshot.activeCalories!
-            LiveMetricCard(
-                title: "Active Calories",
-                value: String(format: "%.0f", cals),
-                unitLabel: "kcal",
-                trend: nil,
-                freshness: isToday ? "today" : vm.staleLabel(snapshot.date),
-                color: isToday ? .orange : .secondary,
-                visualization: .progressBar(current: cals, goal: 500, color: .orange)
-            )
-        }
-
-        // Exercise — progress bar
-        if let (snapshot, isToday) = vm.lastSnapshotWith(\.exerciseMinutes, from: recentSnapshots) {
-            let mins = snapshot.exerciseMinutes!
-            LiveMetricCard(
-                title: "Exercise",
-                value: "\(mins)",
-                unitLabel: "min",
-                trend: nil,
-                freshness: isToday ? "today" : vm.staleLabel(snapshot.date),
-                color: isToday ? .green : .secondary,
-                visualization: .progressBar(current: Double(mins), goal: 30, color: .green)
-            )
-        }
-    }
-
-    // MARK: - Sleep
-
-    @ViewBuilder
-    private var sleepCard: some View {
-        if let (snapshot, isToday) = vm.lastSnapshotWith(\.sleepDurationMin, from: recentSnapshots) {
-            let sleep = snapshot.sleepDurationMin!
-            let hours = sleep / 60
-            let mins = sleep % 60
-            LiveMetricCard(
-                title: "Sleep",
-                value: "\(hours)h \(mins)m",
-                unitLabel: "",
-                trend: nil,
-                freshness: isToday ? "last night" : vm.staleLabel(snapshot.date),
-                color: isToday ? vm.sleepColor(minutes: sleep) : .secondary,
-                visualization: .sleepStages(
-                    deep: snapshot.sleepDeepMin ?? 0,
-                    rem: snapshot.sleepREMMin ?? 0,
-                    core: snapshot.sleepCoreMin ?? 0,
-                    awake: snapshot.sleepAwakeMin ?? 0
-                )
-            )
-        }
-    }
-
-    // MARK: - Audio (Environmental Sound, Headphone Audio)
-
-    @ViewBuilder
-    private var audioCards: some View {
-        // Environmental Sound — sparkline
-        let envType = HKQuantityTypeIdentifier.environmentalAudioExposure.rawValue
-        if let latest = vm.latestSample(for: envType) {
-            LiveMetricCard(
-                title: "Env. Sound",
-                value: String(format: "%.0f", latest.value),
-                unitLabel: "dBA",
-                trend: vm.trend(for: envType),
-                freshness: vm.freshnessLabel(latest.timestamp),
-                color: .gray,
-                visualization: .sparkline(
-                    segments: vm.sparklineSegments(for: envType),
-                    color: .gray
-                )
-            )
-        }
-
-        // Headphone Audio — sparkline
-        let headType = HKQuantityTypeIdentifier.headphoneAudioExposure.rawValue
-        if let latest = vm.latestSample(for: headType) {
-            LiveMetricCard(
-                title: "Headphone Audio",
-                value: String(format: "%.0f", latest.value),
-                unitLabel: "dBA",
-                trend: vm.trend(for: headType),
-                freshness: vm.freshnessLabel(latest.timestamp),
-                color: .teal,
-                visualization: .sparkline(
-                    segments: vm.sparklineSegments(for: headType),
-                    color: .teal
-                )
-            )
-        }
-    }
-
-    // MARK: - Blood Pressure & Glucose
-
-    @ViewBuilder
-    private var bloodPressureAndGlucoseCards: some View {
-        // Blood Pressure
-        let bpSysType = HKQuantityTypeIdentifier.bloodPressureSystolic.rawValue
-        let bpDiaType = HKQuantityTypeIdentifier.bloodPressureDiastolic.rawValue
-        if let sys = vm.latestSample(for: bpSysType),
-           let dia = vm.latestSample(for: bpDiaType) {
-            LiveMetricCard(
-                title: "Blood Pressure",
-                value: "\(String(format: "%.0f", sys.value))/\(String(format: "%.0f", dia.value))",
-                unitLabel: "mmHg",
-                trend: nil,
-                freshness: vm.freshnessLabel(sys.timestamp),
-                color: .pink,
-                visualization: .none
-            )
-        }
-
-        // Blood Glucose
-        let bgType = HKQuantityTypeIdentifier.bloodGlucose.rawValue
-        if let latest = vm.latestSample(for: bgType) {
-            // Only adopt the mini-grid when the stat-bearing snapshot is for
-            // today; otherwise the tile would mix today's live reading with
-            // yesterday's min/max/CV. Stale-snapshot days fall through to the
-            // existing sparkline-or-none behavior. Uses the in-memory
-            // recentSnapshots @Query (sorted desc) instead of a per-body
-            // SwiftData fetch.
-            let glucoseSnapshot = recentSnapshots.first {
-                $0.glucoseStdDev != nil
-                    || $0.glucoseCV != nil
-                    || $0.glucoseMin != nil
-                    || $0.glucoseMax != nil
+            let nightEvents = recentSleepEvents.filter {
+                Calendar.current.isDate($0.startTime, inSameDayAs: snapshot.date.addingTimeInterval(-12 * 3600))
+                    || Calendar.current.isDate($0.startTime, inSameDayAs: snapshot.date)
             }
-            let viz: MetricVisualization = {
-                if let g = glucoseSnapshot, Calendar.current.isDateInToday(g.date) {
-                    var items: [MiniGridItem] = []
-                    if let sd = g.glucoseStdDev {
-                        items.append(MiniGridItem(label: "SD", value: String(format: "%.0f", sd), color: .secondary))
-                    }
-                    if let cv = g.glucoseCV {
-                        items.append(MiniGridItem(label: "CV", value: String(format: "%.0f%%", cv),
-                                                  color: ClinicalSeverity.glucoseCVSeverity(cv).color))
-                    }
-                    if let mn = g.glucoseMin {
-                        items.append(MiniGridItem(label: "Min", value: String(format: "%.0f", mn),
-                                                  color: ClinicalSeverity.glucoseValueSeverity(mn).color))
-                    }
-                    if let mx = g.glucoseMax {
-                        items.append(MiniGridItem(label: "Max", value: String(format: "%.0f", mx),
-                                                  color: ClinicalSeverity.glucoseValueSeverity(mx).color))
-                    }
-                    if !items.isEmpty { return .miniGrid(items: items) }
-                }
-                let todayCount = vm.todaySamples(for: bgType).count
-                return todayCount >= 3
-                    ? .sparkline(segments: vm.sparklineSegments(for: bgType), color: .purple)
-                    : .none
-            }()
-            NavigationLink {
-                GlucoseDetailView(
-                    anxietyEntries: recentEntries,
-                    sleepIntervals: sleepIntervalsFromEvents(recentSleepEvents)
+            if let cpap = recentCPAP.first {
+                let headline = LastNightHeadline.compose(
+                    efficiencyPct: SleepEfficiencyCalculator.compute(from: nightEvents).efficiencyPct,
+                    ahi: cpap.ahi,
+                    nadirPct: snapshot.spo2NadirOvernight
                 )
-            } label: {
-                LiveMetricCard(
-                    title: "Blood Glucose",
-                    value: String(format: "%.0f", latest.value),
-                    unitLabel: "mg/dL",
-                    trend: vm.trend(for: bgType),
-                    freshness: vm.freshnessLabel(latest.timestamp),
-                    color: .purple,
-                    visualization: viz
-                )
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    /// Map raw `SleepStageEvent`s (HK category samples) to the start/end
-    /// interval pairs `GlucoseDetailView` expects. Only stages that represent
-    /// the user being asleep contribute — `inBed` and `awake` are excluded so
-    /// the chart's overlay reflects actual sleep, not time-in-bed.
-    ///
-    /// Per-stage events are coalesced into contiguous asleep windows before
-    /// being passed downstream. `GlucoseDetailView` renders one
-    /// `RectangleMark` per interval; without coalescing, a single night
-    /// produces dozens of tiny rectangles (one per stage transition) and
-    /// the chart re-runs that work on every render.
-    private func sleepIntervalsFromEvents(
-        _ events: [SleepStageEvent]
-    ) -> [(start: Date, end: Date)] {
-        let asleepIntervals = events
-            .filter { $0.stage.hasPrefix("asleep") }
-            .map { (start: $0.startTime, end: $0.endTime) }
-        return SleepIntervalMerger.coalesce(asleepIntervals)
-    }
-
-    @ViewBuilder
-    private var cpapSection: some View {
-        if let lastSession = recentCPAP.first {
-            let deviationText: String? = {
-                guard let baseline = vm.cpapAHIBaseline else { return nil }
-                let diff = lastSession.ahi - baseline.mean
-                let direction = diff >= 0 ? "above" : "below"
-                return String(format: "%.1f %@ average", abs(diff), direction)
-            }()
-
-            NavigationLink {
-                CPAPDetailView(session: lastSession, snapshots: recentSnapshots, entries: recentEntries)
-            } label: {
-                MetricCard(
-                    title: "Last CPAP",
-                    value: String(format: "AHI %.1f", lastSession.ahi),
-                    subtitle: [
-                        String(format: "%dh %dm — %@",
-                            lastSession.totalUsageMinutes / 60,
-                            lastSession.totalUsageMinutes % 60,
-                            lastSession.date.formatted(.dateTime.month().day())),
-                        deviationText
-                    ].compactMap { $0 }.joined(separator: " · "),
-                    color: lastSession.ahi < 5 ? .green : lastSession.ahi < 15 ? .yellow : .orange
-                )
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    @ViewBuilder
-    private var barometricSection: some View {
-        if let pressure = barometer.currentPressureKPa {
-            let changeText: String? = {
-                guard let todaySnapshot = vm.todaySnapshot(from: recentSnapshots),
-                      let change = todaySnapshot.barometricPressureChangeKPa,
-                      change > 0.01 else { return nil }
-                return String(format: "%.1f kPa range today", change)
-            }()
-
-            MetricCard(
-                title: "Barometric Pressure",
-                value: String(format: "%.1f kPa", pressure),
-                subtitle: changeText ?? "Current",
-                color: .gray
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var medicationSection: some View {
-        if let lastDose = recentDoses.first {
-            MetricCard(
-                title: "Last Medication",
-                value: lastDose.medicationName,
-                subtitle: String(format: "%.0fmg — %@", lastDose.doseMg,
-                    lastDose.timestamp.formatted(.relative(presentation: .named))),
-                color: .secondary
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var labResultsSection: some View {
-        let latestPerTest = vm.latestLabResultPerTest(from: recentLabResults)
-        if !latestPerTest.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
                 NavigationLink {
-                    LabResultsView()
+                    CPAPDetailView(session: cpap, snapshots: recentSnapshots, entries: recentEntries)
                 } label: {
-                    HStack {
-                        Text("Lab Results")
-                            .font(.headline)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    LastNightCard(
+                        snapshot: snapshot,
+                        sleepEvents: nightEvents,
+                        lastCPAP: cpap,
+                        cpapAHIBaseline: vm.cpapAHIBaseline,
+                        wrappedInLink: true
+                    )
                 }
                 .buttonStyle(.plain)
-
-                ForEach(latestPerTest, id: \.loincCode) { result in
-                    if let def = LabTestRegistry.definition(for: result.loincCode) {
-                        LabResultMetricCard(
-                            testName: def.shortName,
-                            value: result.value,
-                            unit: result.unit,
-                            normalRangeLow: result.referenceRangeLow ?? def.normalRangeLow,
-                            normalRangeHigh: result.referenceRangeHigh ?? def.normalRangeHigh
-                        )
-                    }
-                }
+                .padding(.horizontal)
+                .accessibilityLabel("Last Night. \(headline.text).")
+                .accessibilityHint("Tap to view CPAP detail")
+            } else {
+                LastNightCard(
+                    snapshot: snapshot,
+                    sleepEvents: nightEvents,
+                    lastCPAP: nil,
+                    cpapAHIBaseline: vm.cpapAHIBaseline
+                )
+                .padding(.horizontal)
             }
         }
     }

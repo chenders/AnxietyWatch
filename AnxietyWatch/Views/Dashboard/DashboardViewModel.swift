@@ -122,6 +122,26 @@ final class DashboardViewModel {
 
     // MARK: - Snapshot Queries
 
+    /// Average of the last 7 non-nil values for a Double-optional snapshot keypath.
+    func sevenDayAverage(
+        _ keyPath: KeyPath<HealthSnapshot, Double?>,
+        from snapshots: [HealthSnapshot]
+    ) -> Double? {
+        let values = snapshots.prefix(7).compactMap { $0[keyPath: keyPath] }
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
+    /// Average of the last 7 non-nil values for an Int-optional snapshot keypath.
+    func sevenDayAverage(
+        _ keyPath: KeyPath<HealthSnapshot, Int?>,
+        from snapshots: [HealthSnapshot]
+    ) -> Double? {
+        let values = snapshots.prefix(7).compactMap { $0[keyPath: keyPath].map(Double.init) }
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +) / Double(values.count)
+    }
+
     /// Today's snapshot from the provided list.
     func todaySnapshot(from snapshots: [HealthSnapshot], now: Date = .now) -> HealthSnapshot? {
         let startOfDay = Calendar.current.startOfDay(for: now)
@@ -197,6 +217,87 @@ final class DashboardViewModel {
     /// Human-readable label for a stale snapshot date.
     func staleLabel(_ date: Date) -> String {
         date.formatted(.dateTime.month().day())
+    }
+
+    // MARK: - Smart Summary
+
+    /// Compose the "What changed today" summary from current VM state.
+    /// Pure — no SwiftData, no view; just packs the composer Input.
+    ///
+    /// Note on `sleepEfficiencyBaseline`: until we track per-night efficiency,
+    /// approximate from the sleep-duration baseline (typical-night minutes /
+    /// 480 min target × 100). Tunable later when a real efficiency baseline
+    /// is added.
+    func smartSummary(
+        snapshots: [HealthSnapshot],
+        sleepEvents: [SleepStageEvent],
+        lastAnxiety: AnxietyEntry?,
+        activeAlerts: Int,
+        now: Date = .now
+    ) -> SmartSummaryComposer.Output {
+        let today = todaySnapshot(from: snapshots, now: now)
+        let hrvValue = today?.hrvAvg ?? snapshots.first?.hrvAvg ?? 0
+        let rhrValue = today?.restingHR ?? snapshots.first?.restingHR ?? 0
+        let efficiency = SleepEfficiencyCalculator.compute(from: sleepEvents)
+        let sleepBaselineMean = sleepBaseline?.mean ?? 0
+        let efficiencyBaseline = sleepBaselineMean > 0 ? (sleepBaselineMean / 480.0 * 100.0) : 88.0
+
+        let anxietySeverity24h: Int? = {
+            guard let a = lastAnxiety,
+                  a.timestamp >= now.addingTimeInterval(-24 * 3600) else { return nil }
+            return a.severity
+        }()
+
+        let input = SmartSummaryComposer.Input(
+            hrv: .init(value: hrvValue, baseline: hrvBaseline),
+            restingHR: .init(value: rhrValue, baseline: rhrBaseline),
+            sleepEfficiencyPct: efficiency.efficiencyPct,
+            sleepEfficiencyBaseline: efficiencyBaseline,
+            ahi: today?.cpapAHI,
+            ahiBaseline: cpapAHIBaseline,
+            anxietyLast24h: anxietySeverity24h,
+            activeAlerts: activeAlerts
+        )
+        return SmartSummaryComposer.compose(input: input)
+    }
+
+    // MARK: - Device chip
+
+    /// Map a HealthSample's source string to a `DeviceChip.Source`.
+    /// Returns nil when the source isn't one of the known device families —
+    /// callers should treat nil as "no chip".
+    func deviceChipSource(for sample: HealthSample?) -> DeviceChip.Source? {
+        guard let s = sample, let src = s.source else { return nil }
+        let id = src.lowercased()
+        if id.contains(EMAYImporter.sourceBundleID.lowercased()) { return .emay }
+        if id.contains(PolarHRMService.sourceLabel.lowercased()) { return .polar }
+        // Apple Watch and Apple Health share a "com.apple.*" bundle ID prefix;
+        // no single named constant covers all variants, so substring match is correct.
+        if id.contains("apple.health") || id.contains("com.apple") { return .watch }
+        return nil
+    }
+
+    // MARK: - Baseline deltas (for `.baselineChip` viz)
+
+    struct BaselineDelta {
+        let text: String   // e.g. "↓ 28% vs 30d"
+        let color: Color
+    }
+
+    func baselineDelta(
+        value: Double,
+        baseline: BaselineCalculator.BaselineResult?,
+        higherIsBetter: Bool
+    ) -> BaselineDelta? {
+        guard let b = baseline, b.mean > 0 else { return nil }
+        let delta = value - b.mean
+        let pct = Int(abs(delta) / b.mean * 100)
+        guard pct >= 5 else { return nil }  // suppress noise
+        let arrow = delta < 0 ? "↓" : "↑"
+        // For "higher is better" metrics, drops are bad. Otherwise rises are bad.
+        let bad = higherIsBetter ? delta < 0 : delta > 0
+        let color: Color = bad ? .orange : .green
+        return BaselineDelta(text: "\(arrow) \(pct)% vs 30d", color: color)
     }
 
     /// Color a metric based on personal baseline deviation.

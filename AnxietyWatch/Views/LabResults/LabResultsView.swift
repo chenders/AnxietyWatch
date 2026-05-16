@@ -3,7 +3,13 @@ import SwiftUI
 
 /// Full lab results view grouped by test category.
 /// Accessible from Dashboard and Settings.
-struct LabResultsView: View {
+///
+/// Conforms to `Equatable` (trivially — no identity inputs) so it can be
+/// wrapped with `.equatable()` at `NavigationLink` destination call-sites that
+/// hold `@Query`. Without this, SwiftUI re-pushes the destination on every
+/// parent body rerender, causing a ~30 Hz navigation-animation loop on iOS 26.
+struct LabResultsView: View, Equatable {
+    static func == (lhs: LabResultsView, rhs: LabResultsView) -> Bool { true }
     @Query(sort: \ClinicalLabResult.effectiveDate, order: .reverse)
     private var allResults: [ClinicalLabResult]
 

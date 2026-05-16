@@ -7,6 +7,10 @@ enum MetricVisualization {
     case recentBars(values: [Double], color: Color)
     case sleepStages(deep: Int, rem: Int, core: Int, awake: Int)
     case miniGrid(items: [MiniGridItem])
+    /// Inline pill showing a baseline-deviation snippet (e.g., "↓ 28% vs 30d")
+    /// instead of a chart. Right viz for metrics with too few samples to draw
+    /// a sparkline meaningfully (HRV, Walking HR, BP, etc.).
+    case baselineChip(deltaText: String, color: Color)
     case none
 }
 
@@ -26,14 +30,20 @@ struct LiveMetricCard: View {
     let freshness: String
     let color: Color
     let visualization: MetricVisualization
+    var sourceChip: DeviceChip.Source? = nil
 
     var body: some View {
         HStack(spacing: 12) {
             // Left: value stack
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let sourceChip {
+                        DeviceChip(source: sourceChip)
+                    }
+                }
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(value)
                         .font(.title2.bold())
@@ -60,6 +70,20 @@ struct LiveMetricCard: View {
         }
         .padding()
         .background(.fill.tertiary, in: .rect(cornerRadius: 12))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription)
+    }
+
+    private var accessibilityDescription: String {
+        var parts = ["\(title). \(value) \(unitLabel)"]
+        if let trend {
+            parts.append(trend.label)
+        }
+        parts.append(freshness)
+        if case .baselineChip(let deltaText, _) = visualization {
+            parts.append("Compared to your baseline: \(deltaText)")
+        }
+        return parts.joined(separator: ". ")
     }
 
     @ViewBuilder
@@ -106,6 +130,14 @@ struct LiveMetricCard: View {
                     }
                 }
             }
+        case .baselineChip(let text, let chipColor):
+            Text(text)
+                .font(.caption.bold())
+                .foregroundStyle(chipColor)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(chipColor.opacity(0.15), in: .capsule)
+                .accessibilityLabel("Compared to your baseline: \(text)")
         case .none:
             EmptyView()
         }

@@ -332,6 +332,24 @@ struct GlucoseDetailView: View {
     }
 }
 
+// MARK: - Equatable conformance
+
+extension GlucoseDetailView: Equatable {
+    /// Identity is just the inputs passed in from the parent. The two
+    /// `@Query`s are SwiftData observation state and must NOT participate
+    /// in equality — otherwise every body recompute produces a "different"
+    /// destination on iOS 26 and the NavigationStack push animation
+    /// restarts at ~30 Hz (see CLAUDE.md "Closure-based `NavigationLink`
+    /// destinations that contain `@Query`" pitfall).
+    static func == (lhs: GlucoseDetailView, rhs: GlucoseDetailView) -> Bool {
+        lhs.anxietyEntries.map(\.persistentModelID) == rhs.anxietyEntries.map(\.persistentModelID)
+            && lhs.sleepIntervals.count == rhs.sleepIntervals.count
+            && zip(lhs.sleepIntervals, rhs.sleepIntervals).allSatisfy { l, r in
+                l.start == r.start && l.end == r.end
+            }
+    }
+}
+
 // MARK: - Header
 
 /// Compact header showing the latest in-window glucose value, trend status,
