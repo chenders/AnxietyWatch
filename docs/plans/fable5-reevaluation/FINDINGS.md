@@ -384,7 +384,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#173)
 
 ### F-013 · P2 · confirmed · accuracy · sync-sensor-session
 
@@ -420,7 +420,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#173)
 
 ### F-016 · P1 · confirmed · bug · sync-actor-isolation · _severity re-elevated at triage_
 
@@ -606,7 +606,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); related anchors: `AnxietyWatch/Views/Dashboard/GlucoseDetailView.swift:init`.  
 
-**Disposition:** approved
+**Disposition:** fixed (#173)
 
 ### F-031 · P2 · confirmed · efficiency · trends-barometric-query
 
@@ -1350,7 +1350,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Fix sketch:** have `finalizeOffline` await the archive flush before `endTime` becomes visible to the sync path, or record a distinct "archive fully flushed" marker that `uploadPendingRRArchives` checks instead of `endTime`.  
 
-**Disposition:** approved
+**Disposition:** fixed (#173)
 
 ### F-091 · P2 · plausible · accuracy · server-correlations · _added post-audit during Batch F work_
 
