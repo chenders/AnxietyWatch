@@ -1,7 +1,7 @@
 import SwiftData
 import SwiftUI
 
-struct ExportView: View {
+struct ExportView: View, Equatable {
     @Environment(\.modelContext) private var modelContext
     @State private var startDate = Calendar.current.date(byAdding: .month, value: -1, to: .now)!
     @State private var endDate = Date.now
@@ -15,6 +15,11 @@ struct ExportView: View {
     @Query(sort: \HealthSnapshot.date) private var allSnapshots: [HealthSnapshot]
     @Query(sort: \CPAPSession.date) private var allCPAP: [CPAPSession]
     @Query(sort: \ClinicalLabResult.effectiveDate) private var allLabResults: [ClinicalLabResult]
+
+    // Trivially Equatable (no identity inputs — all state is @Query/@State);
+    // paired with `.equatable()` at the NavigationLink call site so SwiftUI
+    // dedupes rebuilds. See CLAUDE.md render-pitfall #2.
+    static func == (lhs: ExportView, rhs: ExportView) -> Bool { true }
 
     var body: some View {
         Form {

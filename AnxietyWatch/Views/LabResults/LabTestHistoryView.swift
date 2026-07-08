@@ -4,11 +4,19 @@ import SwiftUI
 
 /// Shows all historical values for a single lab test with a trend chart
 /// and reference range bands.
-struct LabTestHistoryView: View {
+struct LabTestHistoryView: View, Equatable {
     let loincCode: String
     let definition: LabTestRegistry.TestDefinition
 
     @Query private var allResults: [ClinicalLabResult]
+
+    // Equatable on `loincCode` (stable identity) only; paired with `.equatable()`
+    // at the NavigationLink destination call site so SwiftUI dedupes rebuilds when
+    // the parent body re-runs. Default memberwise comparison can't dedupe because
+    // @Query state is part of the struct. See CLAUDE.md render-pitfall #2.
+    static func == (lhs: LabTestHistoryView, rhs: LabTestHistoryView) -> Bool {
+        lhs.loincCode == rhs.loincCode
+    }
 
     private var results: [ClinicalLabResult] {
         allResults

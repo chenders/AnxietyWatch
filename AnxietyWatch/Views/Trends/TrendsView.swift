@@ -267,7 +267,7 @@ struct TrendsView: View {
 
                         // Insights link
                         NavigationLink {
-                            CorrelationInsightsView()
+                            CorrelationInsightsView().equatable()
                         } label: {
                             HStack {
                                 Image(systemName: "chart.dots.scatter")

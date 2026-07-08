@@ -1,7 +1,12 @@
 import SwiftData
 import SwiftUI
 
-struct CorrelationInsightsView: View {
+struct CorrelationInsightsView: View, Equatable {
+    // Trivially Equatable (no identity inputs — all state is @Query/derived);
+    // paired with `.equatable()` at the NavigationLink call site so SwiftUI
+    // dedupes rebuilds. See CLAUDE.md render-pitfall #2.
+    static func == (lhs: CorrelationInsightsView, rhs: CorrelationInsightsView) -> Bool { true }
+
     private static let minimumPairedDays = 12
 
     @Query(sort: \PhysiologicalCorrelation.computedAt)
@@ -29,7 +34,7 @@ struct CorrelationInsightsView: View {
                 List {
                     ForEach(sortedCorrelations) { corr in
                         NavigationLink {
-                            CorrelationChartView(correlation: corr)
+                            CorrelationChartView(correlation: corr).equatable()
                         } label: {
                             CorrelationCardView(correlation: corr)
                         }

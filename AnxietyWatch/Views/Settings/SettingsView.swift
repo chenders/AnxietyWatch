@@ -23,7 +23,7 @@ struct SettingsView: View {
                         Label("Health Records", systemImage: "cross.case.fill")
                     }
                     NavigationLink {
-                        CPAPListView()
+                        CPAPListView().equatable()
                     } label: {
                         Label("CPAP", systemImage: "bed.double.fill")
                     }
@@ -93,7 +93,7 @@ struct SettingsView: View {
 
                 Section {
                     NavigationLink {
-                        ExportView()
+                        ExportView().equatable()
                     } label: {
                         Label("Export Data", systemImage: "square.and.arrow.up")
                     }

@@ -1,13 +1,18 @@
 import SwiftUI
 import SwiftData
 
-struct PharmacyListView: View {
+struct PharmacyListView: View, Equatable {
     @Environment(\.modelContext) private var modelContext
     @Query(
         filter: #Predicate<Pharmacy> { $0.isActive },
         sort: \Pharmacy.name
     )
     private var pharmacies: [Pharmacy]
+
+    // Trivially Equatable (no identity inputs — all state is @Query/@State);
+    // paired with `.equatable()` at the NavigationLink call site so SwiftUI
+    // dedupes rebuilds. See CLAUDE.md render-pitfall #2.
+    static func == (lhs: PharmacyListView, rhs: PharmacyListView) -> Bool { true }
     @State private var showingAddPharmacy = false
 
     var body: some View {

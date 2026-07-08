@@ -102,12 +102,12 @@ struct MedicationsHubView: View {
     private var navigationSection: some View {
         Section {
             NavigationLink {
-                PrescriptionListView()
+                PrescriptionListView().equatable()
             } label: {
                 Label("Prescriptions", systemImage: "list.clipboard")
             }
             NavigationLink {
-                PharmacyListView()
+                PharmacyListView().equatable()
             } label: {
                 Label("Pharmacies", systemImage: "cross.case")
             }

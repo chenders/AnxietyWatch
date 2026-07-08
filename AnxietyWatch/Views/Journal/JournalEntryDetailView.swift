@@ -1,7 +1,7 @@
 import SwiftData
 import SwiftUI
 
-struct JournalEntryDetailView: View {
+struct JournalEntryDetailView: View, Equatable {
     @Environment(\.modelContext) private var modelContext
     @Bindable var entry: AnxietyEntry
     @State private var isEditing = false
@@ -11,6 +11,13 @@ struct JournalEntryDetailView: View {
 
     @Query(sort: \AnxietyEntry.timestamp, order: .reverse)
     private var recentEntries: [AnxietyEntry]
+
+    // Equatable on the entry's stable identity only; paired with `.equatable()`
+    // at the NavigationLink call site. @Query/@State otherwise defeat memberwise
+    // dedupe. See CLAUDE.md render-pitfall #2.
+    static func == (lhs: JournalEntryDetailView, rhs: JournalEntryDetailView) -> Bool {
+        lhs.entry.persistentModelID == rhs.entry.persistentModelID
+    }
 
     /// The song linked to this entry (first occurrence), if any.
     private var linkedSong: Song? {

@@ -3,11 +3,16 @@ import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct CPAPListView: View {
+struct CPAPListView: View, Equatable {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \CPAPSession.date, order: .reverse) private var sessions: [CPAPSession]
     @Query(sort: \HealthSnapshot.date, order: .reverse) private var snapshots: [HealthSnapshot]
     @Query(sort: \AnxietyEntry.timestamp, order: .reverse) private var entries: [AnxietyEntry]
+
+    // Trivially Equatable (no identity inputs — all state is @Query/@State);
+    // paired with `.equatable()` at the NavigationLink call site so SwiftUI
+    // dedupes rebuilds. See CLAUDE.md render-pitfall #2.
+    static func == (lhs: CPAPListView, rhs: CPAPListView) -> Bool { true }
     @State private var showingAddSession = false
     @State private var showingImporter = false
     @State private var alertMessage: String?

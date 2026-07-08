@@ -2,10 +2,17 @@ import Charts
 import SwiftData
 import SwiftUI
 
-struct CorrelationChartView: View {
+struct CorrelationChartView: View, Equatable {
     let correlation: PhysiologicalCorrelation
     @Query(sort: \HealthSnapshot.date) private var snapshots: [HealthSnapshot]
     @Query(sort: \AnxietyEntry.timestamp) private var entries: [AnxietyEntry]
+
+    // Equatable on the correlation's stable identity only; paired with
+    // `.equatable()` at the NavigationLink call site. @Query state otherwise
+    // defeats memberwise dedupe. See CLAUDE.md render-pitfall #2.
+    static func == (lhs: CorrelationChartView, rhs: CorrelationChartView) -> Bool {
+        lhs.correlation.persistentModelID == rhs.correlation.persistentModelID
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

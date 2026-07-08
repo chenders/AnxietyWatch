@@ -34,6 +34,7 @@ struct LabResultsView: View, Equatable {
                                     if let def = LabTestRegistry.definition(for: result.loincCode) {
                                         NavigationLink {
                                             LabTestHistoryView(loincCode: result.loincCode, definition: def)
+                                                .equatable()
                                         } label: {
                                             labResultRow(result, definition: def)
                                         }

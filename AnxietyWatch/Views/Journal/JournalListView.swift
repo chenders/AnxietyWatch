@@ -47,7 +47,7 @@ struct JournalListView: View {
         List {
             ForEach(entries) { entry in
                 NavigationLink {
-                    JournalEntryDetailView(entry: entry)
+                    JournalEntryDetailView(entry: entry).equatable()
                 } label: {
                     JournalEntryRow(entry: entry)
                 }

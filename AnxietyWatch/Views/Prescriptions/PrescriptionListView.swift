@@ -1,10 +1,15 @@
 import SwiftUI
 import SwiftData
 
-struct PrescriptionListView: View {
+struct PrescriptionListView: View, Equatable {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Prescription.dateFilled, order: .reverse)
     private var prescriptions: [Prescription]
+
+    // Trivially Equatable (no identity inputs — all state is @Query/@State);
+    // paired with `.equatable()` at the NavigationLink call site so SwiftUI
+    // dedupes rebuilds. See CLAUDE.md render-pitfall #2.
+    static func == (lhs: PrescriptionListView, rhs: PrescriptionListView) -> Bool { true }
     @State private var showingAdd = false
     @State private var isFetching = false
     @State private var fetchResult: String?

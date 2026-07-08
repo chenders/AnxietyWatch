@@ -23,7 +23,7 @@ struct HealthRecordsSettingsView: View {
                         .foregroundStyle(.green)
                 }
                 NavigationLink {
-                    LabResultsView()
+                    LabResultsView().equatable()
                 } label: {
                     Label("Lab Results", systemImage: "flask.fill")
                 }
