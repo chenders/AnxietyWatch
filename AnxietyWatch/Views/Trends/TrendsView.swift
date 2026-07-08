@@ -26,6 +26,7 @@ struct TrendsView: View {
     /// 0 = current period (ending now), -1 = previous period, etc.
     @State private var pageOffset = 0
     @State private var sourceFilter: SourceFilter = .all
+    @State private var tappedNight: CoalescedNightRef?
 
     enum SourceFilter: String, CaseIterable {
         case all = "All"
@@ -138,6 +139,16 @@ struct TrendsView: View {
         let polarHRWindowMeans = LFHFAggregator
             .nightlyHRFromSummaries(from: overnightSessions, coalescedNights: overnightNights)
             .filter { inWindow($0.night, start: ws.start, end: ws.end) }
+        // CoalescedNightRef payloads for the diamonds visible in the current
+        // window — derived from `polarHRWindowMeans` so the nav set is
+        // exactly the rendered diamond set. `nightlyHRFromSummaries` drops
+        // nights with missing/unparseable/zero `hrMean`, so filtering
+        // `overnightNights` by time alone would let the tap overlay resolve
+        // to a night that has no visible diamond.
+        let nightByID = Dictionary(uniqueKeysWithValues: overnightNights.map { ($0.id, $0) })
+        let coalescedNightRefs = polarHRWindowMeans.compactMap { mean in
+            nightByID[mean.id].map(CoalescedNightRef.init(from:))
+        }
 
         NavigationStack {
             ScrollView {
@@ -238,7 +249,9 @@ struct TrendsView: View {
                             snapshots: snapshots,
                             entries: entries,
                             polarSeries: polarHRWindowMeans,
-                            dateRange: dateRange
+                            dateRange: dateRange,
+                            coalescedNights: coalescedNightRefs,
+                            tappedNight: $tappedNight
                         )
                         SleepTrendChart(snapshots: snapshots, dateRange: dateRange)
                         ActivityTrendChart(snapshots: snapshots, dateRange: dateRange)
@@ -293,6 +306,15 @@ struct TrendsView: View {
                         }
                     }
             )
+            .navigationDestination(item: $tappedNight) { ref in
+                // .equatable() lets SwiftUI use the destination's
+                // `night`-only `==` to dedupe rebuilds when this view's
+                // body re-runs. Without it, the destination's @Query state
+                // defeats SwiftUI's default memberwise comparison and a
+                // parent re-render storm cascades into a CA::Layer
+                // use-after-free on iOS 26 (CLAUDE.md pitfall).
+                PolarSessionHRDetailView(night: ref).equatable()
+            }
             .task {
                 await refreshSnapshot()
             }

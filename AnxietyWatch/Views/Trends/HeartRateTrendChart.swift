@@ -53,17 +53,28 @@ struct HeartRateTrendChart: View {
     let entries: [AnxietyEntry]
     let polarSeries: [LFHFAggregator.NightlyValue]
     let dateRange: ClosedRange<Date>
+    /// Identity payloads for each Polar diamond, in display order. Used by
+    /// the chart overlay to resolve a tap x-position back to a navigable
+    /// `CoalescedNightRef`. Empty → no tap regions (chart still renders).
+    let coalescedNights: [CoalescedNightRef]
+    /// Set by the overlay when the user taps a diamond. The parent uses
+    /// this to drive `.navigationDestination(item:)`.
+    @Binding var tappedNight: CoalescedNightRef?
 
     init(
         snapshots: [HealthSnapshot],
         entries: [AnxietyEntry],
         polarSeries: [LFHFAggregator.NightlyValue] = [],
-        dateRange: ClosedRange<Date>
+        dateRange: ClosedRange<Date>,
+        coalescedNights: [CoalescedNightRef] = [],
+        tappedNight: Binding<CoalescedNightRef?> = .constant(nil)
     ) {
         self.snapshots = snapshots
         self.entries = entries
         self.polarSeries = polarSeries
         self.dateRange = dateRange
+        self.coalescedNights = coalescedNights
+        self._tappedNight = tappedNight
     }
 
     var body: some View {
@@ -122,6 +133,42 @@ struct HeartRateTrendChart: View {
             }
             .chartXScale(domain: dateRange)
             .frame(height: 200)
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    Rectangle().fill(.clear).contentShape(Rectangle())
+                        .onTapGesture { location in
+                            handleTap(at: location, proxy: proxy, geo: geo)
+                        }
+                }
+            }
+        }
+    }
+
+    /// Maps a tap location in the chart overlay to the nearest
+    /// `CoalescedNightRef` (Polar diamond) and writes it through the
+    /// binding. Snap tolerance is ±0.4 day so a user tapping between two
+    /// closely-spaced diamonds gets the nearer one rather than no-op.
+    private func handleTap(at location: CGPoint, proxy: ChartProxy, geo: GeometryProxy) {
+        guard !coalescedNights.isEmpty else { return }
+        // No fallback if the chart hasn't laid out yet — `geo.frame(in: .local)`
+        // would include the y-axis label region and produce a wrong x-origin.
+        guard let plotAnchor = proxy.plotFrame else { return }
+        let plotFrame = geo[plotAnchor]
+        let xInPlot = location.x - plotFrame.origin.x
+        guard let tapDate: Date = proxy.value(atX: xInPlot) else { return }
+
+        // Find the night whose anchor date is closest to the tap.
+        let nearest = coalescedNights.min { lhs, rhs in
+            abs(lhs.startTime.timeIntervalSince(tapDate))
+                < abs(rhs.startTime.timeIntervalSince(tapDate))
+        }
+        guard let nearest else { return }
+        // ±0.4 day = ±9.6h. Tighter than half the typical inter-night spacing
+        // (24h) so a tap halfway between two nights doesn't accidentally
+        // snap to one of them.
+        let toleranceSeconds: TimeInterval = 0.4 * 86_400
+        if abs(nearest.startTime.timeIntervalSince(tapDate)) <= toleranceSeconds {
+            tappedNight = nearest
         }
     }
 }
