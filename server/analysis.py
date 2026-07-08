@@ -6,6 +6,8 @@ import os
 import threading
 from datetime import date, datetime, timedelta, timezone
 
+from zoneinfo import ZoneInfo
+
 import anthropic
 import psycopg2
 import psycopg2.extras
@@ -21,14 +23,47 @@ ALLOWED_MODELS = {m[0] for m in MODEL_CHOICES}
 MODEL_PRICING = {m[0]: {"input": m[2], "output": m[3]} for m in MODEL_CHOICES}
 
 
-def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
+# Default timezone for analysis day-bucketing. Matches the `settings` table
+# default read by _create_pending_analysis and the prompt's timezone note.
+DEFAULT_ANALYSIS_TIMEZONE = "US/Pacific"
+
+
+def _resolve_timezone(tz_name: str) -> ZoneInfo:
+    """Resolve an IANA timezone name defensively.
+
+    The name comes from the user-editable `settings` table; a typo there must
+    not crash analysis, so fall back to the user's actual timezone (Pacific).
+    """
+    try:
+        return ZoneInfo(tz_name)
+    except (KeyError, ValueError, TypeError):
+        logging.warning("Unknown timezone %r — falling back to America/Los_Angeles", tz_name)
+        return ZoneInfo("America/Los_Angeles")
+
+
+def gather_analysis_data(cur, date_from: date, date_to: date,
+                         tz_name: str = DEFAULT_ANALYSIS_TIMEZONE) -> dict:
     """Query all data sources for the given date range.
+
+    Timestamp-filtered tables (anxiety_entries, medication_doses,
+    barometric_readings, song_occurrences) use local-day boundaries in
+    `tz_name` — the half-open window [date_from 00:00 local, date_to+1d 00:00
+    local), DST-aware via zoneinfo, converted to UTC for the SQL comparison.
+    This keeps them on the same local days as the date-keyed tables
+    (health_snapshots, cpap_sessions): an entry logged 9 PM Pacific on the
+    final day of the range is included, not silently dropped past a UTC
+    midnight. Serialized timestamps are converted to `tz_name` so the
+    prompt's "all timestamps are in <tz>" note is accurate and
+    compute_effective_dates derives local calendar dates.
 
     Returns a dict with keys for each data source, values are lists of dicts.
     """
     data = {}
-    ts_start = datetime.combine(date_from, datetime.min.time(), tzinfo=timezone.utc)
-    ts_end = datetime.combine(date_to + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+    tz = _resolve_timezone(tz_name)
+    ts_start = datetime.combine(date_from, datetime.min.time(), tzinfo=tz).astimezone(timezone.utc)
+    ts_end = datetime.combine(
+        date_to + timedelta(days=1), datetime.min.time(), tzinfo=tz
+    ).astimezone(timezone.utc)
 
     # Anxiety entries (half-open timestamp range for index usage)
     cur.execute(
@@ -37,14 +72,14 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
         "ORDER BY timestamp",
         (ts_start, ts_end),
     )
-    data["anxiety_entries"] = [_serialize(r) for r in cur.fetchall()]
+    data["anxiety_entries"] = [_serialize(r, tz) for r in cur.fetchall()]
 
     # Health snapshots
     cur.execute(
         "SELECT * FROM health_snapshots WHERE date >= %s AND date <= %s ORDER BY date",
         (date_from, date_to),
     )
-    data["health_snapshots"] = [_serialize(r) for r in cur.fetchall()]
+    data["health_snapshots"] = [_serialize(r, tz) for r in cur.fetchall()]
 
     # Medication doses with definition info
     cur.execute(
@@ -56,14 +91,14 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
         "ORDER BY d.timestamp",
         (ts_start, ts_end),
     )
-    data["medication_doses"] = [_serialize(r) for r in cur.fetchall()]
+    data["medication_doses"] = [_serialize(r, tz) for r in cur.fetchall()]
 
     # CPAP sessions
     cur.execute(
         "SELECT * FROM cpap_sessions WHERE date >= %s AND date <= %s ORDER BY date",
         (date_from, date_to),
     )
-    data["cpap_sessions"] = [_serialize(r) for r in cur.fetchall()]
+    data["cpap_sessions"] = [_serialize(r, tz) for r in cur.fetchall()]
 
     # Barometric readings (can be high volume — downsample with a uniform stride if > 500)
     cur.execute(
@@ -73,7 +108,7 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
         "ORDER BY timestamp",
         (ts_start, ts_end),
     )
-    baro_rows = [_serialize(r) for r in cur.fetchall()]
+    baro_rows = [_serialize(r, tz) for r in cur.fetchall()]
     if len(baro_rows) > 500:
         step = -(-len(baro_rows) // 500)
         baro_rows = baro_rows[::step]
@@ -84,7 +119,7 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
         "SELECT signal_name, correlation, p_value, sample_count "
         "FROM correlations ORDER BY ABS(correlation) DESC"
     )
-    data["correlations"] = [_serialize(r) for r in cur.fetchall()]
+    data["correlations"] = [_serialize(r, tz) for r in cur.fetchall()]
 
     # Song occurrences with song metadata
     cur.execute(
@@ -98,7 +133,7 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
            ORDER BY so.timestamp""",
         (ts_start, ts_end),
     )
-    data["song_occurrences"] = [_serialize(r) for r in cur.fetchall()]
+    data["song_occurrences"] = [_serialize(r, tz) for r in cur.fetchall()]
 
     # All songs (for frequency context even if no occurrences in this range)
     cur.execute(
@@ -114,7 +149,7 @@ def gather_analysis_data(cur, date_from: date, date_to: date) -> dict:
            ORDER BY period_occurrences DESC, total_occurrences DESC""",
         (ts_start, ts_end, ts_start, ts_end),
     )
-    data["song_summary"] = [_serialize(r) for r in cur.fetchall()]
+    data["song_summary"] = [_serialize(r, tz) for r in cur.fetchall()]
 
     return data
 
@@ -167,14 +202,21 @@ def flag_outliers(data: dict) -> list[str]:
 
 
 def compute_effective_dates(data: dict, date_from: date, date_to: date) -> tuple[date, date]:
-    """Determine the actual date range covered by the data."""
+    """Determine the actual date range covered by the data.
+
+    Timestamps arrive from gather_analysis_data already converted to the
+    analysis timezone (offset embedded in the ISO string), so `.date()` on the
+    parsed value yields the local calendar day — a 9 PM Pacific entry counts
+    toward its Pacific date, not the UTC date it was stored under.
+    """
     all_dates = []
     for source in ("health_snapshots", "cpap_sessions"):
         for row in data.get(source, []):
             d = row.get("date")
             if d:
                 all_dates.append(date.fromisoformat(str(d)))
-    for source in ("anxiety_entries", "medication_doses", "barometric_readings"):
+    for source in ("anxiety_entries", "medication_doses", "barometric_readings",
+                   "song_occurrences"):
         for row in data.get(source, []):
             ts = row.get("timestamp")
             if ts:
@@ -435,7 +477,10 @@ def build_prompt(
         " interpret missing CPAP data as non-compliance or skipped therapy."
     )
 
-    dq_parts.append(f"**Timezone:** All timestamps are in {timezone} time.")
+    dq_parts.append(
+        f"**Timezone:** All timestamps are in {timezone} time (each carries an explicit"
+        f" UTC offset), and daily date buckets use {timezone} calendar days."
+    )
 
     # Reliability tier definitions + absence-vs-zero rule (verbatim from the
     # CGM/SpO2 provenance spec). Always present so Claude has the framing
@@ -730,11 +775,20 @@ def parse_response(raw_response: dict) -> dict:
     }
 
 
-def _serialize(row):
-    """Convert a RealDictRow to a plain dict with JSON-safe values."""
+def _serialize(row, tz: ZoneInfo | None = None):
+    """Convert a RealDictRow to a plain dict with JSON-safe values.
+
+    When `tz` is given, timezone-aware datetimes are converted to that zone
+    before ISO-formatting, so the analysis payload's timestamps read as local
+    wall-clock times (with explicit UTC offset) instead of whatever timezone
+    the DB session happens to use (UTC in the Docker deployment). Naive
+    datetimes are formatted as-is.
+    """
     result = {}
     for k, v in row.items():
         if isinstance(v, datetime):
+            if tz is not None and v.tzinfo is not None:
+                v = v.astimezone(tz)
             result[k] = v.isoformat()
         elif isinstance(v, date):
             result[k] = v.isoformat()
@@ -813,16 +867,23 @@ def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_i
                              detailed_output: bool = False, model: str | None = None,
                              include_conflict: bool = True):
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    data = gather_analysis_data(cur, date_from, date_to)
+
+    # Read timezone setting (default US/Pacific) BEFORE gathering: the
+    # timestamp-range windows and serialized timestamps are bucketed by
+    # local day in this timezone.
+    cur.execute("SELECT value FROM settings WHERE key = 'timezone'")
+    tz_row = cur.fetchone()
+    # Resolve once and pass the RESOLVED canonical name everywhere: if the
+    # settings value is a typo, gather_analysis_data would silently fall back
+    # to America/Los_Angeles while the prompt still claimed timestamps were
+    # in the typo'd zone — a prompt/data mismatch.
+    tz = str(_resolve_timezone(tz_row["value"] if tz_row else DEFAULT_ANALYSIS_TIMEZONE))
+
+    data = gather_analysis_data(cur, date_from, date_to, tz_name=tz)
 
     # -- Data quality enrichment --
     outlier_warnings = flag_outliers(data)
     effective_from, effective_to = compute_effective_dates(data, date_from, date_to)
-
-    # Read timezone setting (default US/Pacific)
-    cur.execute("SELECT value FROM settings WHERE key = 'timezone'")
-    tz_row = cur.fetchone()
-    tz = tz_row["value"] if tz_row else "US/Pacific"
 
     # Read active therapy sessions
     cur.execute(

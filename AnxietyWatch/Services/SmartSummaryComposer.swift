@@ -9,14 +9,20 @@ import Foundation
 nonisolated enum SmartSummaryComposer {
 
     struct Metric: Sendable {
-        let value: Double
+        /// nil when the metric wasn't recorded (e.g. morning open before the
+        /// Watch writes today's resting HR). A nil value produces no
+        /// candidate — substituting 0 fabricated extreme "below baseline"
+        /// headlines from missing data (F-010).
+        let value: Double?
         let baseline: BaselineCalculator.BaselineResult?
     }
 
     struct Input: Sendable {
         let hrv: Metric
         let restingHR: Metric
-        let sleepEfficiencyPct: Double
+        /// nil when last night has no sleep events — the candidate is
+        /// skipped rather than reported as a fabricated 0% (F-011).
+        let sleepEfficiencyPct: Double?
         let sleepEfficiencyBaseline: Double
         let ahi: Double?
         let ahiBaseline: BaselineCalculator.BaselineResult?
@@ -40,33 +46,33 @@ nonisolated enum SmartSummaryComposer {
     static func compose(input: Input) -> Output {
         var candidates: [Candidate] = []
 
-        if let b = input.hrv.baseline, b.standardDeviation > 0 {
-            let z = (input.hrv.value - b.mean) / b.standardDeviation
-            let pct = b.mean > 0 ? Int(abs(input.hrv.value - b.mean) / b.mean * 100) : 0
+        if let value = input.hrv.value, let b = input.hrv.baseline, b.standardDeviation > 0 {
+            let z = (value - b.mean) / b.standardDeviation
+            let pct = b.mean > 0 ? Int(abs(value - b.mean) / b.mean * 100) : 0
             candidates.append(.init(
                 label: "HRV",
                 zScore: z,
                 phrase: "\(pct)% \(z < 0 ? "below" : "above") your baseline"
             ))
         }
-        if let b = input.restingHR.baseline, b.standardDeviation > 0 {
-            let z = (input.restingHR.value - b.mean) / b.standardDeviation
-            let delta = Int(abs(input.restingHR.value - b.mean).rounded())
+        if let value = input.restingHR.value, let b = input.restingHR.baseline, b.standardDeviation > 0 {
+            let z = (value - b.mean) / b.standardDeviation
+            let delta = Int(abs(value - b.mean).rounded())
             candidates.append(.init(
                 label: "Resting HR",
                 zScore: z,
                 phrase: "\(z >= 0 ? "up" : "down") \(delta) bpm"
             ))
         }
-        if input.sleepEfficiencyBaseline > 0 {
-            let delta = input.sleepEfficiencyPct - input.sleepEfficiencyBaseline
+        if let efficiencyPct = input.sleepEfficiencyPct, input.sleepEfficiencyBaseline > 0 {
+            let delta = efficiencyPct - input.sleepEfficiencyBaseline
             // Approximate σ for sleep efficiency is ~10 percentage points, consistent
             // with population norms; keeps the z-scale comparable to HRV/HR z-scores.
             let z = delta / 10.0
             candidates.append(.init(
                 label: "Sleep efficiency",
                 zScore: z,
-                phrase: "was \(Int(input.sleepEfficiencyPct))% (typical \(Int(input.sleepEfficiencyBaseline))%)"
+                phrase: "was \(Int(efficiencyPct))% (typical \(Int(input.sleepEfficiencyBaseline))%)"
             ))
         }
         if let ahi = input.ahi, let b = input.ahiBaseline, b.standardDeviation > 0 {

@@ -37,6 +37,42 @@ struct SmartSummaryComposerTests {
         #expect(r.text.contains("below"))
     }
 
+    // F-010: a missing metric must produce no candidate at all — the old
+    // `?? 0` collapse fabricated a ~-10σ "Resting HR down 60 bpm" headline
+    // from a snapshot that simply hadn't recorded resting HR yet.
+    @Test("Nil metric values produce no false below-baseline headline")
+    func nilMetricsAreSkipped() {
+        let input = SmartSummaryComposer.Input(
+            hrv: .init(value: nil, baseline: baseline(mean: 50, sd: 5, lo: 40, hi: 60)),
+            restingHR: .init(value: nil, baseline: baseline(mean: 60, sd: 4, lo: 52, hi: 68)),
+            sleepEfficiencyPct: 88, sleepEfficiencyBaseline: 88,
+            ahi: nil, ahiBaseline: nil,
+            anxietyLast24h: nil,
+            activeAlerts: 0
+        )
+        let r = SmartSummaryComposer.compose(input: input)
+        #expect(r.kind == .quiet)
+        #expect(!r.text.contains("HRV"))
+        #expect(!r.text.contains("Resting HR"))
+    }
+
+    // F-011: nil efficiency (no sleep events last night) must be skipped —
+    // the old non-optional input reported a fabricated "0% (typical 88%)".
+    @Test("Nil sleep efficiency produces no fabricated 0% clause")
+    func nilEfficiencyIsSkipped() {
+        let input = SmartSummaryComposer.Input(
+            hrv: .init(value: 50, baseline: baseline(mean: 50, sd: 5, lo: 40, hi: 60)),
+            restingHR: .init(value: 60, baseline: baseline(mean: 60, sd: 4, lo: 52, hi: 68)),
+            sleepEfficiencyPct: nil, sleepEfficiencyBaseline: 88,
+            ahi: nil, ahiBaseline: nil,
+            anxietyLast24h: nil,
+            activeAlerts: 0
+        )
+        let r = SmartSummaryComposer.compose(input: input)
+        #expect(r.kind == .quiet)
+        #expect(!r.text.contains("Sleep efficiency"))
+    }
+
     @Test("Active alerts override quiet — never silent on a day with alerts firing")
     func alertsForceVoice() {
         let input = SmartSummaryComposer.Input(

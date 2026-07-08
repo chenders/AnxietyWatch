@@ -32,6 +32,48 @@ struct HRVCalculatorTests {
         #expect(abs(result.pnn50 - 25.0) < 0.01)
     }
 
+    // MARK: - Adjacency-aware time domain (F-026)
+
+    @Test("Removed interior artifact does not splice its neighbors into a fake successive pair")
+    func artifactExclusionDoesNotSplice() {
+        // 120 ms is a contact artifact between two steady 800/900 runs.
+        // The spliced (filter-then-diff) computation would see 900-800=100 as
+        // a successive difference across the excised beat; the adjacency-aware
+        // path must drop both pairs that touch the artifact.
+        let raw: [Double] = [800, 800, 120, 900, 900]
+        let result = HRVCalculator.timeDomain(rawRRIntervals: raw)!
+        // Valid adjacent pairs: (800,800) → 0 and (900,900) → 0. No 100-ms
+        // gap-spanning diff → RMSSD 0, pNN50 0.
+        #expect(abs(result.rmssd) < 0.001)
+        #expect(abs(result.pnn50) < 0.001)
+        // SDNN/mean still use all four in-range intervals.
+        #expect(result.count == 4)
+        #expect(abs(result.meanRR - 850) < 0.001)
+
+        // Contrast: the spliced legacy computation over the filtered array
+        // would report a nonzero RMSSD from the fabricated 100 ms diff.
+        let spliced = HRVCalculator.timeDomain(rrIntervals: [800, 800, 900, 900])!
+        #expect(spliced.rmssd > 50)
+    }
+
+    @Test("Clean sequences produce identical results through both time-domain paths")
+    func adjacencyAwareMatchesLegacyOnCleanData() {
+        let intervals: [Double] = [800, 850, 790, 810, 760]
+        let legacy = HRVCalculator.timeDomain(rrIntervals: intervals)!
+        let adjacencyAware = HRVCalculator.timeDomain(rawRRIntervals: intervals)!
+        #expect(abs(legacy.rmssd - adjacencyAware.rmssd) < 0.001)
+        #expect(abs(legacy.sdnn - adjacencyAware.sdnn) < 0.001)
+        #expect(abs(legacy.pnn50 - adjacencyAware.pnn50) < 0.001)
+        #expect(legacy.count == adjacencyAware.count)
+    }
+
+    @Test("No adjacent in-range pair returns nil rather than a fabricated RMSSD")
+    func noAdjacentPairReturnsNil() {
+        // Every valid beat is separated by an artifact — RMSSD is undefined.
+        let raw: [Double] = [800, 120, 850, 90, 900]
+        #expect(HRVCalculator.timeDomain(rawRRIntervals: raw) == nil)
+    }
+
     @Test("Mean RR is correct")
     func meanRRCorrect() {
         let intervals: [Double] = [800, 850, 790, 810, 760]

@@ -223,6 +223,76 @@ struct DashboardViewModelTests {
         #expect(result?.1 == true)
     }
 
+    // MARK: - lastNightEvents (F-011)
+
+    private func makeCPAP(date: Date, ahi: Double, usageMinutes: Int = 400) -> CPAPSession {
+        CPAPSession(
+            date: date, ahi: ahi, totalUsageMinutes: usageMinutes,
+            pressureMin: 6, pressureMax: 12, pressureMean: 9,
+            obstructiveEvents: 1, centralEvents: 0, hypopneaEvents: 2,
+            importSource: "test"
+        )
+    }
+
+    @Test("lastNightEvents keeps only the noon-to-noon window ending this morning")
+    func lastNightEventsWindow() {
+        // Last night: 23:00 yesterday → 05:00 this morning (inside window).
+        let lastNightStart = referenceStartOfDay.addingTimeInterval(-1 * 3600)
+        // Two nights ago: before yesterday noon — outside the window.
+        let priorNightStart = referenceStartOfDay.addingTimeInterval(-25 * 3600)
+        let inWindow = SleepStageEvent(
+            startTime: lastNightStart, endTime: lastNightStart.addingTimeInterval(6 * 3600),
+            stage: "asleepCore", sourceBundleID: "com.example.test", sourceName: "Test Apple Watch"
+        )
+        let outOfWindow = SleepStageEvent(
+            startTime: priorNightStart, endTime: priorNightStart.addingTimeInterval(6 * 3600),
+            stage: "asleepCore", sourceBundleID: "com.example.test", sourceName: "Test Apple Watch"
+        )
+        let filtered = DashboardViewModel.lastNightEvents(
+            from: [inWindow, outOfWindow], now: referenceDate
+        )
+        #expect(filtered.count == 1)
+        #expect(filtered.first?.startTime == lastNightStart)
+    }
+
+    @Test("lastNightEvents returns empty (not stale nights) when last night has no events")
+    func lastNightEventsEmptyWhenOnlyOldNights() {
+        let priorNightStart = referenceStartOfDay.addingTimeInterval(-40 * 3600)
+        let old = SleepStageEvent(
+            startTime: priorNightStart, endTime: priorNightStart.addingTimeInterval(6 * 3600),
+            stage: "asleepCore", sourceBundleID: "com.example.test", sourceName: "Test Apple Watch"
+        )
+        #expect(DashboardViewModel.lastNightEvents(from: [old], now: referenceDate).isEmpty)
+    }
+
+    // MARK: - cpapSession(for:in:) (F-036)
+
+    @Test("cpapSession matches only the snapshot's night, never an older session")
+    func cpapSessionDateMatch() {
+        let vm = DashboardViewModel()
+        let snapshot = HealthSnapshot(date: referenceStartOfDay)
+        let staleDate = calendar.date(byAdding: .day, value: -9, to: referenceStartOfDay)!
+        let stale = makeCPAP(date: staleDate, ahi: 12.5)
+        // A stale session is still `.first` in the date-desc @Query when no
+        // session exists for last night — it must NOT be presented.
+        #expect(vm.cpapSession(for: snapshot, in: [stale]) == nil)
+
+        let matching = makeCPAP(date: referenceStartOfDay, ahi: 3.2)
+        let result = vm.cpapSession(for: snapshot, in: [matching, stale])
+        #expect(result != nil)
+        #expect(abs((result?.ahi ?? 0) - 3.2) < 0.001)
+    }
+
+    @Test("cpapSession dedups re-imported duplicates by highest usage, matching SnapshotAggregator")
+    func cpapSessionDuplicateDedup() {
+        let vm = DashboardViewModel()
+        let snapshot = HealthSnapshot(date: referenceStartOfDay)
+        let partial = makeCPAP(date: referenceStartOfDay, ahi: 1.0, usageMinutes: 120)
+        let complete = makeCPAP(date: referenceStartOfDay, ahi: 4.0, usageMinutes: 430)
+        let result = vm.cpapSession(for: snapshot, in: [partial, complete])
+        #expect(result?.totalUsageMinutes == 430)
+    }
+
     // MARK: - latestLabResultPerTest
 
     @Test("Returns up to 4 unique tracked results from last 7 days")

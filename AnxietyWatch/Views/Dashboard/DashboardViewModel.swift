@@ -239,6 +239,41 @@ final class DashboardViewModel {
             : 88.0
     }
 
+    /// Events from the noon-to-noon night window ending on `morning`
+    /// (a start-of-day instant, e.g. `snapshot.date`), matching
+    /// SnapshotAggregator's overnight convention. SleepEfficiencyCalculator
+    /// is a single-night calculator; every consumer must pre-filter to one
+    /// night's window — a same-calendar-day filter spans 48 hours and can
+    /// dilute the night with an adjacent night's stray events (F-011).
+    static func nightEvents(from events: [SleepStageEvent], forMorning morning: Date) -> [SleepStageEvent] {
+        let offset = TimeInterval(SnapshotAggregator.overnightOffsetHours) * 3600
+        let windowStart = morning.addingTimeInterval(-offset)
+        let windowEnd = morning.addingTimeInterval(offset)
+        return events.filter { $0.startTime >= windowStart && $0.startTime < windowEnd }
+    }
+
+    /// The most recent night window (yesterday noon through today noon).
+    static func lastNightEvents(from events: [SleepStageEvent], now: Date = .now) -> [SleepStageEvent] {
+        nightEvents(from: events, forMorning: Calendar.current.startOfDay(for: now))
+    }
+
+    /// CPAP session recorded for the same night as `snapshot`, or nil when
+    /// none was imported for that date. Mirrors SnapshotAggregator's
+    /// `date == snapshot.date` stitch rule, including the highest-usage
+    /// dedup for re-imported duplicates — so the Dashboard's "Last Night"
+    /// card can never present a stale session's AHI as last night's value
+    /// (F-036); a nil here renders the card without an AHI clause instead.
+    func cpapSession(for snapshot: HealthSnapshot, in sessions: [CPAPSession]) -> CPAPSession? {
+        sessions
+            .filter { $0.date == snapshot.date }
+            .max(by: { lhs, rhs in
+                if lhs.totalUsageMinutes != rhs.totalUsageMinutes {
+                    return lhs.totalUsageMinutes < rhs.totalUsageMinutes
+                }
+                return lhs.ahi > rhs.ahi
+            })
+    }
+
     func smartSummary(
         snapshots: [HealthSnapshot],
         sleepEvents: [SleepStageEvent],
@@ -247,9 +282,18 @@ final class DashboardViewModel {
         now: Date = .now
     ) -> SmartSummaryComposer.Output {
         let today = todaySnapshot(from: snapshots, now: now)
-        let hrvValue = today?.hrvAvg ?? snapshots.first?.hrvAvg ?? 0
-        let rhrValue = today?.restingHR ?? snapshots.first?.restingHR ?? 0
-        let efficiency = SleepEfficiencyCalculator.compute(from: sleepEvents)
+        // Missing metrics stay nil — collapsing them to 0 fabricated extreme
+        // "below baseline" headlines (a nil resting HR read as a -10σ drop)
+        // whenever today's snapshot lacked the metric (F-010).
+        let hrvValue = today?.hrvAvg ?? snapshots.first?.hrvAvg
+        let rhrValue = today?.restingHR ?? snapshots.first?.restingHR
+        let lastNight = Self.lastNightEvents(from: sleepEvents, now: now)
+        // nil (not 0%) when last night has no events, so the composer skips
+        // the efficiency candidate instead of reporting a fabricated
+        // "0% (typical 88%)" (F-011).
+        let efficiency: Double? = lastNight.isEmpty
+            ? nil
+            : SleepEfficiencyCalculator.compute(from: lastNight).efficiencyPct
         let efficiencyBaseline = Self.efficiencyBaselinePct(sleepBaselineMean: sleepBaseline?.mean ?? 0)
 
         let anxietySeverity24h: Int? = {
@@ -261,7 +305,7 @@ final class DashboardViewModel {
         let input = SmartSummaryComposer.Input(
             hrv: .init(value: hrvValue, baseline: hrvBaseline),
             restingHR: .init(value: rhrValue, baseline: rhrBaseline),
-            sleepEfficiencyPct: efficiency.efficiencyPct,
+            sleepEfficiencyPct: efficiency,
             sleepEfficiencyBaseline: efficiencyBaseline,
             ahi: today?.cpapAHI,
             ahiBaseline: cpapAHIBaseline,

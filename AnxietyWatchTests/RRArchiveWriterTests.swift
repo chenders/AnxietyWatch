@@ -32,6 +32,31 @@ struct RRArchiveWriterTests {
         #expect(abs(read.first!.timestamp.timeIntervalSince1970 - t0.timeIntervalSince1970) < 0.001)
     }
 
+    // F-067: recovery/orphan summaries seed rrCount from the archive; the
+    // count must use the same artifact filter as the live tick path so a
+    // recovered session's beat count matches an uninterrupted one.
+    @Test("physiologicalRecordCount excludes out-of-range artifacts that recordCount includes")
+    func physiologicalRecordCountFiltersArtifacts() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let writer = try RRArchiveWriter(url: url)
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let rrValues: [Double] = [800, 120, 850, 2_400, 900]  // 2 artifacts
+        for (i, rr) in rrValues.enumerated() {
+            try writer.append(RRIntervalSample(timestamp: t0.addingTimeInterval(Double(i)), rrMs: rr))
+        }
+        try writer.finalize()
+
+        #expect(RRArchiveWriter.recordCount(url: url) == 5)
+        #expect(RRArchiveWriter.physiologicalRecordCount(url: url) == 3)
+    }
+
+    @Test("physiologicalRecordCount returns 0 for a missing archive")
+    func physiologicalRecordCountMissingFile() {
+        #expect(RRArchiveWriter.physiologicalRecordCount(url: tempURL()) == 0)
+    }
+
     @Test("writing and reading 30,000 intervals succeeds at realistic overnight scale")
     func largeStream() throws {
         let url = tempURL()

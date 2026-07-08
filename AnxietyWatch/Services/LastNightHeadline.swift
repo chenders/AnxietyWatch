@@ -3,11 +3,19 @@ import Foundation
 /// Pure verdict + headline-text composer for the merged LastNightCard.
 ///
 /// Breach rules:
-/// - Sleep efficiency < 85% → breach.
+/// - Sleep efficiency < 85% → breach (only when the efficiency was actually
+///   measured — see below).
 /// - AHI >= 5 → breach.
 /// - SpO₂ nadir < 92% → breach.
 ///
 /// 0 breaches → "Solid night", 1 → "OK", 2+ → "Rough night".
+///
+/// An *estimated* efficiency (missing/partial inBed coverage pins the value
+/// at exactly 100% — see `SleepEfficiencyCalculator.isBedTimeEstimated`) is
+/// not a measurement: it can neither breach nor certify. It is excluded
+/// from the breach count, and a night whose efficiency couldn't be measured
+/// caps at "OK" — claiming "Solid night" off a pinned artifact would pass
+/// missing data off as a clean bill (F-024).
 nonisolated enum LastNightHeadline {
     struct Result: Equatable, Sendable {
         let verdict: String
@@ -20,14 +28,15 @@ nonisolated enum LastNightHeadline {
         ahi: Double?,
         nadirPct: Double?
     ) -> Result {
-        let effLow = efficiencyPct < 85
+        let effMeasured = !efficiencyEstimated
+        let effLow = effMeasured && efficiencyPct < 85
         let ahiHigh = (ahi ?? 0) >= 5
         let nadirLow = nadirPct.map { $0 < 92 } ?? false
 
         let breaches = [effLow, ahiHigh, nadirLow].filter { $0 }.count
         let verdict: String
         switch breaches {
-        case 0: verdict = "Solid night"
+        case 0: verdict = effMeasured ? "Solid night" : "OK"
         case 1: verdict = "OK"
         default: verdict = "Rough night"
         }

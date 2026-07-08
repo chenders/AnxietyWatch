@@ -173,6 +173,19 @@ enum PrescriptionImporter {
         if let ds = record["days_supply"] as? Int {
             rx.daysSupply = ds
         }
+        // A refill re-sync carries fresh fill dates. Without refreshing them,
+        // PrescriptionSupplyCalculator.effectiveRunOutDate pairs a stale fill
+        // date with the fresh daysSupply above — false "expired" alerts after a
+        // refill, and an ever-staler lastFillDate ?? dateFilled cutoff that
+        // eventually suppresses genuine alerts. Only overwrite when the record
+        // actually carries a value (same parsing as the insert path); a record
+        // that omits them must not null-out or reset existing dates.
+        if let filled = parseDate(record["date_filled"]) {
+            rx.dateFilled = filled
+        }
+        if let lastFill = parseDate(record["last_fill_date"]) {
+            rx.lastFillDate = lastFill
+        }
         if let pp = record["patient_pay"] as? Double {
             rx.patientPay = pp
         }

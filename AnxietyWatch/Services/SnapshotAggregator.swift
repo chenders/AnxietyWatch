@@ -9,6 +9,13 @@ struct SnapshotAggregator {
     let healthKit: any HealthKitDataSource
     let modelContext: ModelContext
 
+    /// The overnight window runs noon-to-noon: `snapshot.date`'s morning is
+    /// the window's end, offset ±12 h from local start-of-day. Shared so
+    /// consumers that re-derive "last night" (e.g.
+    /// `DashboardViewModel.lastNightEvents`) can't drift from the
+    /// aggregator's convention.
+    static let overnightOffsetHours = 12
+
     /// Minimum SpO₂ sample count to compute T90 / desat stats. Below this we
     /// treat the data as spot-reading only (e.g., Apple Watch periodic checks)
     /// and emit nil rather than a misleading "good night" zero.
@@ -67,8 +74,10 @@ struct SnapshotAggregator {
         // Sleep for "March 13" typically runs ~11 PM Mar 13 to ~7 AM Mar 14.
         // Querying noon Mar 13 to noon Mar 14 gets the whole night.
         guard let previousDay = calendar.date(byAdding: .day, value: -1, to: start),
-              let overnightStart = calendar.date(byAdding: .hour, value: 12, to: calendar.startOfDay(for: previousDay)),
-              let overnightEnd = calendar.date(byAdding: .hour, value: 12, to: start)
+              let overnightStart = calendar.date(
+                  byAdding: .hour, value: Self.overnightOffsetHours, to: calendar.startOfDay(for: previousDay)
+              ),
+              let overnightEnd = calendar.date(byAdding: .hour, value: Self.overnightOffsetHours, to: start)
         else { return }
 
         // Find or create snapshot for this calendar day
@@ -396,14 +405,19 @@ struct SnapshotAggregator {
         // preferred SwiftData rows exist for the window, the HK-direct
         // value remains the snapshot's authoritative value.
         //
-        // Order matters: SpO2 first (uses overnight window), then daily
-        // heart metrics (use full day window). The two windows can overlap
-        // but the fetches are filtered by metricType so they're disjoint.
+        // Order matters: SpO2 first, then heart metrics. Both precedence
+        // passes use the overnight noon-to-noon window: chest-strap sessions
+        // are overnight recordings, and bucketing them by calendar day split
+        // a midnight-crossing session across two snapshots — each day's
+        // hrvAvg mixing fragments of two different nights, disagreeing with
+        // the same row's sleep fields and the Trends Polar series (F-046).
+        // The HK-direct hrv/rhr fallbacks above keep their calendar-day
+        // convention (Watch spot samples are day-attributed by HealthKit).
         try await applyOvernightSpO2Precedence(
             on: snapshot, overnightStart: overnightStart, overnightEnd: overnightEnd
         )
         try applyDailyHeartMetricsPrecedence(
-            on: snapshot, start: start, end: end
+            on: snapshot, start: overnightStart, end: overnightEnd
         )
 
         // Compute reliability + source-summary JSON from the local SwiftData
@@ -743,19 +757,38 @@ struct SnapshotAggregator {
             snapshot.spo2DesatsCount = Statistics.countDesatEvents(
                 preferredQS, dropThreshold: 0.04, recoveryThreshold: 0.02
             )
-        } else {
-            snapshot.spo2TimeBelow90Min = nil
-            snapshot.spo2DesatsCount = nil
         }
+        // Preferred coverage exists but is too sparse for T90/desat math
+        // (oximeter connected briefly, then dropped): KEEP the HK-direct
+        // values `aggregateDay` computed against the same sufficiency gate.
+        // Nil-ing them here discarded already-sufficient Apple-Watch-derived
+        // overnight stats and understated hypoxic burden in the clinician
+        // PDF for a night with adequate combined-source coverage (F-023) —
+        // the exact loss the step-6 early-return's comment promises to avoid
+        // on watch-only nights, reintroduced whenever `preferred` was
+        // non-empty-but-insufficient.
     }
 
     /// Replace HealthKit-direct HR/RHR/HRV aggregates with values from the
-    /// chest-strap tier (Polar H10) when present for the day. Each metric
+    /// chest-strap tier (Polar H10) when present for the night. Each metric
     /// is handled independently — Polar might cover HR but not HRV on a
     /// given day, in which case only HR is overridden.
     ///
-    /// No-op for metrics whose preferred subset is empty: the HK-direct
-    /// value is kept.
+    /// `start`/`end` are the overnight noon-to-noon window (see the call
+    /// site + F-046): chest-strap sessions are whole-night recordings and
+    /// must be night-attributed like the sleep/SpO2 fields, not split at
+    /// midnight.
+    ///
+    /// Two chest-strap routes exist and BOTH are checked (F-027):
+    /// - `QuantityHealthSample` rows tagged `fi.polar.polarflow` — the
+    ///   optional Polar Flow companion-app → HealthKit → mirror path.
+    /// - `HRVReading` rows tagged `polar_h10` — the app's own BLE pipeline,
+    ///   which never writes `QuantityHealthSample`. Before this branch
+    ///   existed, first-party Polar sessions could never win precedence and
+    ///   the snapshot silently kept the noisier Watch value.
+    ///
+    /// No-op for metrics with no chest-strap coverage on either route: the
+    /// HK-direct value is kept.
     private func applyDailyHeartMetricsPrecedence(
         on snapshot: HealthSnapshot,
         start: Date,
@@ -807,6 +840,31 @@ struct SnapshotAggregator {
         // only the nocturnal-dip ratio uses raw HR aggregates. When
         // an HR-mean column lands, fetch the partition for `hrType`
         // and overwrite here.
+
+        // First-party BLE route: per-minute HRVReading rows from our own
+        // Polar pipeline (source == PolarHRMService.sourceLabel), which
+        // never reach QuantityHealthSample — the partition above cannot
+        // see them (F-027). Their SDNN is the same metric HealthKit stores for
+        // hrvAvg/hrvMin, computed from clinical-fidelity RR intervals, so
+        // they outrank both the Watch value and the Polar-Flow-mirrored
+        // samples when present. Date-only predicate + in-memory source
+        // filter for the same compound-#Predicate footgun reason as above.
+        //
+        // Resting HR is deliberately NOT overridden from this route: the
+        // BLE pipeline records session HR, and a session mean is not a
+        // resting measurement.
+        let readingDescriptor = FetchDescriptor<HRVReading>(
+            predicate: #Predicate { $0.timestamp >= start && $0.timestamp < end }
+        )
+        let windowReadings = try modelContext.fetch(readingDescriptor)
+        let strapReadings = windowReadings.filter { reading in
+            reading.source.map { DeviceProvenance.isChestStrapHRMonitor($0) } ?? false
+        }
+        if !strapReadings.isEmpty {
+            let sdnnValues = strapReadings.map(\.sdnn)
+            snapshot.hrvAvg = sdnnValues.reduce(0, +) / Double(sdnnValues.count)
+            snapshot.hrvMin = sdnnValues.min()
+        }
     }
 
     /// Build the `dataQuality` JSON object describing reliability tier + source

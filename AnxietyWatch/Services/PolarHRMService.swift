@@ -582,11 +582,12 @@ final class PolarHRMService: NSObject {
         let priorReadings = (try? modelContext.fetch(priorReadingsDescriptor)) ?? []
         let priorRMSSDs = priorReadings.map(\.rmssd)
         let archiveURL = RRArchiveWriter.archiveURL(for: candidate.id)
-        // Use the writer's helper so the count stays in sync with what
-        // init(url:append:true) will actually preserve — an unaligned file
-        // is truncated by the writer, and recordCount returns 0 for it
-        // rather than the pre-truncation byte count.
-        let priorRRCount = RRArchiveWriter.recordCount(url: archiveURL)
+        // Artifact-filtered count so the recovered portion uses the same
+        // counting basis as the live tick path (`totalRRCount += filtered.count`)
+        // — the raw recordCount included artifacts and inflated rrCount for
+        // any session that survived a restart (F-067). The helper returns 0
+        // for a missing/unaligned file, matching recordCount's semantics.
+        let priorRRCount = RRArchiveWriter.physiologicalRecordCount(url: archiveURL)
 
         // Rehydrate priorHRMeans by replaying the RR archive against each
         // persisted HRVReading row's 60s window. HR isn't stored on
@@ -658,7 +659,9 @@ final class PolarHRMService: NSObject {
             predicate: #Predicate { $0.sensorSessionID == sessionID }
         )
         let rmssds = (try? modelContext.fetch(readingsDescriptor))?.map(\.rmssd) ?? []
-        let rrCount = RRArchiveWriter.recordCount(url: RRArchiveWriter.archiveURL(for: session.id))
+        // Artifact-filtered for consistency with the live tick path's
+        // counting basis — see recoverInFlightSessionIfNeeded (F-067).
+        let rrCount = RRArchiveWriter.physiologicalRecordCount(url: RRArchiveWriter.archiveURL(for: session.id))
         // Skipped minutes weren't tracked across the suspend boundary, so
         // we report 0 here. Real per-minute "skipped" counts only exist
         // while the in-memory recorder is alive.

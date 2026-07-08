@@ -393,10 +393,24 @@ nonisolated enum CPAPImporter {
         ))
     }
 
+    /// OSCAR Summary exports carry no minimum-pressure column — only median and
+    /// high-percentile pressures — so there is no honest value to store in the
+    /// non-optional `CPAPSession.pressureMin`. We store this sentinel rather than
+    /// mislabeling the median as a minimum (the UI's "Min" row was previously
+    /// showing the median). Matches the `?? 0` fallback `RestoreFromServer` uses
+    /// when a server row lacks `pressure_min`. Internal (not private) so tests
+    /// can assert against it.
+    static let oscarPressureMinUnavailable: Double = 0
+
     /// OSCAR Summary CSV column indices:
     /// 0: Date, 4: Total Time (HH:MM:SS), 5: AHI
     /// 6: CA Count, 8: OA Count, 9: H Count
     /// 22: Median Pressure, 36: 99.5% Pressure
+    ///
+    /// Field mapping caveats: OSCAR has no minimum-pressure column, so
+    /// `pressureMin` gets `oscarPressureMinUnavailable`; `pressureMean` carries
+    /// the *median* pressure (the closest central-tendency value OSCAR exports,
+    /// not a true arithmetic mean); `pressureMax` carries the 99.5th percentile.
     private static func importOSCAR(_ lines: [String], into context: ModelContext) throws -> ImportResult {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
@@ -435,7 +449,10 @@ nonisolated enum CPAPImporter {
                     ahi: parsed.ahi,
                     totalUsageMinutes: parsed.usageMinutes,
                     leakRate95th: nil,
-                    pressureMin: parsed.medianPressure,
+                    // No minimum-pressure column in OSCAR exports; see
+                    // `oscarPressureMinUnavailable`. pressureMean carries the
+                    // median (closest central value OSCAR supplies).
+                    pressureMin: oscarPressureMinUnavailable,
                     pressureMax: parsed.pressure995,
                     pressureMean: parsed.medianPressure,
                     obstructiveEvents: parsed.obstructiveEvents,
@@ -450,7 +467,10 @@ nonisolated enum CPAPImporter {
                     ahi: parsed.ahi,
                     totalUsageMinutes: parsed.usageMinutes,
                     leakRate95th: nil,
-                    pressureMin: parsed.medianPressure,
+                    // No minimum-pressure column in OSCAR exports; see
+                    // `oscarPressureMinUnavailable`. pressureMean carries the
+                    // median (closest central value OSCAR supplies).
+                    pressureMin: oscarPressureMinUnavailable,
                     pressureMax: parsed.pressure995,
                     pressureMean: parsed.medianPressure,
                     obstructiveEvents: parsed.obstructiveEvents,

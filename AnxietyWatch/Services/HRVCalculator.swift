@@ -8,6 +8,12 @@ import Accelerate
 /// work to a detached task without hopping back to the main actor.
 nonisolated enum HRVCalculator {
 
+    /// Physiological RR-interval bounds (ms): 250 ms ≈ 240 bpm, 2000 ms ≈
+    /// 30 bpm. Anything outside is a sensor/contact artifact, not a beat.
+    /// Shared by the live tick filter, session recovery rehydration, and
+    /// archive record counting so every consumer excludes the same set.
+    static let physiologicalRRRangeMs: ClosedRange<Double> = 250...2_000
+
     struct TimeDomainResult {
         let rmssd: Double       // Root mean square of successive differences (ms)
         let sdnn: Double        // Standard deviation of NN intervals (ms)
@@ -45,6 +51,53 @@ nonisolated enum HRVCalculator {
             pnn50: pnn50,
             meanRR: mean,
             count: rrIntervals.count
+        )
+    }
+
+    /// Compute time-domain HRV from a RAW RR sequence, excluding artifacts
+    /// without splicing. Mean/SDNN use every in-range interval (both are
+    /// order-independent), but RMSSD/pNN50 successive differences are taken
+    /// ONLY between pairs that were adjacent in the raw sequence and are both
+    /// in range. Filtering-then-diffing instead would join the two beats that
+    /// straddled a removed artifact and inject a spurious, squared,
+    /// gap-spanning difference — inflating RMSSD/pNN50 in exactly the windows
+    /// the artifact filter was meant to protect (F-026).
+    ///
+    /// Returns nil when fewer than 2 in-range intervals remain, or when no
+    /// adjacent in-range pair exists (RMSSD is undefined without at least
+    /// one true successive difference).
+    static func timeDomain(
+        rawRRIntervals: [Double],
+        validRange: ClosedRange<Double> = physiologicalRRRangeMs
+    ) -> TimeDomainResult? {
+        let valid = rawRRIntervals.filter { validRange.contains($0) }
+        guard valid.count >= 2 else { return nil }
+
+        let n = Double(valid.count)
+        let mean = valid.reduce(0, +) / n
+        let variance = valid.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / (n - 1)
+        let sdnn = sqrt(variance)
+
+        // Successive differences over originally-adjacent in-range pairs only.
+        var diffs: [Double] = []
+        diffs.reserveCapacity(rawRRIntervals.count - 1)
+        for i in 1..<rawRRIntervals.count
+        where validRange.contains(rawRRIntervals[i - 1]) && validRange.contains(rawRRIntervals[i]) {
+            diffs.append(rawRRIntervals[i] - rawRRIntervals[i - 1])
+        }
+        guard !diffs.isEmpty else { return nil }
+
+        let sumSquaredDiffs = diffs.reduce(0) { $0 + $1 * $1 }
+        let rmssd = sqrt(sumSquaredDiffs / Double(diffs.count))
+        let nn50Count = diffs.filter { abs($0) > 50.0 }.count
+        let pnn50 = Double(nn50Count) / Double(diffs.count) * 100.0
+
+        return TimeDomainResult(
+            rmssd: rmssd,
+            sdnn: sdnn,
+            pnn50: pnn50,
+            meanRR: mean,
+            count: valid.count
         )
     }
 

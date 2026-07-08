@@ -430,18 +430,57 @@ struct SnapshotAggregatorSourcePrecedenceTests {
                 "No-op aggregation must not mark snapshot dirty")
     }
 
-    @Test("Sparse preferred samples (below threshold) clear T90/desats rather than mix")
-    func sparsePreferredClearsT90Desats() async throws {
+    // F-023: sparse preferred coverage must not discard the HK-direct
+    // T90/desats that `aggregateDay` already computed against its own
+    // sufficiency gate — the old nil-out understated hypoxic burden in the
+    // clinician PDF for nights with adequate Watch coverage plus a briefly-
+    // connected oximeter.
+    @Test("Sparse preferred samples keep the already-sufficient HK-direct T90/desats")
+    func sparsePreferredKeepsHKDirectT90Desats() async throws {
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
         let mock = MockHealthKitDataSource()
-        // HK-direct T90 from Apple Watch is set by the mock indirectly via
-        // quantitySamples — but the override path doesn't consult those
-        // mock samples. Just verify the override clears T90 when preferred
-        // is below threshold.
-        await mock.setMinimum(.oxygenSaturation, value: 0.78)
+        await mock.setMinimum(.oxygenSaturation, value: 0.88)
+        // Sufficient HK-direct overnight coverage: 60 × 10s samples (600s
+        // monitored ≥ 300s, count ≥ 30), 20 of them below 0.90 → T90 > 0.
+        var hkSamples: [QuantitySample] = []
+        for i in 0..<60 {
+            let start = overnightAnchor.addingTimeInterval(Double(i) * 10)
+            hkSamples.append(QuantitySample(
+                start: start, end: start.addingTimeInterval(10),
+                value: i < 20 ? 0.88 : 0.95
+            ))
+        }
+        await mock.setQuantitySamples(.oxygenSaturation, hkSamples)
 
         // Only 5 EMAY samples — well below `minSamplesForOvernightStats`.
+        seedOvernightSpO2(
+            bundle: "com.emay.SleepO2",
+            count: 5,
+            value: 0.92,
+            in: context,
+            startingAt: overnightAnchor.addingTimeInterval(3600)
+        )
+        try context.save()
+
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        // Nadir still overridden (single-sample min is always meaningful).
+        #expect(abs((snap?.spo2NadirOvernight ?? 0) - 92.0) < 0.001)
+        // T90/desats KEPT from the sufficient HK-direct computation — the
+        // sparse preferred subset can't replace them, and must not nil them.
+        #expect((snap?.spo2TimeBelow90Min ?? 0) >= 3)
+        #expect(snap?.spo2DesatsCount != nil)
+    }
+
+    @Test("Sparse preferred with insufficient HK-direct coverage leaves T90/desats nil")
+    func sparsePreferredWithNoHKDirectStaysNil() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        // No HK sample stream → HK-direct T90/desats are nil.
+        await mock.setMinimum(.oxygenSaturation, value: 0.90)
         seedOvernightSpO2(
             bundle: "com.emay.SleepO2",
             count: 5,
@@ -454,11 +493,6 @@ struct SnapshotAggregatorSourcePrecedenceTests {
         try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
 
         let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
-        // Nadir still overridden (single-sample min is always meaningful).
-        #expect(abs((snap?.spo2NadirOvernight ?? 0) - 92.0) < 0.001)
-        // T90/desats cleared — the preferred subset didn't meet the
-        // continuous-monitoring threshold, so mixing in HK-derived counts
-        // would be wrong (they'd come from Apple Watch).
         #expect(snap?.spo2TimeBelow90Min == nil)
         #expect(snap?.spo2DesatsCount == nil)
     }
@@ -473,12 +507,13 @@ struct SnapshotAggregatorSourcePrecedenceTests {
         await mock.setAverage(.heartRateVariabilitySDNN, value: 28.0)  // Watch
         await mock.setMinimum(.heartRateVariabilitySDNN, value: 18.0)  // Watch
 
-        // Polar Flow samples in the day window — values stored in ms by
-        // the HealthKit mirror.
+        // Polar Flow samples inside the overnight noon-to-noon window
+        // (chest-strap precedence is night-attributed per F-046) — values
+        // stored in ms by the HealthKit mirror.
         let hrvType = HKQuantityTypeIdentifier.heartRateVariabilitySDNN.rawValue
         for offsetMin in stride(from: 0, through: 60, by: 5) {
             context.insert(QuantityHealthSample(
-                timestamp: referenceDate.addingTimeInterval(Double(offsetMin * 60)),
+                timestamp: overnightAnchor.addingTimeInterval(Double(offsetMin * 60)),
                 metricType: hrvType,
                 value: 50.0,  // Polar-typical SDNN
                 unitString: "ms",
@@ -504,7 +539,7 @@ struct SnapshotAggregatorSourcePrecedenceTests {
 
         let hrvType = HKQuantityTypeIdentifier.heartRateVariabilitySDNN.rawValue
         context.insert(QuantityHealthSample(
-            timestamp: referenceDate.addingTimeInterval(3600),
+            timestamp: overnightAnchor.addingTimeInterval(3600),
             metricType: hrvType,
             value: 48.0,
             unitString: "ms",
@@ -541,7 +576,7 @@ struct SnapshotAggregatorSourcePrecedenceTests {
         await mock.setAverage(.restingHeartRate, value: 68.0)  // Watch
 
         context.insert(QuantityHealthSample(
-            timestamp: referenceDate.addingTimeInterval(3600),
+            timestamp: overnightAnchor.addingTimeInterval(3600),
             metricType: HKQuantityTypeIdentifier.restingHeartRate.rawValue,
             value: 56.0,  // Polar
             unitString: "count/min",
@@ -554,5 +589,86 @@ struct SnapshotAggregatorSourcePrecedenceTests {
 
         let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
         #expect(abs((snap?.restingHR ?? 0) - 56.0) < 0.001)
+    }
+
+    // MARK: - First-party BLE route (F-027) + night attribution (F-046)
+
+    // F-027: the app's own Polar BLE pipeline writes HRVReading rows (never
+    // QuantityHealthSample), so before the HRVReading branch existed,
+    // first-party sessions could never win precedence over the Watch value.
+    @Test("First-party HRVReading rows (polar_h10) override HK-direct hrvAvg/hrvMin")
+    func bleHRVReadingsOverride() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        await mock.setAverage(.heartRateVariabilitySDNN, value: 28.0)  // Watch
+        await mock.setMinimum(.heartRateVariabilitySDNN, value: 18.0)  // Watch
+
+        for (offset, sdnn) in [(0.0, 52.0), (60.0, 44.0)] {
+            context.insert(HRVReading(
+                timestamp: overnightAnchor.addingTimeInterval(offset),
+                rmssd: 40, sdnn: sdnn, pnn50: 20,
+                lfPower: 100, hfPower: 80, lfHfRatio: 1.25,
+                sensorSessionID: UUID(), source: "polar_h10"
+            ))
+        }
+        try context.save()
+
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        #expect(abs((snap?.hrvAvg ?? 0) - 48.0) < 0.001)  // mean(52, 44)
+        #expect(abs((snap?.hrvMin ?? 0) - 44.0) < 0.001)
+    }
+
+    @Test("Non-chest-strap HRVReading rows do not override the Watch value")
+    func nonStrapHRVReadingsNoOverride() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        await mock.setAverage(.heartRateVariabilitySDNN, value: 28.0)
+
+        context.insert(HRVReading(
+            timestamp: overnightAnchor,
+            rmssd: 40, sdnn: 60, pnn50: 20,
+            lfPower: 100, hfPower: 80, lfHfRatio: 1.25,
+            sensorSessionID: UUID(), source: "apple_watch_ppg"
+        ))
+        try context.save()
+
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        #expect(abs((snap?.hrvAvg ?? 0) - 28.0) < 0.001)
+    }
+
+    // F-046: chest-strap precedence is bucketed noon-to-noon like the sleep
+    // fields, so a pre-midnight sample belongs to the morning-after snapshot
+    // rather than being split at the calendar-day boundary.
+    @Test("Pre-midnight chest-strap sample attributes to the morning-after snapshot")
+    func preMidnightStrapSampleNightAttribution() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        await mock.setAverage(.heartRateVariabilitySDNN, value: 28.0)
+
+        // overnightAnchor is 02:00 local; -4h = 22:00 the previous evening —
+        // inside the noon-to-noon window, outside the calendar day.
+        let preMidnight = overnightAnchor.addingTimeInterval(-4 * 3600)
+        context.insert(QuantityHealthSample(
+            timestamp: preMidnight,
+            metricType: HKQuantityTypeIdentifier.heartRateVariabilitySDNN.rawValue,
+            value: 51.0,
+            unitString: "ms",
+            sourceBundleID: "fi.polar.polarflow",
+            sourceName: "Polar Flow"
+        ))
+        try context.save()
+
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        #expect(abs((snap?.hrvAvg ?? 0) - 51.0) < 0.001,
+                "22:00 sample must land in this night's snapshot, not yesterday's")
     }
 }

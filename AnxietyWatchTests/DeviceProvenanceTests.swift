@@ -431,6 +431,86 @@ struct RestingHRReliabilityTests {
     }
 }
 
+// F-045: nights dominated by the highest-fidelity sources (EMAY 1 Hz pulse,
+// Polar chest strap) were classified `low` because the HR-family classifiers
+// keyed dominance on Apple share alone — contradicting the precedence tiers
+// that treat these same sources as preferred.
+@Suite("Reliability recognizes high-fidelity non-Apple devices (F-045)")
+struct HighFidelityDeviceReliabilityTests {
+    @Test("EMAY-dominant dense HR night → high, not low")
+    func emayDominantHRHigh() {
+        let samples = evenSamples(
+            count: 500,
+            bundle: "com.emay.SleepO2",
+            coverageHours: 8,
+            metricType: "HKQuantityTypeIdentifierHeartRate",
+            unitString: "count/min",
+            value: 58
+        )
+        #expect(Reliability.heartRate(samples: samples) == .high)
+    }
+
+    @Test("Polar-Flow-dominant HRV night → high, not low")
+    func polarDominantHRVHigh() {
+        let samples = evenSamples(
+            count: 12,
+            bundle: "fi.polar.polarflow",
+            coverageHours: 7,
+            metricType: "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
+            unitString: "ms",
+            value: 48
+        )
+        #expect(Reliability.hrv(samples: samples) == .high)
+    }
+
+    @Test("Chest-strap RHR sample → high")
+    func strapRHRHigh() {
+        let samples = evenSamples(
+            count: 1,
+            bundle: "fi.polar.polarflow",
+            coverageHours: 0,
+            metricType: "HKQuantityTypeIdentifierRestingHeartRate",
+            unitString: "count/min",
+            value: 54
+        )
+        #expect(Reliability.restingHR(samples: samples) == .high)
+    }
+
+    @Test("Mixed Apple + EMAY HR night counts as recognized-dominant → high")
+    func mixedAppleEmayHigh() {
+        let apple = evenSamples(
+            count: 60,
+            bundle: "com.apple.health",
+            coverageHours: 8,
+            metricType: "HKQuantityTypeIdentifierHeartRate",
+            unitString: "count/min",
+            value: 62
+        )
+        let emay = evenSamples(
+            count: 60,
+            bundle: "com.emay.SleepO2",
+            coverageHours: 8,
+            metricType: "HKQuantityTypeIdentifierHeartRate",
+            unitString: "count/min",
+            value: 58
+        )
+        #expect(Reliability.heartRate(samples: apple + emay) == .high)
+    }
+
+    @Test("Unknown-tracker-dominant HR stays low")
+    func unknownStillLow() {
+        let samples = evenSamples(
+            count: 100,
+            bundle: "com.unknown.tracker",
+            coverageHours: 8,
+            metricType: "HKQuantityTypeIdentifierHeartRate",
+            unitString: "count/min",
+            value: 70
+        )
+        #expect(Reliability.heartRate(samples: samples) == .low)
+    }
+}
+
 @Suite("Reliability.respiratoryRate")
 struct RespiratoryRateReliabilityTests {
     @Test("5 Apple Watch RR samples → high (boundary)")

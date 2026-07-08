@@ -44,7 +44,16 @@ struct CPAPDetailView: View {
             }
 
             Section("Pressure (cmH\u{2082}O)") {
-                LabeledContent("Min", value: String(format: "%.1f", session.pressureMin))
+                // OSCAR Summary exports carry no minimum-pressure column, so
+                // those imports store CPAPImporter.oscarPressureMinUnavailable
+                // (0). A CPAP never delivers 0 cmH₂O, so render the sentinel
+                // as "not recorded" rather than a measured value.
+                LabeledContent(
+                    "Min",
+                    value: session.pressureMin == CPAPImporter.oscarPressureMinUnavailable
+                        ? "—"
+                        : String(format: "%.1f", session.pressureMin)
+                )
                 LabeledContent("Mean", value: String(format: "%.1f", session.pressureMean))
                 LabeledContent("Max", value: String(format: "%.1f", session.pressureMax))
             }

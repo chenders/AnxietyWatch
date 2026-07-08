@@ -133,4 +133,64 @@ enum LabTestRegistry {
     static func definitions(in category: TestCategory) -> [TestDefinition] {
         allDefinitions.filter { $0.category == category }
     }
+
+    // MARK: - Reference-range resolution (F-008)
+
+    /// The reference range that can be trusted for `result`, or nil when
+    /// none can.
+    ///
+    /// Precedence:
+    /// 1. The lab's own FHIR reference range — always correct in the lab's
+    ///    reported unit, whatever that unit is.
+    /// 2. The registry's fixed-unit range — ONLY when the result's reported
+    ///    unit matches the registry unit. Cross-institution labs report the
+    ///    same LOINC in different units (mmol/L vs mg/dL, pmol/L vs ng/dL);
+    ///    silently applying the registry's mg/dL bounds to a mmol/L value
+    ///    flags a clinically normal result as LOW/HIGH on screen and in the
+    ///    clinician PDF (F-008). No trusted range → no flag; callers must
+    ///    render a neutral status rather than a wrong one.
+    ///
+    /// A partially-supplied FHIR range (one bound) is completed from the
+    /// registry only when the units match; otherwise only the lab-supplied
+    /// bound is honored, with the missing side left unbounded.
+    static func applicableRange(for result: ClinicalLabResult) -> (low: Double?, high: Double?)? {
+        let fhirLow = result.referenceRangeLow
+        let fhirHigh = result.referenceRangeHigh
+        if fhirLow != nil || fhirHigh != nil {
+            guard let def = definition(for: result.loincCode),
+                  unitsAreCompatible(result.unit, def.unit) else {
+                // Honor whatever the lab supplied; don't backfill the
+                // missing bound from a registry range in a different unit.
+                return (fhirLow, fhirHigh)
+            }
+            return (fhirLow ?? def.normalRangeLow, fhirHigh ?? def.normalRangeHigh)
+        }
+        guard let def = definition(for: result.loincCode),
+              unitsAreCompatible(result.unit, def.unit) else {
+            return nil
+        }
+        return (def.normalRangeLow, def.normalRangeHigh)
+    }
+
+    /// Case-insensitive unit comparison over a small normalization that
+    /// collapses the common synonym spellings labs actually emit:
+    /// µ ↔ u ↔ mc (micro), UCUM powers (10*3, 10^3) ↔ K, stray whitespace.
+    /// Deliberately does NOT attempt conversions (mmol/L → mg/dL is
+    /// analyte-specific) — incompatible units mean "no trusted range",
+    /// never "convert and hope".
+    static func unitsAreCompatible(_ lhs: String, _ rhs: String) -> Bool {
+        let l = normalizedUnit(lhs)
+        let r = normalizedUnit(rhs)
+        guard !l.isEmpty, !r.isEmpty else { return false }
+        return l == r
+    }
+
+    private static func normalizedUnit(_ unit: String) -> String {
+        unit.lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "µ", with: "u")
+            .replacingOccurrences(of: "mc", with: "u")   // mcg → ug
+            .replacingOccurrences(of: "10*3", with: "k") // UCUM thousands
+            .replacingOccurrences(of: "10^3", with: "k")
+    }
 }

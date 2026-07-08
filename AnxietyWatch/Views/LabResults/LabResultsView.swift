@@ -63,7 +63,7 @@ struct LabResultsView: View, Equatable {
             Spacer()
             Text(formattedValue(result.value) + " " + result.unit)
                 .font(.body.bold())
-                .foregroundStyle(statusColor(for: result, definition: definition))
+                .foregroundStyle(statusColor(for: result))
         }
     }
 
@@ -86,11 +86,13 @@ struct LabResultsView: View, Equatable {
         return orderedCodes.compactMap { latest[$0] }
     }
 
-    private func statusColor(for result: ClinicalLabResult, definition: LabTestRegistry.TestDefinition) -> Color {
-        let low = result.referenceRangeLow ?? definition.normalRangeLow
-        let high = result.referenceRangeHigh ?? definition.normalRangeHigh
-        if result.value < low { return .orange }
-        if result.value > high { return .red }
+    private func statusColor(for result: ClinicalLabResult) -> Color {
+        // No trusted range (lab omitted its reference range AND reported a
+        // unit the registry's fixed-unit range doesn't apply to) → neutral,
+        // never a wrong LOW/HIGH from a cross-unit comparison (F-008).
+        guard let range = LabTestRegistry.applicableRange(for: result) else { return .secondary }
+        if let low = range.low, result.value < low { return .orange }
+        if let high = range.high, result.value > high { return .red }
         return .green
     }
 

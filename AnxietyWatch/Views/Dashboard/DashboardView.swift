@@ -158,11 +158,19 @@ struct DashboardView: View {
                 || $0.sleepDurationMin != nil
                 || $0.cpapAHI != nil
         }) {
-            let nightEvents = recentSleepEvents.filter {
-                Calendar.current.isDate($0.startTime, inSameDayAs: snapshot.date.addingTimeInterval(-12 * 3600))
-                    || Calendar.current.isDate($0.startTime, inSameDayAs: snapshot.date)
-            }
-            if let cpap = recentCPAP.first {
+            // Noon-to-noon window for the snapshot's night — the previous
+            // same-calendar-day filter spanned 48 hours and could dilute
+            // SleepEfficiencyCalculator with an adjacent night's events
+            // (the F-011 defect class, in this sibling consumer).
+            let nightEvents = DashboardViewModel.nightEvents(
+                from: recentSleepEvents, forMorning: snapshot.date
+            )
+            // Date-matched to the snapshot's night — `recentCPAP.first` could
+            // be up to 30 days old when the SD card hasn't been imported
+            // recently, silently presenting a stale AHI as last night's
+            // (F-036). No matching session → the nil branch renders the card
+            // without an AHI clause.
+            if let cpap = vm.cpapSession(for: snapshot, in: recentCPAP) {
                 let efficiency = SleepEfficiencyCalculator.compute(from: nightEvents)
                 let headline = LastNightHeadline.compose(
                     efficiencyPct: efficiency.efficiencyPct,

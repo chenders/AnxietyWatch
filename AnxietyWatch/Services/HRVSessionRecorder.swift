@@ -96,19 +96,27 @@ final class HRVSessionRecorder {
         guard let session, session.endTime == nil else { return }
         let intervals = await buffer.flush(at: now)
         let rrs = intervals.map(\.rrMs)
-        guard rrs.count >= 2 else {
-            skippedMinutes += 1
-            return
-        }
         // Artifact filter: drop any RR intervals outside physiological range.
-        let filtered = rrs.filter { $0 >= 250 && $0 <= 2_000 }
-        guard filtered.count >= 2 else {
+        let filtered = rrs.filter { HRVCalculator.physiologicalRRRangeMs.contains($0) }
+        // Count every physiologically-valid beat toward the session total
+        // BEFORE any sparse-window/adjacency bail below. The archive keeps
+        // these samples regardless of whether the window produces an
+        // HRVReading, and recovery seeds its count from the archive via
+        // `physiologicalRecordCount` — counting here only on successful
+        // windows would make a live session's rrCount diverge from an
+        // identical recovered one, the exact basis mismatch F-067 closed.
+        totalRRCount += filtered.count
+        guard rrs.count >= 2, filtered.count >= 2 else {
             skippedMinutes += 1
             return
         }
 
+        // Time-domain math gets the RAW window: the adjacency-aware overload
+        // excludes artifacts without splicing their neighbors into a fake
+        // successive pair (F-026). `filtered` is still the right set for the
+        // order-independent mean-HR math and count below.
         let td = await Task.detached(priority: .userInitiated) {
-            HRVCalculator.timeDomain(rrIntervals: filtered)
+            HRVCalculator.timeDomain(rawRRIntervals: rrs)
         }.value
         // Re-check after the FFT await — stopSession may have finalized while
         // we were suspended. The unwrap matters: `self.session?.endTime == nil`
@@ -144,9 +152,10 @@ final class HRVSessionRecorder {
         // Window-mean HR derived from the same artifact-filtered RR set used
         // for HRV math. Filtered already guarantees count >= 2 and that every
         // RR is in [250, 2000] ms, so this division is bounded and finite.
+        // (totalRRCount was already incremented up top, before the sparse-
+        // window bails — see the F-067 counting-basis comment there.)
         let meanRR = filtered.reduce(0, +) / Double(filtered.count)
         hrValues.append(60_000.0 / meanRR)
-        totalRRCount += filtered.count
     }
 
     func finalize(at timestamp: Date) throws {
@@ -229,7 +238,7 @@ final class HRVSessionRecorder {
             var count = 0
             for index in left..<right {
                 let rr = sortedSamples[index].rrMs
-                if rr >= 250 && rr <= 2_000 {
+                if HRVCalculator.physiologicalRRRangeMs.contains(rr) {
                     sum += rr
                     count += 1
                 }

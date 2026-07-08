@@ -47,4 +47,28 @@ struct LastNightHeadlineTests {
         let h = LastNightHeadline.compose(efficiencyPct: 92, efficiencyEstimated: false, ahi: 3.0, nadirPct: 94)
         #expect(!h.text.contains("~"))
     }
+
+    // F-024: a pinned-to-100% estimated efficiency is not a measurement.
+    // It must not certify a "Solid night" — the pin exists precisely because
+    // the real efficiency is unknown and could have been poor.
+    @Test("Estimated efficiency with otherwise-clean night caps the verdict at OK")
+    func estimatedEfficiencyCapsVerdictAtOK() {
+        let h = LastNightHeadline.compose(efficiencyPct: 100, efficiencyEstimated: true, ahi: 3.0, nadirPct: 94)
+        #expect(h.verdict == "OK")
+        #expect(h.text.contains("~100%"))
+    }
+
+    @Test("Estimated efficiency does not add a breach on top of real breaches")
+    func estimatedEfficiencyNotCountedAsBreach() {
+        // One real breach (AHI). The estimated efficiency must neither hide
+        // it (verdict stays OK, not Solid) nor inflate it to Rough.
+        let h = LastNightHeadline.compose(efficiencyPct: 100, efficiencyEstimated: true, ahi: 6.5, nadirPct: 94)
+        #expect(h.verdict == "OK")
+    }
+
+    @Test("Measured sub-85% efficiency still breaches")
+    func measuredLowEfficiencyBreaches() {
+        let h = LastNightHeadline.compose(efficiencyPct: 80, efficiencyEstimated: false, ahi: 3.0, nadirPct: 94)
+        #expect(h.verdict == "OK")
+    }
 }

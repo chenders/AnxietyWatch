@@ -164,6 +164,95 @@ struct PrescriptionImporterTests {
         #expect(rx.estimatedRunOutDate != nil)
     }
 
+    @Test("Re-sync with newer fill date advances dateFilled and lastFillDate")
+    func reimportAdvancesFillDates() throws {
+        // Regression (F-009): update() refreshed daysSupply/cost fields on
+        // re-sync but never the fill dates, so effectiveRunOutDate combined a
+        // stale fill date with the fresh supply duration after a refill.
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let record1: [String: Any] = [
+            "rx_number": "7654321",
+            "medication_name": "Test Med 10mg",
+            "dose_mg": 10.0 as Double,
+            "quantity": 30 as Int,
+            "date_filled": "2026-01-01T00:00:00Z",
+            "last_fill_date": "2026-01-01T00:00:00Z",
+            "days_supply": 30 as Int,
+            "import_source": "caprx",
+        ]
+        _ = try PrescriptionImporter.importRecord(record1, into: context)
+        try context.save()
+
+        // Refill re-sync: newer fill dates and a different supply duration.
+        let record2: [String: Any] = [
+            "rx_number": "7654321",
+            "medication_name": "Test Med 10mg",
+            "dose_mg": 10.0 as Double,
+            "quantity": 90 as Int,
+            "date_filled": "2026-03-02T00:00:00Z",
+            "last_fill_date": "2026-03-02T00:00:00Z",
+            "days_supply": 90 as Int,
+            "import_source": "caprx",
+        ]
+        _ = try PrescriptionImporter.importRecord(record2, into: context)
+        try context.save()
+
+        let all = try context.fetch(FetchDescriptor<Prescription>())
+        #expect(all.count == 1)
+        let rx = try #require(all.first)
+
+        let iso = ISO8601DateFormatter()
+        let newFill = try #require(iso.date(from: "2026-03-02T00:00:00Z"))
+        #expect(abs(rx.dateFilled.timeIntervalSince(newFill)) < 1)
+        let lastFill = try #require(rx.lastFillDate)
+        #expect(abs(lastFill.timeIntervalSince(newFill)) < 1)
+        #expect(rx.daysSupply == 90)
+    }
+
+    @Test("Re-sync omitting fill dates preserves existing dates")
+    func reimportWithoutFillDatesPreservesExisting() throws {
+        // A record that omits date_filled / last_fill_date must not null-out
+        // or reset the dates the prescription already carries.
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let record1: [String: Any] = [
+            "rx_number": "9999999-00001",
+            "medication_name": "Test Med 10mg",
+            "dose_mg": 10.0 as Double,
+            "quantity": 30 as Int,
+            "date_filled": "2026-01-01T00:00:00Z",
+            "last_fill_date": "2026-01-01T00:00:00Z",
+            "import_source": "caprx",
+        ]
+        _ = try PrescriptionImporter.importRecord(record1, into: context)
+        try context.save()
+
+        let record2: [String: Any] = [
+            "rx_number": "9999999-00001",
+            "medication_name": "Test Med 10mg",
+            "dose_mg": 10.0 as Double,
+            "quantity": 30 as Int,
+            "days_supply": 30 as Int,
+            "import_source": "caprx",
+        ]
+        _ = try PrescriptionImporter.importRecord(record2, into: context)
+        try context.save()
+
+        let all = try context.fetch(FetchDescriptor<Prescription>())
+        #expect(all.count == 1)
+        let rx = try #require(all.first)
+
+        let iso = ISO8601DateFormatter()
+        let originalFill = try #require(iso.date(from: "2026-01-01T00:00:00Z"))
+        // dateFilled must remain the original — in particular not reset to .now.
+        #expect(abs(rx.dateFilled.timeIntervalSince(originalFill)) < 1)
+        let lastFill = try #require(rx.lastFillDate)
+        #expect(abs(lastFill.timeIntervalSince(originalFill)) < 1)
+    }
+
     @Test("Record missing rx_number throws")
     func missingRxNumberThrows() throws {
         let record: [String: Any] = [

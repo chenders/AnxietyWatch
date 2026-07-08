@@ -243,17 +243,35 @@ extension Reliability {
         return .low
     }
 
-    /// Heart rate. Watch HR is sampled minute-by-minute, so dense sample
-    /// counts are a meaningful proxy for coverage.
-    /// high: Apple Watch source ≥50 samples.
-    /// medium: Apple Watch source with reduced coverage.
+    /// Share of samples written by a source the app recognizes as a real
+    /// device for HR-family metrics: Apple ecosystem, chest straps (Polar),
+    /// or overnight oximeters (EMAY pulse rate). The HR/HRV/RHR classifiers
+    /// used to key dominance on Apple share alone, which labeled nights
+    /// dominated by the HIGHEST-fidelity sources (a 32k-sample EMAY pulse
+    /// stream, a Polar chest strap) as `low` — contradicting the precedence
+    /// tiers that treat those same sources as preferred (F-045). Anything
+    /// outside these sets (manual entries, unclassified apps) still counts
+    /// against dominance, so "low = manual/unknown" is preserved.
+    private static func recognizedHeartSourceShare(_ samples: [QuantityHealthSample]) -> Double {
+        guard !samples.isEmpty else { return 0 }
+        let recognized = samples.filter {
+            DeviceProvenance.isAppleEcosystemSource($0.sourceBundleID)
+                || DeviceProvenance.isChestStrapHRMonitor($0.sourceBundleID)
+                || DeviceProvenance.isOvernightPulseOximeter($0.sourceBundleID)
+        }.count
+        return Double(recognized) / Double(samples.count)
+    }
+
+    /// Heart rate. Watch/oximeter/strap HR is sampled continuously, so dense
+    /// sample counts are a meaningful proxy for coverage.
+    /// high: recognized devices (Apple Watch / chest strap / oximeter) ≥80%
+    ///   of samples AND ≥50 samples.
+    /// medium: recognized-device-dominant with reduced coverage.
     /// low: manual/unknown source.
     /// insufficient: empty.
     static func heartRate(samples: [QuantityHealthSample]) -> Reliability {
         guard !samples.isEmpty else { return .insufficient }
-        let appleCount = samples.filter { DeviceProvenance.isAppleEcosystemSource($0.sourceBundleID) }.count
-        let appleDominant = Double(appleCount) / Double(samples.count) >= 0.8
-        if appleDominant {
+        if recognizedHeartSourceShare(samples) >= 0.8 {
             return samples.count >= 50 ? .high : .medium
         }
         return .low
@@ -261,15 +279,14 @@ extension Reliability {
 
     /// HRV. Apple Watch logs HRV (SDNN) sparsely — a few readings per night
     /// is normal — so the high-sample threshold is much lower than HR's.
-    /// high: Apple Watch source ≥3 samples.
-    /// medium: Apple Watch source with 1-2 samples.
+    /// high: recognized devices (Apple Watch / chest strap) ≥80% of samples
+    ///   AND ≥3 samples.
+    /// medium: recognized-device-dominant with 1-2 samples.
     /// low: manual/unknown source.
     /// insufficient: empty.
     static func hrv(samples: [QuantityHealthSample]) -> Reliability {
         guard !samples.isEmpty else { return .insufficient }
-        let appleCount = samples.filter { DeviceProvenance.isAppleEcosystemSource($0.sourceBundleID) }.count
-        let appleDominant = Double(appleCount) / Double(samples.count) >= 0.8
-        if appleDominant {
+        if recognizedHeartSourceShare(samples) >= 0.8 {
             return samples.count >= 3 ? .high : .medium
         }
         return .low
@@ -277,14 +294,12 @@ extension Reliability {
 
     /// Resting heart rate. Apple Watch writes a single daily RHR value, so
     /// presence (not density) is what matters.
-    /// high: present from Apple Watch.
+    /// high: present from a recognized device (Apple Watch / chest strap).
     /// low: present from manual/unknown source.
     /// insufficient: empty.
     static func restingHR(samples: [QuantityHealthSample]) -> Reliability {
         guard !samples.isEmpty else { return .insufficient }
-        let appleCount = samples.filter { DeviceProvenance.isAppleEcosystemSource($0.sourceBundleID) }.count
-        let appleDominant = Double(appleCount) / Double(samples.count) >= 0.8
-        return appleDominant ? .high : .low
+        return recognizedHeartSourceShare(samples) >= 0.8 ? .high : .low
     }
 
     /// Respiratory rate. Apple Watch writes sleep-window RR samples — a

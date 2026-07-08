@@ -171,12 +171,26 @@ enum ReportGenerator {
                 for result in latestPerTest {
                     let def = LabTestRegistry.definition(for: result.loincCode)
                     let name = def?.shortName ?? result.testName
-                    let refLow = result.referenceRangeLow ?? def?.normalRangeLow
-                    let refHigh = result.referenceRangeHigh ?? def?.normalRangeHigh
+                    // Unit-aware range resolution: the registry's fixed-unit
+                    // bounds only apply when the lab reported the same unit.
+                    // A clinician-facing "▼ LOW" from comparing 5.5 mmol/L
+                    // against a 70–100 mg/dL range is worse than no flag (F-008).
+                    let range = LabTestRegistry.applicableRange(for: result)
+                    let refLow = range?.low
+                    let refHigh = range?.high
 
                     var line = String(format: "%@: %.1f %@", name, result.value, result.unit)
+                    // One-sided annotations for partial lab-supplied ranges
+                    // (a foreign-unit result whose missing bound we refuse to
+                    // backfill from the registry): the LOW/HIGH flag below
+                    // fires off a single bound, so the threshold it used must
+                    // be visible to the clinician.
                     if let low = refLow, let high = refHigh {
                         line += String(format: " (ref: %.1f–%.1f)", low, high)
+                    } else if let low = refLow {
+                        line += String(format: " (ref: ≥%.1f)", low)
+                    } else if let high = refHigh {
+                        line += String(format: " (ref: ≤%.1f)", high)
                     }
                     if result.value < (refLow ?? -.infinity) {
                         line += " ▼ LOW"

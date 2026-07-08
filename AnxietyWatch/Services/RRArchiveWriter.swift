@@ -145,6 +145,22 @@ nonisolated final class RRArchiveWriter: @unchecked Sendable {
         return size / recordSize
     }
 
+    /// Count only the archive records whose RR value passes the shared
+    /// physiological artifact filter. Session-recovery and orphan-finalize
+    /// seed a summary's `rrCount` from the archive; the raw `recordCount`
+    /// includes artifacts that every other rrCount contributor (the live
+    /// tick path) excludes, so a recovered session's beat count was
+    /// inflated relative to an identical uninterrupted one (F-067).
+    /// Returns 0 for a missing or unreadable archive, matching
+    /// `recordCount`'s "nothing usable here" semantics.
+    static func physiologicalRecordCount(
+        url: URL,
+        validRange: ClosedRange<Double> = HRVCalculator.physiologicalRRRangeMs
+    ) -> Int {
+        guard let samples = try? read(url: url) else { return 0 }
+        return samples.count(where: { validRange.contains($0.rrMs) })
+    }
+
     static func read(url: URL) throws -> [RRIntervalSample] {
         let raw = try Data(contentsOf: url)
         guard raw.count % Self.recordSize == 0 else {

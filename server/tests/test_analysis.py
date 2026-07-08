@@ -57,7 +57,8 @@ def _clean_tables(app):
             "TRUNCATE anxiety_entries, health_snapshots, medication_definitions, "
             "medication_doses, cpap_sessions, barometric_readings, correlations, "
             "analyses, api_keys, sync_log, therapy_sessions, settings, "
-            "patient_profile, psychiatrist_profile, conflicts, analysis_jobs "
+            "patient_profile, psychiatrist_profile, conflicts, analysis_jobs, "
+            "songs, song_occurrences "
             "RESTART IDENTITY CASCADE"
         )
         cur.execute(
@@ -144,6 +145,139 @@ def test_gather_analysis_data_empty_range(app):
     assert data["health_snapshots"] == []
     assert data["cpap_sessions"] == []
     assert data["medication_doses"] == []
+
+
+# ---------------------------------------------------------------------------
+# Pacific-day window boundary tests (F-029 regression)
+#
+# The timestamp-range filters must bucket rows by US/Pacific calendar days,
+# not UTC days. An entry logged 9 PM Pacific on the final day of the range is
+# stored ~04:00 UTC the NEXT day; the old UTC-midnight window silently
+# dropped it while the date-keyed tables (health_snapshots, cpap_sessions)
+# still covered that Pacific day.
+# ---------------------------------------------------------------------------
+
+
+def _insert_anxiety_at(app, ts_utc: str) -> None:
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO anxiety_entries (timestamp, severity, notes, tags) "
+            "VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            (ts_utc, 7, "boundary test", "[]"),
+        )
+        db.commit()
+
+
+def _gather(app, date_from, date_to):
+    with app.app_context():
+        from analysis import gather_analysis_data
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        return gather_analysis_data(cur, date_from, date_to)
+
+
+def test_gather_includes_late_evening_pacific_entry_on_final_day(app):
+    """21:00 Pacific on the final requested day (04:00 UTC next day) is included."""
+    # 2026-07-09 04:00 UTC == 2026-07-08 21:00 PDT (UTC-7)
+    _insert_anxiety_at(app, "2026-07-09 04:00:00+00")
+    data = _gather(app, date(2026, 7, 6), date(2026, 7, 8))
+
+    assert len(data["anxiety_entries"]) == 1
+    # Serialized in Pacific wall-clock time with explicit offset, matching the
+    # prompt's timezone claim.
+    ts = data["anxiety_entries"][0]["timestamp"]
+    assert ts.startswith("2026-07-08T21:00:00")
+    assert ts.endswith("-07:00")
+
+
+def test_gather_excludes_entry_after_pacific_range_end(app):
+    """01:00 Pacific the day AFTER the range (08:00 UTC) is excluded."""
+    # 2026-07-09 08:00 UTC == 2026-07-09 01:00 PDT — outside a range ending Jul 8
+    _insert_anxiety_at(app, "2026-07-09 08:00:00+00")
+    data = _gather(app, date(2026, 7, 6), date(2026, 7, 8))
+
+    assert data["anxiety_entries"] == []
+
+
+def test_gather_pacific_window_start_boundary(app):
+    """The range starts at 00:00 Pacific on date_from, not 00:00 UTC."""
+    # 2026-07-06 06:59 UTC == 2026-07-05 23:59 PDT — before the range
+    _insert_anxiety_at(app, "2026-07-06 06:59:00+00")
+    # 2026-07-06 07:00 UTC == 2026-07-06 00:00 PDT — first instant of the range
+    _insert_anxiety_at(app, "2026-07-06 07:00:00+00")
+    data = _gather(app, date(2026, 7, 6), date(2026, 7, 8))
+
+    assert len(data["anxiety_entries"]) == 1
+    assert data["anxiety_entries"][0]["timestamp"].startswith("2026-07-06T00:00:00")
+
+
+def test_gather_pacific_window_handles_standard_time(app):
+    """In winter the boundary is UTC-8 (PST), not the fixed PDT offset."""
+    # 2026-01-09 05:00 UTC == 2026-01-08 21:00 PST — inside a range ending Jan 8
+    _insert_anxiety_at(app, "2026-01-09 05:00:00+00")
+    # 2026-01-09 09:00 UTC == 2026-01-09 01:00 PST — outside it
+    _insert_anxiety_at(app, "2026-01-09 09:00:00+00")
+    data = _gather(app, date(2026, 1, 6), date(2026, 1, 8))
+
+    assert len(data["anxiety_entries"]) == 1
+    ts = data["anxiety_entries"][0]["timestamp"]
+    assert ts.startswith("2026-01-08T21:00:00")
+    assert ts.endswith("-08:00")
+
+
+def test_gather_all_timestamp_tables_share_pacific_window(app):
+    """Medication doses, barometric readings, and song occurrences use the
+    same Pacific-day window as anxiety entries — no table is left on UTC
+    boundaries."""
+    late_evening = "2026-07-09 04:00:00+00"  # 21:00 PDT on 2026-07-08
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO medication_doses (timestamp, medication_name, dose_mg) "
+            "VALUES (%s, 'TestMed', 1.0) ON CONFLICT DO NOTHING",
+            (late_evening,),
+        )
+        cur.execute(
+            "INSERT INTO barometric_readings (timestamp, pressure_kpa, relative_altitude_m) "
+            "VALUES (%s, 101.3, 0.0) ON CONFLICT DO NOTHING",
+            (late_evening,),
+        )
+        cur.execute(
+            "INSERT INTO songs (title, artist) VALUES ('Test Song', 'Test Artist') RETURNING id"
+        )
+        song_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO song_occurrences (song_id, timestamp, source) "
+            "VALUES (%s, %s, 'standalone') ON CONFLICT DO NOTHING",
+            (song_id, late_evening),
+        )
+        db.commit()
+
+    data = _gather(app, date(2026, 7, 6), date(2026, 7, 8))
+
+    assert len(data["medication_doses"]) == 1
+    assert len(data["barometric_readings"]) == 1
+    assert len(data["song_occurrences"]) == 1
+    # period_occurrences in the song summary counts the occurrence too
+    assert data["song_summary"][0]["period_occurrences"] == 1
+
+
+def test_gather_invalid_timezone_falls_back(app):
+    """A junk timezone name in settings must not crash gathering — it falls
+    back to America/Los_Angeles."""
+    _insert_anxiety_at(app, "2026-07-09 04:00:00+00")  # 21:00 PDT on Jul 8
+    with app.app_context():
+        from analysis import gather_analysis_data
+        db = app.get_db()
+        cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        data = gather_analysis_data(
+            cur, date(2026, 7, 6), date(2026, 7, 8), tz_name="Not/AZone"
+        )
+
+    assert len(data["anxiety_entries"]) == 1
 
 
 def test_build_prompt(app):
@@ -1214,6 +1348,20 @@ def test_compute_effective_dates_no_data():
     assert eff_to == date(2026, 1, 31)
 
 
+def test_compute_effective_dates_includes_song_occurrences():
+    """A window whose only timestamped data is song playback must still trim
+    the effective range to that coverage — song_occurrences is windowed and
+    serialized like the other timestamp tables and counts as data."""
+    from analysis import compute_effective_dates
+    data = {"anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+            "cpap_sessions": [], "barometric_readings": [],
+            "song_occurrences": [{"timestamp": "2026-02-10T21:00:00-08:00"},
+                                 {"timestamp": "2026-02-18T09:00:00-08:00"}]}
+    eff_from, eff_to = compute_effective_dates(data, date(2026, 1, 1), date(2026, 3, 31))
+    assert eff_from == date(2026, 2, 10)
+    assert eff_to == date(2026, 2, 18)
+
+
 def test_compute_effective_dates_single_day():
     from analysis import compute_effective_dates
     data = {"anxiety_entries": [], "health_snapshots": [{"date": "2026-02-14"}],
@@ -1234,6 +1382,21 @@ def test_compute_effective_dates_mixed_sources():
     eff_from, eff_to = compute_effective_dates(data, date(2026, 1, 1), date(2026, 4, 1))
     assert eff_from == date(2026, 2, 1)
     assert eff_to == date(2026, 3, 1)
+
+
+def test_compute_effective_dates_uses_local_calendar_dates():
+    """Offset-carrying timestamps (as serialized by gather_analysis_data)
+    resolve to the local calendar day, not the UTC day. 21:00 Pacific on
+    Jul 8 must count toward Jul 8, even though it's Jul 9 in UTC."""
+    from analysis import compute_effective_dates
+    data = {
+        "anxiety_entries": [{"timestamp": "2026-07-08T21:00:00-07:00"}],
+        "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [],
+    }
+    eff_from, eff_to = compute_effective_dates(data, date(2026, 7, 1), date(2026, 7, 8))
+    assert eff_from == date(2026, 7, 8)
+    assert eff_to == date(2026, 7, 8)
 
 
 # ---------------------------------------------------------------------------

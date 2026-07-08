@@ -126,10 +126,11 @@ struct LabTestHistoryView: View, Equatable {
     // MARK: - Helpers
 
     private func statusColor(for result: ClinicalLabResult) -> Color {
-        let low = result.referenceRangeLow ?? definition.normalRangeLow
-        let high = result.referenceRangeHigh ?? definition.normalRangeHigh
-        if result.value < low { return .orange }
-        if result.value > high { return .red }
+        // See LabResultsView.statusColor — neutral when no unit-compatible
+        // range exists rather than a wrong cross-unit LOW/HIGH (F-008).
+        guard let range = LabTestRegistry.applicableRange(for: result) else { return .secondary }
+        if let low = range.low, result.value < low { return .orange }
+        if let high = range.high, result.value > high { return .red }
         return .green
     }
 

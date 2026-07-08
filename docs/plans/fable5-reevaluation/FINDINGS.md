@@ -38,6 +38,9 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 | F-013 | P2 | conf | S | accuracy | sync-sensor-session | SensorSession rows synced mid-recording are flagged syncedToServer, and finalize()/finalizeOrphan() never re-dirty the flag, so the session's endTime, summaryJSON, and interruption data permanently never reach the server. | `AnxietyWatch/Services/HRVSessionRecorder.swift:finalize` |
 | F-014 | P2 | conf | S | accuracy | sync-rr-archive | uploadPendingRRArchives uploads the RR archive of sessions that are still recording (no endTime guard) and stamps rrArchiveUploadedAt, so the server permanently keeps a truncated archive missing everything recorded after the mid-session sync. | `AnxietyWatch/Services/SyncService.swift:uploadPendingRRArchives` |
 | F-090 | P2 | plaus | M | accuracy | sync-rr-archive | finalizeOffline flushes the RR archive via a detached background Task while recorder.finalize sets endTime synchronously, so uploadPendingRRArchives (gated only on endTime != nil) can read a not-yet-fully-flushed archive, upload it, and permanently stamp rrArchiveUploadedAt on a truncated file. | `AnxietyWatch/Services/PolarHRMService.swift:finalizeOffline` |
+| F-091 | P2 | plaus | S | accuracy | server-correlations | correlations.py joins anxiety entries to health snapshots via a::timestamp::date cast in the DB session timezone (UTC), so a 9 PM Pacific entry joins to the NEXT day's snapshot — same UTC/Pacific day-bucketing family as F-029, one layer down in the correlation engine. | `server/correlations.py:36` |
+| F-092 | P2 | plaus | M | accuracy | spo2-provenance | applyOvernightSpO2Precedence can pair avg/nadir from a sparse preferred-oximeter subset with T90/desats kept from the broader HK-direct set (post-F-023), and no rendered surface (LastNightCard, CPAPDetailView, clinician PDF) discloses the mixed provenance. | `AnxietyWatch/Services/SnapshotAggregator.swift:applyOvernightSpO2Precedence` |
+| F-093 | P2 | plaus | M | accuracy | polar-hrv-freqdomain | The frequency-domain path still receives the spliced artifact-filtered RR array: resampleRRIntervals builds its tachogram from cumulative sums over the filtered array, fabricating a gap-spanning interval at each excised artifact — the same splicing defect F-026 fixed for RMSSD/pNN50, live for LF/HF/ratio. | `AnxietyWatch/Services/HRVSessionRecorder.swift:tick` |
 | F-015 | P2 | conf | S | silent-failure | sync-rr-archive | A failed RR-archive POST is never retried: the retry scan is keyed to uploadedIDs.sensorSessions (sessions in the current payload), but markSamplesSynced flips those sessions' syncedToServer=true in the same call, so they never appear in any future payload and rrArchiveUploadedAt==nil is never re-examined. | `AnxietyWatch/Services/SyncService.swift:applyPostUploadResponse` |
 | F-016 | P1 | conf | S | bug | sync-actor-isolation | SongService.fetchCatalog(into:) and SyncService.fetchPrescriptions(modelContext:) are nonisolated async functions that fetch/insert/save on the caller's MainActor-bound ModelContext from the global concurrent executor — the exact undefined-behavior hazard the sync() doc comment was written to prevent, and it runs on every sync. | `AnxietyWatch/Services/SongService.swift:fetchCatalog` |
 | F-017 | P2 | conf | S | bug | watch-connectivity | PhoneConnectivityManager.updateCheckInContext builds the outgoing applicationContext from WCSession.receivedApplicationContext (the context received FROM the Watch — always empty, since the Watch never calls updateApplicationContext) instead of .applicationContext (the last-sent context), so every check-in state change wipes the stats keys from the Watch's app context. | `AnxietyWatch/Services/PhoneConnectivityManager.swift:updateCheckInContext` |
@@ -220,7 +223,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 **2. Batch A — SwiftUI render crash pitfalls (NavigationLink + @Query family)** (8): F-001, F-002, F-003, F-004, F-005, F-030, F-032, F-073 — _plus F-089, found during implementation review and fixed in the same PR (#157)_  
 **3. Batch F — Medical-accuracy: display & clinician-report correctness** (14): F-007, F-008, F-009, F-010, F-011, F-023, F-024, F-026, F-027, F-029, F-036, F-045, F-046, F-067  
 **4. Batch G — Import robustness & data-loss** (6): F-006, F-025, F-028, F-040, F-041, F-047  
-**5. Batch C — Server ingest & sync-client correctness** (5): F-038, F-039, F-054, F-068, F-069  
+**5. Batch C — Server ingest & sync-client correctness** (5): F-038, F-039, F-054, F-068, F-069 — _plus F-091 (correlations.py UTC day-bucketing, found during Batch F's F-029 fix)_  
 **6. Batch E — Server security & credential-log hygiene** (8): F-033, F-034, F-035, F-076, F-077, F-078, F-079, F-080  
 **7. Batch D — Server job-dispatcher robustness** (3): F-019, F-051, F-053  
 **8. Batch K — Silent-failure / UX honesty** (10): F-017, F-018, F-037, F-042, F-043, F-044, F-081, F-082, F-083, F-086  
@@ -318,7 +321,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 1/1 verify lenses confirmed, lens votes [P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-008 · P1 · plausible · accuracy · fhir-labs
 
@@ -330,7 +333,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-009 · P1 · plausible · bug · prescription-sync
 
@@ -342,7 +345,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-010 · P1 · plausible · accuracy · dashboard-summary
 
@@ -354,7 +357,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-011 · P1 · plausible · accuracy · dashboard-summary
 
@@ -366,7 +369,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-012 · P1 · plausible · test-gap · sync
 
@@ -514,7 +517,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-024 · P2 · confirmed · accuracy · last-night-verdict
 
@@ -526,7 +529,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-025 · P1 · confirmed · silent-failure · polar-rr-archive · _severity re-elevated at triage_
 
@@ -550,7 +553,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-027 · P2 · confirmed · bug · hr-hrv-precedence
 
@@ -562,7 +565,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 2/2 verify lenses confirmed, lens votes [P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-028 · P2 · confirmed · efficiency · cpap-clock-reset
 
@@ -586,7 +589,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-030 · P2 · confirmed · render · glucose-detail-predicate
 
@@ -676,7 +679,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: medical-accuracy, silent-failures.  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-037 · P2 · confirmed · silent-failure · watch-quicklog-ingest
 
@@ -788,7 +791,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-046 · P2 · plausible · accuracy · snapshot-aggregation
 
@@ -800,7 +803,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-047 · P2 · plausible · silent-failure · labs-fhir
 
@@ -1056,7 +1059,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#159)
 
 ### F-068 · P3 · confirmed · accuracy · cpap-edf
 
@@ -1343,6 +1346,42 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 **Verification:** surfaced by the `medical-data-accuracy-reviewer` pass on the Batch B staleness-guard fix (b119cf8); pre-existing behavior introduced with the F-014 gate (e410ccf), not a regression from the guard work. Not adversarially verified — plausible.  
 
 **Fix sketch:** have `finalizeOffline` await the archive flush before `endTime` becomes visible to the sync path, or record a distinct "archive fully flushed" marker that `uploadPendingRRArchives` checks instead of `endTime`.  
+
+**Disposition:** approved
+
+### F-091 · P2 · plausible · accuracy · server-correlations · _added post-audit during Batch F work_
+
+**Anchor:** `server/correlations.py:36`  
+
+**Summary:** The correlation engine joins `anxiety_entries` to `health_snapshots` via `a.timestamp::date = h.date`; the cast uses the DB session timezone (UTC in deployment), so an entry logged 9 PM Pacific is bucketed to the NEXT calendar day's snapshot. Same UTC-vs-Pacific day-bucketing family as F-029, one layer down: the pre-computed `correlations` table (which also feeds the analysis prompt context) systematically mis-pairs evening subjective entries with the wrong night's physiology.  
+
+**Failure scenario:** Every anxiety entry logged after 4/5 PM Pacific (a common logging time — evenings are when symptoms peak) lands in the next day's correlation bucket. Evening-anxiety-vs-that-night's-sleep correlations are computed against the wrong night, diluting or inverting real physiological correlations that the admin UI and Claude analysis then present as computed fact.  
+
+**Verification:** surfaced by the F-029 fix pass (same-pattern sweep); not adversarially verified — plausible. Fix shape: `(a.timestamp AT TIME ZONE 'America/Los_Angeles')::date = h.date` (two sites, lines ~36 and ~135), plus regression tests; changes stored correlation results, so re-run the engine after deploy.  
+
+**Disposition:** approved
+
+### F-092 · P2 · plausible · accuracy · spo2-provenance · _added post-audit during Batch F review_
+
+**Anchor:** `AnxietyWatch/Services/SnapshotAggregator.swift:applyOvernightSpO2Precedence`  
+
+**Summary:** With F-023 fixed (sparse preferred coverage keeps HK-direct T90/desats), a night can legitimately present spo2Avg/spo2NadirOvernight computed from a handful of preferred-oximeter samples alongside T90/desat counts computed from the broader HK-direct sample set — two provenance bases in one apparent overnight profile, undisclosed on LastNightCard, CPAPDetailView, and the clinician PDF.  
+
+**Failure scenario:** EMAY connects briefly (nadir from 5 samples) while the Watch spot-checks all night (T90/desats from the mixed HK set). A clinician reading the PDF has no way to know the nadir and the T90 describe different sample populations. Not wrong per-field — each is computed against its own sufficiency gate — but an undisclosed mixed-source combination in a clinical surface.  
+
+**Verification:** surfaced by the medical-data-accuracy-reviewer pass on Batch F; plausible. Fix sketch: record the SpO2 source basis on HealthSnapshot (schema addition the LastNightCard source-chip comment already anticipates) and annotate the rendered surfaces when nadir and T90 bases diverge; alternatively gate the avg/nadir override on the same sufficiency check as T90 (weigh against reintroducing the Watch-artifact-nadir problem the preferred-wins rule exists to prevent).  
+
+**Disposition:** approved
+
+### F-093 · P2 · plausible · accuracy · polar-hrv-freqdomain · _added post-audit during Batch F review_
+
+**Anchor:** `AnxietyWatch/Services/HRVSessionRecorder.swift:tick`  
+
+**Summary:** F-026 fixed artifact splicing for RMSSD/pNN50, but the frequency-domain path still receives the spliced filtered array: `HRVCalculator.resampleRRIntervals` builds its tachogram from cumulative sums of consecutive elements, so an excised interior artifact fabricates a gap-spanning pseudo-interval at the seam, distorting LF/HF band powers and the LF/HF ratio.  
+
+**Failure scenario:** A window with interior artifacts produces HRVReading.lfPower/hfPower/lfHfRatio computed over a compressed, spliced tachogram; these feed LFHFAggregator and the Trends LF/HF charts. Proper fix likely resamples from actual sample timestamps rather than cumulative RR sums — a deeper change than the time-domain fix, hence split out.  
+
+**Verification:** anticipated during the F-026 fix and confirmed by the medical-data-accuracy-reviewer pass on Batch F; plausible.  
 
 **Disposition:** approved
 

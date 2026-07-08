@@ -217,6 +217,77 @@ struct CPAPImporterTests {
         #expect(session.hypopneaEvents == 0)
         #expect(session.pressureMean == 11.52)
         #expect(session.pressureMax == 16.66)
+        // OSCAR exports have no minimum-pressure column — the importer must
+        // store the "unavailable" sentinel, not repurpose the median.
+        #expect(session.pressureMin == CPAPImporter.oscarPressureMinUnavailable)
+        #expect(session.importSource == "oscar")
+    }
+
+    @Test("OSCAR import does not mislabel the median pressure as the minimum")
+    func oscarPressureMinIsNotMedian() throws {
+        // Regression (F-007): the OSCAR path previously wrote the median
+        // pressure into pressureMin, so the UI's "Min" row showed the median.
+        // Median = 10.0, 99.5% = 14.0 in this fixture.
+        // swiftlint:disable line_length
+        let csv = """
+        Date,Session Count,Start,End,Total Time,AHI,CA Count,A Count,OA Count,H Count,UA Count,VS Count,VS2 Count,RE Count,FL Count,SA Count,NR Count,EP Count,LF Count,UF1 Count,UF2 Count,PP Count,Median Pressure,Median Pressure Set,Median IPAP,Median IPAP Set,Median EPAP,Median EPAP Set,Median Flow Limit.,95% Pressure,95% Pressure Set,95% IPAP,95% IPAP Set,95% EPAP,95% EPAP Set,95% Flow Limit.,99.5% Pressure,99.5% Pressure Set,99.5% IPAP,99.5% IPAP Set,99.5% EPAP,99.5% EPAP Set,99.5% Flow Limit.
+        2026-04-10,1,2026-04-10T22:00:00,2026-04-11T05:30:00,07:30:00,1.5,2,0,5,3,0,0,0,0,0,0,0,0,0,0,0,0,10.0,0,0,0,10.0,0,0,12.0,0,0,0,12.0,0,0,14.0,0,0,0,14.0,0,0
+        """
+        // swiftlint:enable line_length
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        _ = try CPAPImporter.importCSV(from: url, into: context)
+
+        let session = try context.fetch(FetchDescriptor<CPAPSession>()).first!
+        // Median lands in pressureMean; 99.5th percentile lands in pressureMax.
+        #expect(abs(session.pressureMean - 10.0) < 0.001)
+        #expect(abs(session.pressureMax - 14.0) < 0.001)
+        // pressureMin carries the sentinel and specifically must NOT equal the median.
+        #expect(session.pressureMin == CPAPImporter.oscarPressureMinUnavailable)
+        #expect(abs(session.pressureMin - session.pressureMean) > 0.001)
+    }
+
+    @Test("OSCAR re-import of an existing session overwrites pressureMin with the sentinel")
+    func oscarUpdateOverwritesPressureMin() throws {
+        // The update path (updateSession) is separate code from the insert path;
+        // both must stop writing the median into pressureMin. An OSCAR re-import
+        // rewrites the whole session as an "oscar"-sourced row (leak already
+        // becomes nil), so pressureMin becoming the sentinel is consistent.
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let existing = CPAPSession(
+            date: formatter.date(from: "2026-04-10")!,
+            ahi: 2.0, totalUsageMinutes: 400, leakRate95th: 16.0,
+            pressureMin: 6.0, pressureMax: 12.0, pressureMean: 9.0,
+            obstructiveEvents: 2, centralEvents: 1, hypopneaEvents: 1,
+            importSource: "csv"
+        )
+        context.insert(existing)
+        try context.save()
+
+        // swiftlint:disable line_length
+        let csv = """
+        Date,Session Count,Start,End,Total Time,AHI,CA Count,A Count,OA Count,H Count,UA Count,VS Count,VS2 Count,RE Count,FL Count,SA Count,NR Count,EP Count,LF Count,UF1 Count,UF2 Count,PP Count,Median Pressure,Median Pressure Set,Median IPAP,Median IPAP Set,Median EPAP,Median EPAP Set,Median Flow Limit.,95% Pressure,95% Pressure Set,95% IPAP,95% IPAP Set,95% EPAP,95% EPAP Set,95% Flow Limit.,99.5% Pressure,99.5% Pressure Set,99.5% IPAP,99.5% IPAP Set,99.5% EPAP,99.5% EPAP Set,99.5% Flow Limit.
+        2026-04-10,1,2026-04-10T22:00:00,2026-04-11T05:30:00,07:30:00,1.5,2,0,5,3,0,0,0,0,0,0,0,0,0,0,0,0,10.0,0,0,0,10.0,0,0,12.0,0,0,0,12.0,0,0,14.0,0,0,0,14.0,0,0
+        """
+        // swiftlint:enable line_length
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let result = try CPAPImporter.importCSV(from: url, into: context)
+        #expect(result.updated == 1)
+
+        let session = try context.fetch(FetchDescriptor<CPAPSession>()).first!
+        #expect(session.pressureMin == CPAPImporter.oscarPressureMinUnavailable)
+        #expect(abs(session.pressureMean - 10.0) < 0.001)
+        #expect(abs(session.pressureMax - 14.0) < 0.001)
         #expect(session.importSource == "oscar")
     }
 

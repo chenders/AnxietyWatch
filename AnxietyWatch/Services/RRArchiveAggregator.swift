@@ -28,10 +28,12 @@ enum RRArchiveAggregator {
 
     /// Inclusive RR range we trust as physiological. Outside this we drop
     /// the RR from per-minute aggregation (artifact, ectopic, or PPG noise).
-    /// 250 ms → 240 bpm, 2000 ms → 30 bpm. Same bounds the H10 itself uses
-    /// to clip raw RR before broadcasting.
-    nonisolated static let rrLowerMs: Double = 250
-    nonisolated static let rrUpperMs: Double = 2000
+    /// Delegates to the shared `HRVCalculator.physiologicalRRRangeMs`
+    /// (250 ms → 240 bpm, 2000 ms → 30 bpm) so the HR detail chart excludes
+    /// exactly the same artifact set as the tick filter, session recovery,
+    /// and archive record counting.
+    nonisolated static let rrLowerMs: Double = HRVCalculator.physiologicalRRRangeMs.lowerBound
+    nonisolated static let rrUpperMs: Double = HRVCalculator.physiologicalRRRangeMs.upperBound
 
     /// Pre-clip on the bucketed BPM mean to defend against a freak cluster
     /// of in-range RR (still possible during PPG dropout reconnects). We
