@@ -12,11 +12,14 @@ import os
 /// time in Phase 3 since the on-device size (~300 KB/night) doesn't justify
 /// the streaming-compression complexity locally.
 ///
-/// Declared `nonisolated` so `PolarHRMService.finalizeOffline` can close the
-/// file from a background `Task.detached` and not block the main actor
-/// during session stop. Instances are owned by a single caller (the BLE
-/// service) and never shared across threads at a time, so internal state
-/// is safe under that ownership invariant.
+/// Declared `nonisolated` so the BLE service can drive it (append RR intervals
+/// during recording, flush on stop) without hopping to the main actor for
+/// every tick. As of the F-090 fix `finalizeOffline` calls `finalize()`
+/// synchronously on the @MainActor at session stop (so the file is complete
+/// before `endTime` becomes visible to the sync path) — no longer via a
+/// background `Task.detached`. Instances are owned by a single caller (the BLE
+/// service) and never shared across threads at a time, so internal state is
+/// safe under that ownership invariant.
 nonisolated final class RRArchiveWriter: @unchecked Sendable {
 
     enum WriteError: Error, Equatable {

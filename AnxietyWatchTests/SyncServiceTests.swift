@@ -486,6 +486,141 @@ struct SyncServiceTests {
         #expect(bulkJSON?["hrvReadings"] != nil)
     }
 
+    // MARK: - sync() cursor-advance orchestration (F-012)
+
+    /// A strictly-increasing fake clock. `sync()` reads it once per drain
+    /// iteration for the cursor upper bound; a test that pins the FIRST value
+    /// as the expected cursor will fail if a regression takes a fresh read
+    /// later (e.g. `lastSyncDate = .now` after the round trip).
+    @MainActor
+    private func incrementingClock(from base: Date) -> (@MainActor () -> Date) {
+        var tick = 0
+        return {
+            defer { tick += 1 }
+            return base.addingTimeInterval(Double(tick) * 3600)
+        }
+    }
+
+    private func okResponse() -> HTTPURLResponse {
+        HTTPURLResponse(
+            url: URL(string: "http://127.0.0.1:1/api/sync")!,
+            statusCode: 200, httpVersion: nil, headerFields: nil
+        )!
+    }
+
+    @Test("sync advances lastSyncDate to the pinned cursor, never a post-trip .now")
+    @MainActor
+    func syncCursorAdvancesToPinnedUpperBound() async throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        // 127.0.0.1:1 makes the incidental SongService catalog pull fail fast
+        // (connection refused) instead of hitting the network; the /api/sync
+        // POST is served by the injected transport.
+        UserDefaults.standard.set("http://127.0.0.1:1", forKey: "syncServerURL")
+        UserDefaults.standard.set("test-key", forKey: "syncApiKey")
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let service = SyncService()
+        await service.sync(
+            modelContext: context,
+            now: incrementingClock(from: t0),
+            performRequest: { _ in (Data("{}".utf8), self.okResponse()) }
+        )
+
+        // Cursor must be the pinned pre-payload upper bound (t0). A regression
+        // to `= .now` would land on the real current time; a regression that
+        // takes a second clock read would land on t0 + 1h.
+        #expect(service.lastSyncDate == t0)
+    }
+
+    @Test("bulk-only drain iterations do not advance the cursor past the small-volume cutoff")
+    @MainActor
+    func syncBulkOnlyIterationDoesNotAdvanceCursor() async throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.set("http://127.0.0.1:1", forKey: "syncServerURL")
+        UserDefaults.standard.set("test-key", forKey: "syncApiKey")
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        // Seed exactly sampleBatchLimit (1000) HRVReadings so iteration 0 hits
+        // the bulk cap and the drain runs a second, bulk-only iteration.
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let session = SensorSession(startTime: base, batteryAtStart: 90)
+        context.insert(session)
+        for i in 0..<1000 {
+            context.insert(HRVReading(
+                timestamp: base.addingTimeInterval(Double(i)),
+                rmssd: 30, sdnn: 40, pnn50: 10,
+                lfPower: 100, hfPower: 200, lfHfRatio: 0.5,
+                sensorSessionID: session.id, source: PolarHRMService.sourceLabel
+            ))
+        }
+        try context.save()
+
+        var iterations = 0
+        let service = SyncService()
+        await service.sync(
+            modelContext: context,
+            now: incrementingClock(from: base),
+            performRequest: { _ in
+                iterations += 1
+                return (Data("{}".utf8), self.okResponse())
+            }
+        )
+
+        // The drain ran ≥2 iterations, and the cursor stayed at iteration 0's
+        // pinned value (base) — a bulk-only iteration must NOT re-advance it to
+        // its own (later) clock read, which would reopen the small-volume race.
+        #expect(iterations >= 2, "expected a multi-iteration drain")
+        #expect(service.lastSyncDate == base)
+    }
+
+    // MARK: - RR-archive retry scan (F-015)
+
+    @Test("pending RR-archive scan includes SYNCED sessions with no uploaded archive")
+    @MainActor
+    func pendingRRArchiveScanIncludesSyncedSessions() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+
+        // JSON row already synced, endTime set, but the follow-up rr_archive
+        // POST failed (rrArchiveUploadedAt == nil). fetchUnsyncedSensorSessions
+        // excludes it (synced), so without this independent scan its archive
+        // would never be retried (F-015).
+        let syncedPending = SensorSession(startTime: base, batteryAtStart: 90)
+        syncedPending.syncedToServer = true
+        syncedPending.endTime = base.addingTimeInterval(3600)
+        syncedPending.rrArchiveUploadedAt = nil
+        context.insert(syncedPending)
+
+        // Archive already uploaded — must NOT be re-scanned.
+        let done = SensorSession(startTime: base.addingTimeInterval(7200), batteryAtStart: 80)
+        done.syncedToServer = true
+        done.rrArchiveUploadedAt = base.addingTimeInterval(8000)
+        context.insert(done)
+
+        // NOT yet synced — its server-side row doesn't exist, so an archive
+        // POST would 404. Must be excluded here (it rides this round's
+        // uploadedIDs.sensorSessions once its JSON row uploads).
+        let notSynced = SensorSession(startTime: base.addingTimeInterval(10800), batteryAtStart: 70)
+        notSynced.syncedToServer = false
+        notSynced.rrArchiveUploadedAt = nil
+        context.insert(notSynced)
+        try context.save()
+
+        let ids = SyncService().fetchPendingRRArchiveSessionIDs(from: context)
+        #expect(ids.contains(syncedPending.id), "a synced session with a pending archive must still be retried")
+        #expect(!ids.contains(done.id), "a session whose archive already uploaded must not be re-scanned")
+        #expect(!ids.contains(notSynced.id), "an un-synced session must not be scanned (its server row doesn't exist yet)")
+    }
+
     @Test("buildPayload includes syncSchemaVersion=4 in the wrapper metadata")
     @MainActor
     func payloadIncludesSchemaVersion() throws {

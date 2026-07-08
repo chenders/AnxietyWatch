@@ -11,8 +11,12 @@ import SwiftUI
 /// filters anxiety markers to the window. Lives outside the view body so the
 /// logic is unit-testable without instantiating SwiftUI / Charts.
 struct GlucoseDetailViewModel {
-    /// All glucose samples currently in SwiftData (already filtered to
-    /// `bloodGlucose` by the caller's `@Query` predicate).
+    /// Glucose samples for the view's window. The caller (`GlucoseDetailView`)
+    /// bounds these to glucose via its `@Query` metricType predicate (capped by
+    /// `fetchLimit`) and applies the 30-day cutoff in-memory before passing
+    /// them in — so this array is already glucose-only and within-window, but
+    /// that filtering is the caller's responsibility, not this array's own
+    /// invariant.
     let allSamples: [QuantityHealthSample]
     /// Daily snapshots; used solely for `dataQuality` reliability lookup.
     let snapshots: [HealthSnapshot]
@@ -209,6 +213,15 @@ struct GlucoseDetailView: View {
     @State private var selectedWindow: TimeInterval = 86_400  // 24h default
     @State private var inspected: QuantityHealthSample?
 
+    /// Upper bound on the glucose fetch. 30 days of a 1-minute CGM is ~43k
+    /// samples; 50k covers the window with margin while capping a multi-year
+    /// CGM history from ever materializing in full. Paired with a descending
+    /// sort so the cap keeps the MOST RECENT samples.
+    private static let glucoseFetchLimit = 50_000
+    /// 30-day cutoff applied in-memory (the fetch is metricType-bounded, not
+    /// date-bounded, in SQL). Captured once at init for render stability.
+    private let windowCutoff: Date
+
     init(
         anxietyEntries: [AnxietyEntry] = [],
         sleepIntervals: [(start: Date, end: Date)] = []
@@ -216,26 +229,42 @@ struct GlucoseDetailView: View {
         self.anxietyEntries = anxietyEntries
         self.sleepIntervals = sleepIntervals
 
-        // Filter the SwiftData @Query down to glucose samples in the last 30
-        // days. The day-pill picker only goes back 14 days; 30 days gives a
-        // small buffer without loading the full sample history (CGMs emit
-        // ~288 samples per day, so multi-month windows balloon quickly).
+        // SINGLE-CLAUSE #Predicate on metricType — the original compound
+        // `metricType == capturedString && timestamp >= capturedDate` routed
+        // SQL ORDER BY generation through the iOS 26 SwiftData
+        // `_predicateEnforceRestrictionsOnSelector` hang path and froze the
+        // main thread on first open (0x8BADF00D), the shape fixed in
+        // HRVSessionCardView (F-030). We bound on metricType (glucose only) —
+        // NOT on timestamp — because QuantityHealthSample also holds
+        // high-frequency imports (EMAY oximeter at ~1 Hz), so a date-only
+        // predicate would materialize tens of thousands of unrelated rows per
+        // day (Copilot review of #173). A `fetchLimit` + descending sort bounds
+        // the glucose fetch to the most-recent `glucoseFetchLimit` samples so a
+        // multi-year CGM history can't materialize in full; the 30-day cutoff
+        // is applied in-memory in `viewModel`. Calendar day subtraction is
+        // DST-safe (matches DashboardView's cutoff).
         let glucoseRaw = "HKQuantityTypeIdentifierBloodGlucose"
-        let cutoff = Calendar.current.startOfDay(for: .now)
-            .addingTimeInterval(-30 * 24 * 3600)
-        _allGlucoseSamples = Query(
-            filter: #Predicate<QuantityHealthSample> { sample in
-                sample.metricType == glucoseRaw && sample.timestamp >= cutoff
-            },
-            sort: \.timestamp,
-            order: .forward
+        let cal = Calendar.current
+        // Capture startOfToday ONCE so the primary and fallback paths can't
+        // anchor to different days if init straddles midnight (Copilot #173).
+        let startOfToday = cal.startOfDay(for: .now)
+        self.windowCutoff = cal.date(byAdding: .day, value: -30, to: startOfToday) ?? startOfToday
+        var descriptor = FetchDescriptor<QuantityHealthSample>(
+            predicate: #Predicate { $0.metricType == glucoseRaw },
+            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
         )
+        descriptor.fetchLimit = Self.glucoseFetchLimit
+        _allGlucoseSamples = Query(descriptor)
         _snapshots = Query(sort: \HealthSnapshot.date, order: .reverse)
     }
 
     private var viewModel: GlucoseDetailViewModel {
+        // `allGlucoseSamples` is glucose-only (predicate) and newest-first
+        // (fetchLimit sort); trim to the 30-day window in-memory. Downstream
+        // `samples(forDay:)` re-sorts ascending, so the descending fetch order
+        // is fine.
         GlucoseDetailViewModel(
-            allSamples: allGlucoseSamples,
+            allSamples: allGlucoseSamples.filter { $0.timestamp >= windowCutoff },
             snapshots: snapshots,
             sleepIntervals: sleepIntervals,
             anxietyEntries: anxietyEntries
@@ -264,7 +293,10 @@ struct GlucoseDetailView: View {
             VStack(spacing: 16) {
                 GlucoseDetailHeader(samples: windowSamples)
 
-                dayPills
+                // Pass the already-built `model` so the day pills reuse the one
+                // in-memory metricType filter instead of re-invoking `viewModel`
+                // (a second filter per render — Copilot review of #173).
+                dayPills(model)
 
                 windowPicker
 
@@ -287,10 +319,10 @@ struct GlucoseDetailView: View {
 
     // MARK: - Subviews
 
-    private var dayPills: some View {
+    private func dayPills(_ model: GlucoseDetailViewModel) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(viewModel.dayPills(asOf: .now), id: \.self) { day in
+                ForEach(model.dayPills(asOf: .now), id: \.self) { day in
                     DayPill(
                         day: day,
                         isSelected: Calendar.current.isDate(day, inSameDayAs: selectedDay)

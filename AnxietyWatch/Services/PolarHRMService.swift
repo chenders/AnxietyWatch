@@ -249,8 +249,10 @@ final class PolarHRMService: NSObject {
         let (rec, arc) = tearDownResources()
         // Flip the visible status BEFORE the finalize work so the live-view
         // sheet can dismiss instantly (.interactiveDismissDisabled keys off
-        // .recording/.connecting). Finalize runs on the synchronous critical
-        // path only for SwiftData; the file close goes off-main.
+        // .recording/.connecting). finalizeOffline flushes the RR archive and
+        // sets endTime synchronously on the @MainActor (see F-090 there) — the
+        // status flip above already dismissed the sheet, so this brief Stop-
+        // time work doesn't stall a visible transition.
         state.status = .idle
         finalizeOffline(recorder: rec, archive: arc)
     }
@@ -300,25 +302,37 @@ final class PolarHRMService: NSObject {
         return (finalRecorder, finalArchive)
     }
 
-    /// SwiftData finalize runs on @MainActor (the recorder owns a
-    /// ModelContext and writes the session summary); the file close is
-    /// dispatched off-main so it doesn't block the UI transition after
-    /// `state.status` has already flipped.
+    /// Finalizes a stopped session. Both steps run synchronously on the
+    /// @MainActor: the RR archive is flushed to disk FIRST, then the recorder
+    /// writes the session summary and sets `endTime`. Ordering matters —
+    /// `endTime != nil` is the sync path's gate for uploading the archive, so
+    /// the file must be complete before `endTime` is observable (F-090; see the
+    /// inline comment below). `state.status` has already flipped to `.idle`, so
+    /// this Stop-time work doesn't block a visible UI transition.
     private func finalizeOffline(recorder: HRVSessionRecorder?, archive: RRArchiveWriter?) {
         let now = Date()
+        // Flush the RR archive to disk BEFORE recorder.finalize() sets
+        // `endTime`. `endTime != nil` is the sync path's gate for uploading a
+        // session's archive; previously the flush ran on a detached background
+        // Task while endTime was set synchronously, so a sync firing right
+        // after Stop could observe endTime, read the still-buffered (truncated)
+        // file, upload it, and stamp rrArchiveUploadedAt — permanently keeping
+        // a truncated archive on the server, which the skip guard never
+        // re-examines (F-090). This whole method runs on the @MainActor, so
+        // flushing first makes the file complete before endTime is ever
+        // observable. The flush is a small buffered write (≤64 KB, usually a
+        // few KB) — a sub-millisecond hitch at Stop for the ordering guarantee.
+        if let archive {
+            do {
+                try archive.finalize()
+            } catch {
+                log.warning("Archive finalize failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
         do {
             try recorder?.finalize(at: now)
         } catch {
             log.error("Recorder finalize failed: \(error.localizedDescription, privacy: .public)")
-        }
-        if let archive {
-            Task.detached(priority: .background) { [log] in
-                do {
-                    try archive.finalize()
-                } catch {
-                    log.warning("Archive finalize failed: \(error.localizedDescription, privacy: .public)")
-                }
-            }
         }
     }
 

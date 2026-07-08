@@ -79,7 +79,21 @@ final class SyncService {
     /// (SwiftUI views, `DashboardViewModel`) are already `@MainActor`-isolated,
     /// so this is net-zero for callers.
     @MainActor
-    func sync(modelContext: ModelContext) async {
+    /// - Parameters:
+    ///   - now: clock for the incremental-sync cursor upper bound. Injectable
+    ///     so SyncServiceTests can drive the drain loop with deterministic
+    ///     timestamps and assert the cursor-advance invariants (advance to the
+    ///     pre-captured `cursorUpperBound`, and only on non-bulkOnly
+    ///     iterations) — the twice-fixed incremental-sync race (F-012).
+    ///     Defaults to `Date.now`.
+    ///   - performRequest: network transport for the /api/sync POST. Injectable
+    ///     so the same test can run the real orchestration without a live
+    ///     URLSession. Defaults to `URLSession.shared.data(for:)`.
+    func sync(
+        modelContext: ModelContext,
+        now: @MainActor () -> Date = { Date.now },
+        performRequest: (@MainActor (URLRequest) async throws -> (Data, URLResponse))? = nil
+    ) async {
         guard isConfigured else {
             lastSyncResult = "Not configured"
             return
@@ -151,7 +165,7 @@ final class SyncService {
                 // payload-build time keeps the cursor in lockstep with what
                 // we actually sent. Bulk types filter by `syncedToServer`
                 // (not by date) so they're unaffected by this race either way.
-                let cursorUpperBound = Date.now
+                let cursorUpperBound = now()
                 // First iteration carries the small-volume tables. Subsequent
                 // iterations request bulk-only payloads: `DataExporter`
                 // scans every row of every small-volume table with no
@@ -173,7 +187,12 @@ final class SyncService {
                 request.httpBody = payload
                 request.timeoutInterval = 30
 
-                let (responseData, response) = try await URLSession.shared.data(for: request)
+                let (responseData, response): (Data, URLResponse)
+                if let performRequest {
+                    (responseData, response) = try await performRequest(request)
+                } else {
+                    (responseData, response) = try await URLSession.shared.data(for: request)
+                }
 
                 guard let httpResponse = response as? HTTPURLResponse else {
                     throw SyncError.noConnection
@@ -353,8 +372,21 @@ final class SyncService {
         // /api/sync POST creates the server-side row; this second call
         // attaches the blob (~80–120 KB gzipped). Failures are non-fatal:
         // `rrArchiveUploadedAt` stays nil so the next sync retries.
+        //
+        // We union this payload's session IDs with a scan of already-SYNCED
+        // sessions that still have a pending archive (rrArchiveUploadedAt ==
+        // nil). Without the scan, a session whose JSON row synced
+        // (markSamplesSynced flips syncedToServer = true above) but whose
+        // follow-up rr_archive POST then failed would never be retried:
+        // fetchUnsyncedSensorSessions excludes it forever, so its ID never
+        // re-enters uploadedIDs.sensorSessions (F-015). Not-yet-synced sessions
+        // are deliberately NOT scanned (their server row doesn't exist, so an
+        // archive POST would 404) — they ride uploadedIDs.sensorSessions above
+        // once their /api/sync row lands.
+        let pendingArchiveIDs = fetchPendingRRArchiveSessionIDs(from: modelContext)
+        let rrArchiveSessionIDs = Array(Set(uploadedIDs.sensorSessions).union(pendingArchiveIDs))
         await uploadPendingRRArchives(
-            sessionIDs: uploadedIDs.sensorSessions,
+            sessionIDs: rrArchiveSessionIDs,
             modelContext: modelContext
         )
 
@@ -1115,6 +1147,37 @@ final class SyncService {
             dict["_pendingSyncVersion"] = row.pendingSyncVersion
             return dict
         }
+    }
+
+    /// IDs of already-synced sessions whose RR archive still hasn't reached the
+    /// server. A session can be flagged synced (its JSON row uploaded) while its
+    /// follow-up rr_archive POST failed — `fetchUnsyncedSensorSessions` would
+    /// then never surface it again, so its archive would never be retried
+    /// (F-015). Restricted to `syncedToServer == true` because the archive POST
+    /// needs the server-side session row to exist; un-synced sessions are
+    /// handled via the current payload's uploaded IDs instead. Single-clause
+    /// predicate on `rrArchiveUploadedAt == nil` (syncedToServer filtered
+    /// in-memory); `uploadPendingRRArchives` applies the
+    /// `endTime != nil` + on-disk-file checks (sessions with no archive file
+    /// are cheaply skipped there). Non-throwing — a fetch failure just means no
+    /// extra retries this pass. `internal` (not private) so SyncServiceTests
+    /// can assert it surfaces synced-but-not-archive-uploaded sessions (F-015).
+    @MainActor
+    func fetchPendingRRArchiveSessionIDs(from context: ModelContext) -> [UUID] {
+        let descriptor = FetchDescriptor<SensorSession>(
+            predicate: #Predicate { $0.rrArchiveUploadedAt == nil }
+        )
+        // Only sessions ALREADY synced to the server: the /rr_archive POST
+        // targets a server-side session row that /api/sync creates, so a
+        // session whose JSON row hasn't uploaded yet would 404 ("Unknown
+        // session id") — wasted network + log noise during a backlog (Copilot
+        // review of #173). Not-yet-synced sessions don't need this scan: they
+        // ride this round's `uploadedIDs.sensorSessions` once their row lands.
+        // syncedToServer filtered in-memory to keep the fetch predicate
+        // single-clause.
+        return (try? context.fetch(descriptor))?
+            .filter { $0.syncedToServer }
+            .map(\.id) ?? []
     }
 
     @MainActor
