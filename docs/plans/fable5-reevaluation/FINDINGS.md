@@ -940,7 +940,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#165)
 
 ### F-058 · P3 · confirmed · efficiency · server-export
 
@@ -1002,7 +1002,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#165)
 
 ### F-063 · P3 · confirmed · efficiency · trends-charts
 
@@ -1014,7 +1014,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#165)
 
 ### F-064 · P3 · confirmed · render · trends-charts
 
@@ -1026,7 +1026,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#165)
 
 ### F-065 · P3 · confirmed · render · medications
 
@@ -1038,7 +1038,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#165)
 
 ### F-066 · P3 · confirmed · accuracy · baseline-calculator
 
@@ -1102,7 +1102,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); related anchors: `AnxietyWatch/Views/LabResults/LabTestHistoryView.swift:allResults`.  
 
-**Disposition:** approved
+**Disposition:** fixed (#165)
 
 ### F-071 · P3 · confirmed · efficiency · dashboard-query-scope
 
@@ -1114,7 +1114,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#165)
 
 ### F-072 · P3 · confirmed · efficiency · medications-query
 
@@ -1128,7 +1128,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: efficiency, render-pitfalls.  
 
-**Disposition:** approved
+**Disposition:** fixed (#165)
 
 ### F-073 · P3 · confirmed · render · settings-navigation
 
@@ -1154,7 +1154,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); related anchors: `AnxietyWatch/Views/CPAP/CPAPListView.swift:entries`.  
 
-**Disposition:** approved
+**Disposition:** fixed (#165)
 
 ### F-075 · P3 · confirmed · security · crypto
 
@@ -1276,7 +1276,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 1/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#165)
 
 ### F-085 · P3 · plausible · accuracy · trends-baselines
 
