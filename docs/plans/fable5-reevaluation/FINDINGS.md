@@ -22,11 +22,11 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 | ID | Sev | Conf | Eff | Tag | Subsystem | Summary | Anchor |
 |----|-----|------|-----|-----|-----------|---------|--------|
-| F-001 | P1 | conf | S | render | lab-results-nav | LabResultsView's own body pushes LabTestHistoryView via a closure-form NavigationLink whose destination owns an unbounded @Query, with neither Equatable conformance nor `.equatable()` at the call site — the exact pitfall LabResultsView itself was hardened against one hop up, missed one hop down. | `AnxietyWatch/Views/LabResults/LabResultsView.swift:LabResultsView.body` |
-| F-002 | P1 | conf | S | render | trends-correlation-nav | CorrelationInsightsView pushes CorrelationChartView via a closure-form NavigationLink; the destination holds two @Query properties but has no Equatable conformance and no .equatable() at the call site. | `AnxietyWatch/Views/Trends/CorrelationInsightsView.swift:31` |
-| F-003 | P1 | conf | S | render | trends-correlation-nav | TrendsView pushes CorrelationInsightsView via a closure-form NavigationLink; the destination holds three @Query properties but has no Equatable conformance and no .equatable() at the call site. | `AnxietyWatch/Views/Trends/TrendsView.swift:269` |
-| F-004 | P1 | conf | S | render | journal-nav | JournalListView pushes JournalEntryDetailView via a closure-form NavigationLink; the destination holds an unbounded @Query and has neither Equatable conformance nor .equatable() at the call site, matching the exact structural shape of the documented polar-session-hr-detail crash pattern. | `AnxietyWatch/Views/Journal/JournalListView.swift:JournalEntryRow-NavigationLink` |
-| F-005 | P1 | conf | S | render | settings-navigation | Settings' closure-based NavigationLink to CPAPListView (which owns three @Query properties) has no Equatable conformance and no .equatable() at the call site, while the same screen drives a per-day rebuildProgress @State mutation loop that repeatedly re-executes the parent body. | `AnxietyWatch/Views/Settings/SettingsView.swift:SettingsView.body` |
+| F-001 | P0 | conf | S | render | lab-results-nav | LabResultsView's own body pushes LabTestHistoryView via a closure-form NavigationLink whose destination owns an unbounded @Query, with neither Equatable conformance nor `.equatable()` at the call site — the exact pitfall LabResultsView itself was hardened against one hop up, missed one hop down. | `AnxietyWatch/Views/LabResults/LabResultsView.swift:LabResultsView.body` |
+| F-002 | P0 | conf | S | render | trends-correlation-nav | CorrelationInsightsView pushes CorrelationChartView via a closure-form NavigationLink; the destination holds two @Query properties but has no Equatable conformance and no .equatable() at the call site. | `AnxietyWatch/Views/Trends/CorrelationInsightsView.swift:31` |
+| F-003 | P0 | conf | S | render | trends-correlation-nav | TrendsView pushes CorrelationInsightsView via a closure-form NavigationLink; the destination holds three @Query properties but has no Equatable conformance and no .equatable() at the call site. | `AnxietyWatch/Views/Trends/TrendsView.swift:269` |
+| F-004 | P0 | conf | S | render | journal-nav | JournalListView pushes JournalEntryDetailView via a closure-form NavigationLink; the destination holds an unbounded @Query and has neither Equatable conformance nor .equatable() at the call site, matching the exact structural shape of the documented polar-session-hr-detail crash pattern. | `AnxietyWatch/Views/Journal/JournalListView.swift:JournalEntryRow-NavigationLink` |
+| F-005 | P0 | conf | S | render | settings-navigation | Settings' closure-based NavigationLink to CPAPListView (which owns three @Query properties) has no Equatable conformance and no .equatable() at the call site, while the same screen drives a per-day rebuildProgress @State mutation loop that repeatedly re-executes the parent body. | `AnxietyWatch/Views/Settings/SettingsView.swift:SettingsView.body` |
 | F-006 | P1 | plaus | S | silent-failure | cpap-emay | EMAY CSV imports never trigger a snapshot backfill in either import entry point, so imported oximeter data for a past night can silently never reach HealthSnapshot on a normal daily-use install. | `AnxietyWatch/App/AnxietyWatchApp.swift:processImportBatch` |
 | F-007 | P1 | plaus | S | accuracy | cpap-oscar-import | OSCAR Summary CSV import writes the median pressure into both pressureMin and pressureMean, so an OSCAR-imported session's 'Min' pressure is never actually a minimum — it's the median, mislabeled. | `AnxietyWatch/Services/CPAPImporter.swift:importOSCAR` |
 | F-008 | P1 | plaus | M | accuracy | fhir-labs | FHIRLabResultParser stores the lab's raw reported unit and value with no conversion or compatibility check against the registry's fixed-unit reference range, so cross-institution unit variance (mg/dL vs mmol/L, ng/dL vs pmol/L, mcg/dL vs nmol/L) silently produces wrong HIGH/LOW flags on screen and in the clinician PDF. | `AnxietyWatch/Services/FHIRLabResultParser.swift:parse(observation:)` |
@@ -37,7 +37,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 | F-013 | P2 | conf | S | accuracy | sync-sensor-session | SensorSession rows synced mid-recording are flagged syncedToServer, and finalize()/finalizeOrphan() never re-dirty the flag, so the session's endTime, summaryJSON, and interruption data permanently never reach the server. | `AnxietyWatch/Services/HRVSessionRecorder.swift:finalize` |
 | F-014 | P2 | conf | S | accuracy | sync-rr-archive | uploadPendingRRArchives uploads the RR archive of sessions that are still recording (no endTime guard) and stamps rrArchiveUploadedAt, so the server permanently keeps a truncated archive missing everything recorded after the mid-session sync. | `AnxietyWatch/Services/SyncService.swift:uploadPendingRRArchives` |
 | F-015 | P2 | conf | S | silent-failure | sync-rr-archive | A failed RR-archive POST is never retried: the retry scan is keyed to uploadedIDs.sensorSessions (sessions in the current payload), but markSamplesSynced flips those sessions' syncedToServer=true in the same call, so they never appear in any future payload and rrArchiveUploadedAt==nil is never re-examined. | `AnxietyWatch/Services/SyncService.swift:applyPostUploadResponse` |
-| F-016 | P2 | conf | S | bug | sync-actor-isolation | SongService.fetchCatalog(into:) and SyncService.fetchPrescriptions(modelContext:) are nonisolated async functions that fetch/insert/save on the caller's MainActor-bound ModelContext from the global concurrent executor — the exact undefined-behavior hazard the sync() doc comment was written to prevent, and it runs on every sync. | `AnxietyWatch/Services/SongService.swift:fetchCatalog` |
+| F-016 | P1 | conf | S | bug | sync-actor-isolation | SongService.fetchCatalog(into:) and SyncService.fetchPrescriptions(modelContext:) are nonisolated async functions that fetch/insert/save on the caller's MainActor-bound ModelContext from the global concurrent executor — the exact undefined-behavior hazard the sync() doc comment was written to prevent, and it runs on every sync. | `AnxietyWatch/Services/SongService.swift:fetchCatalog` |
 | F-017 | P2 | conf | S | bug | watch-connectivity | PhoneConnectivityManager.updateCheckInContext builds the outgoing applicationContext from WCSession.receivedApplicationContext (the context received FROM the Watch — always empty, since the Watch never calls updateApplicationContext) instead of .applicationContext (the last-sent context), so every check-in state change wipes the stats keys from the Watch's app context. | `AnxietyWatch/Services/PhoneConnectivityManager.swift:updateCheckInContext` |
 | F-018 | P2 | conf | M | efficiency | watch-connectivity | WatchConnectivityManager.transferSensorData has no sent-tracking despite its 'Fetch un-synced' comments: every 60 seconds it re-encodes and re-transferFiles the most recent 500 rows of all three sensor tables forever, and the phone-side #Unique upsert resets HRVReading.syncedToServer=false on each redelivery, causing perpetual re-uploads of the same rows to the sync server. | `AnxietyWatch Watch App/WatchConnectivityManager.swift:transferSensorData` |
 | F-019 | P2 | conf | S | silent-failure | server-jobs | _execute_single_job's exception handler calls mark_failed on the same connection without rollback, so any psycopg2 error inside the job body leaves the job stuck 'running' and the dispatch loop polling forever. | `server/job_dispatcher.py:_execute_single_job` |
@@ -46,7 +46,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 | F-022 | P2 | conf | M | efficiency | trends-charts | TrendsView fetches the full date-unbounded per-minute Polar HRVReading table and re-runs the whole LFHF pipeline (coalesce, night filtering, member-ID set build, nightlyAggregates grouping, nightlyHRFromSummaries) inside body on the main thread on every re-render, not just when Polar data changes. | `AnxietyWatch/Views/Trends/TrendsView.swift:body` |
 | F-023 | P2 | conf | S | accuracy | spo2-precedence | When a dedicated overnight oximeter contributes even a handful of samples, applyOvernightSpO2Precedence recomputes T90/desat count from that sparse preferred-only subset and nils the fields on failing its own sufficiency gate — discarding the already-sufficient HK-direct T90/desat values computed earlier in the same aggregateDay pass. | `AnxietyWatch/Services/SnapshotAggregator.swift:applyOvernightSpO2Precedence` |
 | F-024 | P2 | conf | S | accuracy | last-night-verdict | LastNightHeadline.compose computes the efficiency-breach flag from the raw (possibly pinned-to-100%) efficiency value without regard to `efficiencyEstimated`, so a night with missing/incomplete inBed data — precisely the case the pin exists to flag as unreliable — can never register an efficiency breach and can present as 'Solid night'. | `AnxietyWatch/Services/LastNightHeadline.swift:compose` |
-| F-025 | P2 | conf | M | silent-failure | polar-rr-archive | A misaligned (partially-written) .rr archive file is silently wiped to empty on next open instead of having only its corrupt trailing bytes discarded, permanently destroying every prior RR interval recorded for that session. | `AnxietyWatch/Services/RRArchiveWriter.swift:init(url:append:)` |
+| F-025 | P1 | conf | M | silent-failure | polar-rr-archive | A misaligned (partially-written) .rr archive file is silently wiped to empty on next open instead of having only its corrupt trailing bytes discarded, permanently destroying every prior RR interval recorded for that session. | `AnxietyWatch/Services/RRArchiveWriter.swift:init(url:append:)` |
 | F-026 | P2 | conf | M | accuracy | polar-hrv-timedomain | RMSSD and pNN50 are computed as successive differences over the artifact-filtered RR array, so removing an interior out-of-range RR interval silently splices together two non-adjacent heartbeats and injects a spurious, squared successive difference in exactly the window the filter was meant to protect. | `AnxietyWatch/Services/HRVCalculator.swift:timeDomain(rrIntervals:)` |
 | F-027 | P2 | conf | M | bug | hr-hrv-precedence | applyDailyHeartMetricsPrecedence can never actually apply Polar H10 BLE-session precedence because it only reads QuantityHealthSample, and the app's own Polar BLE pipeline never writes to that table. | `AnxietyWatch/Services/SnapshotAggregator.swift:applyDailyHeartMetricsPrecedence` |
 | F-028 | P2 | conf | M | efficiency | cpap-clock-reset | A single AirSense clock-reset row (dated pre-2015) is still folded into the CSV's min/max dateRange, so the resulting snapshot-backfill loop iterates one aggregateDay call per day across the entire multi-year gap instead of skipping the flagged date. | `AnxietyWatch/Services/CPAPImporter.swift:importSimple` |
@@ -111,9 +111,128 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 | F-087 | P3 | plaus | S | test-gap | trends-tests | TrendsDateFilteringTests derives both its fixtures and its cutoff from independent unpinned `.now` reads, so a midnight boundary crossing mid-test breaks the fixed-count assertion. | `AnxietyWatchTests/TrendsDateFilteringTests.swift:swiftDataFilterCorrectCount` |
 | F-088 | P3 | plaus | S | test-gap | server-tests | test_server.py mutates process-global os.environ['ADMIN_PASSWORD'] and os.environ['SECRET_KEY'] by direct assignment with no teardown, leaking credential env state into every subsequent test in the session. | `server/tests/test_server.py:test_admin_login` |
 
+## Triage decisions (accepted 2026-07-08)
+
+**The maintainer reviewed and accepted all recommendations on 2026-07-08**, so the Action column below is now the final triage: every entry's **Disposition** in [Detailed findings](#detailed-findings) has been set to `approved` (84) or `deferred (Phase 8 backlog)` (4), and the 7 severity re-elevations have been applied to the register in place (IDs are stable, so F-016 and F-025 now read slightly above their table neighbours' severity). This closes the Phase 2 triage gate.
+
+**Recommended split:** 84 approve, 4 defer (backlog), 0 reject. Of the approves, 22 are `plausible` (verification lenses were cut off by the session-limit interruption) — confirm the mechanism cheaply as the first step of the fix.
+
+**Suggested severity re-elevations** (the 3-lens median demoted these; the finder ratings match the crash/data-loss reality): F-001 → P0, F-002 → P0, F-003 → P0, F-004 → P0, F-005 → P0, F-016 → P1, F-025 → P1. Bump these first.
+
+| ID | Rec Sev | Action | Verify first? | Batch | Rationale |
+|----|---------|--------|---------------|-------|-----------|
+| F-001 | P1 → **P0** | approve | — | A | Documented iOS-26 NavigationLink+@Query crash family; LabResults hardened one hop up, missed here. |
+| F-002 | P1 → **P0** | approve | — | A | Same crash family — CorrelationChartView destination holds @Query, no Equatable/.equatable(). |
+| F-003 | P1 → **P0** | approve | — | A | Same crash family — CorrelationInsightsView destination holds 3 @Query. |
+| F-004 | P1 → **P0** | approve | — | A | Same crash family — JournalEntryDetailView destination holds @Query. |
+| F-005 | P1 → **P0** | approve | — | A | Same crash family — CPAPListView destination + a rebuildProgress mutation loop that re-runs the parent body. |
+| F-006 | P1 | approve | yes | G | Both import entry points gate backfill on .cpap; EMAY nights silently never reach HealthSnapshot. |
+| F-007 | P1 | approve | yes | F | 'Min' pressure shows the median for every OSCAR night — clinically misleading, one-line fix. |
+| F-008 | P1 | approve | yes | F | Cross-institution unit variance (mmol/L vs mg/dL) flips HIGH/LOW on the clinician PDF; needs a unit map. |
+| F-009 | P1 | approve | yes | F | Refill re-sync never updates dateFilled/lastFillDate → false 'refill needed' then suppressed alerts. |
+| F-010 | P1 | approve | yes | F | Missing HRV/RHR collapses to 0 → false 'Resting HR down ~60 bpm' headline. |
+| F-011 | P1 | approve | yes | F | 30-day sleep events fed to a single-night calculator → month aggregate (or 0%) shown as last night. |
+| F-012 | P1 | approve | yes | B | Regression coverage for the documented cursor-advance race; extract sync() seam so it is testable. |
+| F-013 | P2 | approve | — | B | Mid-recording sync flags the session synced; finalize never re-dirties → endTime/summary never reach server. |
+| F-014 | P2 | approve | — | B | RR archive uploaded while still recording, then cursor-stamped → server keeps a truncated night. |
+| F-015 | P2 | approve | — | B | Failed RR POST never retried because the session is already flagged synced. |
+| F-016 | P2 → **P1** | approve | — | B | nonisolated async fetch/insert/save on the MainActor ModelContext — SwiftData race (crash/corruption); Swift 6 precursor. |
+| F-017 | P2 | approve | — | K | Reads receivedApplicationContext (always empty) → check-ins wipe the Watch's cached stats. |
+| F-018 | P2 | approve | — | K | No sent-tracking → re-transfers 500 rows/60s and the #Unique upsert re-dirties them, perpetual re-upload. |
+| F-019 | P2 | approve | — | D | mark_failed on an aborted txn without rollback → job stuck 'running', dispatcher spins forever. |
+| F-020 | P2 | approve | — | H | Unbounded per-minute HRV @Query fully re-aggregated on the main thread every body. |
+| F-021 | P2 | approve | — | H | Whole HRVReading table recomputed per row of the LFHF sessions list. |
+| F-022 | P2 | approve | — | H | Full LFHF pipeline re-run in body on every re-render, not just when Polar data changes. |
+| F-023 | P2 | approve | — | F | Sparse oximeter samples nil out the already-sufficient HK-direct T90/desat → understated hypoxic burden in PDF. |
+| F-024 | P2 | approve | — | F | Estimated (pinned-100%) efficiency can never breach → 'Solid night' on unreliable data (the deferred-from-#152 question). |
+| F-025 | P2 → **P1** | approve | — | G | Misaligned .rr file wiped to empty on next open → permanent loss of the night's per-beat archive. |
+| F-026 | P2 | approve | — | F | Successive-diff RMSSD/pNN50 over the filtered array splices non-adjacent beats → inflated HRV in the filtered window. |
+| F-027 | P2 | approve | — | F | Polar precedence reads a table the BLE pipeline never writes → noisier Watch HRV always wins; contradicts intent. |
+| F-028 | P2 | approve | — | G | One clock-reset row widens the backfill range to ~2 decades → thousands of aggregateDay calls hang import. |
+| F-029 | P2 | approve | — | F | UTC day-boundary filter vs Pacific prompt drops evening-of-final-day entries from analysis. |
+| F-030 | P2 | approve | — | A | Same compound-#Predicate crash shape as the fixed HRVSessionCardView; dormant (no call site yet) but fix while cheap. |
+| F-031 | P2 | approve | — | H | Whole BarometricReading table loaded and window-filtered in body every render. |
+| F-032 | P2 | approve | — | A | Same NavigationLink+@Query family (Prescription/Pharmacy list destinations). |
+| F-033 | P2 | approve | — | E | Cookie missing Secure + plain-HTTP on all interfaces; single-user home box, but cheap hardening. |
+| F-034 | P2 | approve | — | E | No login throttle/lockout on the single ADMIN_PASSWORD gating all PHI. |
+| F-035 | P2 | approve | — | E | DB published on 0.0.0.0, contradicting the documented 127.0.0.1 binding. |
+| F-036 | P2 | approve | — | F | 'Last Night' pairs newest snapshot with recentCPAP.first with no date match → stale AHI shown as last night. |
+| F-037 | P2 | approve | — | K | Watch plays a success haptic but the phone-side save is try? with no failure surface. |
+| F-038 | P2 | approve | — | C | /api/sync drops unlinkable song occurrences yet returns 200 → client advances cursor and loses them. |
+| F-039 | P2 | approve | — | C | log_sync advances the cursor on every outcome (incl. errors) → permanent CPAP gap; found by 4 dimensions. |
+| F-040 | P2 | approve | yes | G | Re-import clobbers manual/resmed_cloud/edf provenance with 'csv'/'oscar'. |
+| F-041 | P2 | approve | yes | G | DST fall-back hour collapses to identical Dates; dedup drops ~1h of oximetry silently. |
+| F-042 | P2 | approve | yes | K | OCR confidence discarded → a misread dose shown with the same weight as high-confidence fields. |
+| F-043 | P2 | approve | yes | K | PDF HRV baseline/status anchored to .now regardless of report range → 'Within normal range' on stale past ranges. |
+| F-044 | P2 | approve | yes | K | endDate carries time-of-day behind a date-only picker → same-day late entries silently excluded from exports. |
+| F-045 | P2 | approve | yes | F | Reliability classifier labels the densest dual-source nights 'low', contradicting the precedence logic. |
+| F-046 | P2 | approve | yes | F | Chest-strap HR/HRV day-bucketed [startOfDay,+1d) while sleep uses noon-to-noon → overnight session split across two days. |
+| F-047 | P2 | approve | yes | G | Requires effectiveDateTime, silently dropping the valid FHIR effectivePeriod variant. |
+| F-048 | P2 | approve | yes | J | Tests reimplement filterBySource instead of exercising production; nil-source branch untested. |
+| F-049 | P2 | approve | yes | J | Surfaces a REAL palette collision — glucose and polarRMSSD are both Color.purple; fix the token too, then add the test. |
+| F-050 | P2 | approve | yes | J | Only trend chart whose empty-state gate is untested. |
+| F-051 | P3 | approve | — | D | TOCTOU between find_ready_jobs and no_running_jobs can strand the whole conflict DAG as 'pending'. |
+| F-052 | P3 | defer | — | — (backlog) | Real, but the fix is a job resume/re-dispatch mechanism (M); park in the Phase 8 backlog. |
+| F-053 | P3 | approve | — | D | Timeout measured from created_at falsely fails a legitimately-running DAG at minute 15. |
+| F-054 | P3 | approve | — | C | Fixed 90-day lookup regardless of last success → permanent hole after any >90d outage. |
+| F-055 | P3 | approve | — | H | aggregateDay fetches the same full-day QuantityHealthSample window twice; dedupe. |
+| F-056 | P3 | approve | — | H | buildBundle fetches every table in full and filters in memory, synchronously; bound + move off main. |
+| F-057 | P3 | approve | — | H | pairedData (Dictionary(grouping:)) rebuilt twice per body. |
+| F-058 | P3 | approve | — | I | /api/data SELECT * detoasts every rr_archive BYTEA it never serializes. |
+| F-059 | P3 | approve | — | I | GET /api/data with no `since` materializes every per-sample row. |
+| F-060 | P3 | approve | — | I | Only unbounded time-series upsert still using a per-row execute loop; batch it like its siblings. |
+| F-061 | P3 | approve | — | I | compute_correlations runs the same join 8x per recompute inside the sync request path. |
+| F-062 | P3 | approve | — | H | Two views hold full-table AnxietyEntry @Query just for a prefix(50) tag counter. |
+| F-063 | P3 | approve | — | H | Two full-table @Query retained only for the empty-state meter, live after correlations exist. |
+| F-064 | P3 | approve | — | H | GlucoseTrendDatum.from (incl. JSONSerialization) recomputed 6+x per render; cache. |
+| F-065 | P3 | approve | — | H | active/expired computed props (supplyStatus) evaluated 3x each per body. |
+| F-066 | P3 | defer | — | — (backlog) | Enhancement (expose baseline sample count / confidence band), not a defect; backlog. |
+| F-067 | P3 | approve | — | F | Recovered-session rrCount mixes filtered + unfiltered bases → inflated beat count on the card. |
+| F-068 | P3 | approve | — | C | EDF-only dates insert ahi=0.0 — an unknown night reads as a perfect one; use NULL. |
+| F-069 | P3 | approve | — | C | Staleness keyed on MAX watermark misses backfills/edits → stale correlations served. |
+| F-070 | P3 | approve | — | H | Whole ClinicalLabResult table fetched, filtered to one loincCode in an uncached property. |
+| F-071 | P3 | approve | — | H | recentSnapshots @Query has no predicate at all, unlike its four bounded siblings. |
+| F-072 | P3 | approve | — | H | Unbounded MedicationDose/Prescription @Query rendering only the first 10 rows. |
+| F-073 | P3 | approve | — | A | Missing .equatable() on the LabResultsView link — same family as F-001. |
+| F-074 | P3 | approve | — | H | Two unbounded @Query just to hand one day's snapshot to the detail view. |
+| F-075 | P3 | defer | — | — (backlog) | Only bites on SECRET_KEY rotation; key-versioning is a larger design change. Backlog. |
+| F-076 | P3 | approve | — | E | Okta one-time token in a URL query param, echoed into wrapped exception text/logs. |
+| F-077 | P3 | approve | — | E | Login failure dumps 3000 chars of page text + an unencrypted screenshot with the username filled. |
+| F-078 | P3 | approve | — | E | CapRx persists raw exception text (SSO-chain messages may carry identifiers) into settings/sync_log. |
+| F-079 | P3 | approve | — | E | Musixmatch key in a URL query param; log.exception traceback includes the full URL. |
+| F-080 | P3 | approve | — | E | ResMed/Walgreens identifiers stored plaintext while CapRx is encrypted — make consistent. |
+| F-081 | P3 | approve | — | K | Hourly FHIR import drops unparseable records with a bare continue — no count, no log, no surface. |
+| F-082 | P3 | approve | — | K | 'Connect Health Records' swallows auth errors with an empty catch — button appears dead. |
+| F-083 | P3 | approve | — | K | Startup auto-migration swallows all exceptions → boots against a stale schema silently. |
+| F-084 | P3 | approve | yes | H | Primary journal history list has no pagination/fetch limit. |
+| F-085 | P3 | defer | — | — (backlog) | Documented tradeoff; needs the baseline upper-bound-filter fix first and is low value. Backlog. |
+| F-086 | P3 | approve | yes | K | (try? decode) ?? [] silently discards all pending dose follow-ups on a Codable schema change. |
+| F-087 | P3 | approve | yes | J | Same Phase-0 time-bomb pattern (fixtures + unpinned now); pin the clock. |
+| F-088 | P3 | approve | yes | J | Tests mutate os.environ ADMIN_PASSWORD/SECRET_KEY with no teardown — leaks into later tests. |
+
+### Proposed fix batches (Phase 3 sequencing)
+
+Each batch is one or a few PRs; every confirmed-bug fix ships with a regression test per the ground rules. Suggested order is highest data/UX impact first.
+
+**1. Batch B — Sync integrity — data reaches the server correctly** (5): F-012, F-013, F-014, F-015, F-016  
+**2. Batch A — SwiftUI render crash pitfalls (NavigationLink + @Query family)** (8): F-001, F-002, F-003, F-004, F-005, F-030, F-032, F-073  
+**3. Batch F — Medical-accuracy: display & clinician-report correctness** (14): F-007, F-008, F-009, F-010, F-011, F-023, F-024, F-026, F-027, F-029, F-036, F-045, F-046, F-067  
+**4. Batch G — Import robustness & data-loss** (6): F-006, F-025, F-028, F-040, F-041, F-047  
+**5. Batch C — Server ingest & sync-client correctness** (5): F-038, F-039, F-054, F-068, F-069  
+**6. Batch E — Server security & credential-log hygiene** (8): F-033, F-034, F-035, F-076, F-077, F-078, F-079, F-080  
+**7. Batch D — Server job-dispatcher robustness** (3): F-019, F-051, F-053  
+**8. Batch K — Silent-failure / UX honesty** (10): F-017, F-018, F-037, F-042, F-043, F-044, F-081, F-082, F-083, F-086  
+**9. Batch H — iOS @Query efficiency bounds & per-render caching** (16): F-020, F-021, F-022, F-031, F-055, F-056, F-057, F-062, F-063, F-064, F-065, F-070, F-071, F-072, F-074, F-084  
+**10. Batch I — Server efficiency** (4): F-058, F-059, F-060, F-061  
+**11. Batch J — Test-discipline & coverage** (5): F-048, F-049, F-050, F-087, F-088  
+
+**Deferred to Phase 8 backlog** (4): F-052 (Real, but the fix is a job resume/re-dispatch mechanism (M)), F-066 (Enhancement (expose baseline sample count / confidence band), not a defect), F-075 (Only bites on SECRET_KEY rotation), F-085 (Documented tradeoff).
+
+
+
 ## Detailed findings
 
-### F-001 · P1 · confirmed · render · lab-results-nav
+### F-001 · P0 · confirmed · render · lab-results-nav · _severity re-elevated at triage_
 
 **Anchor:** `AnxietyWatch/Views/LabResults/LabResultsView.swift:LabResultsView.body`  
 
@@ -125,9 +244,9 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); related anchors: `AnxietyWatch/Views/LabResults/LabResultsView.swift:labResultRow-NavigationLink`.  
 
-**Disposition:** open
+**Disposition:** approved
 
-### F-002 · P1 · confirmed · render · trends-correlation-nav
+### F-002 · P0 · confirmed · render · trends-correlation-nav · _severity re-elevated at triage_
 
 **Anchor:** `AnxietyWatch/Views/Trends/CorrelationInsightsView.swift:31`  
 
@@ -137,9 +256,9 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P0, 3/3 verify lenses confirmed, lens votes [P1, P1, P1].  
 
-**Disposition:** open
+**Disposition:** approved
 
-### F-003 · P1 · confirmed · render · trends-correlation-nav
+### F-003 · P0 · confirmed · render · trends-correlation-nav · _severity re-elevated at triage_
 
 **Anchor:** `AnxietyWatch/Views/Trends/TrendsView.swift:269`  
 
@@ -149,9 +268,9 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P0, 3/3 verify lenses confirmed, lens votes [P1, P1, P1].  
 
-**Disposition:** open
+**Disposition:** approved
 
-### F-004 · P1 · confirmed · render · journal-nav
+### F-004 · P0 · confirmed · render · journal-nav · _severity re-elevated at triage_
 
 **Anchor:** `AnxietyWatch/Views/Journal/JournalListView.swift:JournalEntryRow-NavigationLink`  
 
@@ -161,9 +280,9 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P0, 3/3 verify lenses confirmed, lens votes [P1, P1, P1].  
 
-**Disposition:** open
+**Disposition:** approved
 
-### F-005 · P1 · confirmed · render · settings-navigation
+### F-005 · P0 · confirmed · render · settings-navigation · _severity re-elevated at triage_
 
 **Anchor:** `AnxietyWatch/Views/Settings/SettingsView.swift:SettingsView.body`  
 
@@ -173,7 +292,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P0, 3/3 verify lenses confirmed, lens votes [P1, P1, P1].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-006 · P1 · plausible · silent-failure · cpap-emay
 
@@ -185,7 +304,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-007 · P1 · plausible · accuracy · cpap-oscar-import
 
@@ -197,7 +316,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 1/1 verify lenses confirmed, lens votes [P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-008 · P1 · plausible · accuracy · fhir-labs
 
@@ -209,7 +328,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-009 · P1 · plausible · bug · prescription-sync
 
@@ -221,7 +340,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-010 · P1 · plausible · accuracy · dashboard-summary
 
@@ -233,7 +352,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-011 · P1 · plausible · accuracy · dashboard-summary
 
@@ -245,7 +364,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-012 · P1 · plausible · test-gap · sync
 
@@ -257,7 +376,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-013 · P2 · confirmed · accuracy · sync-sensor-session
 
@@ -269,7 +388,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-014 · P2 · confirmed · accuracy · sync-rr-archive
 
@@ -281,7 +400,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P1, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-015 · P2 · confirmed · silent-failure · sync-rr-archive
 
@@ -293,9 +412,9 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
-### F-016 · P2 · confirmed · bug · sync-actor-isolation
+### F-016 · P1 · confirmed · bug · sync-actor-isolation · _severity re-elevated at triage_
 
 **Anchor:** `AnxietyWatch/Services/SongService.swift:fetchCatalog`  
 
@@ -305,7 +424,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 2/3 verify lenses confirmed, lens votes [P1, P3, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-017 · P2 · confirmed · bug · watch-connectivity
 
@@ -317,7 +436,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-018 · P2 · confirmed · efficiency · watch-connectivity
 
@@ -331,7 +450,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: concurrency-state, silent-failures.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-019 · P2 · confirmed · silent-failure · server-jobs
 
@@ -345,7 +464,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: concurrency-state, silent-failures.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-020 · P2 · confirmed · efficiency · trends-query
 
@@ -357,7 +476,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-021 · P2 · confirmed · efficiency · lfhf-sessions-list
 
@@ -369,7 +488,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-022 · P2 · confirmed · efficiency · trends-charts
 
@@ -381,7 +500,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-023 · P2 · confirmed · accuracy · spo2-precedence
 
@@ -393,7 +512,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-024 · P2 · confirmed · accuracy · last-night-verdict
 
@@ -405,9 +524,9 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
-### F-025 · P2 · confirmed · silent-failure · polar-rr-archive
+### F-025 · P1 · confirmed · silent-failure · polar-rr-archive · _severity re-elevated at triage_
 
 **Anchor:** `AnxietyWatch/Services/RRArchiveWriter.swift:init(url:append:)`  
 
@@ -417,7 +536,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P0, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-026 · P2 · confirmed · accuracy · polar-hrv-timedomain
 
@@ -429,7 +548,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-027 · P2 · confirmed · bug · hr-hrv-precedence
 
@@ -441,7 +560,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 2/2 verify lenses confirmed, lens votes [P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-028 · P2 · confirmed · efficiency · cpap-clock-reset
 
@@ -453,7 +572,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P1, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-029 · P2 · confirmed · accuracy · server-analysis
 
@@ -465,7 +584,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-030 · P2 · confirmed · render · glucose-detail-predicate
 
@@ -479,7 +598,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); related anchors: `AnxietyWatch/Views/Dashboard/GlucoseDetailView.swift:init`.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-031 · P2 · confirmed · efficiency · trends-barometric-query
 
@@ -493,7 +612,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: efficiency, render-pitfalls.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-032 · P2 · confirmed · render · medications-nav
 
@@ -505,7 +624,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P1, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-033 · P2 · confirmed · security · admin-session
 
@@ -517,7 +636,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-034 · P2 · confirmed · security · admin-auth
 
@@ -529,7 +648,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-035 · P2 · confirmed · security · server-deploy
 
@@ -541,7 +660,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-036 · P2 · confirmed · accuracy · dashboard-lastnight
 
@@ -555,7 +674,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: medical-accuracy, silent-failures.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-037 · P2 · confirmed · silent-failure · watch-quicklog-ingest
 
@@ -567,7 +686,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-038 · P2 · confirmed · silent-failure · sync-api
 
@@ -579,7 +698,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-039 · P2 · confirmed · bug · resmed-sync
 
@@ -593,7 +712,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 4 finder reports** (same root defect); all at the same anchor, independently found by dimensions: concurrency-state, medical-accuracy, server-safety, silent-failures.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-040 · P2 · plausible · accuracy · cpap-import-provenance
 
@@ -605,7 +724,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-041 · P2 · plausible · accuracy · emay-import
 
@@ -619,7 +738,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: medical-accuracy.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-042 · P2 · plausible · silent-failure · prescription-ocr
 
@@ -631,7 +750,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-043 · P2 · plausible · accuracy · reports-pdf
 
@@ -643,7 +762,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-044 · P2 · plausible · bug · export
 
@@ -655,7 +774,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-045 · P2 · plausible · accuracy · snapshot-aggregation
 
@@ -667,7 +786,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-046 · P2 · plausible · accuracy · snapshot-aggregation
 
@@ -679,7 +798,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-047 · P2 · plausible · silent-failure · labs-fhir
 
@@ -691,7 +810,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-048 · P2 · plausible · test-gap · trends-source-filter
 
@@ -703,7 +822,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-049 · P2 · plausible · test-gap · chart-palette
 
@@ -715,7 +834,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-050 · P2 · plausible · test-gap · trends-empty-state
 
@@ -727,7 +846,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-051 · P3 · confirmed · bug · server-jobs
 
@@ -741,7 +860,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: concurrency-state, silent-failures.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-052 · P3 · confirmed · silent-failure · server-jobs
 
@@ -753,7 +872,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** deferred (Phase 8 backlog)
 
 ### F-053 · P3 · confirmed · bug · server-jobs
 
@@ -765,7 +884,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-054 · P3 · confirmed · silent-failure · walgreens-sync
 
@@ -777,7 +896,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-055 · P3 · confirmed · efficiency · snapshot-aggregator
 
@@ -789,7 +908,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-056 · P3 · confirmed · efficiency · export
 
@@ -801,7 +920,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-057 · P3 · confirmed · efficiency · correlation-chart
 
@@ -813,7 +932,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-058 · P3 · confirmed · efficiency · server-export
 
@@ -827,7 +946,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: efficiency, server-safety.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-059 · P3 · confirmed · efficiency · server-export
 
@@ -839,7 +958,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-060 · P3 · confirmed · efficiency · sync-upserts
 
@@ -851,7 +970,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-061 · P3 · confirmed · efficiency · correlations
 
@@ -863,7 +982,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 2/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-062 · P3 · confirmed · efficiency · journal
 
@@ -875,7 +994,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-063 · P3 · confirmed · efficiency · trends-charts
 
@@ -887,7 +1006,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-064 · P3 · confirmed · render · trends-charts
 
@@ -899,7 +1018,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-065 · P3 · confirmed · render · medications
 
@@ -911,7 +1030,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-066 · P3 · confirmed · accuracy · baseline-calculator
 
@@ -923,7 +1042,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 2/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** deferred (Phase 8 backlog)
 
 ### F-067 · P3 · confirmed · accuracy · polar-session-recovery
 
@@ -935,7 +1054,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-068 · P3 · confirmed · accuracy · cpap-edf
 
@@ -947,7 +1066,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-069 · P3 · confirmed · accuracy · server-analysis
 
@@ -961,7 +1080,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: concurrency-state, medical-accuracy.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-070 · P3 · confirmed · efficiency · lab-results-query-scope
 
@@ -975,7 +1094,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); related anchors: `AnxietyWatch/Views/LabResults/LabTestHistoryView.swift:allResults`.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-071 · P3 · confirmed · efficiency · dashboard-query-scope
 
@@ -987,7 +1106,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-072 · P3 · confirmed · efficiency · medications-query
 
@@ -1001,7 +1120,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: efficiency, render-pitfalls.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-073 · P3 · confirmed · render · settings-navigation
 
@@ -1013,7 +1132,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-074 · P3 · confirmed · efficiency · cpap-query
 
@@ -1027,7 +1146,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); related anchors: `AnxietyWatch/Views/CPAP/CPAPListView.swift:entries`.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-075 · P3 · confirmed · security · crypto
 
@@ -1039,7 +1158,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** deferred (Phase 8 backlog)
 
 ### F-076 · P3 · confirmed · security · resmed-sync
 
@@ -1051,7 +1170,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-077 · P3 · confirmed · security · walgreens-sync
 
@@ -1065,7 +1184,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Merged from 2 finder reports** (same root defect); related anchors: `server/walgreens_client.py:_authenticate`.  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-078 · P3 · confirmed · security · caprx-sync
 
@@ -1077,7 +1196,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-079 · P3 · confirmed · security · server-songs
 
@@ -1089,7 +1208,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-080 · P3 · confirmed · security · server-credentials
 
@@ -1101,7 +1220,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-081 · P3 · confirmed · silent-failure · clinical-labs-import
 
@@ -1113,7 +1232,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-082 · P3 · confirmed · silent-failure · health-records-auth
 
@@ -1125,7 +1244,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-083 · P3 · confirmed · silent-failure · server-core
 
@@ -1137,7 +1256,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-084 · P3 · plausible · efficiency · journal
 
@@ -1149,7 +1268,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 1/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-085 · P3 · plausible · accuracy · trends-baselines
 
@@ -1161,7 +1280,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** deferred (Phase 8 backlog)
 
 ### F-086 · P3 · plausible · silent-failure · dose-followup-state
 
@@ -1173,7 +1292,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 1/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-087 · P3 · plausible · test-gap · trends-tests
 
@@ -1185,7 +1304,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ### F-088 · P3 · plausible · test-gap · server-tests
 
@@ -1197,7 +1316,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 **Verification:** finder P3, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** open
+**Disposition:** approved
 
 ## Deferred backlog
 
