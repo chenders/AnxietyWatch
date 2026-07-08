@@ -975,6 +975,10 @@ struct SampleSyncTests {
             row.syncedToServer == false,
             "Retroactive correction must reset syncedToServer so the corrected row is re-uploaded"
         )
+        #expect(
+            row.pendingSyncVersion == 1,
+            "Correction must bump the staleness token so an in-flight sync can't flip the row back to synced"
+        )
     }
 
     /// Companion: when re-mirroring a sample whose mirrored fields are
@@ -1022,6 +1026,10 @@ struct SampleSyncTests {
         #expect(
             row.syncedToServer == true,
             "Re-mirroring an unchanged sample must NOT reset syncedToServer (avoids spurious re-upload)"
+        )
+        #expect(
+            row.pendingSyncVersion == 0,
+            "No change → no staleness-token bump (a bump here would spuriously block the post-upload flip)"
         )
     }
 
@@ -1083,6 +1091,10 @@ struct SampleSyncTests {
             row.syncedToServer == false,
             "Retroactive sleep correction must reset syncedToServer so the corrected row is re-uploaded"
         )
+        #expect(
+            row.pendingSyncVersion == 1,
+            "Correction must bump the staleness token so an in-flight sync can't flip the row back to synced"
+        )
     }
 
     /// Companion: a sleep event re-mirrored with identical fields must keep
@@ -1129,6 +1141,10 @@ struct SampleSyncTests {
         #expect(
             row.syncedToServer == true,
             "Re-mirroring an unchanged sleep event must NOT reset syncedToServer (avoids spurious re-upload)"
+        )
+        #expect(
+            row.pendingSyncVersion == 0,
+            "No change → no staleness-token bump (a bump here would spuriously block the post-upload flip)"
         )
     }
 }

@@ -673,7 +673,23 @@ final class PolarHRMService: NSObject {
             skippedMinutes: 0,
             session: session
         )
-        try? modelContext.save()
+        // Re-dirty so the back-filled endTime + summary re-sync even if the
+        // orphan was already flagged synced mid-recording. See F-013. The
+        // version bump keeps an in-flight sync (payload built pre-finalize)
+        // from flipping the flag back — see `SensorSession.pendingSyncVersion`.
+        session.syncedToServer = false
+        session.pendingSyncVersion &+= 1
+        do {
+            try modelContext.save()
+        } catch {
+            // A failed save silently drops the finalize (endTime, summary,
+            // re-dirty, version bump) — log it so a sync-integrity
+            // regression is diagnosable rather than invisible. The session
+            // stays open-ended on disk and the next recovery pass retries.
+            let id = session.id.uuidString
+            let message = error.localizedDescription
+            log.error("finalizeOrphan: save failed for session \(id, privacy: .public): \(message, privacy: .public)")
+        }
     }
 }
 

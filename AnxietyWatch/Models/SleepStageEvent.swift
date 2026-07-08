@@ -15,6 +15,11 @@ final class SleepStageEvent {
     var deviceModel: String?
     var syncedToServer: Bool
     var createdAt: Date
+    /// Staleness token for the post-upload synced-flag flip; see
+    /// `SensorSession.pendingSyncVersion`. Bumped by
+    /// `HealthDataCoordinator`'s mirror pass whenever a retroactive
+    /// sleep-stage correction updates this row in place and re-dirties it.
+    var pendingSyncVersion: Int = 0
 
     init(
         id: UUID = UUID(),
@@ -36,5 +41,6 @@ final class SleepStageEvent {
         self.deviceModel = deviceModel
         self.syncedToServer = syncedToServer
         self.createdAt = createdAt
+        self.pendingSyncVersion = 0
     }
 }

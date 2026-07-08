@@ -1596,6 +1596,9 @@ struct SyncServiceTests {
             startTime: Date(timeIntervalSince1970: 1_711_300_000),
             batteryAtStart: 90
         )
+        // Finalized session — uploadPendingRRArchives only uploads archives of
+        // completed sessions (endTime != nil) per F-014.
+        session.endTime = Date(timeIntervalSince1970: 1_711_303_600)
         context.insert(session)
         try context.save()
 
@@ -1640,6 +1643,9 @@ struct SyncServiceTests {
             startTime: Date(timeIntervalSince1970: 1_711_300_000),
             batteryAtStart: 90
         )
+        // Finalized session — uploadPendingRRArchives only uploads archives of
+        // completed sessions (endTime != nil) per F-014.
+        session.endTime = Date(timeIntervalSince1970: 1_711_303_600)
         context.insert(session)
         try context.save()
 

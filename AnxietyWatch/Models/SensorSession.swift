@@ -38,6 +38,16 @@ final class SensorSession {
     /// sync run retries any session where this is nil but the on-disk
     /// `.rr` file still exists.
     var rrArchiveUploadedAt: Date?
+    /// Monotonic counter bumped alongside every post-creation
+    /// `syncedToServer = false` re-dirty (finalize / finalizeOrphan).
+    /// `SyncService` captures this value at payload-build time and the
+    /// post-upload flag flip skips any row whose current version drifted —
+    /// closing the race where a finalize interleaves with an in-flight
+    /// sync's network await and the flip would otherwise mark the
+    /// finalized-but-not-uploaded state as synced (stranding `endTime` /
+    /// `summaryJSON` server-side forever). Mirrors
+    /// `HealthSnapshot.pendingSyncVersion`.
+    var pendingSyncVersion: Int = 0
 
     init(startTime: Date, batteryAtStart: Int) {
         self.id = UUID()
@@ -50,5 +60,6 @@ final class SensorSession {
         self.summaryJSON = nil
         self.syncedToServer = false
         self.rrArchiveUploadedAt = nil
+        self.pendingSyncVersion = 0
     }
 }

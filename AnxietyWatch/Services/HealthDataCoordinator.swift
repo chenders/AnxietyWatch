@@ -608,6 +608,10 @@ final class HealthDataCoordinator {
                     // call a separate update path that fills groupID or this
                     // code can be re-extended to set it explicitly.
                     existing.syncedToServer = false
+                    // Staleness token: keeps an in-flight sync (payload built
+                    // before this correction) from flipping the row back to
+                    // synced — see `SyncService.flagSyncedInChunks`.
+                    existing.pendingSyncVersion &+= 1
                 }
             } else {
                 let row = QuantityHealthSample(
@@ -715,6 +719,10 @@ final class HealthDataCoordinator {
                     existing.sourceName = event.sourceName
                     existing.deviceModel = event.deviceModel
                     existing.syncedToServer = false
+                    // Staleness token: keeps an in-flight sync (payload built
+                    // before this correction) from flipping the row back to
+                    // synced — see `SyncService.flagSyncedInChunks`.
+                    existing.pendingSyncVersion &+= 1
                 }
             } else {
                 let row = SleepStageEvent(

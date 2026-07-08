@@ -111,6 +111,7 @@ enum SongService {
     /// Called after sync to pull songs added/updated via admin UI or server-side scraping.
     /// Returns the number of songs added or updated.
     @discardableResult
+    @MainActor
     static func fetchCatalog(into context: ModelContext) async throws -> Int {
         let sync = SyncService.shared
         guard sync.isConfigured else { throw SongError.notConfigured }

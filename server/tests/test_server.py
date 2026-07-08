@@ -1703,6 +1703,37 @@ def test_sync_sensor_session_partial_update_preserves_existing_fields(client, ap
         assert summary["rmssdMean"] == 46.7
 
 
+def test_sync_sensor_session_stale_replay_does_not_regress_interruption_count(client, app):
+    """A payload built client-side BEFORE a finalize can land AFTER the
+    finalized row (retry queues, drain-loop edge cases). end_time and
+    summary_json survive via COALESCE, but interruption_count is never
+    NULL — it needs GREATEST so the stale-low value can't overwrite the
+    finalized count. Counts only grow over a session's life, so taking
+    the max keeps replays idempotent."""
+    session_id = "f6a3b2c1-d4e5-4f6a-8b7c-0e1f2a3b4c5d"
+    # Finalized row arrives first: 3 interruptions.
+    client.post(
+        "/api/sync",
+        json={"sensorSessions": [_polar_session_payload(session_id, interruptionCount=3)]},
+        headers=auth_header(),
+    )
+    # Stale pre-finalize payload replays with a lower count.
+    stale = _polar_session_payload(session_id, interruptionCount=1)
+    del stale["endTime"]
+    resp = client.post("/api/sync", json={"sensorSessions": [stale]}, headers=auth_header())
+    assert resp.status_code == 200
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute(
+            "SELECT interruption_count, end_time FROM sensor_sessions WHERE id = %s",
+            (session_id,),
+        )
+        count, end_time = cur.fetchone()
+        assert count == 3  # not regressed to 1
+        assert end_time is not None  # COALESCE keeps the finalized end_time
+
+
 def test_sync_hrv_readings_after_session(client, app):
     session_id = "44444444-4444-4444-4444-444444444444"
     reading_id = "55555555-5555-5555-5555-555555555555"

@@ -153,6 +153,17 @@ final class HRVSessionRecorder {
         guard let session else { return }
         session.endTime = timestamp
         session.summaryJSON = sessionSummaryJSON(for: session)
+        // Re-dirty: a session synced mid-recording (endTime == nil) was flagged
+        // syncedToServer, and nothing else resets it — so without this the
+        // finalized endTime + summaryJSON (and interruption data) would never
+        // reach the server. See F-013.
+        session.syncedToServer = false
+        // Bump the staleness token alongside the re-dirty so a sync that is
+        // currently suspended on its network await (payload built BEFORE this
+        // finalize) can't flip the flag back to synced — the in-flight payload
+        // doesn't contain the finalized state. See
+        // `SensorSession.pendingSyncVersion` / `SyncService.flagSyncedInChunks`.
+        session.pendingSyncVersion &+= 1
         try modelContext.save()
         self.session = nil
         // Also clear sessionID so callers can't accidentally treat a

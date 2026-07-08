@@ -409,7 +409,12 @@ final class SyncService {
 
     /// Pull prescriptions from the server and upsert into SwiftData.
     /// Returns the number of prescriptions added or updated.
+    ///
+    /// `@MainActor`-isolated because the body fetches/inserts/saves on the
+    /// caller's main-context `ModelContext`; running that from the global
+    /// executor is the SwiftData data race documented in F-016.
     @discardableResult
+    @MainActor
     func fetchPrescriptions(modelContext: ModelContext) async throws -> Int {
         guard isConfigured else { throw SyncError.notConfigured }
 
@@ -667,7 +672,9 @@ final class SyncService {
     ) throws {
         if !uploaded.quantitySamples.isEmpty {
             let ids = Set(uploaded.quantitySamples)
-            try Self.flagSyncedInChunks(ids: ids, in: modelContext) { batch in
+            try Self.flagSyncedInChunks(
+                ids: ids, expectedVersions: uploaded.bulkRowVersions, in: modelContext
+            ) { batch in
                 FetchDescriptor<QuantityHealthSample>(
                     predicate: #Predicate { batch.contains($0.id) }
                 )
@@ -675,7 +682,9 @@ final class SyncService {
         }
         if !uploaded.sleepStageEvents.isEmpty {
             let ids = Set(uploaded.sleepStageEvents)
-            try Self.flagSyncedInChunks(ids: ids, in: modelContext) { batch in
+            try Self.flagSyncedInChunks(
+                ids: ids, expectedVersions: uploaded.bulkRowVersions, in: modelContext
+            ) { batch in
                 FetchDescriptor<SleepStageEvent>(
                     predicate: #Predicate { batch.contains($0.id) }
                 )
@@ -683,7 +692,9 @@ final class SyncService {
         }
         if !uploaded.sensorSessions.isEmpty {
             let ids = Set(uploaded.sensorSessions)
-            try Self.flagSyncedInChunks(ids: ids, in: modelContext) { batch in
+            try Self.flagSyncedInChunks(
+                ids: ids, expectedVersions: uploaded.bulkRowVersions, in: modelContext
+            ) { batch in
                 FetchDescriptor<SensorSession>(
                     predicate: #Predicate { batch.contains($0.id) }
                 )
@@ -691,7 +702,9 @@ final class SyncService {
         }
         if !uploaded.hrvReadings.isEmpty {
             let ids = Set(uploaded.hrvReadings)
-            try Self.flagSyncedInChunks(ids: ids, in: modelContext) { batch in
+            try Self.flagSyncedInChunks(
+                ids: ids, expectedVersions: uploaded.bulkRowVersions, in: modelContext
+            ) { batch in
                 FetchDescriptor<HRVReading>(
                     predicate: #Predicate { batch.contains($0.id) }
                 )
@@ -814,9 +827,20 @@ final class SyncService {
     /// call (`sampleBatchLimit`), so without chunking `markSamplesSynced` would
     /// silently exceed SQLite's 999-parameter limit, fail to flag the rows, and
     /// the next `sync()` would re-upload the same first 1000 samples forever.
+    ///
+    /// `expectedVersions` carries each uploaded row's `pendingSyncVersion`
+    /// as captured at payload-build time. A row whose CURRENT version no
+    /// longer matches was mutated while `sync()` was suspended on its
+    /// network await (e.g. a `finalize()` landing between payload build and
+    /// this flip) — the in-flight payload does NOT contain that mutation, so
+    /// the row must stay dirty for the next sync. Skipping the flip here is
+    /// the `flagSnapshotsSynced` race guard generalized to the UUID-keyed
+    /// bulk types. A missing entry means the payload didn't carry a version
+    /// for the row — flip unconditionally, matching pre-guard behavior.
     @MainActor
     private static func flagSyncedInChunks<Row: PersistentModel>(
         ids: Set<UUID>,
+        expectedVersions: [UUID: Int],
         in context: ModelContext,
         descriptorBuilder: (Set<UUID>) -> FetchDescriptor<Row>
     ) throws where Row: SyncableSample {
@@ -827,7 +851,20 @@ final class SyncService {
             let end = min(index + SQLiteLimits.predicateBatchSize, allIDs.count)
             let batch = Set(allIDs[index..<end])
             let rows = try context.fetch(descriptorBuilder(batch))
-            for row in rows { row.syncedToServer = true }
+            for row in rows {
+                if let expected = expectedVersions[row.id], expected != row.pendingSyncVersion {
+                    // Log the held-back row so a session stuck dirty across
+                    // syncs is diagnosable — a silent skip here would look
+                    // identical to a flag-flip bug from the outside.
+                    Log.sync.info("""
+                        Post-upload flip skipped for \(row.id.uuidString, privacy: .public): \
+                        row mutated during sync (version \(expected) → \(row.pendingSyncVersion)); \
+                        stays dirty and re-syncs next pass
+                        """)
+                    continue
+                }
+                row.syncedToServer = true
+            }
             try context.save()
             index = end
         }
@@ -971,6 +1008,11 @@ final class SyncService {
             if let groupID = row.groupID {
                 dict["groupId"] = groupID.uuidString
             }
+            // Client-internal staleness token for the post-upload flag flip
+            // (see `flagSyncedInChunks`); the server reads named keys only
+            // and ignores it. Underscored to match `_pendingSyncVersion` on
+            // health snapshots — deliberately out-of-band, not schema.
+            dict["_pendingSyncVersion"] = row.pendingSyncVersion
             return dict
         }
     }
@@ -988,9 +1030,22 @@ final class SyncService {
         guard let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else {
             return UploadedSyncedIDs()
         }
+        // Alongside each row's id, capture the `_pendingSyncVersion` the
+        // fetch helpers embedded at payload-build time. `flagSyncedInChunks`
+        // compares it against the row's CURRENT version so rows mutated
+        // during the network await (finalize, retroactive HealthKit
+        // correction) stay dirty. Rows without the key (none today — every
+        // bulk fetch helper emits it) simply skip the check.
+        var versions: [UUID: Int] = [:]
         func ids(forKey key: String) -> [UUID] {
             ((json[key] as? [[String: Any]]) ?? []).compactMap { dict in
-                (dict["id"] as? String).flatMap(UUID.init(uuidString:))
+                guard let id = (dict["id"] as? String).flatMap(UUID.init(uuidString:)) else {
+                    return nil
+                }
+                if let version = dict["_pendingSyncVersion"] as? Int {
+                    versions[id] = version
+                }
+                return id
             }
         }
         // Snapshot dates can come from either of two formatters depending
@@ -1030,7 +1085,8 @@ final class SyncService {
             sensorSessions: ids(forKey: "sensorSessions"),
             hrvReadings: ids(forKey: "hrvReadings"),
             healthSnapshotDates: snapshotDates,
-            healthSnapshotVersions: snapshotVersions
+            healthSnapshotVersions: snapshotVersions,
+            bulkRowVersions: versions
         )
     }
 
@@ -1054,6 +1110,8 @@ final class SyncService {
             if let deviceModel = row.deviceModel {
                 dict["deviceModel"] = deviceModel
             }
+            // Client-internal staleness token; see fetchUnsyncedQuantitySamples.
+            dict["_pendingSyncVersion"] = row.pendingSyncVersion
             return dict
         }
     }
@@ -1096,6 +1154,10 @@ final class SyncService {
                let parsed = try? JSONSerialization.jsonObject(with: data) {
                 dict["summaryJSON"] = parsed
             }
+            // Client-internal staleness token; see fetchUnsyncedQuantitySamples.
+            // This is the guard that keeps a finalize() interleaving with an
+            // in-flight sync from being marked synced with a stale payload.
+            dict["_pendingSyncVersion"] = row.pendingSyncVersion
             return dict
         }
     }
@@ -1131,6 +1193,8 @@ final class SyncService {
             if let sessionID = row.sensorSessionID {
                 dict["sessionId"] = sessionID.uuidString
             }
+            // Client-internal staleness token; see fetchUnsyncedQuantitySamples.
+            dict["_pendingSyncVersion"] = row.pendingSyncVersion
             return dict
         }
     }
@@ -1177,7 +1241,11 @@ final class SyncService {
             return
         }
 
-        for session in sessions where session.rrArchiveUploadedAt == nil {
+        // Only upload archives of FINALIZED sessions (endTime != nil). Uploading a
+        // still-recording session's archive stamps rrArchiveUploadedAt on a
+        // truncated file, permanently omitting everything recorded after this sync
+        // (the skip guard never re-examines it). See F-014.
+        for session in sessions where session.rrArchiveUploadedAt == nil && session.endTime != nil {
             let url = RRArchiveWriter.archiveURL(for: session.id)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
             guard let raw = try? Data(contentsOf: url), !raw.isEmpty else { continue }
@@ -1234,7 +1302,13 @@ final class SyncService {
 /// each `@Model` so the chunked-flag helper can mutate the field generically
 /// without losing the per-model `@Model` storage semantics.
 protocol SyncableSample: AnyObject {
+    var id: UUID { get }
     var syncedToServer: Bool { get set }
+    /// Staleness token captured into the payload at build time
+    /// (`_pendingSyncVersion`) and re-checked by `flagSyncedInChunks`
+    /// before flipping `syncedToServer` — rows mutated during the sync's
+    /// network await keep their dirty flag so the new state still syncs.
+    var pendingSyncVersion: Int { get }
 }
 
 extension QuantityHealthSample: SyncableSample {}
@@ -1271,6 +1345,16 @@ struct UploadedSyncedIDs: Equatable {
     /// version as "no check" and flips by date alone (matching pre-PR
     /// full-sync semantics where this race wasn't addressable).
     var healthSnapshotVersions: [Int] = []
+
+    /// Per-row `pendingSyncVersion` captured at payload-build time for every
+    /// UUID-keyed bulk row (quantity samples, sleep stage events, sensor
+    /// sessions, HRV readings). One map for all four types — UUIDs don't
+    /// collide across tables, and `flagSyncedInChunks` looks rows up by id
+    /// anyway. Same role as `healthSnapshotVersions` plays for the date-keyed
+    /// snapshot path: the post-upload flip skips any row whose current
+    /// version drifted from the captured one, keeping mid-sync mutations
+    /// (finalize, retroactive corrections) dirty so they re-sync.
+    var bulkRowVersions: [UUID: Int] = [:]
 
     /// True if any bulk-type array filled the per-call cap. The sync loop uses
     /// this as the signal that another round-trip is worth attempting: if we

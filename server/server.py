@@ -657,6 +657,14 @@ def create_app(test_config=None):
         are idempotent. ``rr_archive`` is NOT touched in this path — the
         binary upload lives at ``POST /api/sensor_sessions/<id>/rr_archive``
         so callers can decide whether to ship the multi-hundred-KB blob.
+
+        ``interruption_count`` uses GREATEST rather than a plain overwrite:
+        the count is monotonically non-decreasing over a session's life, so
+        a payload built before a finalize (in flight while the finalize
+        landed client-side) can only ever carry a stale-low value. GREATEST
+        keeps the replay idempotent without letting the stale payload
+        regress the finalized count. COALESCE doesn't help here because the
+        stale value is 0-or-more, never NULL.
         """
         if not sessions:
             return 0
@@ -685,7 +693,10 @@ def create_app(test_config=None):
                        EXCLUDED.battery_at_start,
                        sensor_sessions.battery_at_start
                    ),
-                   interruption_count = EXCLUDED.interruption_count,
+                   interruption_count = GREATEST(
+                       EXCLUDED.interruption_count,
+                       sensor_sessions.interruption_count
+                   ),
                    summary_json = COALESCE(
                        EXCLUDED.summary_json,
                        sensor_sessions.summary_json

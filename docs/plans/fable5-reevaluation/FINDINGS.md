@@ -27,6 +27,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 | F-003 | P0 | conf | S | render | trends-correlation-nav | TrendsView pushes CorrelationInsightsView via a closure-form NavigationLink; the destination holds three @Query properties but has no Equatable conformance and no .equatable() at the call site. | `AnxietyWatch/Views/Trends/TrendsView.swift:269` |
 | F-004 | P0 | conf | S | render | journal-nav | JournalListView pushes JournalEntryDetailView via a closure-form NavigationLink; the destination holds an unbounded @Query and has neither Equatable conformance nor .equatable() at the call site, matching the exact structural shape of the documented polar-session-hr-detail crash pattern. | `AnxietyWatch/Views/Journal/JournalListView.swift:JournalEntryRow-NavigationLink` |
 | F-005 | P0 | conf | S | render | settings-navigation | Settings' closure-based NavigationLink to CPAPListView (which owns three @Query properties) has no Equatable conformance and no .equatable() at the call site, while the same screen drives a per-day rebuildProgress @State mutation loop that repeatedly re-executes the parent body. | `AnxietyWatch/Views/Settings/SettingsView.swift:SettingsView.body` |
+| F-089 | P0 | conf | S | render | reports-nav | ExportView (five unbounded @Query properties) is pushed from SettingsView via a closure-form NavigationLink with neither Equatable conformance nor .equatable() at the call site — same family as F-001–F-005; found during the Batch A implementation review, missed by the Phase 2 audit. | `AnxietyWatch/Views/Reports/ExportView.swift:ExportView` |
 | F-006 | P1 | plaus | S | silent-failure | cpap-emay | EMAY CSV imports never trigger a snapshot backfill in either import entry point, so imported oximeter data for a past night can silently never reach HealthSnapshot on a normal daily-use install. | `AnxietyWatch/App/AnxietyWatchApp.swift:processImportBatch` |
 | F-007 | P1 | plaus | S | accuracy | cpap-oscar-import | OSCAR Summary CSV import writes the median pressure into both pressureMin and pressureMean, so an OSCAR-imported session's 'Min' pressure is never actually a minimum — it's the median, mislabeled. | `AnxietyWatch/Services/CPAPImporter.swift:importOSCAR` |
 | F-008 | P1 | plaus | M | accuracy | fhir-labs | FHIRLabResultParser stores the lab's raw reported unit and value with no conversion or compatibility check against the registry's fixed-unit reference range, so cross-institution unit variance (mg/dL vs mmol/L, ng/dL vs pmol/L, mcg/dL vs nmol/L) silently produces wrong HIGH/LOW flags on screen and in the clinician PDF. | `AnxietyWatch/Services/FHIRLabResultParser.swift:parse(observation:)` |
@@ -36,6 +37,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 | F-012 | P1 | plaus | M | test-gap | sync | The cursor-advance invariants in SyncService.sync() (advance to the pre-captured cursorUpperBound, and only on non-bulkOnly iterations) have no test that fails if they break — all SyncServiceTests coverage stops at buildPayload, and sync() itself is untestable because it hardcodes URLSession.shared. | `AnxietyWatch/Services/SyncService.swift:sync()` |
 | F-013 | P2 | conf | S | accuracy | sync-sensor-session | SensorSession rows synced mid-recording are flagged syncedToServer, and finalize()/finalizeOrphan() never re-dirty the flag, so the session's endTime, summaryJSON, and interruption data permanently never reach the server. | `AnxietyWatch/Services/HRVSessionRecorder.swift:finalize` |
 | F-014 | P2 | conf | S | accuracy | sync-rr-archive | uploadPendingRRArchives uploads the RR archive of sessions that are still recording (no endTime guard) and stamps rrArchiveUploadedAt, so the server permanently keeps a truncated archive missing everything recorded after the mid-session sync. | `AnxietyWatch/Services/SyncService.swift:uploadPendingRRArchives` |
+| F-090 | P2 | plaus | M | accuracy | sync-rr-archive | finalizeOffline flushes the RR archive via a detached background Task while recorder.finalize sets endTime synchronously, so uploadPendingRRArchives (gated only on endTime != nil) can read a not-yet-fully-flushed archive, upload it, and permanently stamp rrArchiveUploadedAt on a truncated file. | `AnxietyWatch/Services/PolarHRMService.swift:finalizeOffline` |
 | F-015 | P2 | conf | S | silent-failure | sync-rr-archive | A failed RR-archive POST is never retried: the retry scan is keyed to uploadedIDs.sensorSessions (sessions in the current payload), but markSamplesSynced flips those sessions' syncedToServer=true in the same call, so they never appear in any future payload and rrArchiveUploadedAt==nil is never re-examined. | `AnxietyWatch/Services/SyncService.swift:applyPostUploadResponse` |
 | F-016 | P1 | conf | S | bug | sync-actor-isolation | SongService.fetchCatalog(into:) and SyncService.fetchPrescriptions(modelContext:) are nonisolated async functions that fetch/insert/save on the caller's MainActor-bound ModelContext from the global concurrent executor — the exact undefined-behavior hazard the sync() doc comment was written to prevent, and it runs on every sync. | `AnxietyWatch/Services/SongService.swift:fetchCatalog` |
 | F-017 | P2 | conf | S | bug | watch-connectivity | PhoneConnectivityManager.updateCheckInContext builds the outgoing applicationContext from WCSession.receivedApplicationContext (the context received FROM the Watch — always empty, since the Watch never calls updateApplicationContext) instead of .applicationContext (the last-sent context), so every check-in state change wipes the stats keys from the Watch's app context. | `AnxietyWatch/Services/PhoneConnectivityManager.swift:updateCheckInContext` |
@@ -214,8 +216,8 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 
 Each batch is one or a few PRs; every confirmed-bug fix ships with a regression test per the ground rules. Suggested order is highest data/UX impact first.
 
-**1. Batch B — Sync integrity — data reaches the server correctly** (5): F-012, F-013, F-014, F-015, F-016  
-**2. Batch A — SwiftUI render crash pitfalls (NavigationLink + @Query family)** (8): F-001, F-002, F-003, F-004, F-005, F-030, F-032, F-073  
+**1. Batch B — Sync integrity — data reaches the server correctly** (5): F-012, F-013, F-014, F-015, F-016 — _F-012/F-015 split to Batch B-2 during execution, joined there by F-090 (found during Batch B review)_  
+**2. Batch A — SwiftUI render crash pitfalls (NavigationLink + @Query family)** (8): F-001, F-002, F-003, F-004, F-005, F-030, F-032, F-073 — _plus F-089, found during implementation review and fixed in the same PR (#157)_  
 **3. Batch F — Medical-accuracy: display & clinician-report correctness** (14): F-007, F-008, F-009, F-010, F-011, F-023, F-024, F-026, F-027, F-029, F-036, F-045, F-046, F-067  
 **4. Batch G — Import robustness & data-loss** (6): F-006, F-025, F-028, F-040, F-041, F-047  
 **5. Batch C — Server ingest & sync-client correctness** (5): F-038, F-039, F-054, F-068, F-069  
@@ -244,7 +246,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); related anchors: `AnxietyWatch/Views/LabResults/LabResultsView.swift:labResultRow-NavigationLink`.  
 
-**Disposition:** approved
+**Disposition:** fixed (#157)
 
 ### F-002 · P0 · confirmed · render · trends-correlation-nav · _severity re-elevated at triage_
 
@@ -256,7 +258,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P0, 3/3 verify lenses confirmed, lens votes [P1, P1, P1].  
 
-**Disposition:** approved
+**Disposition:** fixed (#157)
 
 ### F-003 · P0 · confirmed · render · trends-correlation-nav · _severity re-elevated at triage_
 
@@ -268,7 +270,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P0, 3/3 verify lenses confirmed, lens votes [P1, P1, P1].  
 
-**Disposition:** approved
+**Disposition:** fixed (#157)
 
 ### F-004 · P0 · confirmed · render · journal-nav · _severity re-elevated at triage_
 
@@ -280,7 +282,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P0, 3/3 verify lenses confirmed, lens votes [P1, P1, P1].  
 
-**Disposition:** approved
+**Disposition:** fixed (#157)
 
 ### F-005 · P0 · confirmed · render · settings-navigation · _severity re-elevated at triage_
 
@@ -292,7 +294,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P0, 3/3 verify lenses confirmed, lens votes [P1, P1, P1].  
 
-**Disposition:** approved
+**Disposition:** fixed (#157)
 
 ### F-006 · P1 · plausible · silent-failure · cpap-emay
 
@@ -388,7 +390,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#158)
 
 ### F-014 · P2 · confirmed · accuracy · sync-rr-archive
 
@@ -400,7 +402,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P1, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#158)
 
 ### F-015 · P2 · confirmed · silent-failure · sync-rr-archive
 
@@ -424,7 +426,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 2/3 verify lenses confirmed, lens votes [P1, P3, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#158)
 
 ### F-017 · P2 · confirmed · bug · watch-connectivity
 
@@ -624,7 +626,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P1, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#157)
 
 ### F-033 · P2 · confirmed · security · admin-session
 
@@ -1132,7 +1134,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#157)
 
 ### F-074 · P3 · confirmed · efficiency · cpap-query
 
@@ -1315,6 +1317,32 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 **Failure scenario:** Admin/ResMed tests do `os.environ["ADMIN_PASSWORD"] = "testpass"` and `os.environ["SECRET_KEY"] = "test-secret-key"` (lines ~1159-1228) with no restore, unlike sibling files (test_conflicts/test_profiles/test_analysis) that use monkeypatch.setenv (auto-restored). After these run, both vars stay set for the rest of the pytest session. The autouse `_clean_tables` fixture truncates the DB but never touches os.environ. Any future test that asserts unconfigured behavior — e.g. 'admin login is rejected when ADMIN_PASSWORD is unset' (admin.py login returns invalid when `admin_password` is empty) — would falsely pass depending on test order, masking a real regression.  
 
 **Verification:** finder P3, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
+
+**Disposition:** approved
+
+### F-089 · P0 · confirmed · render · reports-nav · _added post-audit during Batch A review_
+
+**Anchor:** `AnxietyWatch/Views/Reports/ExportView.swift:ExportView`  
+
+**Summary:** ExportView declares five unbounded @Query properties (entries, doses, snapshots, CPAP sessions, lab results) and is pushed from SettingsView's "Export Data" row via a closure-form NavigationLink, with neither Equatable conformance nor `.equatable()` at the call site — the same NavigationLink+@Query render-pitfall family as F-001-F-005.  
+
+**Failure scenario:** While ExportView is pushed, any write to one of its five queried tables (a background HealthKit mirror pass, a sync, a CPAP import) re-executes SettingsView's body; SwiftUI cannot dedupe the reconstructed destination struct, restarts the push transition, and on iOS 26 cascades into the documented ~30 Hz render loop / CA::Layer::layout_is_active use-after-free (render pitfall #2).  
+
+**Verification:** not part of the Phase 2 audit sweep — discovered by the `swift-pre-pr-reviewer` pass during Batch A implementation and confirmed by inspection (identical structural shape to the seven audited instances fixed alongside it).  
+
+**Disposition:** fixed (#157)
+
+### F-090 · P2 · plausible · accuracy · sync-rr-archive · _added post-audit during Batch B review_
+
+**Anchor:** `AnxietyWatch/Services/PolarHRMService.swift:finalizeOffline`  
+
+**Summary:** `finalizeOffline` runs `recorder.finalize(at:)` synchronously (sets `endTime`) but dispatches `archive.finalize()` — the RR-interval file flush — on a detached background Task. `RRArchiveWriter` buffers up to 64 KB (~1.5-2.5 h of RR data) before an implicit flush, and `uploadPendingRRArchives` gates only on `session.endTime != nil` (the F-014 guard) with no check that the flush completed.  
+
+**Failure scenario:** A sync fires immediately after Stop: `endTime` is already non-nil but the detached flush hasn't run, so `uploadPendingRRArchives` reads the file missing its final buffered chunk, uploads it, and stamps `rrArchiveUploadedAt` — the skip guard never re-examines a stamped session, so the server permanently keeps a truncated archive. Low probability in practice (a few-KB local flush usually beats a network round trip) but there is no ordering guarantee — the same race family as the F-013 staleness fix, one layer down (binary archive vs. JSON row).  
+
+**Verification:** surfaced by the `medical-data-accuracy-reviewer` pass on the Batch B staleness-guard fix (b119cf8); pre-existing behavior introduced with the F-014 gate (e410ccf), not a regression from the guard work. Not adversarially verified — plausible.  
+
+**Fix sketch:** have `finalizeOffline` await the archive flush before `endTime` becomes visible to the sync path, or record a distinct "archive fully flushed" marker that `uploadPendingRRArchives` checks instead of `endTime`.  
 
 **Disposition:** approved
 

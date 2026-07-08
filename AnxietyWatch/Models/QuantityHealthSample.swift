@@ -28,6 +28,11 @@ final class QuantityHealthSample {
     var groupID: UUID?
     var syncedToServer: Bool
     var createdAt: Date
+    /// Staleness token for the post-upload synced-flag flip; see
+    /// `SensorSession.pendingSyncVersion`. Bumped by
+    /// `HealthDataCoordinator`'s mirror pass whenever a retroactive
+    /// HealthKit correction updates this row in place and re-dirties it.
+    var pendingSyncVersion: Int = 0
 
     init(
         id: UUID = UUID(),
@@ -53,5 +58,6 @@ final class QuantityHealthSample {
         self.groupID = groupID
         self.syncedToServer = syncedToServer
         self.createdAt = createdAt
+        self.pendingSyncVersion = 0
     }
 }

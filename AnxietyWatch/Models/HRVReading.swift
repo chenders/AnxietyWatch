@@ -25,6 +25,12 @@ final class HRVReading {
     /// `/api/sync`. Matches the `QuantityHealthSample` / `SleepStageEvent`
     /// pattern.
     var syncedToServer: Bool = false
+    /// Staleness token for the post-upload synced-flag flip; see
+    /// `SensorSession.pendingSyncVersion`. HRVReadings are append-only today
+    /// (no post-insert mutation path), so this stays 0 — the field exists so
+    /// any future correction path that re-dirties a reading is automatically
+    /// covered by the same race guard as the other synced types.
+    var pendingSyncVersion: Int = 0
 
     init(id: UUID = UUID(), timestamp: Date, rmssd: Double, sdnn: Double, pnn50: Double,
          lfPower: Double, hfPower: Double, lfHfRatio: Double,
@@ -40,5 +46,6 @@ final class HRVReading {
         self.sensorSessionID = sensorSessionID
         self.source = source
         self.syncedToServer = false
+        self.pendingSyncVersion = 0
     }
 }
