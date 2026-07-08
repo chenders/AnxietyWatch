@@ -15,7 +15,7 @@ jobs:
   test:
     runs-on: [self-hosted, macOS, xcode]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Launchd doesn't inherit your interactive shell PATH, so Homebrew tools
       # (swiftlint, xcbeautify, etc.) won't be found unless we add the prefix.
