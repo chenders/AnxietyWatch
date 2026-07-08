@@ -1,8 +1,11 @@
 """Tests for the Genius API integration module."""
 
+import logging
 from unittest.mock import patch, MagicMock
 
-from genius import search_songs, fetch_song_metadata, scrape_lyrics
+import requests
+
+from genius import search_songs, fetch_song_metadata, scrape_lyrics, fetch_lyrics_musixmatch
 
 
 class TestSearchSongs:
@@ -114,3 +117,29 @@ class TestScrapeLyrics:
         mock_get.return_value = MagicMock(status_code=403)
         lyrics = scrape_lyrics("https://genius.com/test")
         assert lyrics is None
+
+
+class TestFetchLyricsMusixmatch:
+    """Tests for fetch_lyrics_musixmatch() log hygiene (F-079)."""
+
+    @patch.dict("os.environ", {"MUSIXMATCH_API_KEY": "FAKE-MM-KEY-abc123"})
+    @patch("genius.requests.get")
+    def test_request_exception_does_not_log_api_key(self, mock_get, caplog):
+        """The Musixmatch key rides as an `apikey` query param; a connection
+        failure's exception text embeds the full URL. The logged message must
+        redact the query string — the fake key must never appear."""
+        mock_get.side_effect = requests.RequestException(
+            "Max retries exceeded with url: "
+            "/ws/1.1/matcher.lyrics.get?q_track=t&q_artist=a&apikey=FAKE-MM-KEY-abc123 "
+            "(Caused by NewConnectionError('...'))"
+        )
+        with caplog.at_level(logging.ERROR, logger="genius"):
+            result = fetch_lyrics_musixmatch("Test Title", "Test Artist")
+        assert result is None
+        assert "Musixmatch fetch failed" in caplog.text
+        assert "FAKE-MM-KEY-abc123" not in caplog.text
+        assert "apikey" not in caplog.text
+
+    @patch.dict("os.environ", {"MUSIXMATCH_API_KEY": ""})
+    def test_returns_none_without_key(self):
+        assert fetch_lyrics_musixmatch("Test Title", "Test Artist") is None

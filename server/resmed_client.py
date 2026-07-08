@@ -18,6 +18,11 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import requests
+# Imported by name (not via the `requests` module attribute) so the except
+# clauses below keep working when tests patch `resmed_client.requests`.
+from requests.exceptions import RequestException
+
+from log_sanitize import sanitize_exception_text
 
 logger = logging.getLogger(__name__)
 
@@ -106,16 +111,28 @@ class MyAirClient:
         self._region = region
 
     def _authenticate(self) -> str:
-        """Run the Okta PKCE OAuth flow and return an access token."""
+        """Run the Okta PKCE OAuth flow and return an access token.
+
+        Each network step wraps ``requests`` exceptions in a MyAirAuthError
+        with a fixed step label plus *sanitized* exception text (F-076):
+        urllib3 connection errors embed the full request URL, and Step 3's
+        authorize URL carries the one-time Okta sessionToken as a query
+        param — the raw message must never reach logs or the admin UI.
+        """
 
         # Step 1: Okta primary authentication
-        resp = requests.post(
-            OKTA_AUTHN_URL,
-            json={"username": self._username, "password": self._password},
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
-            timeout=15,
-        )
-        resp.raise_for_status()
+        try:
+            resp = requests.post(
+                OKTA_AUTHN_URL,
+                json={"username": self._username, "password": self._password},
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+        except RequestException as exc:
+            raise MyAirAuthError(
+                f"Okta primary auth request failed: {sanitize_exception_text(exc)}"
+            ) from exc
         data = resp.json()
 
         if data.get("status") != "SUCCESS":
@@ -131,25 +148,32 @@ class MyAirClient:
             hashlib.sha256(verifier.encode()).digest()
         ).rstrip(b"=").decode()
 
-        # Step 3: Authorize — get auth code from HTML
-        resp = requests.get(
-            OKTA_AUTHORIZE_URL,
-            params={
-                "client_id": OKTA_CLIENT_ID,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-                "nonce": secrets.token_urlsafe(32),
-                "prompt": "none",
-                "redirect_uri": REDIRECT_URI,
-                "response_mode": "okta_post_message",
-                "response_type": "code",
-                "sessionToken": session_token,
-                "state": secrets.token_urlsafe(32),
-                "scope": "openid profile email",
-            },
-            allow_redirects=False,
-            timeout=15,
-        )
+        # Step 3: Authorize — get auth code from HTML. The sessionToken rides
+        # as a URL query param here, so a connection failure's exception text
+        # would embed the still-valid one-time token; sanitize before wrapping.
+        try:
+            resp = requests.get(
+                OKTA_AUTHORIZE_URL,
+                params={
+                    "client_id": OKTA_CLIENT_ID,
+                    "code_challenge": challenge,
+                    "code_challenge_method": "S256",
+                    "nonce": secrets.token_urlsafe(32),
+                    "prompt": "none",
+                    "redirect_uri": REDIRECT_URI,
+                    "response_mode": "okta_post_message",
+                    "response_type": "code",
+                    "sessionToken": session_token,
+                    "state": secrets.token_urlsafe(32),
+                    "scope": "openid profile email",
+                },
+                allow_redirects=False,
+                timeout=15,
+            )
+        except RequestException as exc:
+            raise MyAirAuthError(
+                f"Okta authorize request failed: {sanitize_exception_text(exc)}"
+            ) from exc
 
         auth_code = None
         body = resp.text
@@ -175,18 +199,23 @@ class MyAirClient:
         logger.debug("Got auth code")
 
         # Step 4: Exchange code for tokens
-        resp = requests.post(
-            OKTA_TOKEN_URL,
-            data={
-                "grant_type": "authorization_code",
-                "client_id": OKTA_CLIENT_ID,
-                "code": auth_code,
-                "code_verifier": verifier,
-                "redirect_uri": REDIRECT_URI,
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=15,
-        )
+        try:
+            resp = requests.post(
+                OKTA_TOKEN_URL,
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": OKTA_CLIENT_ID,
+                    "code": auth_code,
+                    "code_verifier": verifier,
+                    "redirect_uri": REDIRECT_URI,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=15,
+            )
+        except RequestException as exc:
+            raise MyAirAuthError(
+                f"Okta token exchange request failed: {sanitize_exception_text(exc)}"
+            ) from exc
         try:
             token_data = resp.json()
         except ValueError:
@@ -269,7 +298,11 @@ class MyAirClient:
         except MyAirAuthError:
             raise
         except Exception as exc:
-            raise MyAirAuthError(f"Authentication failed: {repr(exc)}") from exc
+            # Sanitized, never repr(exc): connection errors embed request
+            # URLs, and the authorize URL carries the one-time sessionToken.
+            raise MyAirAuthError(
+                f"Authentication failed: {sanitize_exception_text(exc)}"
+            ) from exc
 
         now = datetime.now()
         start = (now - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -280,7 +313,7 @@ class MyAirClient:
         except MyAirAPIError:
             raise
         except Exception as exc:
-            raise MyAirAPIError(f"Fetch failed: {repr(exc)}") from exc
+            raise MyAirAPIError(f"Fetch failed: {sanitize_exception_text(exc)}") from exc
 
         results = []
         for raw in raw_records:

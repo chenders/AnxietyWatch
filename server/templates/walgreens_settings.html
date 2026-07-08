@@ -8,7 +8,8 @@
     <form method="post">
         <div class="mb-1">
             <label for="username"><strong>Walgreens Email / Username</strong></label>
-            <input type="text" id="username" name="username" value="{{ username }}" placeholder="your@email.com">
+            <input type="text" id="username" name="username" placeholder="{{ '••••••••@••••' if has_username else 'your@email.com' }}">
+            {% if has_username %}<small style="color:#6e6e73;">Leave blank to keep current username</small>{% endif %}
         </div>
         <div class="mb-1">
             <label for="password"><strong>Password</strong></label>

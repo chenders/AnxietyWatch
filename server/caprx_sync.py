@@ -23,6 +23,7 @@ import psycopg2
 import requests
 
 from crypto import decrypt_value
+from log_sanitize import sanitize_exception_text
 from caprx_client import (
     CapRxClient,
     CapRxAuthError,
@@ -203,29 +204,33 @@ def run_sync(conn=None, email=None, password=None):
                 password = os.environ.get("CAPRX_PASSWORD", "")
 
         if not email or not password:
-            msg = "error: no credentials configured"
-            log_sync(conn, msg, 0)
-            return (msg, 0)
+            # Fixed status string only (F-078) — matches resmed/walgreens.
+            log_sync(conn, "no_credentials", 0)
+            return ("no_credentials", 0)
 
-        # Authenticate
+        # Authenticate. Only fixed status strings are persisted to settings /
+        # sync_log (F-078): SSO-chain exception text can embed redirect URLs
+        # carrying a resolve_id, which is directly exchangeable for tokens.
+        # Exception details go to the server log only, sanitized so any URL
+        # query string (resolve_id included) is redacted.
         client = CapRxClient(email, password)
         try:
             client.authenticate()
         except CapRxAuthError as e:
-            logger.error("CapRx auth failed: %s", e)
-            log_sync(conn, f"auth_error: {e}", 0)
+            logger.error("CapRx auth failed: %s", sanitize_exception_text(e))
+            log_sync(conn, "auth_error", 0)
             return ("auth_error", 0)
         except requests.exceptions.RequestException as e:
-            logger.error("CapRx auth network error: %s", e)
-            log_sync(conn, f"api_error: {e}", 0)
+            logger.error("CapRx auth network error: %s", sanitize_exception_text(e))
+            log_sync(conn, "api_error", 0)
             return ("api_error", 0)
 
         # Fetch claims
         try:
             raw_claims = client.fetch_all_claims()
         except (CapRxAuthError, CapRxAPIError, requests.exceptions.RequestException) as e:
-            logger.error("CapRx fetch failed: %s", e)
-            log_sync(conn, f"api_error: {e}", 0)
+            logger.error("CapRx fetch failed: %s", sanitize_exception_text(e))
+            log_sync(conn, "api_error", 0)
             return ("api_error", 0)
 
         # Normalize and upsert
@@ -242,9 +247,11 @@ def run_sync(conn=None, email=None, password=None):
         return ("success", count)
 
     except Exception as e:
-        logger.exception("CapRx sync failed: %s", e)
+        # Sanitized message, no traceback: a traceback would re-embed the raw
+        # exception text (and any URL query it carries) into the log.
+        logger.error("CapRx sync failed: %s", sanitize_exception_text(e))
         try:
-            log_sync(conn, f"error: {e}", 0)
+            log_sync(conn, "error", 0)
         except Exception:
             pass
         return ("error", 0)

@@ -8,7 +8,8 @@
     <form method="post">
         <div class="mb-1">
             <label for="email"><strong>myAir Email</strong></label>
-            <input type="text" id="email" name="email" value="{{ email }}" placeholder="your@email.com">
+            <input type="text" id="email" name="email" placeholder="{{ '••••••••@••••' if has_email else 'your@email.com' }}">
+            {% if has_email %}<small style="color:#6e6e73;">Leave blank to keep current email</small>{% endif %}
         </div>
         <div class="mb-1">
             <label for="password"><strong>myAir Password</strong></label>

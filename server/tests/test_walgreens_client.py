@@ -1,9 +1,14 @@
 """Tests for the Walgreens prescription history client."""
 
 import json
+import logging
+from unittest.mock import MagicMock
+
+import pytest
 
 from walgreens_client import (
     WalgreensClient,
+    WalgreensAuthError,
     normalize_prescription,
     _parse_dose,
     _parse_price,
@@ -175,3 +180,60 @@ def test_empty_prescription_list():
     """normalize_prescription handles empty list gracefully."""
     results = [normalize_prescription(r) for r in []]
     assert results == []
+
+
+# ---------------------------------------------------------------------------
+# _authenticate login-failure diagnostics (F-077)
+# ---------------------------------------------------------------------------
+
+# The username typed into the form during a failed login — it must never
+# surface in logs, exception messages, or screenshots (fictional per project
+# fixture rules).
+FIXTURE_USERNAME = "fixture-user@example.com"
+
+
+def _failing_login_page():
+    """Build a fake Playwright page that reaches the post-Sign-In navigation
+    wait and then fails, driving _authenticate into its failure branch."""
+    page = MagicMock()
+    # URL carries a query string the diagnostics must strip.
+    page.url = "https://www.walgreens.com/login.jsp?ru=%2Fpharmacy&err=1"
+    page.title.return_value = "Sign in"
+    # All selector lookups (form fields, sign-in button, error element)
+    # return a truthy mock element.
+    page.query_selector.return_value = MagicMock()
+    # Navigation away from login.jsp never happens.
+    page.wait_for_url.side_effect = Exception("nav timeout")
+    # The failed-login page body echoes the account email — the client must
+    # log only its length, never the text.
+    page.inner_text.return_value = f"We don't recognize {FIXTURE_USERNAME}. Try again."
+    page.evaluate.return_value = "UA-string"
+    return page
+
+
+def test_authenticate_failure_diagnostics_are_bounded_and_non_identifying(caplog):
+    client = WalgreensClient(username=FIXTURE_USERNAME, password="fixture-pass")
+    page = _failing_login_page()
+
+    with caplog.at_level(logging.DEBUG, logger="walgreens_client"):
+        with pytest.raises(WalgreensAuthError) as excinfo:
+            client._authenticate(page)
+
+    # No screenshot is ever taken on login failure (the old /tmp screenshot
+    # persisted the filled username field indefinitely).
+    page.screenshot.assert_not_called()
+
+    # Neither the username nor any page body text reaches the logs.
+    assert FIXTURE_USERNAME not in caplog.text
+    assert "We don't recognize" not in caplog.text
+
+    # Bounded, non-identifying diagnostics are logged instead.
+    assert "Page body text length" in caplog.text
+    assert "Page error element present" in caplog.text
+    assert "URL path: /login.jsp" in caplog.text
+
+    # The raised message carries the URL path only — no query string.
+    message = str(excinfo.value)
+    assert "/login.jsp" in message
+    assert "ru=" not in message
+    assert FIXTURE_USERNAME not in message

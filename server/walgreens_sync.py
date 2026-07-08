@@ -21,7 +21,7 @@ from datetime import datetime, timezone, timedelta
 
 import psycopg2
 
-from crypto import decrypt_value
+from crypto import decrypt_value, decrypt_value_with_plaintext_fallback
 from walgreens_client import (
     WalgreensClient,
     WalgreensAuthError,
@@ -249,13 +249,17 @@ def main(argv=None):
             return 0
 
     # --- Read credentials ----------------------------------------------------
-    username = get_setting(conn, "walgreens_username")
+    stored_username = get_setting(conn, "walgreens_username")
     encrypted_pw = get_setting(conn, "walgreens_password")
     secret_key = os.environ.get("SECRET_KEY", "")
     if not secret_key:
         logger.error("SECRET_KEY env var is not set — cannot decrypt credentials")
         conn.close()
         return 3
+
+    # The username is encrypted at rest since F-080; rows saved before that
+    # are plaintext, so fall back transparently (re-encrypted on next save).
+    username = decrypt_value_with_plaintext_fallback(stored_username, secret_key)
 
     if not username or not encrypted_pw:
         logger.error("Walgreens credentials not configured in settings table")

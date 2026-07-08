@@ -3,9 +3,11 @@
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import sys
+import time
 from functools import wraps
 
 from datetime import date as date_type
@@ -17,6 +19,7 @@ from flask import (
     current_app,
     flash,
     jsonify,
+    make_response,
     redirect,
     render_template,
     request,
@@ -25,6 +28,71 @@ from flask import (
 )
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Login failure throttling (F-034)
+#
+# After MAX_LOGIN_FAILURES consecutive failures, further attempts (even with
+# the correct password) are refused until the window passes; a successful
+# login clears the counter. State lives in the `settings` table, NOT a
+# module-level counter: the container runs gunicorn with multiple workers,
+# and per-worker state would let the effective threshold scale with the
+# worker count (Copilot review of #162). Wall-clock epoch time (shared,
+# unlike `time.monotonic()`) is used so the lockout window agrees across
+# workers.
+# ---------------------------------------------------------------------------
+
+MAX_LOGIN_FAILURES = 5
+LOGIN_LOCKOUT_SECONDS = 15 * 60
+
+_FAILURES_KEY = "admin_login_failures"
+_LOCKED_UNTIL_KEY = "admin_login_locked_until"
+
+
+def _now():
+    """Wall-clock epoch seconds — injectable so tests can advance the clock."""
+    return time.time()
+
+
+def _login_throttle_state(cur):
+    """Return (failures, locked_until) from the settings table."""
+    cur.execute(
+        "SELECT key, value FROM settings WHERE key IN (%s, %s)",
+        (_FAILURES_KEY, _LOCKED_UNTIL_KEY),
+    )
+    values = {k: v for k, v in cur.fetchall()}
+    failures = int(values.get(_FAILURES_KEY) or 0)
+    locked_until = float(values.get(_LOCKED_UNTIL_KEY) or 0.0)
+    return failures, locked_until
+
+
+def _record_login_failure(cur):
+    """Atomically increment the shared failure counter; set the lockout when
+    it trips. The increment is a single INSERT…ON CONFLICT that computes the
+    new value in SQL and RETURNs it, rather than read-then-write — concurrent
+    login POSTs (across gunicorn workers) would otherwise lose increments and
+    weaken the lockout guarantee (Copilot review of #162)."""
+    cur.execute(
+        "INSERT INTO settings (key, value, updated_at) VALUES (%s, '1', NOW()) "
+        "ON CONFLICT (key) DO UPDATE SET "
+        "value = (COALESCE(settings.value, '0')::int + 1)::text, updated_at = NOW() "
+        "RETURNING value::int",
+        (_FAILURES_KEY,),
+    )
+    failures = cur.fetchone()[0]
+    if failures >= MAX_LOGIN_FAILURES:
+        _upsert_setting(cur, _LOCKED_UNTIL_KEY, str(_now() + LOGIN_LOCKOUT_SECONDS))
+    return failures
+
+
+def _clear_login_throttle(cur):
+    """Clear throttle state after a successful login."""
+    cur.execute(
+        "DELETE FROM settings WHERE key IN (%s, %s)",
+        (_FAILURES_KEY, _LOCKED_UNTIL_KEY),
+    )
 
 
 def get_db():
@@ -48,11 +116,27 @@ def require_admin(f):
 @admin_bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
+        db = get_db()
+        cur = db.cursor()
+        _, locked_until = _login_throttle_state(cur)
+        if _now() < locked_until:
+            flash("Too many attempts. Try again later.", "error")
+            return render_template("login.html"), 429
+
         password = request.form.get("password", "")
         admin_password = os.environ.get("ADMIN_PASSWORD", "")
         if admin_password and hmac.compare_digest(password, admin_password):
+            _clear_login_throttle(cur)
+            db.commit()
             session["admin"] = True
             return redirect(url_for("admin.dashboard"))
+
+        failures = _record_login_failure(cur)
+        db.commit()
+        # Counter only — never the submitted value or anything about it.
+        logger.warning(
+            "Admin login failure (consecutive failures: %d)", failures
+        )
         flash("Invalid password.", "error")
     return render_template("login.html")
 
@@ -117,9 +201,7 @@ def dashboard():
 # ---------------------------------------------------------------------------
 
 
-@admin_bp.route("/keys")
-@require_admin
-def keys():
+def _render_keys_page(new_key=None):
     db = get_db()
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
@@ -127,8 +209,22 @@ def keys():
         "FROM api_keys ORDER BY created_at DESC"
     )
     api_keys = cur.fetchall()
-    new_key = session.pop("new_key", None)
-    return render_template("keys.html", api_keys=api_keys, new_key=new_key)
+    html = render_template("keys.html", api_keys=api_keys, new_key=new_key)
+    if new_key is None:
+        return html
+    # The one-time raw key is in this HTML. Forbid all caching so a browser
+    # back-button, disk cache, or intermediary proxy can't re-surface it
+    # after the intended "shown once" moment (Copilot review of #162).
+    resp = make_response(html)
+    resp.headers["Cache-Control"] = "no-store, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+
+@admin_bp.route("/keys")
+@require_admin
+def keys():
+    return _render_keys_page()
 
 
 @admin_bp.route("/keys", methods=["POST"])
@@ -151,8 +247,12 @@ def create_key():
     )
     db.commit()
 
-    session["new_key"] = raw_key
-    return redirect(url_for("admin.keys"))
+    # Render the raw key exactly once, directly in this POST response. It must
+    # NOT round-trip through the session cookie (the previous flow's
+    # session["new_key"] + redirect): Flask sessions are signed but not
+    # encrypted, so the raw key would transit the network in a decodable
+    # cookie (F-033).
+    return _render_keys_page(new_key=raw_key)
 
 
 @admin_bp.route("/keys/<int:key_id>/revoke", methods=["POST"])
@@ -167,8 +267,44 @@ def revoke_key(key_id):
 
 
 # ---------------------------------------------------------------------------
-# ResMed Settings
+# ResMed / Walgreens / CapRx Settings
 # ---------------------------------------------------------------------------
+
+
+def _upsert_setting(cur, key, value):
+    cur.execute(
+        "INSERT INTO settings (key, value, updated_at) VALUES (%s, %s, NOW()) "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+        (key, value),
+    )
+
+
+def _upgrade_legacy_plaintext_setting(cur, key, secret_key):
+    """Re-encrypt a legacy plaintext settings value in place (F-080).
+
+    ResMed email and Walgreens username were historically stored plaintext
+    while the paired passwords (and CapRx's email) were Fernet-encrypted.
+    New saves encrypt these identifiers, but existing rows may still hold
+    plaintext. On each save, if the stored value does NOT have the structural
+    shape of a Fernet token (looks_like_fernet_token) we treat it as legacy
+    plaintext and encrypt it in place. The check is on token *shape*, not a
+    decrypt attempt, precisely so a misconfigured SECRET_KEY can't misread an
+    already-encrypted value as plaintext and double-encrypt it — this lazy
+    upgrade only ever touches a value that provably isn't already a token.
+    Deliberately NOT a bulk migration for the same corruption-safety reason.
+    """
+    from crypto import encrypt_value, looks_like_fernet_token
+
+    cur.execute("SELECT value FROM settings WHERE key = %s", (key,))
+    row = cur.fetchone()
+    if not row or not row[0]:
+        return
+    # Only re-encrypt a value that provably ISN'T already a Fernet token.
+    # A token that merely fails to decrypt (wrong SECRET_KEY) must be left
+    # untouched — re-encrypting it would double-encrypt and corrupt it, the
+    # exact outcome the no-bulk-migration decision avoids (Copilot #162).
+    if not looks_like_fernet_token(row[0]):
+        _upsert_setting(cur, key, encrypt_value(row[0], secret_key))
 
 
 @admin_bp.route("/settings/resmed", methods=["GET", "POST"])
@@ -198,29 +334,18 @@ def resmed_settings():
             flash("Invalid sync time. Use HH or HH:MM format (0-23).", "error")
             return redirect(url_for("admin.resmed_settings"))
 
-        # Save email
+        # Save email — encrypted at rest, same as the CapRx email (F-080).
         if email:
-            cur.execute(
-                "INSERT INTO settings (key, value, updated_at) VALUES ('resmed_email', %s, NOW()) "
-                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
-                (email,),
-            )
+            _upsert_setting(cur, "resmed_email", encrypt_value(email, secret_key))
+        else:
+            _upgrade_legacy_plaintext_setting(cur, "resmed_email", secret_key)
 
         # Save password (only if provided)
         if password:
-            encrypted = encrypt_value(password, secret_key)
-            cur.execute(
-                "INSERT INTO settings (key, value, updated_at) VALUES ('resmed_password', %s, NOW()) "
-                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
-                (encrypted,),
-            )
+            _upsert_setting(cur, "resmed_password", encrypt_value(password, secret_key))
 
         # Save sync time
-        cur.execute(
-            "INSERT INTO settings (key, value, updated_at) VALUES ('resmed_sync_time', %s, NOW()) "
-            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
-            (sync_time,),
-        )
+        _upsert_setting(cur, "resmed_sync_time", sync_time)
         db.commit()
         flash("Settings saved.", "success")
 
@@ -241,13 +366,14 @@ def resmed_settings():
 
         return redirect(url_for("admin.resmed_settings"))
 
-    # GET — read current settings
+    # GET — read current settings. The stored email is never echoed back into
+    # the form (it may be encrypted or legacy plaintext); only its presence.
     def _get(key):
         cur.execute("SELECT value FROM settings WHERE key = %s", (key,))
         row = cur.fetchone()
         return row[0] if row else None
 
-    email = _get("resmed_email") or ""
+    has_email = _get("resmed_email") is not None
     has_password = _get("resmed_password") is not None
     sync_time = _get("resmed_sync_time") or "21:00"
     last_sync = _get("resmed_last_sync")
@@ -255,7 +381,7 @@ def resmed_settings():
 
     return render_template(
         "resmed_settings.html",
-        email=email,
+        has_email=has_email,
         has_password=has_password,
         sync_time=sync_time,
         last_sync=last_sync,
@@ -296,38 +422,22 @@ def walgreens_settings():
             flash("Invalid sync time. Use HH or HH:MM format (0-23).", "error")
             return redirect(url_for("admin.walgreens_settings"))
 
-        # Save username
+        # Save username — encrypted at rest, same as the CapRx email (F-080).
         if username:
-            cur.execute(
-                "INSERT INTO settings (key, value, updated_at) VALUES ('walgreens_username', %s, NOW()) "
-                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
-                (username,),
-            )
+            _upsert_setting(cur, "walgreens_username", encrypt_value(username, secret_key))
+        else:
+            _upgrade_legacy_plaintext_setting(cur, "walgreens_username", secret_key)
 
         # Save password (only if provided)
         if password:
-            encrypted = encrypt_value(password, secret_key)
-            cur.execute(
-                "INSERT INTO settings (key, value, updated_at) VALUES ('walgreens_password', %s, NOW()) "
-                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
-                (encrypted,),
-            )
+            _upsert_setting(cur, "walgreens_password", encrypt_value(password, secret_key))
 
         # Save security answer (only if provided)
         if security_answer:
-            encrypted = encrypt_value(security_answer, secret_key)
-            cur.execute(
-                "INSERT INTO settings (key, value, updated_at) VALUES ('walgreens_security_answer', %s, NOW()) "
-                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
-                (encrypted,),
-            )
+            _upsert_setting(cur, "walgreens_security_answer", encrypt_value(security_answer, secret_key))
 
         # Save sync time
-        cur.execute(
-            "INSERT INTO settings (key, value, updated_at) VALUES ('walgreens_sync_time', %s, NOW()) "
-            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
-            (sync_time,),
-        )
+        _upsert_setting(cur, "walgreens_sync_time", sync_time)
         db.commit()
         flash("Settings saved.", "success")
 
@@ -348,13 +458,14 @@ def walgreens_settings():
 
         return redirect(url_for("admin.walgreens_settings"))
 
-    # GET — read current settings
+    # GET — read current settings. The stored username is never echoed back
+    # into the form (it may be encrypted or legacy plaintext); only presence.
     def _get(key):
         cur.execute("SELECT value FROM settings WHERE key = %s", (key,))
         row = cur.fetchone()
         return row[0] if row else None
 
-    username = _get("walgreens_username") or ""
+    has_username = _get("walgreens_username") is not None
     has_password = _get("walgreens_password") is not None
     has_security_answer = _get("walgreens_security_answer") is not None
     sync_time = _get("walgreens_sync_time") or "21:00"
@@ -363,7 +474,7 @@ def walgreens_settings():
 
     return render_template(
         "walgreens_settings.html",
-        username=username,
+        has_username=has_username,
         has_password=has_password,
         has_security_answer=has_security_answer,
         sync_time=sync_time,

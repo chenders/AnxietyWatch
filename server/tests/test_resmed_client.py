@@ -149,6 +149,50 @@ def test_network_error_wrapped(mock_requests):
 
 
 @patch("resmed_client.requests")
+def test_authorize_connection_error_redacts_session_token(mock_requests):
+    """F-076: a connection failure on the authorize step produces urllib3
+    exception text embedding the full URL — query string (with the one-time
+    Okta sessionToken) included. The wrapped MyAirAuthError must carry the
+    step label but never the token."""
+    import requests as real_requests
+
+    authn = MagicMock()
+    authn.json.return_value = {"status": "SUCCESS", "sessionToken": "FAKE-SESSION-TOKEN-123"}
+    mock_requests.post.return_value = authn
+
+    mock_requests.get.side_effect = real_requests.ConnectionError(
+        "HTTPSConnectionPool(host='resmed-ext-1.okta.com', port=443): "
+        "Max retries exceeded with url: /oauth2/aus4/v1/authorize"
+        "?client_id=abc&sessionToken=FAKE-SESSION-TOKEN-123&state=xyz "
+        "(Caused by NewConnectionError('...'))"
+    )
+
+    client = MyAirClient(username="user@example.com", password="secret")
+    with pytest.raises(MyAirAuthError) as excinfo:
+        client.fetch_sessions()
+
+    message = str(excinfo.value)
+    assert "Okta authorize request failed" in message
+    assert "FAKE-SESSION-TOKEN-123" not in message
+    assert "sessionToken" not in message
+
+
+@patch("resmed_client.requests")
+def test_primary_auth_connection_error_is_step_labeled_and_sanitized(mock_requests):
+    import requests as real_requests
+
+    mock_requests.post.side_effect = real_requests.ConnectionError(
+        "Max retries exceeded with url: /api/v1/authn?fake_param=FAKE-VALUE-999"
+    )
+    client = MyAirClient(username="user@example.com", password="secret")
+    with pytest.raises(MyAirAuthError) as excinfo:
+        client.fetch_sessions()
+    message = str(excinfo.value)
+    assert "Okta primary auth request failed" in message
+    assert "FAKE-VALUE-999" not in message
+
+
+@patch("resmed_client.requests")
 def test_non_json_token_response(mock_requests):
     authn, authorize, _ = _mock_auth_responses()
 

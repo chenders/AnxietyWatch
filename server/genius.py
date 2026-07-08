@@ -6,6 +6,8 @@ import os
 import requests
 from bs4 import BeautifulSoup
 
+from log_sanitize import sanitize_exception_text
+
 log = logging.getLogger(__name__)
 
 GENIUS_API_BASE = "https://api.genius.com"
@@ -145,6 +147,12 @@ def fetch_lyrics_musixmatch(title: str, artist: str) -> str | None:
             if disclaimer_marker in lyrics:
                 lyrics = lyrics[:lyrics.index(disclaimer_marker)].strip()
         return lyrics if lyrics else None
-    except (requests.RequestException, ValueError):
-        log.exception("Musixmatch fetch failed for %s - %s", artist, title)
+    except (requests.RequestException, ValueError) as exc:
+        # log.error with sanitized text, NOT log.exception (F-079): the
+        # traceback's exception message embeds the full request URL, and the
+        # Musixmatch API key rides as an `apikey` query param on it.
+        log.error(
+            "Musixmatch fetch failed for %s - %s: %s",
+            artist, title, sanitize_exception_text(exc),
+        )
         return None

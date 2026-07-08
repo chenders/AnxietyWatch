@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 
 import psycopg2
 import psycopg2.extras
@@ -14,6 +15,8 @@ import pytest
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import admin  # noqa: E402
+from crypto import decrypt_value, encrypt_value  # noqa: E402
 from server import create_app  # noqa: E402
 
 
@@ -75,6 +78,12 @@ def _clean_tables(app):
         )
         db.commit()
     yield
+
+
+# Login-failure throttling (F-034) state lives in the `settings` table, which
+# `_clean_tables` already truncates before every test — no separate reset hook
+# is needed. (It moved out of module-level state so the lockout holds across
+# gunicorn workers; see admin.login.)
 
 
 def auth_header():
@@ -1169,6 +1178,71 @@ def test_admin_login_wrong_password(client):
     assert b"Invalid password" in resp.data
 
 
+# ---------------------------------------------------------------------------
+# Admin login throttling (F-034)
+# ---------------------------------------------------------------------------
+
+
+def test_admin_login_failures_below_threshold_still_allow_login(client):
+    os.environ["ADMIN_PASSWORD"] = "testpass"
+    for _ in range(admin.MAX_LOGIN_FAILURES - 1):
+        resp = client.post("/admin/login", data={"password": "distinctive-wrong-value"})
+        assert resp.status_code == 200
+        assert b"Invalid password" in resp.data
+    resp = client.post("/admin/login", data={"password": "testpass"})
+    assert resp.status_code == 302
+
+
+def test_admin_login_lockout_blocks_even_correct_password(client, app, monkeypatch):
+    os.environ["ADMIN_PASSWORD"] = "testpass"
+    fake_now = {"t": 1000.0}
+    monkeypatch.setattr(admin, "_now", lambda: fake_now["t"])
+
+    for _ in range(admin.MAX_LOGIN_FAILURES):
+        client.post("/admin/login", data={"password": "distinctive-wrong-value"})
+
+    # State is shared via the settings table (holds across gunicorn workers),
+    # not a per-process counter.
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute("SELECT value FROM settings WHERE key = %s", (admin._FAILURES_KEY,))
+        assert int(cur.fetchone()[0]) == admin.MAX_LOGIN_FAILURES
+
+    # Locked: even the correct password is refused with a fixed message.
+    resp = client.post("/admin/login", data={"password": "testpass"})
+    assert resp.status_code == 429
+    assert b"Too many attempts" in resp.data
+
+    # Once the window passes, the correct password works again.
+    fake_now["t"] += admin.LOGIN_LOCKOUT_SECONDS + 1
+    resp = client.post("/admin/login", data={"password": "testpass"})
+    assert resp.status_code == 302
+
+
+def test_admin_login_success_resets_failure_counter(client):
+    os.environ["ADMIN_PASSWORD"] = "testpass"
+    for _ in range(admin.MAX_LOGIN_FAILURES - 1):
+        client.post("/admin/login", data={"password": "distinctive-wrong-value"})
+    resp = client.post("/admin/login", data={"password": "testpass"})
+    assert resp.status_code == 302
+    # Counter reset: another below-threshold run of failures must not lock.
+    for _ in range(admin.MAX_LOGIN_FAILURES - 1):
+        resp = client.post("/admin/login", data={"password": "distinctive-wrong-value"})
+        assert resp.status_code == 200
+    resp = client.post("/admin/login", data={"password": "testpass"})
+    assert resp.status_code == 302
+
+
+def test_admin_login_failure_logs_counter_only(client, caplog):
+    os.environ["ADMIN_PASSWORD"] = "testpass"
+    with caplog.at_level(logging.WARNING, logger="admin"):
+        client.post("/admin/login", data={"password": "distinctive-wrong-value"})
+        client.post("/admin/login", data={"password": "distinctive-wrong-value"})
+    assert "consecutive failures: 2" in caplog.text
+    # Never the submitted value — and nothing derived from it (no length).
+    assert "distinctive-wrong-value" not in caplog.text
+
+
 def test_admin_create_and_revoke_key(client, app):
     os.environ["ADMIN_PASSWORD"] = "testpass"
     # Login
@@ -1187,6 +1261,55 @@ def test_admin_create_and_revoke_key(client, app):
     resp = client.post(f"/admin/keys/{key_id}/revoke", follow_redirects=True)
     assert resp.status_code == 200
     assert b"Revoked" in resp.data
+
+
+def test_admin_create_key_shown_once_and_never_in_session_cookie(client, app):
+    """F-033: the raw API key is rendered exactly once, directly in the POST
+    response — it must never round-trip through the session cookie (signed
+    but not encrypted) and must not reappear on a subsequent GET."""
+    os.environ["ADMIN_PASSWORD"] = "testpass"
+    client.post("/admin/login", data={"password": "testpass"})
+
+    resp = client.post("/admin/keys", data={"label": "One Shot"})
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    match = re.search(r'<div class="key-display">([^<]+)</div>', body)
+    assert match, "raw key not shown in the create-key response"
+    raw_key = match.group(1)
+
+    # Never serialized into the session.
+    with client.session_transaction() as sess:
+        assert "new_key" not in sess
+
+    # Not shown again on a later GET.
+    resp = client.get("/admin/keys")
+    assert raw_key not in resp.get_data(as_text=True)
+
+    # The shown key really is the one that was stored (hash matches).
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute("SELECT key_hash FROM api_keys WHERE label = 'One Shot'")
+        stored_hash = cur.fetchone()[0]
+    assert stored_hash == hashlib.sha256(raw_key.encode()).hexdigest()
+
+
+def test_session_cookie_secure_defaults_off(monkeypatch):
+    """F-033: Secure flag defaults OFF for the plain-HTTP LAN deployment."""
+    monkeypatch.delenv("SESSION_COOKIE_SECURE", raising=False)
+    app = create_app({"TESTING": True, "DATABASE_URL": DATABASE_URL})
+    assert app.config["SESSION_COOKIE_SECURE"] is False
+
+
+def test_session_cookie_secure_env_var_enables(monkeypatch):
+    monkeypatch.setenv("SESSION_COOKIE_SECURE", "1")
+    app = create_app({"TESTING": True, "DATABASE_URL": DATABASE_URL})
+    assert app.config["SESSION_COOKIE_SECURE"] is True
+
+
+def test_session_cookie_secure_non_truthy_value_stays_off(monkeypatch):
+    monkeypatch.setenv("SESSION_COOKIE_SECURE", "0")
+    app = create_app({"TESTING": True, "DATABASE_URL": DATABASE_URL})
+    assert app.config["SESSION_COOKIE_SECURE"] is False
 
 
 def test_admin_data_browser(client):
@@ -1240,8 +1363,12 @@ def test_resmed_settings_save(client, app):
     with app.app_context():
         db = app.get_db()
         cur = db.cursor()
+        # Email is encrypted at rest (F-080) — never stored plaintext, but
+        # the sync read path decrypts it back to the identifier.
         cur.execute("SELECT value FROM settings WHERE key = 'resmed_email'")
-        assert cur.fetchone()[0] == "user@example.com"
+        stored_email = cur.fetchone()[0]
+        assert stored_email != "user@example.com"
+        assert decrypt_value(stored_email, "test-secret-key") == "user@example.com"
         cur.execute("SELECT value FROM settings WHERE key = 'resmed_sync_time'")
         assert cur.fetchone()[0] == "14:00"
         # Password should be encrypted (not stored as plaintext)
@@ -1249,6 +1376,122 @@ def test_resmed_settings_save(client, app):
         stored = cur.fetchone()[0]
         assert stored != "mypass"
         assert len(stored) > 0
+
+    # The settings page reports presence only — it never echoes the address.
+    resp = client.get("/admin/settings/resmed")
+    assert resp.status_code == 200
+    assert b"user@example.com" not in resp.data
+    assert b"Leave blank to keep current email" in resp.data
+
+
+def _insert_setting(app, key, value):
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (%s, %s, NOW()) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+            (key, value),
+        )
+        db.commit()
+
+
+def _read_setting(app, key):
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute("SELECT value FROM settings WHERE key = %s", (key,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
+def test_resmed_settings_legacy_plaintext_email_upgrades_on_save(client, app):
+    """F-080: a legacy plaintext resmed_email still works (page shows
+    presence, never the value) and gets re-encrypted on the next save even
+    when the form leaves the email field blank."""
+    os.environ["ADMIN_PASSWORD"] = "testpass"
+    os.environ["SECRET_KEY"] = "test-secret-key"
+    _insert_setting(app, "resmed_email", "legacy-user@example.com")
+    client.post("/admin/login", data={"password": "testpass"})
+
+    # GET never echoes the legacy plaintext value.
+    resp = client.get("/admin/settings/resmed")
+    assert b"legacy-user@example.com" not in resp.data
+    assert b"Leave blank to keep current email" in resp.data
+
+    # Save with the email field blank → the stored value is upgraded in place.
+    resp = client.post(
+        "/admin/settings/resmed",
+        data={"action": "save", "email": "", "password": "", "sync_time": "21:00"},
+        follow_redirects=True,
+    )
+    assert b"Settings saved" in resp.data
+    stored = _read_setting(app, "resmed_email")
+    assert stored != "legacy-user@example.com"
+    assert decrypt_value(stored, "test-secret-key") == "legacy-user@example.com"
+
+
+def test_walgreens_settings_save_encrypts_username(client, app):
+    os.environ["ADMIN_PASSWORD"] = "testpass"
+    os.environ["SECRET_KEY"] = "test-secret-key"
+    client.post("/admin/login", data={"password": "testpass"})
+    resp = client.post(
+        "/admin/settings/walgreens",
+        data={
+            "action": "save", "username": "wag-user@example.com",
+            "password": "mypass", "security_answer": "", "sync_time": "21:00",
+        },
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert b"Settings saved" in resp.data
+
+    stored = _read_setting(app, "walgreens_username")
+    assert stored != "wag-user@example.com"
+    assert decrypt_value(stored, "test-secret-key") == "wag-user@example.com"
+
+    # Presence-only rendering — the identifier is never echoed into the form.
+    resp = client.get("/admin/settings/walgreens")
+    assert b"wag-user@example.com" not in resp.data
+    assert b"Leave blank to keep current username" in resp.data
+
+
+def test_walgreens_settings_legacy_plaintext_username_upgrades_on_save(client, app):
+    os.environ["ADMIN_PASSWORD"] = "testpass"
+    os.environ["SECRET_KEY"] = "test-secret-key"
+    _insert_setting(app, "walgreens_username", "legacy-wag@example.com")
+    client.post("/admin/login", data={"password": "testpass"})
+
+    resp = client.post(
+        "/admin/settings/walgreens",
+        data={
+            "action": "save", "username": "",
+            "password": "", "security_answer": "", "sync_time": "21:00",
+        },
+        follow_redirects=True,
+    )
+    assert b"Settings saved" in resp.data
+    stored = _read_setting(app, "walgreens_username")
+    assert stored != "legacy-wag@example.com"
+    assert decrypt_value(stored, "test-secret-key") == "legacy-wag@example.com"
+
+
+def test_upgrade_does_not_touch_already_encrypted_value(client, app):
+    """The lazy re-encrypt must never double-encrypt a value that already
+    decrypts cleanly — that would corrupt it."""
+    os.environ["ADMIN_PASSWORD"] = "testpass"
+    os.environ["SECRET_KEY"] = "test-secret-key"
+    encrypted = encrypt_value("stable-user@example.com", "test-secret-key")
+    _insert_setting(app, "resmed_email", encrypted)
+    client.post("/admin/login", data={"password": "testpass"})
+
+    client.post(
+        "/admin/settings/resmed",
+        data={"action": "save", "email": "", "password": "", "sync_time": "21:00"},
+        follow_redirects=True,
+    )
+    stored = _read_setting(app, "resmed_email")
+    assert stored == encrypted
+    assert decrypt_value(stored, "test-secret-key") == "stable-user@example.com"
 
 
 # ---------------------------------------------------------------------------

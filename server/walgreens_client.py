@@ -20,6 +20,7 @@ import logging
 import re
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -346,29 +347,27 @@ class WalgreensClient:
                 lambda url: "login.jsp" not in url, timeout=20000
             )
         except Exception as exc:
+            # Bounded, non-identifying diagnostics only (F-077): the page at
+            # this point contains the account email in the filled username
+            # field, and account-specific error pages can echo it in the body
+            # text — so no page-text dumps, no error-element text, and no
+            # screenshots (the previous /tmp screenshot persisted the filled
+            # login form indefinitely). Log the URL path without its query,
+            # the page title, and the body-text length.
+            url_path = urlparse(page.url).path
             logger.error(
-                "Login did not navigate. Current URL: %s, page title: %s",
-                page.url, page.title(),
+                "Login did not navigate. URL path: %s, page title: %s",
+                url_path, page.title(),
             )
-            # Try to capture any error message on the page
             error_el = page.query_selector(
                 '.error, .alert-error, [role="alert"], .errMsg'
             )
-            if error_el:
-                logger.error(
-                    "Page error message: %s", error_el.inner_text()
-                )
-            # Dump all page text and save screenshot for debugging
+            logger.error("Page error element present: %s", error_el is not None)
             try:
-                body_text = page.inner_text("body")
-                logger.error(
-                    "Full page text (first 3000 chars): %s",
-                    body_text[:3000],
-                )
-                page.screenshot(path="/tmp/walgreens_login_fail.png")
-                logger.error("Screenshot saved to /tmp/walgreens_login_fail.png")
+                body_length = len(page.inner_text("body"))
             except Exception:
-                pass
+                body_length = -1
+            logger.error("Page body text length: %d", body_length)
             # Log browser info for bot detection debugging
             logger.error(
                 "Browser UA: %s",
@@ -379,7 +378,7 @@ class WalgreensClient:
                 page.evaluate("() => navigator.webdriver"),
             )
             raise WalgreensAuthError(
-                f"Login failed — page did not navigate. URL: {page.url}"
+                f"Login failed — page did not navigate (path: {url_path})"
             ) from exc
 
         logger.info("Navigated to: %s", page.url)

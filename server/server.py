@@ -28,6 +28,13 @@ from genius import search_songs, fetch_song_metadata, scrape_lyrics, fetch_lyric
 def create_app(test_config=None):
     app = Flask(__name__)
     app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
+    # Secure flag is opt-in via env because the reference deployment serves
+    # plain HTTP on the LAN — enabling it unconditionally would silently make
+    # the admin session cookie undeliverable and lock the maintainer out.
+    # Run behind TLS and set SESSION_COOKIE_SECURE=1 (see docs/SERVER_SETUP.md).
+    app.config["SESSION_COOKIE_SECURE"] = (
+        os.environ.get("SESSION_COOKIE_SECURE", "").strip().lower() in ("1", "true", "yes")
+    )
 
     if test_config:
         app.config.update(test_config)

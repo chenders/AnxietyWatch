@@ -642,7 +642,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#162)
 
 ### F-034 · P2 · confirmed · security · admin-auth
 
@@ -654,7 +654,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#162)
 
 ### F-035 · P2 · confirmed · security · server-deploy
 
@@ -666,7 +666,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#162)
 
 ### F-036 · P2 · confirmed · accuracy · dashboard-lastnight
 
@@ -1176,7 +1176,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#162)
 
 ### F-077 · P3 · confirmed · security · walgreens-sync
 
@@ -1190,7 +1190,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); related anchors: `server/walgreens_client.py:_authenticate`.  
 
-**Disposition:** approved
+**Disposition:** fixed (#162)
 
 ### F-078 · P3 · confirmed · security · caprx-sync
 
@@ -1202,7 +1202,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#162)
 
 ### F-079 · P3 · confirmed · security · server-songs
 
@@ -1214,7 +1214,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#162)
 
 ### F-080 · P3 · confirmed · security · server-credentials
 
@@ -1226,7 +1226,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#162)
 
 ### F-081 · P3 · confirmed · silent-failure · clinical-labs-import
 

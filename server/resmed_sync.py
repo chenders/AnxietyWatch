@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 
 import psycopg2
 
-from crypto import decrypt_value
+from crypto import decrypt_value, decrypt_value_with_plaintext_fallback
 from resmed_client import MyAirClient, MyAirAuthError, MyAirAPIError
 
 logger = logging.getLogger(__name__)
@@ -206,13 +206,17 @@ def main(argv=None):
             return 0
 
     # --- Read credentials ----------------------------------------------------
-    username = get_setting(conn, "resmed_email")
+    stored_email = get_setting(conn, "resmed_email")
     encrypted_pw = get_setting(conn, "resmed_password")
     secret_key = os.environ.get("SECRET_KEY", "")
     if not secret_key:
         logger.error("SECRET_KEY env var is not set — cannot decrypt credentials")
         conn.close()
         return 3
+
+    # The email is encrypted at rest since F-080; rows saved before that are
+    # plaintext, so fall back transparently (re-encrypted on next admin save).
+    username = decrypt_value_with_plaintext_fallback(stored_email, secret_key)
 
     if not username or not encrypted_pw:
         logger.error("ResMed credentials not configured in settings table")

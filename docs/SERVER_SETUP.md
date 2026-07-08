@@ -92,6 +92,20 @@ sudo ufw allow from 192.168.1.0/24 to any port 8081 proto tcp comment 'AnxietyWa
 
 > **Note:** Docker published ports bypass UFW by default (Docker modifies iptables directly). This is safe if the server is on a private network behind a router with no port forwarding. If the server has a public IP, bind the compose port to a specific LAN interface IP instead of `0.0.0.0`.
 
+> **Postgres binding:** The compose files publish PostgreSQL on `127.0.0.1:5439` (loopback-only). Nothing should connect to the database from off-host — on-host tooling uses `psql -h 127.0.0.1 -p 5439`, and remote inspection goes through `docker exec` (see the `/query-prod` command). Do not widen this binding.
+
+### 3a. TLS and the Admin Session Cookie
+
+The admin UI is served over plain HTTP on the LAN by default, so the session cookie's `Secure` flag is **off** by default — enabling it without TLS would make the cookie undeliverable and lock you out of `/admin`.
+
+If you put the server behind TLS (e.g., a reverse proxy such as Caddy or nginx terminating HTTPS), set `SESSION_COOKIE_SECURE=1` in `/opt/anxietywatch/.env` (the compose files already pass it through to the app container) so the session cookie is never sent over plain HTTP:
+
+```
+SESSION_COOKIE_SECURE=1
+```
+
+Anything other than `1`/`true`/`yes` (or leaving it unset) keeps the flag off for plain-HTTP deployments.
+
 ### 4. Create GitHub PAT for Runner
 
 1. GitHub → Settings → Developer settings → Fine-grained tokens
