@@ -444,15 +444,32 @@ struct SnapshotAggregator {
         try await applyOvernightSpO2Precedence(
             on: snapshot, overnightStart: overnightStart, overnightEnd: overnightEnd
         )
+
+        // Single QuantityHealthSample fetch spanning the union of the two
+        // windows this method's helpers need: the overnight window
+        // [overnightStart, overnightEnd) for heart-metrics precedence and the
+        // calendar-day window [start, end) for data quality. Because
+        // overnightStart < start < overnightEnd < end, that union is simply
+        // [overnightStart, end). Both helpers filter this array in-memory to
+        // their own sub-window, replacing three overlapping fetches (heart
+        // metrics + data-quality day + data-quality overnight-SpO2, the last a
+        // subset of the first) with one materialization (F-055).
+        let sampleUnion = try modelContext.fetch(
+            FetchDescriptor<QuantityHealthSample>(
+                predicate: #Predicate { $0.timestamp >= overnightStart && $0.timestamp < end }
+            )
+        )
+
         try applyDailyHeartMetricsPrecedence(
-            on: snapshot, start: overnightStart, end: overnightEnd
+            on: snapshot, samples: sampleUnion, start: overnightStart, end: overnightEnd
         )
 
         // Compute reliability + source-summary JSON from the local SwiftData
         // mirror of `QuantityHealthSample` rows. Reliability/source metadata
         // is derived from the local mirror — the authoritative source for
         // source/device fields.
-        snapshot.dataQuality = try computeDataQuality(
+        snapshot.dataQuality = computeDataQuality(
+            samples: sampleUnion,
             dayStart: start, dayEnd: end,
             overnightStart: overnightStart, overnightEnd: overnightEnd
         )
@@ -819,6 +836,7 @@ struct SnapshotAggregator {
     /// HK-direct value is kept.
     private func applyDailyHeartMetricsPrecedence(
         on snapshot: HealthSnapshot,
+        samples: [QuantityHealthSample],
         start: Date,
         end: Date
     ) throws {
@@ -827,18 +845,14 @@ struct SnapshotAggregator {
         let hrvType = HKQuantityTypeIdentifier.heartRateVariabilitySDNN.rawValue
         let wantedMetrics: Set<String> = [hrType, rhrType, hrvType]
 
-        // Date-only predicate + in-memory metricType filter — same iOS 26
-        // SwiftData footgun avoidance as `applyOvernightSpO2Precedence`.
-        // Captured `String` locals inside a compound `#Predicate &&` clause
-        // can hang the main thread during SQL ORDER BY generation; keep
-        // the predicate restricted to indexed primitive `Date` comparisons
-        // and partition by metric type in memory.
-        let descriptor = FetchDescriptor<QuantityHealthSample>(
-            predicate: #Predicate {
-                $0.timestamp >= start && $0.timestamp < end
-            }
-        )
-        let windowRows = try modelContext.fetch(descriptor)
+        // `samples` is the shared union fetch from aggregateDay; filter it to
+        // this method's [start, end) window and the wanted metrics in memory
+        // (F-055). This preserves the previous behavior exactly — the old
+        // per-method fetch used the identical Date-only predicate — while
+        // avoiding a redundant materialization. (Date-only predicates also
+        // sidestep the iOS 26 compound-#Predicate ORDER BY hang, which the
+        // union fetch in aggregateDay likewise honors.)
+        let windowRows = samples.filter { $0.timestamp >= start && $0.timestamp < end }
         let rows = windowRows.filter { wantedMetrics.contains($0.metricType) }
         let byMetric = Dictionary(grouping: rows, by: \.metricType)
 
@@ -900,28 +914,24 @@ struct SnapshotAggregator {
     /// family — when no samples are present, the family is `insufficient`
     /// with empty `sources`. Keys are sorted for deterministic output.
     private func computeDataQuality(
+        samples: [QuantityHealthSample],
         dayStart: Date, dayEnd: Date,
         overnightStart: Date, overnightEnd: Date
-    ) throws -> String? {
-        // Day-window samples (most metrics)
-        let dayDescriptor = FetchDescriptor<QuantityHealthSample>(
-            predicate: #Predicate { $0.timestamp >= dayStart && $0.timestamp < dayEnd }
-        )
-        let daySamples = try modelContext.fetch(dayDescriptor)
+    ) -> String? {
+        // Both slices come from the shared union fetch (F-055), filtered in
+        // memory to the same windows the old per-descriptor fetches used.
+        // Day-window samples (most metrics).
+        let daySamples = samples.filter { $0.timestamp >= dayStart && $0.timestamp < dayEnd }
 
-        // Overnight-window samples (SpO2). Fetched separately because the
-        // overnight noon-to-noon window straddles two calendar days. Filtered
-        // to oxygen saturation only — this fetch only feeds the spo2 family,
-        // so pulling other metrics is wasted I/O.
+        // Overnight-window samples (SpO2). The overnight noon-to-noon window
+        // straddles two calendar days; filtered to oxygen saturation only —
+        // this slice only feeds the spo2 family.
         let spo2MetricType = HKQuantityTypeIdentifier.oxygenSaturation.rawValue
-        let overnightDescriptor = FetchDescriptor<QuantityHealthSample>(
-            predicate: #Predicate {
-                $0.timestamp >= overnightStart
-                    && $0.timestamp < overnightEnd
-                    && $0.metricType == spo2MetricType
-            }
-        )
-        let overnightSamples = try modelContext.fetch(overnightDescriptor)
+        let overnightSamples = samples.filter {
+            $0.timestamp >= overnightStart
+                && $0.timestamp < overnightEnd
+                && $0.metricType == spo2MetricType
+        }
 
         // Bucket samples by metricType identifier raw value.
         let byType = Dictionary(grouping: daySamples, by: \.metricType)

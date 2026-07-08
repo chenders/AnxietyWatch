@@ -54,6 +54,9 @@ struct ExportView: View, Equatable {
     @State private var shareItems: [Any] = []
     @State private var showingShare = false
     @State private var errorMessage: String?
+    // Serializes the now-async JSON/CSV exports: a rapid double-tap could
+    // otherwise spawn two concurrent background exports racing on shareItems.
+    @State private var isExporting = false
 
     @Query(sort: \AnxietyEntry.timestamp) private var allEntries: [AnxietyEntry]
     @Query(sort: \MedicationDose.timestamp) private var allDoses: [MedicationDose]
@@ -80,12 +83,14 @@ struct ExportView: View, Equatable {
                 } label: {
                     Label("Export JSON", systemImage: "doc.text")
                 }
+                .disabled(isExporting)
 
                 Button {
                     exportCSV()
                 } label: {
                     Label("Export CSV Files", systemImage: "tablecells")
                 }
+                .disabled(isExporting)
             }
 
             Section("Clinical Report") {
@@ -94,6 +99,10 @@ struct ExportView: View, Equatable {
                 } label: {
                     Label("Generate PDF Report", systemImage: "doc.richtext")
                 }
+                // Disabled during an in-flight JSON/CSV export so it can't
+                // overwrite the shared shareItems/showingShare payload mid-race
+                // (Copilot review of #167).
+                .disabled(isExporting)
 
                 Text("Formatted summary suitable for sharing with your clinician.")
                     .font(.caption)
@@ -138,44 +147,79 @@ struct ExportView: View, Equatable {
     // MARK: - Export Actions
 
     private func exportJSON() {
-        do {
-            // Whole selected end day (F-044). DataExporter's range is
-            // half-open with an EXCLUSIVE end (`date < end`), so passing the
-            // start-of-next-day instant keeps every record of the selected
-            // day and excludes the next day's day-keyed rows (which land
-            // exactly at that midnight boundary).
-            let data = try DataExporter.exportJSON(
-                from: modelContext,
-                start: ExportDateRange.lowerBound(for: startDate),
-                end: ExportDateRange.upperBoundExclusive(for: endDate)
-            )
-            let url = tempURL("anxietywatch-export.json")
-            try data.write(to: url)
-            shareItems = [url]
-            showingShare = true
-        } catch {
-            errorMessage = error.localizedDescription
+        // Whole selected end day (F-044). DataExporter's range is half-open
+        // with an EXCLUSIVE end (`date < end`), so passing the start-of-next-
+        // day instant keeps every record of the selected day and excludes the
+        // next day's day-keyed rows (which land exactly at that boundary).
+        guard !isExporting else { return }
+        isExporting = true
+        let start = ExportDateRange.lowerBound(for: startDate)
+        let end = ExportDateRange.upperBoundExclusive(for: endDate)
+        // Fetch + encode on a background context (fresh ModelContext off the
+        // container) so the export doesn't block the main actor (F-056); the
+        // encoded Data is Sendable, so only view-state updates return to main.
+        let container = modelContext.container
+        Task { @MainActor in
+            defer { isExporting = false }
+            do {
+                // Flush pending inserts before exporting on a SEPARATE context.
+                // The app relies on SwiftData autosave, and @Query reflects
+                // not-yet-saved inserts in the SHARED context — but a fresh
+                // ModelContext(container) only sees the persisted store, so a
+                // record logged moments earlier could be silently omitted from
+                // the export without this save (medical review of #167).
+                try modelContext.save()
+                // Fetch, encode, AND write the file all inside the detached
+                // task — the JSON Data can be large, so writing it on the main
+                // actor would reintroduce the stall this offload removes
+                // (Copilot review of #167). Only the Sendable URL returns.
+                let url = try await Task.detached(priority: .userInitiated) {
+                    let data = try DataExporter.exportJSON(from: ModelContext(container), start: start, end: end)
+                    let url = Self.tempURL("anxietywatch-export.json")
+                    try data.write(to: url)
+                    return url
+                }.value
+                shareItems = [url]
+                showingShare = true
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
     private func exportCSV() {
-        do {
-            // Whole selected end day, exclusive-end half-open range (F-044) — see exportJSON.
-            let files = try DataExporter.exportCSV(
-                from: modelContext,
-                start: ExportDateRange.lowerBound(for: startDate),
-                end: ExportDateRange.upperBoundExclusive(for: endDate)
-            )
-            var urls: [URL] = []
-            for (filename, data) in files {
-                let url = tempURL(filename)
-                try data.write(to: url)
-                urls.append(url)
+        // Whole selected end day, exclusive-end half-open range (F-044) — see exportJSON.
+        guard !isExporting else { return }
+        isExporting = true
+        let start = ExportDateRange.lowerBound(for: startDate)
+        let end = ExportDateRange.upperBoundExclusive(for: endDate)
+        let container = modelContext.container
+        Task { @MainActor in
+            defer { isExporting = false }
+            do {
+                // Flush pending inserts first — see exportJSON (medical review
+                // of #167): a fresh background ModelContext only sees the
+                // persisted store.
+                try modelContext.save()
+                // Background fetch + CSV encode + file writes (F-056); large
+                // exports would otherwise block the main actor on each
+                // data.write (Copilot review of #167). Only the Sendable [URL]
+                // returns to the main actor.
+                let urls = try await Task.detached(priority: .userInitiated) { () -> [URL] in
+                    let files = try DataExporter.exportCSV(from: ModelContext(container), start: start, end: end)
+                    var urls: [URL] = []
+                    for (filename, data) in files {
+                        let url = Self.tempURL(filename)
+                        try data.write(to: url)
+                        urls.append(url)
+                    }
+                    return urls
+                }.value
+                shareItems = urls
+                showingShare = true
+            } catch {
+                errorMessage = error.localizedDescription
             }
-            shareItems = urls
-            showingShare = true
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 
@@ -209,7 +253,7 @@ struct ExportView: View, Equatable {
             end: reportEnd
         )
 
-        let url = tempURL("anxietywatch-report.pdf")
+        let url = Self.tempURL("anxietywatch-report.pdf")
         do {
             try data.write(to: url)
             shareItems = [url]
@@ -219,7 +263,9 @@ struct ExportView: View, Equatable {
         }
     }
 
-    private func tempURL(_ filename: String) -> URL {
+    // nonisolated static so it can be called from inside the detached export
+    // tasks (which write files off the main actor) as well as from generatePDF.
+    private nonisolated static func tempURL(_ filename: String) -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent(filename)
     }
 }

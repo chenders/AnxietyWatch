@@ -55,6 +55,29 @@ struct DataExporterTests {
         #expect((json["barometricReadings"] as? [Any])?.count == 1)
     }
 
+    @Test("export via a separate context sees data saved through another context on the same container")
+    func exportSeesDataSavedByOtherContext() throws {
+        // F-056 moved the export onto a fresh background ModelContext(container).
+        // That only works because a SAVED write in one context is visible to a
+        // second context on the same container — the reason ExportView calls
+        // modelContext.save() before spawning the background export. This
+        // regression test guards that invariant: seed + save via context A,
+        // then export via a brand-new context B.
+        let container = try TestHelpers.makeFullContainer()
+        let writer = ModelContext(container)
+        seedData(into: writer)
+        try writer.save()
+
+        let exporter = ModelContext(container) // distinct from `writer`
+        let data = try DataExporter.exportJSON(from: exporter)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        #expect((json["anxietyEntries"] as? [Any])?.count == 1)
+        #expect((json["healthSnapshots"] as? [Any])?.count == 1)
+        #expect((json["cpapSessions"] as? [Any])?.count == 1)
+        #expect((json["barometricReadings"] as? [Any])?.count == 1)
+    }
+
     @Test("JSON export with empty database returns empty arrays")
     func jsonExportEmpty() throws {
         let container = try TestHelpers.makeFullContainer()

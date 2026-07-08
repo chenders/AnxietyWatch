@@ -563,14 +563,15 @@ final class SyncService {
         let since = lastSyncDate
 
         // `bulkOnly`: subsequent iterations of the drain loop skip the
-        // `DataExporter.exportJSON` call entirely. `DataExporter.buildBundle`
-        // fetches every row of every small-volume table (anxiety entries,
-        // medication doses, CPAP sessions, barometric readings, lab results,
-        // …) with no predicate and filters in memory — so a 100-iteration
-        // drain would do 100 full table scans across 12+ tables on the
-        // MainActor. After iteration 1 has already drained the small-volume
-        // window through `upperBound`, iterations 2+ only need the bulk
-        // arrays (which use indexed `syncedToServer == false` predicates).
+        // `DataExporter.exportJSON` call entirely. Even though
+        // `DataExporter.buildBundle` now date-bounds each small-volume fetch
+        // (anxiety entries, medication doses, CPAP sessions, barometric
+        // readings, lab results, …) at the SQLite layer (F-056), re-running it
+        // every iteration would still issue a fetch per table each pass — a
+        // 100-iteration drain would do ~100 bounded fetches across 12+ tables
+        // on the MainActor. After iteration 1 has already drained the
+        // small-volume window through `upperBound`, iterations 2+ only need the
+        // bulk arrays (which use indexed `syncedToServer == false` predicates).
         // The trade-off: small-volume records modified DURING a long drain
         // wait until the next `sync()` invocation rather than syncing
         // mid-drain. Acceptable: drain windows are bounded, and the next

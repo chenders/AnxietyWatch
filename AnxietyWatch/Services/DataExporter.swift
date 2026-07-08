@@ -2,7 +2,12 @@ import Foundation
 import SwiftData
 
 /// Exports all app data as JSON or CSV.
-enum DataExporter {
+///
+/// `nonisolated` (like `CSVImportRouter`) so the fetch + encode can run inside
+/// `Task.detached` on a background `ModelContext` off the main actor (F-056).
+/// Every method takes its `ModelContext` as a parameter and touches no
+/// main-actor state, so it is safe to run from any executor.
+nonisolated enum DataExporter {
 
     private static let isoFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -172,30 +177,58 @@ enum DataExporter {
 
     private static func buildBundle(from context: ModelContext, start: Date?, end: Date?,
                                     omitHealthSnapshots: Bool) throws -> ExportBundle {
-        let entries = try context.fetch(FetchDescriptor<AnxietyEntry>(sortBy: [SortDescriptor(\.timestamp)]))
+        // Push the half-open [start, end) range into each time-series fetch so
+        // SwiftData bounds the rows in SQLite instead of materializing whole
+        // tables (the unbounded per-minute BarometricReading was the worst
+        // offender) and filtering them in memory afterward (F-056). Nil bounds
+        // map to distantPast/distantFuture sentinels, so one two-clause Date
+        // predicate covers full-export, since-only, and windowed calls alike;
+        // this exactly reproduces `inRange` below (which is kept as a harmless
+        // no-op double-check on the already-scoped rows). Two-clause Date
+        // predicates are safe from the iOS 26 compound-#Predicate hang.
+        let lo = start ?? .distantPast
+        let hi = end ?? .distantFuture
+        let entries = try context.fetch(FetchDescriptor<AnxietyEntry>(
+            predicate: #Predicate { $0.timestamp >= lo && $0.timestamp < hi },
+            sortBy: [SortDescriptor(\.timestamp)]))
         let defs = try context.fetch(FetchDescriptor<MedicationDefinition>(sortBy: [SortDescriptor(\.name)]))
-        let doses = try context.fetch(FetchDescriptor<MedicationDose>(sortBy: [SortDescriptor(\.timestamp)]))
-        let cpap = try context.fetch(FetchDescriptor<CPAPSession>(sortBy: [SortDescriptor(\.date)]))
-        // Skip the unbounded HealthSnapshot fetch when the caller will
-        // overwrite the key anyway (sync path). For databases with a
-        // multi-year history this is a meaningful main-actor saving.
-        // Note: when NOT omitting, this uses plain `try` (not `try?`) so a
-        // fetch failure surfaces as a thrown error rather than silently
-        // producing an export missing every snapshot. The sync path's own
-        // `fetchUnsyncedHealthSnapshots` similarly throws.
+        let doses = try context.fetch(FetchDescriptor<MedicationDose>(
+            predicate: #Predicate { $0.timestamp >= lo && $0.timestamp < hi },
+            sortBy: [SortDescriptor(\.timestamp)]))
+        let cpap = try context.fetch(FetchDescriptor<CPAPSession>(
+            predicate: #Predicate { $0.date >= lo && $0.date < hi },
+            sortBy: [SortDescriptor(\.date)]))
+        // Skip the HealthSnapshot fetch entirely when the caller will overwrite
+        // the key anyway (sync path). For databases with a multi-year history
+        // this is a meaningful main-actor saving. Note: when NOT omitting, this
+        // uses plain `try` (not `try?`) so a fetch failure surfaces as a thrown
+        // error rather than silently producing an export missing every
+        // snapshot. The sync path's own `fetchUnsyncedHealthSnapshots` throws.
         let snapshots: [HealthSnapshot]
         if omitHealthSnapshots {
             snapshots = []
         } else {
-            snapshots = try context.fetch(FetchDescriptor<HealthSnapshot>(sortBy: [SortDescriptor(\.date)]))
+            snapshots = try context.fetch(FetchDescriptor<HealthSnapshot>(
+                predicate: #Predicate { $0.date >= lo && $0.date < hi },
+                sortBy: [SortDescriptor(\.date)]))
         }
-        let barometric = try context.fetch(FetchDescriptor<BarometricReading>(sortBy: [SortDescriptor(\.timestamp)]))
-        let labResults = try context.fetch(FetchDescriptor<ClinicalLabResult>(sortBy: [SortDescriptor(\.effectiveDate)]))
+        let barometric = try context.fetch(FetchDescriptor<BarometricReading>(
+            predicate: #Predicate { $0.timestamp >= lo && $0.timestamp < hi },
+            sortBy: [SortDescriptor(\.timestamp)]))
+        let labResults = try context.fetch(FetchDescriptor<ClinicalLabResult>(
+            predicate: #Predicate { $0.effectiveDate >= lo && $0.effectiveDate < hi },
+            sortBy: [SortDescriptor(\.effectiveDate)]))
         let pharmacies: [Pharmacy] = (try? context.fetch(FetchDescriptor<Pharmacy>(sortBy: [SortDescriptor(\.name)]))) ?? []
-        let prescriptionsAll: [Prescription] = (try? context.fetch(FetchDescriptor<Prescription>(sortBy: [SortDescriptor(\.dateFilled)]))) ?? []
-        let callLogs: [PharmacyCallLog] = (try? context.fetch(FetchDescriptor<PharmacyCallLog>(sortBy: [SortDescriptor(\.timestamp)]))) ?? []
+        let prescriptionsAll: [Prescription] = (try? context.fetch(FetchDescriptor<Prescription>(
+            predicate: #Predicate { $0.dateFilled >= lo && $0.dateFilled < hi },
+            sortBy: [SortDescriptor(\.dateFilled)]))) ?? []
+        let callLogs: [PharmacyCallLog] = (try? context.fetch(FetchDescriptor<PharmacyCallLog>(
+            predicate: #Predicate { $0.timestamp >= lo && $0.timestamp < hi },
+            sortBy: [SortDescriptor(\.timestamp)]))) ?? []
         let allSongs: [Song] = (try? context.fetch(FetchDescriptor<Song>(sortBy: [SortDescriptor(\.title)]))) ?? []
-        let allSongOccurrences: [SongOccurrence] = (try? context.fetch(FetchDescriptor<SongOccurrence>(sortBy: [SortDescriptor(\.timestamp)]))) ?? []
+        let allSongOccurrences: [SongOccurrence] = (try? context.fetch(FetchDescriptor<SongOccurrence>(
+            predicate: #Predicate { $0.timestamp >= lo && $0.timestamp < hi },
+            sortBy: [SortDescriptor(\.timestamp)]))) ?? []
 
         // Half-open range [start, end): start inclusive, end EXCLUSIVE.
         // Callers pass an exclusive upper bound — ExportView passes the
