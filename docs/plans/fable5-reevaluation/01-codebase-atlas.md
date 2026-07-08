@@ -52,4 +52,8 @@ Atlas covers every directory, the critic pass finds no unmapped flow, PR merged 
 
 ## Implementation notes (post-merge)
 
-_Pending._
+- **Executed 2026-07-08** as a 22-agent workflow (16 cluster readers → synthesis → completeness critic → 3 gap-fill readers + integration), ~2.2M subagent tokens, ~23 min wall clock. Zero agent failures.
+- **Output:** `CODEBASE_ATLAS.md` (719 lines): 3 data-flow narratives, 15 consolidated cluster sections, the 26-pitfall invariants registry with enforcement/test mapping, a 186-entry oddity index, and known-issue seeds.
+- **Critic round:** found 3 real gaps (in-app recording status pill subsystem; `MetricSalience` — a tested service with no production callers; `NotificationDelegate` dose-follow-up hop), all integrated.
+- **Notable registry finding:** ~a third of the 26 CLAUDE.md pitfalls have no machine enforcement (review-agent only), and the cross-check surfaced live counterexamples (unbounded `@Query`s in 5+ views, dictionary-ordered `ForEach` feed, non-Equatable `@Query` navigation destinations, ChartPalette token drift). These are Phase 2/4 inputs.
+- **Scope delta:** none — plan executed as written. Chris chose to ship the oddity index unranked and let Phase 2 do all triage.
