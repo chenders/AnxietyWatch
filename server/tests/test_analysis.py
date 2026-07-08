@@ -1564,3 +1564,63 @@ def test_analysis_run_conflict_toggle_checked(admin_client, app, monkeypatch):
 
     assert len(job_types) == 6
     assert "conflict_synthesis" in job_types
+
+
+# Earworm lyric inclusion — regression tests for the 5-song cap that truncated
+# the prompt to whichever songs occurred earliest (the "only Whitesnake" bug).
+
+def _song_prompt_data(n_songs, lyrics_len=240):
+    """Minimal build_prompt data with n distinct songs, all with lyrics.
+
+    song_summary is in relevance order (most occurrences first), mirroring the
+    ORDER BY in gather_analysis_data.
+    """
+    data = {
+        "anxiety_entries": [], "health_snapshots": [], "medication_doses": [],
+        "cpap_sessions": [], "barometric_readings": [], "correlations": [],
+    }
+    summary, occurrences = [], []
+    for i in range(n_songs):
+        title, artist = f"Song{i:02d}", f"Artist{i:02d}"
+        summary.append({
+            "title": title, "artist": artist, "has_lyrics": True,
+            "period_occurrences": n_songs - i, "total_occurrences": n_songs - i,
+            "avg_anxiety": 5,
+        })
+        occurrences.append({"title": title, "artist": artist,
+                            "lyrics": f"la {title} " * (lyrics_len // 8)})
+    data["song_summary"] = summary
+    data["song_occurrences"] = occurrences
+    return data
+
+
+def test_build_prompt_includes_lyrics_for_more_than_five_songs():
+    """Lyric inclusion is no longer capped at 5 songs (the 'only Whitesnake' regression)."""
+    from analysis import build_prompt
+    data = _song_prompt_data(9)
+    _, user_msg = build_prompt(data, date(2026, 1, 1), date(2026, 1, 31))
+    included = [i for i in range(9) if f"### Song{i:02d} — Artist{i:02d}" in user_msg]
+    assert len(included) == 9, f"expected lyrics for all 9 songs, got {len(included)}"
+    # the 6th-9th songs are exactly the ones the old 5-cap dropped
+    assert "### Song08 — Artist08" in user_msg
+
+
+def test_build_prompt_lyrics_ordered_by_salience_not_chronology():
+    """Most-frequent song's lyrics come first, regardless of occurrence order."""
+    from analysis import build_prompt
+    data = _song_prompt_data(4)
+    # reverse occurrences so chronological order is the opposite of relevance order
+    data["song_occurrences"] = list(reversed(data["song_occurrences"]))
+    _, user_msg = build_prompt(data, date(2026, 1, 1), date(2026, 1, 31))
+    # Song00 has the most period_occurrences -> appears before the least-frequent Song03
+    assert user_msg.index("### Song00") < user_msg.index("### Song03")
+
+
+def test_build_prompt_lyrics_respect_total_char_budget():
+    """A total-character budget bounds the prompt and notes which songs were omitted."""
+    from analysis import build_prompt, MAX_LYRICS_CHARS_PER_SONG, MAX_LYRICS_CHARS_TOTAL
+    n = (MAX_LYRICS_CHARS_TOTAL // MAX_LYRICS_CHARS_PER_SONG) + 5
+    data = _song_prompt_data(n, lyrics_len=MAX_LYRICS_CHARS_PER_SONG + 800)
+    _, user_msg = build_prompt(data, date(2026, 1, 1), date(2026, 1, 31))
+    assert user_msg.count("\nLyrics:\n") < n, "budget should omit some songs' lyrics"
+    assert "omitted only to keep the prompt within budget" in user_msg

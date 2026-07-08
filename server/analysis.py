@@ -319,6 +319,16 @@ def _format_per_day_data_quality(snapshots: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# Earworm lyric inclusion budget for the analysis prompt. Lyrics are included for
+# every song that has them, most-salient first (song_summary is ordered by
+# occurrence count), until the total budget is reached. This replaces an earlier
+# hard 5-song cap that, combined with chronological ordering, let a single
+# period-dominating song (e.g. one recurring earworm) consume the entire lyric
+# budget and leave every other song uninterpreted.
+MAX_LYRICS_CHARS_PER_SONG = 3000
+MAX_LYRICS_CHARS_TOTAL = 60000
+
+
 def build_prompt(
     data: dict,
     date_from: date,
@@ -615,24 +625,41 @@ def build_prompt(
         user_parts.append("## Song Patterns (Earworms)\n")
         user_parts.append(json.dumps(song_summary, indent=2, default=str))
 
-        # Include lyrics for songs with high occurrence or strong anxiety correlation
-        songs_with_lyrics = [
-            occ for occ in song_occurrences
-            if occ.get("lyrics")
-        ]
-        max_lyrics_songs = 5
-        max_lyrics_chars = 3000
-        seen_titles = set()
-        for occ in songs_with_lyrics:
-            if len(seen_titles) >= max_lyrics_songs:
-                break
-            title_key = f"{occ['title']} — {occ['artist']}"
-            if title_key not in seen_titles:
-                seen_titles.add(title_key)
-                lyrics = occ["lyrics"][:max_lyrics_chars]
-                if len(occ["lyrics"]) > max_lyrics_chars:
-                    lyrics += "\n[lyrics truncated]"
-                user_parts.append(f"\n### {title_key}\nLyrics:\n{lyrics}\n")
+        # Map each in-range song to its lyrics (first occurrence that carries them).
+        lyrics_by_title = {}
+        for occ in song_occurrences:
+            if occ.get("lyrics"):
+                title_key = f"{occ['title']} — {occ['artist']}"
+                lyrics_by_title.setdefault(title_key, occ["lyrics"])
+
+        # Include lyrics for every song that has them, most-salient first.
+        # song_summary is ordered by occurrence count, so the budget is spent on the
+        # songs that matter most; the total-character cap keeps the prompt bounded
+        # when many distinct songs appear. No per-song-count cap — a single recurring
+        # earworm no longer crowds every other song out of the analysis.
+        lyrics_chars_used = 0
+        lyrics_omitted = []
+        for s in song_summary:
+            title_key = f"{s['title']} — {s['artist']}"
+            full_lyrics = lyrics_by_title.get(title_key)
+            if not full_lyrics:
+                continue
+            lyrics = full_lyrics[:MAX_LYRICS_CHARS_PER_SONG]
+            if len(full_lyrics) > MAX_LYRICS_CHARS_PER_SONG:
+                lyrics += "\n[lyrics truncated]"
+            # Check the budget against what this song would add BEFORE
+            # appending, so the total can never overshoot the cap.
+            if lyrics_chars_used + len(lyrics) > MAX_LYRICS_CHARS_TOTAL:
+                lyrics_omitted.append(title_key)
+                continue
+            user_parts.append(f"\n### {title_key}\nLyrics:\n{lyrics}\n")
+            lyrics_chars_used += len(lyrics)
+        if lyrics_omitted:
+            user_parts.append(
+                "\nLyrics for these songs were omitted only to keep the prompt within budget"
+                " (their titles and occurrence counts are in the summary above; analyze them"
+                f" from that data and web search if useful): {', '.join(lyrics_omitted)}\n"
+            )
 
         # For songs without lyrics that show interesting patterns, instruct Claude to search
         songs_needing_lookup = [
