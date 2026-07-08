@@ -181,12 +181,47 @@ def load_dependency_results(db, job):
     return results
 
 
+def analysis_is_terminal(db, analysis_id):
+    """True if the parent analyses row has reached a terminal state.
+
+    Lets the dispatch loop stop when an external path (sweep_stale_analyses,
+    a manual admin failure) marks the analysis failed/completed while the
+    dispatcher is still polling — otherwise the thread would spin until the
+    process restarts even though the run is over (Copilot review of #163).
+    """
+    cur = db.cursor()
+    cur.execute("SELECT status FROM analyses WHERE id = %s", (analysis_id,))
+    row = cur.fetchone()
+    # A vanished row is also a reason to stop.
+    return row is None or row[0] in ("failed", "completed")
+
+
 def no_running_jobs(db, analysis_id):
     """Check if there are any running jobs for this analysis."""
     cur = db.cursor()
     cur.execute(
         "SELECT count(*) FROM analysis_jobs "
         "WHERE analysis_id = %s AND status = 'running'",
+        (analysis_id,),
+    )
+    return cur.fetchone()[0] == 0
+
+
+def dag_is_settled(db, analysis_id):
+    """True when no job for this analysis is still pending OR running.
+
+    A single query, so it can't suffer the find_ready_jobs/no_running_jobs
+    TOCTOU (F-051): the old two-step exit could see ready=[] while a job was
+    'running', then — after that job committed 'completed' — see zero running
+    and break, stranding the just-unblocked 'pending' dependents forever.
+    Checking pending AND running together means a completed job's dependents
+    (now 'pending') keep the loop alive until they're dispatched. cascade_failures
+    resolves any pending job whose dependency failed, so this can't hang.
+    """
+    cur = db.cursor()
+    cur.execute(
+        "SELECT count(*) FROM analysis_jobs "
+        "WHERE analysis_id = %s AND status IN ('pending', 'running')",
         (analysis_id,),
     )
     return cur.fetchone()[0] == 0
@@ -215,8 +250,12 @@ def finalize_analysis(db, analysis_id):
         )
     elif health_job["status"] == "completed" and health_job["result"]:
         result = health_job["result"]
+        # Clear error_message: a long-running DAG may have been marked
+        # 'failed: timed out' by sweep_stale_analyses (F-053) before its jobs
+        # finished. Flipping back to 'completed' without clearing the error
+        # left a completed analysis carrying a stale timeout string.
         cur.execute(
-            "UPDATE analyses SET status = 'completed', "
+            "UPDATE analyses SET status = 'completed', error_message = NULL, "
             "response_payload = %s, summary = %s, trend_direction = %s, "
             "insights = %s, tokens_in = %s, tokens_out = %s, "
             "completed_at = NOW() WHERE id = %s",
@@ -245,8 +284,16 @@ def dispatch_analysis(analysis_id, database_url):
 
     try:
         while True:
+            # Stop if an external path (sweep_stale_analyses, manual failure)
+            # has already marked the parent analysis terminal — otherwise the
+            # loop would keep polling a run that's over (Copilot review #163).
+            if analysis_is_terminal(conn, analysis_id):
+                break
             ready = find_ready_jobs(conn, analysis_id)
-            if not ready and no_running_jobs(conn, analysis_id):
+            # Exit only when the whole DAG has settled (nothing pending or
+            # running). A single-query check avoids the TOCTOU that could
+            # strand just-unblocked dependents (F-051).
+            if not ready and dag_is_settled(conn, analysis_id):
                 break
             for job in ready:
                 if mark_running(conn, job["id"]):
@@ -334,7 +381,20 @@ def _execute_single_job(job, database_url):
 
     except Exception as e:
         logger.exception("Job %d (%s) failed", job["id"], job["job_type"])
-        mark_failed(conn, job["id"], e)
-        cascade_failures(conn, job["id"])
+        # A psycopg2 error inside the job body aborts this connection's
+        # transaction; without rollback the mark_failed UPDATE would raise
+        # InFailedSqlTransaction, escape into the (never-awaited) worker
+        # future, and leave the job stuck 'running' — the dispatch loop then
+        # polls forever (F-019). Roll back first, and defend the failure-
+        # bookkeeping itself so a second error still can't leak the future.
+        try:
+            conn.rollback()
+            mark_failed(conn, job["id"], e)
+            cascade_failures(conn, job["id"])
+        except Exception:
+            logger.exception(
+                "Failed to record failure for job %d — sweep_stale_analyses is the backstop",
+                job["id"],
+            )
     finally:
         conn.close()

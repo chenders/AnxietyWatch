@@ -1007,6 +1007,95 @@ def test_sweep_stale_analyses_marks_old_running_as_failed(app):
         assert cur.fetchone()[0] == "running"
 
 
+def test_sweep_does_not_fail_recently_active_dag(app):
+    """F-053: an analysis created long ago but whose jobs are still actively
+    starting/completing must NOT be swept — the timeout keys off the latest
+    job activity, not created_at. A long conflict DAG legitimately runs past
+    STALE_ANALYSIS_MINUTES of wall clock."""
+    with app.app_context():
+        from analysis import sweep_stale_analyses
+        db = app.get_db()
+        cur = db.cursor()
+        # Analysis row created 1h ago (well past the 15-min window)...
+        cur.execute(
+            "INSERT INTO analyses (date_from, date_to, status, model, created_at) "
+            "VALUES (%s, %s, 'running', 'test', NOW() - INTERVAL '1 hour') RETURNING id",
+            (date(2026, 1, 10), date(2026, 1, 12)),
+        )
+        active_id = cur.fetchone()[0]
+        # ...but a job completed 1 minute ago: the DAG is progressing.
+        cur.execute(
+            "INSERT INTO analysis_jobs "
+            "(analysis_id, job_type, depends_on, status, model, created_at, completed_at) "
+            "VALUES (%s, 'health_analysis', '{}', 'completed', 'test', "
+            "NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 minute')",
+            (active_id,),
+        )
+        db.commit()
+
+        assert sweep_stale_analyses(db, force=True) == 0
+        cur.execute("SELECT status FROM analyses WHERE id = %s", (active_id,))
+        assert cur.fetchone()[0] == "running"
+
+
+def test_sweep_fails_dag_with_no_recent_job_activity(app):
+    """Counterpart: created long ago AND last job activity also long ago →
+    genuinely stuck (worker died) → swept."""
+    with app.app_context():
+        from analysis import sweep_stale_analyses
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO analyses (date_from, date_to, status, model, created_at) "
+            "VALUES (%s, %s, 'running', 'test', NOW() - INTERVAL '1 hour') RETURNING id",
+            (date(2026, 1, 10), date(2026, 1, 12)),
+        )
+        dead_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO analysis_jobs "
+            "(analysis_id, job_type, depends_on, status, model, created_at, started_at) "
+            "VALUES (%s, 'health_analysis', '{}', 'running', 'test', "
+            "NOW() - INTERVAL '1 hour', NOW() - INTERVAL '50 minutes')",
+            (dead_id,),
+        )
+        db.commit()
+
+        assert sweep_stale_analyses(db, force=True) == 1
+        cur.execute("SELECT status FROM analyses WHERE id = %s", (dead_id,))
+        assert cur.fetchone()[0] == "failed"
+
+
+def test_finalize_clears_stale_timeout_error(app):
+    """F-053: if a DAG was swept to 'failed: timed out' but then finished,
+    finalize_analysis flips it to 'completed' AND clears the stale error."""
+    with app.app_context():
+        from job_dispatcher import finalize_analysis
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO analyses (date_from, date_to, status, model, error_message) "
+            "VALUES (%s, %s, 'failed', 'test', 'Analysis timed out — worker process likely terminated.') "
+            "RETURNING id",
+            (date(2026, 1, 10), date(2026, 1, 12)),
+        )
+        analysis_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO analysis_jobs "
+            "(analysis_id, job_type, depends_on, status, model, result, response_payload, tokens_in, tokens_out) "
+            "VALUES (%s, 'health_analysis', '{}', 'completed', 'test', %s, %s, 10, 20)",
+            (analysis_id, json.dumps({"summary": "ok", "trend_direction": "stable", "insights": []}),
+             json.dumps({})),
+        )
+        db.commit()
+
+        finalize_analysis(db, analysis_id)
+
+        cur.execute("SELECT status, error_message FROM analyses WHERE id = %s", (analysis_id,))
+        status, error_message = cur.fetchone()
+        assert status == "completed"
+        assert error_message is None
+
+
 def test_start_analysis_runs_in_background(app, monkeypatch):
     """start_analysis inserts a pending row immediately and completes in a worker thread."""
     _insert_test_data(app)

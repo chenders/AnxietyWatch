@@ -470,7 +470,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: concurrency-state, silent-failures.  
 
-**Disposition:** approved
+**Disposition:** fixed (#163)
 
 ### F-020 · P2 · confirmed · efficiency · trends-query
 
@@ -866,7 +866,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: concurrency-state, silent-failures.  
 
-**Disposition:** approved
+**Disposition:** fixed (#163)
 
 ### F-052 · P3 · confirmed · silent-failure · server-jobs
 
@@ -890,7 +890,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#163)
 
 ### F-054 · P3 · confirmed · silent-failure · walgreens-sync
 

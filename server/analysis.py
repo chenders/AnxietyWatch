@@ -1074,13 +1074,37 @@ def sweep_stale_analyses(db, force: bool = False) -> int:
                 return 0
             _last_sweep_monotonic = now
 
+    # Time out from the most recent SIGN OF LIFE, not created_at: a legitimate
+    # multi-job DAG (health analysis + 4 web-search research jobs on a 2-worker
+    # pool + synthesis) can run well past STALE_ANALYSIS_MINUTES of wall clock
+    # while jobs are actively starting and completing. Keying the timeout off
+    # created_at falsely failed such runs at minute 15 while they were still
+    # progressing (F-053). GREATEST(analyses.created_at, latest job start/finish)
+    # only trips when NOTHING has advanced for the whole window — the real
+    # "worker died" signal. Analyses with no jobs fall back to created_at.
+    #
+    # NULL handling: Postgres GREATEST/LEAST *ignore* NULL arguments (unlike
+    # MySQL/standard SQL, which NULL-propagate) — the result is NULL only if
+    # ALL arguments are NULL. analysis_jobs.created_at is NOT NULL, so the
+    # inner GREATEST always has a non-NULL member: a running job (completed_at
+    # NULL) still contributes started_at/created_at, and a pending job
+    # contributes created_at. So a live-but-slow job's activity is never lost.
+    # (test_sweep_fails_dag_with_no_recent_job_activity exercises a running,
+    # completed_at-NULL job; test_sweep_does_not_fail_recently_active_dag a
+    # completed one.)
     cur = db.cursor()
     cur.execute(
-        "UPDATE analyses SET status = 'failed', "
+        "UPDATE analyses a SET status = 'failed', "
         "error_message = 'Analysis timed out — worker process likely terminated.', "
         "completed_at = NOW() "
-        "WHERE status IN ('pending', 'running') "
-        "AND created_at < NOW() - (%s * INTERVAL '1 minute')",
+        "WHERE a.status IN ('pending', 'running') "
+        "AND GREATEST("
+        "    a.created_at, "
+        "    COALESCE(("
+        "        SELECT MAX(GREATEST(j.started_at, j.completed_at, j.created_at)) "
+        "        FROM analysis_jobs j WHERE j.analysis_id = a.id"
+        "    ), a.created_at)"
+        ") < NOW() - (%s * INTERVAL '1 minute')",
         (STALE_ANALYSIS_MINUTES,),
     )
     updated = cur.rowcount

@@ -251,6 +251,126 @@ def test_find_ready_jobs_after_dependency_completed(app):
     assert ready[0]["job_type"] == "patient_validity"
 
 
+# F-051: the dispatch loop's exit condition must not break while a
+# just-completed job's dependents are still pending. dag_is_settled is the
+# single-query check that replaced the find_ready + no_running TOCTOU.
+def test_dag_is_settled_false_with_pending_dependents(app):
+    """A completed job with a still-pending dependent means the DAG is NOT
+    settled — breaking here would strand the dependent forever."""
+    analysis_id = _create_test_analysis(app)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO analysis_jobs (analysis_id, job_type, depends_on, status, model) "
+            "VALUES (%s, 'health_analysis', '{}', 'completed', 'claude-opus-4-7') RETURNING id",
+            (analysis_id,),
+        )
+        health_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO analysis_jobs (analysis_id, job_type, depends_on, status, model) "
+            "VALUES (%s, 'patient_validity', %s, 'pending', 'claude-opus-4-7')",
+            (analysis_id, [health_id]),
+        )
+        db.commit()
+
+        from job_dispatcher import dag_is_settled, no_running_jobs
+        # The old exit key (no running jobs) is TRUE here — that was the bug.
+        assert no_running_jobs(db, analysis_id) is True
+        # The correct check sees the pending dependent and keeps the loop alive.
+        assert dag_is_settled(db, analysis_id) is False
+
+
+def test_dag_is_settled_true_when_all_terminal(app):
+    analysis_id = _create_test_analysis(app)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO analysis_jobs (analysis_id, job_type, depends_on, status, model) "
+            "VALUES (%s, 'health_analysis', '{}', 'completed', 'claude-opus-4-7'), "
+            "(%s, 'patient_validity', '{}', 'failed', 'claude-opus-4-7')",
+            (analysis_id, analysis_id),
+        )
+        db.commit()
+        from job_dispatcher import dag_is_settled
+        assert dag_is_settled(db, analysis_id) is True
+
+
+# F-019: a DB error in the job body aborts the worker's transaction; the
+# failure handler must roll back before mark_failed, or the job stays 'running'
+# and the dispatch loop polls forever.
+@patch("job_dispatcher.load_dependency_results")
+def test_job_body_db_error_still_marks_failed(mock_load, app):
+    """Simulate a psycopg2 error mid-job: the connection's transaction is
+    aborted, but the job must still land in 'failed', not stuck 'running'."""
+    analysis_id = _create_test_analysis(app)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO analysis_jobs (analysis_id, job_type, depends_on, status, model) "
+            "VALUES (%s, 'patient_validity', '{}', 'running', 'claude-opus-4-7') RETURNING id",
+            (analysis_id,),
+        )
+        job_id = cur.fetchone()[0]
+        db.commit()
+
+    # Abort the worker's transaction the way a real psycopg2 error would.
+    def _abort(conn, job):
+        conn.cursor().execute("SELECT * FROM no_such_table_xyz")
+    mock_load.side_effect = _abort
+
+    from job_dispatcher import _execute_single_job
+    job = {"id": job_id, "job_type": "patient_validity", "analysis_id": analysis_id,
+           "depends_on": [], "model": "claude-opus-4-7"}
+    # Must not raise, and must not leave the job 'running'.
+    _execute_single_job(job, DATABASE_URL)
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute("SELECT status FROM analysis_jobs WHERE id = %s", (job_id,))
+        assert cur.fetchone()[0] == "failed"
+
+
+# Copilot #163: the dispatch loop must stop when the parent analysis is
+# marked terminal externally (sweep / manual failure), not poll forever.
+def test_analysis_is_terminal_detects_external_failure(app):
+    analysis_id = _create_test_analysis(app)  # created 'pending'
+    with app.app_context():
+        db = app.get_db()
+        from job_dispatcher import analysis_is_terminal
+        assert analysis_is_terminal(db, analysis_id) is False
+        cur = db.cursor()
+        cur.execute("UPDATE analyses SET status = 'failed' WHERE id = %s", (analysis_id,))
+        db.commit()
+        assert analysis_is_terminal(db, analysis_id) is True
+
+
+def test_dispatch_loop_exits_when_analysis_marked_terminal(app):
+    """A live dispatcher whose parent analysis is failed out from under it
+    (e.g. by sweep_stale_analyses) must break instead of spinning. Seed a
+    'running' job so dag_is_settled would keep the loop alive — only the
+    terminal-status guard can end it."""
+    analysis_id = _create_test_analysis(app)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute("UPDATE analyses SET status = 'running' WHERE id = %s", (analysis_id,))
+        cur.execute(
+            "INSERT INTO analysis_jobs (analysis_id, job_type, depends_on, status, model) "
+            "VALUES (%s, 'health_analysis', '{}', 'running', 'claude-opus-4-7')",
+            (analysis_id,),
+        )
+        # Parent already terminal (as a sweep would leave it).
+        cur.execute("UPDATE analyses SET status = 'failed' WHERE id = %s", (analysis_id,))
+        db.commit()
+
+    from job_dispatcher import dispatch_analysis
+    # Must return promptly rather than polling forever on the running job.
+    dispatch_analysis(analysis_id, DATABASE_URL)
+
+
 def test_cascade_failures(app):
     """cascade_failures marks dependent jobs as failed."""
     analysis_id = _create_test_analysis(app)
