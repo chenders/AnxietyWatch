@@ -109,27 +109,27 @@ struct HRVTrendChart: View {
                         y: .value("HRV (ms)", snapshot.hrvAvg ?? 0),
                         series: .value("Source", "HealthKit")
                     )
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(ChartPalette.healthKitHRV)
                     .interpolationMethod(.catmullRom)
 
                     PointMark(
                         x: .value("Date", snapshot.date, unit: .day),
                         y: .value("HRV (ms)", snapshot.hrvAvg ?? 0)
                     )
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(ChartPalette.healthKitHRV)
                     .symbolSize(30)
                 case .baselineMean(let value):
                     RuleMark(y: .value("Baseline", value))
-                        .foregroundStyle(.green.opacity(0.6))
+                        .foregroundStyle(ChartPalette.baselineRule)
                         .lineStyle(StrokeStyle(dash: [5, 3]))
                         .annotation(position: .trailing, alignment: .leading) {
                             Text("avg")
                                 .font(.caption2)
-                                .foregroundStyle(.green)
+                                .foregroundStyle(ChartPalette.baselineLabel)
                         }
                 case .baselineLower(let value):
                     RuleMark(y: .value("Lower", value))
-                        .foregroundStyle(.red.opacity(0.3))
+                        .foregroundStyle(ChartPalette.outOfRangeFill)
                         .lineStyle(StrokeStyle(dash: [3, 3]))
                 case .entry(let entry):
                     RuleMark(x: .value("Date", entry.timestamp, unit: .day))
@@ -151,14 +151,14 @@ struct HRVTrendChart: View {
                         y: .value("HRV (ms)", point.value ?? 0),
                         series: .value("Source", "Polar")
                     )
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(ChartPalette.polarRMSSD)
                     .interpolationMethod(.catmullRom)
 
                     PointMark(
                         x: .value("Date", point.night, unit: .day),
                         y: .value("HRV (ms)", point.value ?? 0)
                     )
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(ChartPalette.polarRMSSD)
                     .symbol(.diamond)
                     .symbolSize(40)
                 }

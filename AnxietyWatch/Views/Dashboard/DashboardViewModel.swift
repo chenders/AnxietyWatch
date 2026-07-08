@@ -228,6 +228,17 @@ final class DashboardViewModel {
     /// approximate from the sleep-duration baseline (typical-night minutes /
     /// 480 min target × 100). Tunable later when a real efficiency baseline
     /// is added.
+    ///
+    /// Clamped at 100% — the placeholder formula treats 480 min as the
+    /// efficiency target, so users who typically sleep >8 h would otherwise
+    /// get a baseline >100%, which reads nonsensical next to the (clamped)
+    /// efficiency value. Falls back to 88% when no sleep baseline exists.
+    static func efficiencyBaselinePct(sleepBaselineMean: Double) -> Double {
+        sleepBaselineMean > 0
+            ? min(100.0, sleepBaselineMean / 480.0 * 100.0)
+            : 88.0
+    }
+
     func smartSummary(
         snapshots: [HealthSnapshot],
         sleepEvents: [SleepStageEvent],
@@ -239,8 +250,7 @@ final class DashboardViewModel {
         let hrvValue = today?.hrvAvg ?? snapshots.first?.hrvAvg ?? 0
         let rhrValue = today?.restingHR ?? snapshots.first?.restingHR ?? 0
         let efficiency = SleepEfficiencyCalculator.compute(from: sleepEvents)
-        let sleepBaselineMean = sleepBaseline?.mean ?? 0
-        let efficiencyBaseline = sleepBaselineMean > 0 ? (sleepBaselineMean / 480.0 * 100.0) : 88.0
+        let efficiencyBaseline = Self.efficiencyBaselinePct(sleepBaselineMean: sleepBaseline?.mean ?? 0)
 
         let anxietySeverity24h: Int? = {
             guard let a = lastAnxiety,

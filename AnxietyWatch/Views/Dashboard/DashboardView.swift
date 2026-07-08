@@ -163,8 +163,10 @@ struct DashboardView: View {
                     || Calendar.current.isDate($0.startTime, inSameDayAs: snapshot.date)
             }
             if let cpap = recentCPAP.first {
+                let efficiency = SleepEfficiencyCalculator.compute(from: nightEvents)
                 let headline = LastNightHeadline.compose(
-                    efficiencyPct: SleepEfficiencyCalculator.compute(from: nightEvents).efficiencyPct,
+                    efficiencyPct: efficiency.efficiencyPct,
+                    efficiencyEstimated: efficiency.isBedTimeEstimated,
                     ahi: cpap.ahi,
                     nadirPct: snapshot.spo2NadirOvernight
                 )

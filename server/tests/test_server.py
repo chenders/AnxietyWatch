@@ -1034,6 +1034,64 @@ def test_get_data_since_filter(client):
     assert entries[0]["severity"] == 7
 
 
+def test_get_data_exports_restore_entities(client):
+    """The entities added for the restore-from-server flow (sensorSessions,
+    hrvReadings, songs, songOccurrences, sleepStageEvents) must round-trip
+    through GET /api/data."""
+    session_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    reading_id = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    payload = {
+        "syncSchemaVersion": 3,
+        "sensorSessions": [_polar_session_payload(session_id)],
+        "hrvReadings": [_hrv_reading_payload(reading_id, session_id)],
+        "songs": [{"title": "Test Song", "artist": "Test Artist"}],
+        "sleepStageEvents": [{
+            "id": "abcdefab-cdef-abcd-efab-cdefabcdef99",
+            "startTime": "2026-05-11T04:00:00Z",
+            "endTime": "2026-05-11T04:30:00Z",
+            "stage": "asleepDeep",
+            "sourceBundleID": "test.bundle",
+            "sourceName": "Test Apple Watch",
+        }],
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    for entity, expected_count in [
+        ("sensorSessions", 1),
+        ("hrvReadings", 1),
+        ("songs", 1),
+        ("sleepStageEvents", 1),
+    ]:
+        resp = client.get(f"/api/data/{entity}", headers=auth_header())
+        assert resp.status_code == 200, entity
+        assert len(resp.get_json()[entity]) == expected_count, entity
+
+
+def test_get_data_drops_bytea_columns_from_json(client):
+    """sensor_sessions.rr_archive is BYTEA; psycopg returns it as a
+    memoryview, which json.dumps cannot serialize. The export path must
+    null it out rather than 500 on any session that has an archive."""
+    session_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    client.post(
+        "/api/sync",
+        json={"sensorSessions": [_polar_session_payload(session_id)]},
+        headers=auth_header(),
+    )
+    resp = client.post(
+        f"/api/sensor_sessions/{session_id}/rr_archive",
+        data=b"\x1f\x8b-fake-gzip-bytes",
+        headers=auth_header(),
+    )
+    assert resp.status_code == 200
+
+    resp = client.get("/api/data/sensorSessions", headers=auth_header())
+    assert resp.status_code == 200
+    sessions = resp.get_json()["sensorSessions"]
+    assert len(sessions) == 1
+    assert sessions[0]["rr_archive"] is None
+
+
 # ---------------------------------------------------------------------------
 # GET /api/status
 # ---------------------------------------------------------------------------

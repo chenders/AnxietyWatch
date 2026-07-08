@@ -120,6 +120,27 @@ struct DashboardViewModelTests {
         #expect(DashboardViewModel().stepsColor(0) == .red)
     }
 
+    // MARK: - efficiencyBaselinePct
+
+    @Test("Efficiency baseline clamps at 100% for >8h sleepers")
+    func efficiencyBaselineClampsAt100() {
+        // 540 min (9h) would naively yield 112.5%.
+        let result = DashboardViewModel.efficiencyBaselinePct(sleepBaselineMean: 540)
+        #expect(abs(result - 100.0) < 0.001)
+    }
+
+    @Test("Efficiency baseline scales below the 480-min target")
+    func efficiencyBaselineScalesBelowTarget() {
+        let result = DashboardViewModel.efficiencyBaselinePct(sleepBaselineMean: 360)
+        #expect(abs(result - 75.0) < 0.001)
+    }
+
+    @Test("Efficiency baseline falls back to 88% with no sleep baseline")
+    func efficiencyBaselineFallback() {
+        let result = DashboardViewModel.efficiencyBaselinePct(sleepBaselineMean: 0)
+        #expect(abs(result - 88.0) < 0.001)
+    }
+
     // MARK: - latestSample / recentValues
 
     @Test("latestSample returns first sample for type")
@@ -133,7 +154,7 @@ struct DashboardViewModelTests {
         try context.save()
 
         let vm = DashboardViewModel()
-        vm.loadSamples(from: context)
+        vm.loadSamples(from: context, now: referenceDate)
         #expect(vm.latestSample(for: "hr")?.value == 80)
     }
 
@@ -155,7 +176,7 @@ struct DashboardViewModelTests {
         try context.save()
 
         let vm = DashboardViewModel()
-        vm.loadSamples(from: context)
+        vm.loadSamples(from: context, now: referenceDate)
         let values = vm.recentValues(for: "hr", count: 3)
         // Samples sorted desc by timestamp: [100, 90, 80], take 3, reverse → [80, 90, 100]
         #expect(values == [80, 90, 100])

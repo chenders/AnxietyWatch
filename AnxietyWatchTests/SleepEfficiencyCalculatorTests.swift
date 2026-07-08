@@ -64,6 +64,21 @@ struct SleepEfficiencyCalculatorTests {
         #expect(r.isBedTimeEstimated == true)
     }
 
+    @Test("Partial inBed coverage smaller than asleep span: denominator floors at asleep span, efficiency pins at 100%")
+    func partialInBedCoverage() {
+        // inBed covers only 100 min but asleep spans 420 min. The naive
+        // denominator (100) would yield 420% efficiency.
+        let events = [
+            event("inBed", startMin: 0, endMin: 100),
+            event("asleepCore", startMin: 5, endMin: 425)
+        ]
+        let r = SleepEfficiencyCalculator.compute(from: events)
+        #expect(r.asleepMinutes == 420)
+        #expect(r.inBedMinutes == 420)
+        #expect(abs(r.efficiencyPct - 100.0) < 0.01)
+        #expect(r.isBedTimeEstimated == true)
+    }
+
     @Test("Awake events before first asleep do not count as WASO")
     func awakeBeforeOnsetIgnored() {
         let events = [

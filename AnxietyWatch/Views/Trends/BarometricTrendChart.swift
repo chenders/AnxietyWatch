@@ -47,7 +47,7 @@ struct BarometricTrendChart: View {
                     x: .value("Time", datum.timestamp, unit: .hour),
                     y: .value("kPa", datum.kPa)
                 )
-                .foregroundStyle(.gray)
+                .foregroundStyle(ChartPalette.barometric)
                 .interpolationMethod(.catmullRom)
             }
             .chartOverlay(content: baselineOverlay)
@@ -66,11 +66,11 @@ struct BarometricTrendChart: View {
                     path.move(to: CGPoint(x: 0, y: yPos))
                     path.addLine(to: CGPoint(x: geo.size.width, y: yPos))
                 }
-                .stroke(.green.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
+                .stroke(ChartPalette.baselineRule, style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
 
                 Text("avg")
                     .font(.caption2)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(ChartPalette.baselineLabel)
                     .position(x: geo.size.width - 12, y: yPos - 8)
             }
         }

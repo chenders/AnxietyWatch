@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AnxietyWatch — Streamgraph Taxonomy Explainer</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #161a22;
+      --panel-2: #1d2230;
+      --line: #2a3142;
+      --text: #e6e9ef;
+      --text-dim: #9099ab;
+      --accent: #f59e0b;
+      --c-work: #ef4444;
+      --c-family: #f59e0b;
+      --c-health: #10b981;
+      --c-money: #6366f1;
+      --c-sleep: #8b5cf6;
+      --c-relationships: #ec4899;
+      --c-existential: #14b8a6;
+      --c-other: #64748b;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { display: grid; grid-template-columns: 340px 1fr; grid-template-rows: 1fr auto; gap: 1px; background: var(--line); height: 100vh; overflow: hidden; }
+
+    aside { background: var(--panel); padding: 20px; overflow-y: auto; grid-row: 1 / span 2; }
+    aside h1 { margin: 0 0 4px; font-size: 16px; }
+    aside h1 .sub { display: block; color: var(--text-dim); font-weight: normal; font-size: 12px; margin-top: 2px; }
+    aside p { color: var(--text-dim); font-size: 12px; margin: 8px 0 18px; }
+    .group { margin-bottom: 22px; }
+    .group h2 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+    .group .val { float: right; color: var(--accent); font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    input[type=range] { width: 100%; accent-color: var(--accent); }
+    .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .modes button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); padding: 8px 6px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+    .modes button.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+    .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+    .presets button { background: var(--panel-2); color: var(--text-dim); border: 1px solid var(--line); padding: 6px 10px; border-radius: 14px; cursor: pointer; font-size: 11px; }
+    .presets button:hover { color: var(--text); }
+    .legend { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 10px; font-size: 11px; }
+    .legend .row { display: flex; align-items: center; gap: 6px; color: var(--text-dim); }
+    .legend .sw { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+    main { background: var(--panel); padding: 20px; min-height: 0; display: flex; flex-direction: column; }
+    main h2 { margin: 0 0 4px; font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+    main .caption { color: var(--text-dim); font-size: 12px; margin: 0 0 12px; max-width: 70ch; }
+    #stage { flex: 1; min-height: 0; position: relative; background: var(--panel-2); border-radius: 8px; padding: 16px; }
+    #stage svg { width: 100%; height: 100%; display: block; }
+    .axis-label { fill: var(--text-dim); font-size: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .axis-line { stroke: var(--line); stroke-width: 1; }
+
+    footer { background: var(--panel); padding: 16px 20px; grid-column: 2; border-top: 1px solid var(--line); }
+    footer .prompt { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--text); white-space: pre-wrap; max-height: 110px; overflow-y: auto; }
+    footer .row { display: flex; gap: 10px; align-items: flex-start; margin-top: 8px; }
+    footer button.copy { background: var(--accent); color: #000; border: 0; padding: 6px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px; }
+    footer button.copy.copied { background: #10b981; }
+  </style>
+</head>
+<body>
+  <aside>
+    <h1>Streamgraph Taxonomy
+      <span class="sub">how the anxiety chart picks its categories</span>
+    </h1>
+    <p>This playground simulates AnxietyWatch's anxiety severity chart. Sixty days of journal entries are auto-classified into eight topic categories, then stacked into a streamgraph. Drag the controls below; the chart re-bins live so you can see how each parameter changes clinical legibility.</p>
+
+    <div class="group">
+      <h2>View mode</h2>
+      <div class="modes" id="modes">
+        <button data-mode="raw">Raw entries</button>
+        <button data-mode="categories" class="active">8 categories</button>
+        <button data-mode="streamgraph">Streamgraph</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Window size <span class="val" id="winLabel">60 days</span></h2>
+      <input id="winSlider" type="range" min="7" max="90" step="1" value="60" />
+    </div>
+
+    <div class="group">
+      <h2>Smoothing kernel <span class="val" id="smoothLabel">3 days</span></h2>
+      <input id="smoothSlider" type="range" min="0" max="7" step="1" value="3" />
+    </div>
+
+    <div class="group">
+      <h2>Presets</h2>
+      <div class="presets" id="presets">
+        <button data-preset="clinic">Clinical handoff</button>
+        <button data-preset="raw">Raw scatter</button>
+        <button data-preset="weekly">Weekly trend</button>
+        <button data-preset="quarter">Quarterly</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Categories</h2>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <p style="font-size: 11px; color: var(--text-dim);">Synthetic data only. The real chart uses an LLM classifier on the user's free-text journal entries. Categories shown here are illustrative of the taxonomy shape, not the production model's actual labels.</p>
+  </aside>
+
+  <main>
+    <h2 id="stageTitle">8 categories</h2>
+    <p class="caption" id="stageCaption">Each row stacks entries per day for one category. Row height encodes how often the user wrote about that topic in the window. Hover (in the real app) reveals the entries.</p>
+    <div id="stage"><svg viewBox="0 0 1000 520" preserveAspectRatio="none" id="svg"></svg></div>
+  </main>
+
+  <footer>
+    <div class="prompt" id="prompt">Show the anxiety severity streamgraph for the last 60 days with 3-day smoothing, separated into 8 LLM-classified topic categories.</div>
+    <div class="row">
+      <button class="copy" id="copyBtn">Copy prompt</button>
+      <span style="color: var(--text-dim); font-size: 11px; align-self: center;">Paste into Claude to ask for a specific chart configuration, or share with a clinician to spec the view they want to see.</span>
+    </div>
+  </footer>
+
+  <script>
+    // ----- Categories -----
+    const CATEGORIES = [
+      { id: "work",           label: "Work",          color: "var(--c-work)",          weight: 1.4 },
+      { id: "family",         label: "Family",        color: "var(--c-family)",        weight: 0.9 },
+      { id: "health",         label: "Health",        color: "var(--c-health)",        weight: 1.1 },
+      { id: "money",          label: "Money",         color: "var(--c-money)",         weight: 0.7 },
+      { id: "sleep",          label: "Sleep",         color: "var(--c-sleep)",         weight: 1.0 },
+      { id: "relationships",  label: "Relationships", color: "var(--c-relationships)", weight: 0.8 },
+      { id: "existential",    label: "Existential",   color: "var(--c-existential)",   weight: 0.5 },
+      { id: "other",          label: "Other",         color: "var(--c-other)",         weight: 0.6 },
+    ];
+
+    // Seeded PRNG so the synthetic dataset is stable across reloads.
+    function mulberry32(seed) {
+      return function () {
+        let t = (seed += 0x6D2B79F5);
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+    const rand = mulberry32(20260522);
+
+    // ----- Synthesize 90 days of entries -----
+    const TOTAL_DAYS = 90;
+    function buildEntries() {
+      const entries = [];
+      for (let day = 0; day < TOTAL_DAYS; day++) {
+        const isWeekday = day % 7 < 5;
+        const n = Math.floor(1 + rand() * (isWeekday ? 5 : 3));
+        for (let i = 0; i < n; i++) {
+          const modWeights = CATEGORIES.map((c) => {
+            let w = c.weight;
+            if (c.id === "work" && isWeekday) w *= 1.6;
+            if (c.id === "health" && day >= 18 && day <= 28) w *= 3.5;
+            if (c.id === "sleep" && (day % 7 === 0 || day % 7 === 1)) w *= 1.8;
+            if (c.id === "money" && (day % 14 === 1)) w *= 4;
+            if (c.id === "existential" && day >= 65 && day <= 72) w *= 2.5;
+            return w;
+          });
+          const total = modWeights.reduce((s, w) => s + w, 0);
+          let r = rand() * total;
+          let pickedIdx = 0;
+          for (let j = 0; j < CATEGORIES.length; j++) {
+            r -= modWeights[j];
+            if (r <= 0) { pickedIdx = j; break; }
+          }
+          let sev = 1 + Math.floor(rand() * 10);
+          if (CATEGORIES[pickedIdx].id === "work" && isWeekday) sev = Math.min(10, sev + 2);
+          if (CATEGORIES[pickedIdx].id === "health" && day >= 18 && day <= 28) sev = Math.min(10, sev + 3);
+          entries.push({ day, severity: sev, category: CATEGORIES[pickedIdx].id });
+        }
+      }
+      return entries;
+    }
+    const ENTRIES = buildEntries();
+
+    // ----- State -----
+    const DEFAULTS = { mode: "categories", windowDays: 60, smoothDays: 3 };
+    const state = { ...DEFAULTS };
+
+    // ----- Controls wiring -----
+    const winSlider = document.getElementById("winSlider");
+    const smoothSlider = document.getElementById("smoothSlider");
+    const winLabel = document.getElementById("winLabel");
+    const smoothLabel = document.getElementById("smoothLabel");
+    const modesEl = document.getElementById("modes");
+    const presetsEl = document.getElementById("presets");
+
+    winSlider.addEventListener("input", () => { state.windowDays = +winSlider.value; updateAll(); });
+    smoothSlider.addEventListener("input", () => { state.smoothDays = +smoothSlider.value; updateAll(); });
+    modesEl.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-mode]");
+      if (!btn) return;
+      state.mode = btn.dataset.mode;
+      [...modesEl.querySelectorAll("button")].forEach((b) => b.classList.toggle("active", b === btn));
+      updateAll();
+    });
+    presetsEl.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-preset]");
+      if (!btn) return;
+      const preset = btn.dataset.preset;
+      if (preset === "clinic") { state.mode = "streamgraph"; state.windowDays = 30; state.smoothDays = 3; }
+      if (preset === "raw") { state.mode = "raw"; state.windowDays = 14; state.smoothDays = 0; }
+      if (preset === "weekly") { state.mode = "categories"; state.windowDays = 7; state.smoothDays = 0; }
+      if (preset === "quarter") { state.mode = "streamgraph"; state.windowDays = 90; state.smoothDays = 5; }
+      winSlider.value = state.windowDays;
+      smoothSlider.value = state.smoothDays;
+      [...modesEl.querySelectorAll("button")].forEach((b) => b.classList.toggle("active", b.dataset.mode === state.mode));
+      updateAll();
+    });
+
+    // Legend (safe DOM construction — no innerHTML)
+    const legendEl = document.getElementById("legend");
+    for (const c of CATEGORIES) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const sw = document.createElement("span");
+      sw.className = "sw";
+      sw.style.background = c.color;
+      const label = document.createElement("span");
+      label.textContent = c.label;
+      row.appendChild(sw);
+      row.appendChild(label);
+      legendEl.appendChild(row);
+    }
+
+    // ----- Rendering -----
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const svg = document.getElementById("svg");
+    const W = 1000, H = 520;
+    const PAD = { l: 50, r: 16, t: 24, b: 36 };
+
+    function entriesInWindow() {
+      const startDay = TOTAL_DAYS - state.windowDays;
+      return ENTRIES.filter((e) => e.day >= startDay);
+    }
+
+    function smooth(values, k) {
+      if (k <= 0) return values.slice();
+      const out = new Array(values.length).fill(0);
+      for (let i = 0; i < values.length; i++) {
+        let s = 0, n = 0;
+        for (let j = -k; j <= k; j++) {
+          const idx = i + j;
+          if (idx >= 0 && idx < values.length) { s += values[idx]; n++; }
+        }
+        out[i] = s / Math.max(1, n);
+      }
+      return out;
+    }
+
+    function clearSvg() {
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+    }
+
+    function dayLabels(startDay, count) {
+      const step = Math.max(1, Math.floor(count / 6));
+      const ticks = [];
+      for (let i = 0; i < count; i += step) ticks.push(i);
+      if (ticks[ticks.length - 1] !== count - 1) ticks.push(count - 1);
+      return ticks.map((i) => ({ i, label: `d${startDay + i}` }));
+    }
+
+    function makeEl(name, attrs) {
+      const el = document.createElementNS(SVG_NS, name);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+      return el;
+    }
+
+    function renderAxes(startDay, mapX, drawYTicks) {
+      const xAxis = makeEl("line", { class: "axis-line", x1: PAD.l, x2: W - PAD.r, y1: H - PAD.b, y2: H - PAD.b });
+      svg.appendChild(xAxis);
+      if (drawYTicks) {
+        const yAxis = makeEl("line", { class: "axis-line", x1: PAD.l, x2: PAD.l, y1: PAD.t, y2: H - PAD.b });
+        svg.appendChild(yAxis);
+      }
+      for (const tick of dayLabels(startDay, state.windowDays)) {
+        const t = makeEl("text", {
+          x: mapX(tick.i), y: H - PAD.b + 16,
+          "text-anchor": "middle", class: "axis-label",
+        });
+        t.textContent = tick.label;
+        svg.appendChild(t);
+      }
+    }
+
+    function renderRaw() {
+      clearSvg();
+      const startDay = TOTAL_DAYS - state.windowDays;
+      const entries = entriesInWindow();
+      const xRange = W - PAD.l - PAD.r;
+      const yRange = H - PAD.t - PAD.b;
+      const xFor = (day) => PAD.l + ((day - startDay) / Math.max(1, state.windowDays - 1)) * xRange;
+      const yFor = (sev) => PAD.t + (1 - (sev - 1) / 9) * yRange;
+      renderAxes(startDay, (i) => PAD.l + (i / Math.max(1, state.windowDays - 1)) * xRange, true);
+      for (const s of [1, 5, 10]) {
+        const t = makeEl("text", { x: PAD.l - 8, y: yFor(s) + 3, "text-anchor": "end", class: "axis-label" });
+        t.textContent = String(s);
+        svg.appendChild(t);
+      }
+      for (const e of entries) {
+        const cat = CATEGORIES.find((c2) => c2.id === e.category);
+        const c = makeEl("circle", {
+          cx: xFor(e.day), cy: yFor(e.severity), r: 3.6,
+          fill: cat.color, opacity: 0.85,
+        });
+        svg.appendChild(c);
+      }
+    }
+
+    function renderCategories() {
+      clearSvg();
+      const startDay = TOTAL_DAYS - state.windowDays;
+      const xRange = W - PAD.l - PAD.r;
+      const rowHeight = (H - PAD.t - PAD.b) / CATEGORIES.length;
+      const counts = CATEGORIES.map(() => new Array(state.windowDays).fill(0));
+      for (const e of ENTRIES) {
+        if (e.day < startDay) continue;
+        const idx = CATEGORIES.findIndex((c) => c.id === e.category);
+        counts[idx][e.day - startDay] += 1;
+      }
+      const smoothed = counts.map((arr) => smooth(arr, state.smoothDays));
+      const globalMax = Math.max(1, ...smoothed.flat());
+      renderAxes(startDay, (i) => PAD.l + (i / Math.max(1, state.windowDays - 1)) * xRange, false);
+
+      for (let i = 0; i < CATEGORIES.length; i++) {
+        const cat = CATEGORIES[i];
+        const yTop = PAD.t + i * rowHeight;
+        const baseline = yTop + rowHeight - 4;
+        const lbl = makeEl("text", { x: PAD.l - 8, y: yTop + rowHeight / 2 + 4, "text-anchor": "end", class: "axis-label" });
+        lbl.textContent = cat.label;
+        svg.appendChild(lbl);
+        const usableH = rowHeight - 10;
+        let path = `M ${PAD.l} ${baseline}`;
+        for (let d = 0; d < state.windowDays; d++) {
+          const v = smoothed[i][d] / globalMax;
+          const x = PAD.l + (d / Math.max(1, state.windowDays - 1)) * xRange;
+          const y = baseline - v * usableH;
+          path += ` L ${x.toFixed(2)} ${y.toFixed(2)}`;
+        }
+        path += ` L ${PAD.l + xRange} ${baseline} Z`;
+        svg.appendChild(makeEl("path", { d: path, fill: cat.color, opacity: 0.85 }));
+      }
+    }
+
+    function renderStreamgraph() {
+      clearSvg();
+      const startDay = TOTAL_DAYS - state.windowDays;
+      const xRange = W - PAD.l - PAD.r;
+      const yRange = H - PAD.t - PAD.b;
+      const midY = PAD.t + yRange / 2;
+      const counts = CATEGORIES.map(() => new Array(state.windowDays).fill(0));
+      for (const e of ENTRIES) {
+        if (e.day < startDay) continue;
+        const idx = CATEGORIES.findIndex((c) => c.id === e.category);
+        counts[idx][e.day - startDay] += e.severity;
+      }
+      const smoothed = counts.map((arr) => smooth(arr, state.smoothDays));
+      const days = state.windowDays;
+      const stacks = [];
+      let maxTotal = 0;
+      for (let d = 0; d < days; d++) {
+        let total = 0;
+        for (let i = 0; i < CATEGORIES.length; i++) total += smoothed[i][d];
+        if (total > maxTotal) maxTotal = total;
+      }
+      maxTotal = Math.max(1, maxTotal);
+      for (let d = 0; d < days; d++) {
+        let total = 0;
+        for (let i = 0; i < CATEGORIES.length; i++) total += smoothed[i][d];
+        let cursor = -total / 2;
+        const day = [];
+        for (let i = 0; i < CATEGORIES.length; i++) {
+          const v = smoothed[i][d];
+          day.push({ y0: cursor, y1: cursor + v });
+          cursor += v;
+        }
+        stacks.push(day);
+      }
+      const yScale = (yRange / 2) / (maxTotal / 2);
+      renderAxes(startDay, (i) => PAD.l + (i / Math.max(1, state.windowDays - 1)) * xRange, false);
+
+      for (let i = 0; i < CATEGORIES.length; i++) {
+        const cat = CATEGORIES[i];
+        let forward = "";
+        let back = "";
+        for (let d = 0; d < days; d++) {
+          const x = PAD.l + (d / Math.max(1, days - 1)) * xRange;
+          const yTop = midY + stacks[d][i].y0 * yScale;
+          const yBot = midY + stacks[d][i].y1 * yScale;
+          forward += (d === 0 ? "M" : "L") + ` ${x.toFixed(2)} ${yTop.toFixed(2)} `;
+          back = ` L ${x.toFixed(2)} ${yBot.toFixed(2)}` + back;
+        }
+        const path = forward + back + " Z";
+        svg.appendChild(makeEl("path", { d: path, fill: cat.color, opacity: 0.88 }));
+      }
+    }
+
+    function renderPreview() {
+      const titleEl = document.getElementById("stageTitle");
+      const capEl = document.getElementById("stageCaption");
+      if (state.mode === "raw") {
+        titleEl.textContent = "Raw entries";
+        capEl.textContent = "Each dot is one journal entry. X is the day, Y is the user-reported severity (1 low, 10 high), colour is the auto-classified category. The clinician sees the underlying data the chart is built from.";
+        renderRaw();
+      } else if (state.mode === "categories") {
+        titleEl.textContent = "8 categories";
+        capEl.textContent = "Each row is one topic. The row's silhouette stacks per-day entry counts after smoothing. Wider regions = the user wrote about that topic more often that day. Useful for spotting whether anxiety is concentrated in one topic or diffuse.";
+        renderCategories();
+      } else {
+        titleEl.textContent = "Streamgraph";
+        capEl.textContent = "Bands stack symmetrically around a central baseline. Each band is one category; band width on a given day is the smoothed (entries x severity) for that category. Total chart height is the user's total anxiety load; band proportions show what's driving it.";
+        renderStreamgraph();
+      }
+    }
+
+    function updatePrompt() {
+      const parts = [];
+      const modeText = {
+        raw: "raw entry scatter",
+        categories: "per-category density rows",
+        streamgraph: "stacked streamgraph",
+      }[state.mode];
+      parts.push(`Render an anxiety severity chart as a ${modeText}`);
+      if (state.windowDays !== DEFAULTS.windowDays) parts.push(`over the last ${state.windowDays} days`);
+      else parts.push("over the last 60 days");
+      if (state.smoothDays === 0) parts.push("with no smoothing (show raw daily values)");
+      else if (state.smoothDays !== DEFAULTS.smoothDays) parts.push(`with a ${state.smoothDays}-day smoothing kernel`);
+      else parts.push("with the default 3-day smoothing kernel");
+      parts.push("using the 8 LLM-classified topic categories (Work, Family, Health, Money, Sleep, Relationships, Existential, Other)");
+      if (state.mode === "streamgraph") parts.push("with band width weighted by entries x severity, centered on a baseline so the total height shows overall anxiety load");
+      const sentence = parts.join(", ") + ".";
+      document.getElementById("prompt").textContent = sentence;
+    }
+
+    document.getElementById("copyBtn").addEventListener("click", async (e) => {
+      const text = document.getElementById("prompt").textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        e.target.classList.add("copied");
+        e.target.textContent = "Copied!";
+        setTimeout(() => { e.target.classList.remove("copied"); e.target.textContent = "Copy prompt"; }, 1200);
+      } catch (_) {
+        const ta = document.createElement("textarea");
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        document.execCommand("copy"); document.body.removeChild(ta);
+        e.target.textContent = "Copied!";
+        setTimeout(() => { e.target.textContent = "Copy prompt"; }, 1200);
+      }
+    });
+
+    function updateAll() {
+      winLabel.textContent = `${state.windowDays} days`;
+      smoothLabel.textContent = state.smoothDays === 0 ? "off" : `${state.smoothDays} days`;
+      renderPreview();
+      updatePrompt();
+    }
+
+    updateAll();
+  </script>
+</body>
+</html>

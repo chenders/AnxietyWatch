@@ -50,14 +50,14 @@ struct GlucoseTrendChart: View {
                         x: .value("Date", d.date, unit: .day),
                         y: .value("mg/dL", d.avg)
                     )
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(ChartPalette.glucose)
                     .interpolationMethod(.catmullRom)
 
                     PointMark(
                         x: .value("Date", d.date, unit: .day),
                         y: .value("mg/dL", d.avg)
                     )
-                    .foregroundStyle(.purple.opacity(d.isLowReliability ? 0.4 : 1.0))
+                    .foregroundStyle(ChartPalette.glucose.opacity(d.isLowReliability ? 0.4 : 1.0))
                     .symbolSize(30)
                     .annotation(position: .top, spacing: 1) {
                         if d.isLowReliability {
@@ -70,12 +70,12 @@ struct GlucoseTrendChart: View {
 
                 if let mean = rollingMean {
                     RuleMark(y: .value("Avg", mean))
-                        .foregroundStyle(.green.opacity(0.6))
+                        .foregroundStyle(ChartPalette.baselineRule)
                         .lineStyle(StrokeStyle(dash: [5, 3]))
                         .annotation(position: .trailing, alignment: .leading) {
                             Text("avg")
                                 .font(.caption2)
-                                .foregroundStyle(.green)
+                                .foregroundStyle(ChartPalette.baselineLabel)
                         }
                 }
 

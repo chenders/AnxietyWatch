@@ -16,7 +16,7 @@ struct ActivityTrendChart: View {
                     x: .value("Date", snapshot.date, unit: .day),
                     y: .value("Steps", snapshot.steps!)
                 )
-                .foregroundStyle(.orange.gradient)
+                .foregroundStyle(ChartPalette.activity.gradient)
             }
             .chartXScale(domain: dateRange)
             .frame(height: 180)

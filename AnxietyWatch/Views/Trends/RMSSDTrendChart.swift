@@ -62,14 +62,14 @@ struct RMSSDTrendChart: View {
                         x: .value("Date", point.night, unit: .day),
                         y: .value("RMSSD (ms)", point.value ?? 0)
                     )
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(ChartPalette.polarRMSSD)
                     .interpolationMethod(.catmullRom)
 
                     PointMark(
                         x: .value("Date", point.night, unit: .day),
                         y: .value("RMSSD (ms)", point.value ?? 0)
                     )
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(ChartPalette.polarRMSSD)
                     .symbol(.diamond)
                     .symbolSize(40)
                 case .entry(let entry):

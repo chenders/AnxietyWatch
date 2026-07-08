@@ -162,8 +162,8 @@ struct SleepRespiratoryTrendChart: View {
                     .symbolSize(30)
                 }
                 .chartForegroundStyleScale([
-                    NadirSeries.oximeter: Color.green,
-                    NadirSeries.appleWatch: Color.orange,
+                    NadirSeries.oximeter: ChartPalette.oximeterSpO2,
+                    NadirSeries.appleWatch: ChartPalette.appleWatchSpO2,
                 ])
                 .chartXScale(domain: dateRange)
                 .chartYScale(domain: nadirDomainFloor...100)
@@ -193,7 +193,7 @@ struct SleepRespiratoryTrendChart: View {
                         x: .value("Date", session.date, unit: .day),
                         y: .value("Hours", hours)
                     )
-                    .foregroundStyle(.teal.gradient)
+                    .foregroundStyle(ChartPalette.cpapUsage.gradient)
                 }
                 .chartXScale(domain: dateRange)
                 .chartYAxisLabel("Usage (hours)")
@@ -210,11 +210,11 @@ struct SleepRespiratoryTrendChart: View {
                     path.move(to: CGPoint(x: 0, y: meanY))
                     path.addLine(to: CGPoint(x: geo.size.width, y: meanY))
                 }
-                .stroke(.green.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
+                .stroke(ChartPalette.baselineRule, style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
 
                 Text("avg")
                     .font(.caption2)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(ChartPalette.baselineLabel)
                     .position(x: geo.size.width - 12, y: meanY - 8)
 
                 if let upperY = proxy.position(forY: baseline.upperBound) {
@@ -222,7 +222,7 @@ struct SleepRespiratoryTrendChart: View {
                         path.move(to: CGPoint(x: 0, y: upperY))
                         path.addLine(to: CGPoint(x: geo.size.width, y: upperY))
                     }
-                    .stroke(.red.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    .stroke(ChartPalette.outOfRangeFill, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
                 }
             }
         }

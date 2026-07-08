@@ -984,6 +984,11 @@ def create_app(test_config=None):
         "pharmacies": ("pharmacies", None, "name"),
         "prescriptions": ("prescriptions", None, "date_filled"),
         "pharmacyCallLogs": ("pharmacy_call_logs", "timestamp", "timestamp"),
+        "sensorSessions": ("sensor_sessions", "start_time", "start_time"),
+        "hrvReadings": ("hrv_readings", "timestamp", "timestamp"),
+        "songs": ("songs", None, "id"),
+        "songOccurrences": ("song_occurrences", "timestamp", "timestamp"),
+        "sleepStageEvents": ("sleep_stage_events", "start_time", "start_time"),
     }
 
     def _query_entity(cur, entity, since=None):
@@ -1166,6 +1171,11 @@ def create_app(test_config=None):
                 result[k] = v.isoformat()
             elif hasattr(v, "isoformat"):  # date objects
                 result[k] = v.isoformat()
+            elif isinstance(v, memoryview):
+                # bytea columns (e.g. sensor_sessions.rr_archive) — drop the
+                # binary payload from JSON responses; the metadata fields
+                # alongside are what consumers need.
+                result[k] = None
             else:
                 result[k] = v
         return result

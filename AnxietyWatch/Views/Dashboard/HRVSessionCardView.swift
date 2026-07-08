@@ -20,12 +20,19 @@ import SwiftUI
 struct HRVSessionCardView: View {
     let service: PolarHRMService
     @Environment(RecordingPresentationCoordinator.self) private var presentation
-    /// Just the most recent completed Polar session — used for the
-    /// "Last session" summary. Limited to one row so the Dashboard
+    /// The few most recent Polar sessions (completed or not) — the
+    /// "Last session" summary reads the newest *completed* one via
+    /// `lastCompletedSession`. Bounded to 5 rows so the Dashboard
     /// doesn't drag a growing history into memory on every render.
     /// Defined entirely via the FetchDescriptor below to keep the
     /// predicate/sort definition in one place.
     @Query private var pastSessions: [SensorSession]
+
+    #if DEBUG && targetEnvironment(simulator)
+    /// Hoisted to a static so the check runs once, not on every render of
+    /// `content(for:)`. `RestoreDemoMode` owns the launch-argument literal.
+    private static let demoMode = RestoreDemoMode.isActive
+    #endif
 
     init(service: PolarHRMService) {
         self.service = service
@@ -35,12 +42,25 @@ struct HRVSessionCardView: View {
         // supported, but capturing through a local works and still keeps a
         // single source of truth for the string.
         let polarSource = PolarHRMService.sourceLabel
+        // Single-clause predicate only: adding `&& $0.endTime != nil` here
+        // trips the documented iOS-26 compound-#Predicate slow path
+        // (main-thread hang in _NSPredicateUtilities during SQL generation —
+        // see CLAUDE.md Common Pitfalls). The completed-session filter is
+        // applied in-memory via `lastCompletedSession`. fetchLimit 5 keeps
+        // the window bounded while guaranteeing a completed session is
+        // present even if the newest row is still in-flight (endTime nil).
         var descriptor = FetchDescriptor<SensorSession>(
-            predicate: #Predicate<SensorSession> { $0.source == polarSource && $0.endTime != nil },
+            predicate: #Predicate<SensorSession> { $0.source == polarSource },
             sortBy: [SortDescriptor(\.startTime, order: .reverse)]
         )
-        descriptor.fetchLimit = 1
+        descriptor.fetchLimit = 5
         self._pastSessions = Query(descriptor)
+    }
+
+    /// Most recent completed session (endTime set), filtered in-memory —
+    /// see the single-clause-#Predicate note in `init`.
+    private var lastCompletedSession: SensorSession? {
+        pastSessions.first { $0.endTime != nil }
     }
 
     var body: some View {
@@ -81,20 +101,39 @@ struct HRVSessionCardView: View {
 
     @ViewBuilder
     private func content(for state: PolarHRMState) -> some View {
-        switch state.status {
-        case .recording, .connecting:
-            liveContent(for: state)
-        case .bluetoothOff:
-            inlineStatus(message: "Bluetooth is off. Enable it in iOS Settings to start a session.", color: .red)
-        case .bluetoothUnauthorized:
-            inlineStatus(message: "Allow Bluetooth permission in iOS Settings → Anxiety Watch.", color: .red)
-        case .bluetoothUnsupported:
-            inlineStatus(message: "Bluetooth not available on this device.", color: .secondary)
-        case .error(let message):
-            inlineStatus(message: message, color: .red)
-            startButton(label: "Retry Start")
-        default:
+        #if DEBUG && targetEnvironment(simulator)
+        let demoMode = Self.demoMode
+        #else
+        let demoMode = false
+        #endif
+        if demoMode {
+            // When the app was launched with `-autoRestoreFromServer` the
+            // simulator's BLE stack always reports `bluetoothUnsupported`,
+            // but the imported SensorSession data is real — render the idle
+            // card with the last-session summary so screenshots show a
+            // useful Polar card instead of the "Bluetooth not available"
+            // gate. The caption keeps the fallback honest: a screenshot of
+            // this card must be distinguishable from a live device's.
+            Text("Simulator demo data")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             idleContent()
+        } else {
+            switch state.status {
+            case .recording, .connecting:
+                liveContent(for: state)
+            case .bluetoothOff:
+                inlineStatus(message: "Bluetooth is off. Enable it in iOS Settings to start a session.", color: .red)
+            case .bluetoothUnauthorized:
+                inlineStatus(message: "Allow Bluetooth permission in iOS Settings → Anxiety Watch.", color: .red)
+            case .bluetoothUnsupported:
+                inlineStatus(message: "Bluetooth not available on this device.", color: .secondary)
+            case .error(let message):
+                inlineStatus(message: message, color: .red)
+                startButton(label: "Retry Start")
+            default:
+                idleContent()
+            }
         }
     }
 
@@ -139,7 +178,7 @@ struct HRVSessionCardView: View {
 
     @ViewBuilder
     private func idleContent() -> some View {
-        if let recent = pastSessions.first {
+        if let recent = lastCompletedSession {
             lastSessionSummary(recent)
         } else {
             Text("Wear the strap and tap Start to record high-fidelity HRV.")

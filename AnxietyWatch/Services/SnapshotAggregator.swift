@@ -49,6 +49,16 @@ struct SnapshotAggregator {
     }
 
     func aggregateDay(_ date: Date) async throws {
+        #if DEBUG && targetEnvironment(simulator)
+        // Skip aggregation when the app was launched with
+        // `-autoRestoreFromServer`. The aggregator otherwise overwrites the
+        // server-restored snapshot fields with nils derived from the
+        // (empty) on-simulator HealthKit store, producing the
+        // "data appears then disappears" flicker.
+        if RestoreDemoMode.isActive {
+            return
+        }
+        #endif
         let calendar = Calendar.current
         let start = calendar.startOfDay(for: date)
         guard let end = calendar.date(byAdding: .day, value: 1, to: start) else { return }

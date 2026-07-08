@@ -8,6 +8,8 @@ struct SyncSettingsView: View {
     @State private var serverURL: String = ""
     @State private var apiKey: String = ""
     @State private var autoSync: Bool = false
+    @State private var restoreResult: String?
+    @State private var isRestoring: Bool = false
 
     var body: some View {
         Form {
@@ -48,6 +50,43 @@ struct SyncSettingsView: View {
                 }
                 .disabled(!sync.isConfigured || sync.isSyncing)
             }
+
+            #if DEBUG && targetEnvironment(simulator)
+            Section("Debug — Restore from Server") {
+                Text("Pulls /api/data and bulk-inserts into local SwiftData. For populating a fresh simulator. Does not affect server data.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    Task {
+                        isRestoring = true
+                        restoreResult = nil
+                        do {
+                            let report = try await sync.restoreFromServer(modelContext: modelContext)
+                            restoreResult = report
+                        } catch {
+                            restoreResult = "Failed: \(error.localizedDescription)"
+                        }
+                        isRestoring = false
+                    }
+                } label: {
+                    HStack {
+                        Label("Restore from Server", systemImage: "arrow.down.circle")
+                        if isRestoring {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(!sync.isConfigured || isRestoring)
+
+                if let result = restoreResult {
+                    Text(result)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(result.hasPrefix("Failed") ? .red : .secondary)
+                }
+            }
+            #endif
 
             Section("Status") {
                 if let date = sync.lastSyncDate {

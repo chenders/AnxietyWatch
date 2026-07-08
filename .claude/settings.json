@@ -4,10 +4,13 @@
       "Bash(swiftlint:*)",
       "Bash(xcodebuild build:*)",
       "Bash(xcodebuild test:*)",
+      "Bash(flake8:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(git show:*)",
-      "Bash(git status:*)"
+      "Bash(git status:*)",
+      "Bash(semgrep --config:*)",
+      "Bash(semgrep scan:*)"
     ],
     "deny": [
       "Read(.env*)",
@@ -30,6 +33,18 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/swiftlint-edited.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/flake8-edited.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/voiceover-consistency-edited.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/medication-name-drift-warn.py"
           }
         ]
       }
@@ -41,6 +56,15 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-pr-reviewer-reminder.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/block-pii-in-fixtures.py"
           }
         ]
       }

@@ -36,9 +36,9 @@ struct SleepTrendChart: View {
             }
             .chartXScale(domain: dateRange)
             .chartForegroundStyleScale([
-                "Deep": Color.indigo,
-                "REM": Color.cyan,
-                "Core": Color.blue.opacity(0.5),
+                "Deep": ChartPalette.sleepDeep,
+                "REM": ChartPalette.sleepREM,
+                "Core": ChartPalette.sleepCore,
             ])
             .frame(height: 200)
         }

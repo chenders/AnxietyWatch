@@ -24,7 +24,7 @@ struct CorrelationChartView: View {
                         x: .value(correlation.displayName, point.signalValue),
                         y: .value("Severity", point.severity)
                     )
-                    .foregroundStyle(.blue.opacity(0.6))
+                    .foregroundStyle(ChartPalette.correlation)
                 }
                 .chartYScale(domain: 1...10)
                 .chartYAxisLabel("Anxiety Severity")

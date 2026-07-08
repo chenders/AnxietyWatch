@@ -125,7 +125,7 @@ private struct LFHFSessionRow: View {
                 if let hf = mean?.hfMean {
                     Text(String(format: "%.0f ms²", hf))
                         .font(.body.monospacedDigit())
-                        .foregroundStyle(.teal)
+                        .foregroundStyle(ChartPalette.polarHFPower)
                 } else {
                     Text("—")
                         .foregroundStyle(.secondary)

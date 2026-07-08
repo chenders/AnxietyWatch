@@ -38,9 +38,10 @@ Be concise: one sentence per comment when possible.
 
 ## CI context
 
-This repo runs SwiftLint `--strict` and treats Swift warnings as errors in CI (`SWIFT_TREAT_WARNINGS_AS_ERRORS=YES`); the server runs flake8.
+This repo runs SwiftLint `--strict`, Semgrep (`.semgrep/swift-pitfalls.yml`), and treats Swift warnings as errors in CI (`SWIFT_TREAT_WARNINGS_AS_ERRORS=YES`); the server runs flake8.
 
 - **Don't flag SwiftLint *style* violations** actively enforced by `.swiftlint.yml` *in linted paths* — most notably `line_length` (150 warn, 200 hard error). CI's `swiftlint --strict` blocks these automatically for files under `AnxietyWatch/` and `AnxietyWatchTests/`. **Scope caveat:** `.swiftlint.yml` excludes `AnxietyWatch Watch App/` and `AnxietyWatchWidgets/` — Swift files in those directories are *not* linted in CI, so do flag style issues there manually (or recommend expanding the lint scope if the team wants repo-wide enforcement). Also note that `.swiftlint.yml` disables several common defaults (`trailing_comma`, `force_try`, length limits, etc.) — don't assume an example rule is enforced without checking the config.
+- **Don't flag Semgrep findings already enforced by `.semgrep/swift-pitfalls.yml`**: hardcoded `"polar_h10"` / `"healthkit"` source labels outside `#Predicate`, `3 * 3600` magic numbers outside `LFHFAggregator`, `Date() - N * 86400` patterns, hardcoded chart-series colors in `Views/Trends/`, `lastSyncDate = .now` after I/O in `SyncService`. CI will block these before review.
 - **Do flag *substantive* warnings whose cause isn't obvious from the diff** — deprecation, force-unwrap risks, unused-but-should-be-used vars, missing-init issues. CI will also fail on these, but your comment explains the *fix* faster than the CI message does. Per Testing Requirements below, fixing new warnings is always in scope for the author.
 
 ## Git Workflow

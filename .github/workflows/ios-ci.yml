@@ -68,6 +68,22 @@ jobs:
         # violation fails CI — fix the source instead of grandfathering.
         run: swiftlint lint --reporter github-actions-logging --strict
 
+      - name: Verify Semgrep is available
+        run: |
+          if ! command -v semgrep >/dev/null 2>&1; then
+            echo "::error::semgrep is not installed on this runner. Run 'brew install semgrep' on the runner Mac."
+            exit 1
+          fi
+          semgrep --version
+
+      - name: Run Semgrep pitfall rules
+        # Project-specific rules in .semgrep/swift-pitfalls.yml encode the
+        # SwiftData/SwiftUI/sync-race pitfalls documented in CLAUDE.md.
+        # Any rule with severity ERROR blocks merge; severity WARNING surfaces
+        # as a PR annotation but does not fail. --error bubbles both up.
+        # No untrusted GitHub event data flows into this step.
+        run: semgrep --config .semgrep/ --error
+
       - name: Run tests with coverage
         env:
           SIM_NAME: ${{ steps.dest.outputs.sim_name }}

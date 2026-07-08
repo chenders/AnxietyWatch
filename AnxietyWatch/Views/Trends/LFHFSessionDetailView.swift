@@ -119,7 +119,7 @@ struct LFHFSessionDetailView: View, Equatable {
                     x: .value("Time", point.timestamp),
                     y: .value("HF", point.hfPower.map { min($0, upper) } ?? .nan)
                 )
-                .foregroundStyle(.teal)
+                .foregroundStyle(ChartPalette.polarHFPower)
             }
         }
     }
@@ -133,7 +133,7 @@ struct LFHFSessionDetailView: View, Equatable {
                     x: .value("Time", point.timestamp),
                     y: .value("LF", point.lfPower.map { min($0, upper) } ?? .nan)
                 )
-                .foregroundStyle(.indigo)
+                .foregroundStyle(ChartPalette.polarLFPower)
             }
         }
     }

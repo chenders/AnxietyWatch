@@ -85,14 +85,14 @@ struct HeartRateTrendChart: View {
                         y: .value("BPM", snapshot.restingHR ?? 0),
                         series: .value("Source", "HealthKit")
                     )
-                    .foregroundStyle(.red)
+                    .foregroundStyle(ChartPalette.hkHeartRate)
                     .interpolationMethod(.catmullRom)
 
                     PointMark(
                         x: .value("Date", snapshot.date, unit: .day),
                         y: .value("BPM", snapshot.restingHR ?? 0)
                     )
-                    .foregroundStyle(.red)
+                    .foregroundStyle(ChartPalette.hkHeartRate)
                     .symbolSize(30)
                 case .entry(let entry):
                     RuleMark(x: .value("Date", entry.timestamp, unit: .day))
@@ -108,14 +108,14 @@ struct HeartRateTrendChart: View {
                         y: .value("BPM", point.value ?? 0),
                         series: .value("Source", "Polar")
                     )
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(ChartPalette.polarHeartRate)
                     .interpolationMethod(.catmullRom)
 
                     PointMark(
                         x: .value("Date", point.night, unit: .day),
                         y: .value("BPM", point.value ?? 0)
                     )
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(ChartPalette.polarHeartRate)
                     .symbol(.diamond)
                     .symbolSize(40)
                 }

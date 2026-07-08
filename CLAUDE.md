@@ -169,10 +169,25 @@ AnxietyWatch/
 ├── .claude/                             # Claude Code config
 │   ├── settings.json                    # Project-scoped permissions, env, hooks (committed)
 │   ├── settings.local.json              # Personal overrides (gitignored)
-│   ├── agents/swift-pre-pr-reviewer.md  # Pre-PR Swift review agent (calibrated against PR #132)
+│   ├── agents/                          # Calibrated review sub-agents
+│   │   ├── swift-pre-pr-reviewer.md            # Generalist pre-PR review
+│   │   ├── swiftui-render-pitfall-detector.md  # Four iOS-26 main-thread-hang patterns
+│   │   ├── chart-ux-auditor.md                 # Trends visual consistency + a11y
+│   │   ├── medical-data-accuracy-reviewer.md   # HealthKit/CPAP/Polar accuracy hazards
+│   │   └── process-walkthrough.md              # Swift file → Mermaid + lay prose
 │   ├── commands/                        # Custom slash commands
-│   └── hooks/                           # PostToolUse hooks (most are local-only and gitignored)
-│       └── swiftlint-edited.py          # Runs SwiftLint on edited .swift files; surfaces violations to model
+│   │   ├── respond-to-copilot.md
+│   │   ├── query-prod.md                # Read-only psql via docker exec on megadude
+│   │   └── sync-instruction-files.md    # Mirror changes across the 5 instruction files
+│   └── hooks/                           # PostToolUse / PreToolUse hooks
+│       ├── swiftlint-edited.py          # Runs SwiftLint on edited .swift files
+│       ├── flake8-edited.py             # Runs flake8 on edited server/*.py files
+│       ├── voiceover-consistency-edited.py  # Flags a11y pitfalls in Swift
+│       ├── medication-name-drift-warn.py    # Warns on medication name literal drift
+│       ├── block-pii-in-fixtures.py     # Blocks PII in test fixtures (PreToolUse)
+│       └── pre-pr-reviewer-reminder.py  # Nudges pre-PR review before git push
+├── .semgrep/
+│   └── swift-pitfalls.yml               # Project-specific static-analysis rules
 ├── .gitignore
 ├── .env.runners.example                 # Runner credential template
 ├── docker-compose.runners.yml           # GitHub Actions runner config
@@ -203,6 +218,52 @@ Skip the review only for trivial pushes — comments, README, version bumps, bui
 The agent definition lives at `.claude/agents/swift-pre-pr-reviewer.md`. A `PreToolUse` hook in `.claude/settings.json` (`pre-pr-reviewer-reminder.py`) surfaces a reminder when a `git push` command is about to run; the reminder is non-blocking, but you are expected to follow the policy.
 
 The pattern over the last several PRs: pre-PR review consistently catches 3-6 substantive issues per PR that would otherwise be flagged by Copilot. Running the reviewer first is significantly cheaper than the multi-round Copilot dance.
+
+### Specialized review sub-agents
+
+The generalist `swift-pre-pr-reviewer` is paired with four narrower agents that target specific concern areas. Dispatch them in addition to (not instead of) the generalist for PRs touching the relevant surface:
+
+| Agent | When to dispatch |
+|-------|-------|
+| `swiftui-render-pitfall-detector` | Any PR touching SwiftUI views, `@Query`, `#Predicate`, `NavigationLink`, Swift Charts, or `@Observable` types. Targets the four "main thread hang" patterns that have actually crashed the app on iOS 26. |
+| `chart-ux-auditor` | Any PR touching `AnxietyWatch/Views/Trends/`. Static pass walks every chart file to map color tokens to series semantics; dynamic pass (when XcodeBuildMCP is available) screenshots each chart at three data densities. |
+| `medical-data-accuracy-reviewer` | Any PR touching `Services/` files that ingest, aggregate, or arbitrate physiological data (HealthKit, CPAP, Polar, EMAY, FHIR labs, OCR). Catches unit mismatches, timezone bugs, source-discriminator gaps, OCR-result validation, baseline math sanity. |
+| `process-walkthrough` | When a non-obvious clinical or systems process needs a lay-prose + Mermaid diagram explainer in `docs/research/`. Calibrated against `LFHFExplainerSheet.swift` as the prose bar. |
+
+These agents live at `.claude/agents/<name>.md` and are dispatched via `Task` with `subagent_type: <name>`.
+
+### Slash commands
+
+| Command | Purpose |
+|---------|---------|
+| `/respond-to-copilot [PR#]` | Loop responding to Copilot review comments until the bot has no more. |
+| `/query-prod <SQL>` | Read-only Postgres query against the megadude deployment via `docker exec` (bypasses the `.env` permission issue documented in `reference_prod_deployment` memory). Refuses destructive statements. |
+| `/sync-instruction-files [path]` | Mirror a change made in one of the five instruction files (CLAUDE.md, AGENTS.md, `.github/copilot-instructions.md`, `.github/instructions/{swift,python}.instructions.md`) across the others. Per the "Keeping Instruction Files Updated" rule. |
+
+### Hooks
+
+In addition to the existing `swiftlint-edited.py` (Swift PostToolUse) and `pre-pr-reviewer-reminder.py` (Bash PreToolUse), the project ships four more hooks wired in `.claude/settings.json`:
+
+- **`flake8-edited.py`** (PostToolUse, Python in `server/`) — mirror of swiftlint-edited.py. Runs `flake8` on every edited `*.py` and surfaces violations in-loop.
+- **`voiceover-consistency-edited.py`** (PostToolUse, Swift in production targets) — flags four CLAUDE.md accessibility pitfalls deterministically: `Int(x)` near `%.0f` format strings, `Button` inside `NavigationLink` label, `.accessibilityElement(children: .combine)` on container with interactive children, slashes in accessibility labels.
+- **`block-pii-in-fixtures.py`** (PreToolUse, Write/Edit/MultiEdit in test paths) — **blocks** writes that introduce real-looking PII (phone numbers outside the 555-01XX fictional range, personalized device names like "X's iPhone", non-fictional addresses, Rx numbers outside the documented patterns). Reduces the risk of a repeat of the prior history-rewrite incidents documented in the Sensitive Data Rules section above.
+- **`medication-name-drift-warn.py`** (PostToolUse, Swift/Python) — warns when a `medication_name` string literal in code doesn't match the canonical names declared in `AnxietyWatch/Models/MedicationDefinition.swift`. Prevents new instances of the `clonazePAM` vs `Clonazepam 1mg Tablets` drift documented in the production sync DB.
+
+### Static analysis: Semgrep
+
+`.semgrep/swift-pitfalls.yml` encodes a subset of the Common Pitfalls section below as static rules. CI runs `semgrep --config .semgrep/ --error` on PRs touching Swift. Rules with severity ERROR block merge; severity WARNING surfaces as PR annotations. The codified rules:
+
+- `anxietywatch-hardcoded-source-label` — string literals like `"polar_h10"` outside `#Predicate` macros
+- `anxietywatch-overnight-threshold-magic-number` — duplicates of `3 * 3600` outside `LFHFAggregator`
+- `anxietywatch-date-arithmetic-no-calendar` — `Date() - N * 86400` patterns that ignore DST
+- `anxietywatch-chart-color-literal` — hardcoded `.foregroundStyle(.red)` etc. on chart series (after the ChartPalette migration; UI accents are excluded)
+- `anxietywatch-sync-cursor-now` (ERROR) — `lastSyncDate = .now` after I/O — the documented incremental-sync race
+
+The `chartYScale(domain:)` + `.nan` pitfall is intentionally NOT a Semgrep rule because pure-regex detection produced too many false positives on bounded discrete domains; the `swiftui-render-pitfall-detector` sub-agent handles it semantically instead.
+
+### Chart palette
+
+`AnxietyWatch/Utilities/ChartPalette.swift` centralizes the color tokens used by every chart series in `Views/Trends/`. Use these tokens — not raw `.red`/`.blue`/`.indigo`/etc. — for any chart series. UI accents (SF Symbol icons, status warning text) are out of scope. The Semgrep rule `anxietywatch-chart-color-literal` enforces this on the Trends/ path.
 
 ## Common pitfalls (catch these before pushing)
 

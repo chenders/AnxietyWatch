@@ -115,6 +115,17 @@ struct AnxietyWatchApp: App {
                     }
                 }
                 .task {
+                    #if DEBUG && targetEnvironment(simulator)
+                    if RestoreDemoMode.isActive {
+                        let context = ModelContext(sharedModelContainer)
+                        do {
+                            let report = try await SyncService.shared.restoreFromServer(modelContext: context)
+                            Log.sync.info("[autoRestore] \(report, privacy: .public)")
+                        } catch {
+                            Log.sync.error("[autoRestore] failed: \(error, privacy: .public)")
+                        }
+                    }
+                    #endif
                     PhoneConnectivityManager.shared.modelContainer = sharedModelContainer
                     PhoneConnectivityManager.shared.activate()
 

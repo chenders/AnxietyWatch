@@ -133,24 +133,24 @@ struct HFPowerTrendChart: View {
                         x: .value("Date", mean.night, unit: .day),
                         y: .value("HF (ms²)", mean.hfMean ?? 0)
                     )
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(ChartPalette.polarHFPower)
                     .interpolationMethod(.catmullRom)
 
                     PointMark(
                         x: .value("Date", mean.night, unit: .day),
                         y: .value("HF (ms²)", mean.hfMean ?? 0)
                     )
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(ChartPalette.polarHFPower)
                     .symbol(.diamond)
                     .symbolSize(40)
                 case .baselineMean(let value):
                     RuleMark(y: .value("Baseline", value))
-                        .foregroundStyle(.green.opacity(0.6))
+                        .foregroundStyle(ChartPalette.baselineRule)
                         .lineStyle(StrokeStyle(dash: [5, 3]))
                         .annotation(position: .trailing, alignment: .leading) {
                             Text("avg")
                                 .font(.caption2)
-                                .foregroundStyle(.green)
+                                .foregroundStyle(ChartPalette.baselineLabel)
                         }
                 case .entry(let entry):
                     RuleMark(x: .value("Date", entry.timestamp, unit: .day))

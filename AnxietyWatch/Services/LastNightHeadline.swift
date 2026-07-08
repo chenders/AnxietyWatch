@@ -14,7 +14,12 @@ nonisolated enum LastNightHeadline {
         let text: String
     }
 
-    static func compose(efficiencyPct: Double, ahi: Double?, nadirPct: Double?) -> Result {
+    static func compose(
+        efficiencyPct: Double,
+        efficiencyEstimated: Bool = false,
+        ahi: Double?,
+        nadirPct: Double?
+    ) -> Result {
         let effLow = efficiencyPct < 85
         let ahiHigh = (ahi ?? 0) >= 5
         let nadirLow = nadirPct.map { $0 < 92 } ?? false
@@ -27,7 +32,11 @@ nonisolated enum LastNightHeadline {
         default: verdict = "Rough night"
         }
 
-        var clauses: [String] = ["Sleep efficiency \(Int(efficiencyPct.rounded()))%"]
+        // "~" marks an estimated efficiency (incomplete inBed coverage pins
+        // the value at exactly 100%) so the headline can't pass an artifact
+        // of missing data off as a measured 100%.
+        let effPrefix = efficiencyEstimated ? "~" : ""
+        var clauses: [String] = ["Sleep efficiency \(effPrefix)\(Int(efficiencyPct.rounded()))%"]
         if let ahi { clauses.append(String(format: "AHI %.1f", ahi)) }
         if let nadir = nadirPct { clauses.append("SpO₂ nadir \(Int(nadir.rounded()))%") }
 

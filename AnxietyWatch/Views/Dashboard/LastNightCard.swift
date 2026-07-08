@@ -22,6 +22,7 @@ struct LastNightCard: View {
         let efficiency = SleepEfficiencyCalculator.compute(from: sleepEvents)
         let headline = LastNightHeadline.compose(
             efficiencyPct: efficiency.efficiencyPct,
+            efficiencyEstimated: efficiency.isBedTimeEstimated,
             ahi: lastCPAP?.ahi,
             nadirPct: snapshot.spo2NadirOvernight
         )

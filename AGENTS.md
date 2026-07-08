@@ -20,6 +20,25 @@ Skip the review only for trivial pushes (comments, README, version bumps, build-
 
 The agent definition lives at `.claude/agents/swift-pre-pr-reviewer.md` and is calibrated against the recurring Copilot-review categories observed in this repo. A `PreToolUse` hook (`.claude/hooks/pre-pr-reviewer-reminder.py`, wired in `.claude/settings.json`) surfaces a non-blocking reminder at push time; the policy is enforced by convention, not by the hook.
 
+### Specialized review sub-agents
+
+Pair the generalist `swift-pre-pr-reviewer` with these narrower agents on PRs touching the relevant surface (dispatch in parallel via `Task` with `subagent_type:`):
+
+- **`swiftui-render-pitfall-detector`** — SwiftUI / SwiftData / Charts changes. Targets four iOS-26 main-thread-hang patterns (compound `#Predicate`, `NavigationLink` + `@Query`, `chartYScale(domain:)` + `.nan`, `@Observable` at WindowGroup scope).
+- **`chart-ux-auditor`** — `AnxietyWatch/Views/Trends/` changes. Maps color tokens to series semantics; optionally screenshots via XcodeBuildMCP.
+- **`medical-data-accuracy-reviewer`** — `Services/` changes touching HealthKit, CPAP, Polar, EMAY, FHIR labs, or OCR. Unit mismatches, timezone, source-discriminator, OCR validation, baseline math.
+- **`process-walkthrough`** — single-file walkthrough generator (Mermaid + lay prose). Use to populate `docs/research/` for opaque processes (sync drain loop, clock-reset detection, baseline calculation).
+
+### Slash commands
+
+- `/query-prod <SQL>` — read-only psql against the megadude deployment via `docker exec` (bypasses `.env` permission issue).
+- `/sync-instruction-files [path]` — mirror an instruction-file change across CLAUDE.md / AGENTS.md / `.github/copilot-instructions.md` / `.github/instructions/{swift,python}.instructions.md`.
+- `/respond-to-copilot [PR#]` — loop responding to Copilot review comments.
+
+### Static analysis: Semgrep
+
+CI runs `semgrep --config .semgrep/ --error` on PRs touching Swift. Rules at `.semgrep/swift-pitfalls.yml` cover hardcoded source labels, magic-number duplication, raw-second date arithmetic, ChartPalette violations, and the incremental-sync `lastSyncDate = .now` race (severity ERROR — blocks merge).
+
 ## Keeping Phase Plan Docs Updated
 
 **Mandatory:** When shipping work that has a corresponding plan doc in `docs/plans/`, update the doc with shipped/pending status markers, PR links, and any scope-deltas (decisions made during execution, splits, additions, deferrals) in the same commit as the merge — or as an immediate follow-up PR. The original plan stays preserved verbatim as a historical record; new notes go under an `## Implementation notes (post-merge)` section at the end of the doc. A plan doc that doesn't reflect what actually shipped is a defect: the next contributor can't pick up where the work left off without re-doing the archaeology.

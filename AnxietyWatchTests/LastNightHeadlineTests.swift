@@ -35,4 +35,16 @@ struct LastNightHeadlineTests {
         let h = LastNightHeadline.compose(efficiencyPct: 88, ahi: nil, nadirPct: 95)
         #expect(!h.text.contains("AHI"))
     }
+
+    @Test("Estimated efficiency gets a ~ prefix so a pinned 100% can't read as measured")
+    func estimatedEfficiencyMarked() {
+        let h = LastNightHeadline.compose(efficiencyPct: 100, efficiencyEstimated: true, ahi: 3.0, nadirPct: 94)
+        #expect(h.text.contains("~100%"))
+    }
+
+    @Test("Measured efficiency has no ~ prefix")
+    func measuredEfficiencyUnmarked() {
+        let h = LastNightHeadline.compose(efficiencyPct: 92, efficiencyEstimated: false, ahi: 3.0, nadirPct: 94)
+        #expect(!h.text.contains("~"))
+    }
 }

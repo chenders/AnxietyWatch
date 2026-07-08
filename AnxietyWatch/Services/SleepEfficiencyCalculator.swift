@@ -14,9 +14,12 @@ nonisolated enum SleepEfficiencyCalculator {
         let asleepMinutes: Int
         let wasoMinutes: Int
         let efficiencyPct: Double
-        /// `true` when no explicit `inBed` events were present and the asleep
-        /// span was used as the denominator. Callers can surface a visual cue
-        /// (e.g. "~" prefix) to signal the estimated value.
+        /// `true` when the asleep span was used as the denominator — either
+        /// because no explicit `inBed` events were present at all, or because
+        /// partial `inBed` coverage summed to less than the asleep span (in
+        /// which case efficiency pins at exactly 100%). Callers must surface
+        /// a visual cue (e.g. "~" prefix) so the estimated value can't be
+        /// mistaken for a measured one.
         let isBedTimeEstimated: Bool
     }
 
@@ -43,10 +46,16 @@ nonisolated enum SleepEfficiencyCalculator {
         let inBedMerged = SleepIntervalMerger.coalesce(inBedIntervals, gapTolerance: 0)
         let inBedSeconds = inBedMerged.reduce(0.0) { $0 + $1.end.timeIntervalSince($1.start) }
         let inBedFromEvents = Int(inBedSeconds / 60)
-        // Fallback when no explicit inBed events exist (Apple Watch users
-        // sometimes only get `asleep*` events). Use the asleep span as the
-        // denominator so efficiency renders as ~100% instead of NaN.
-        let inBedMinutes = inBedFromEvents > 0 ? inBedFromEvents : asleepMinutes
+        // Fallback when no explicit inBed events exist, OR when partial
+        // inBed coverage produces a denominator smaller than the asleep
+        // span (Apple Watch and EMAY frequently log asleep stages without
+        // a wrapping `inBed` event, or only partial inBed coverage).
+        // Without the `max`, efficiency degenerates to >100% in the
+        // partial-inBed case, which is physically nonsensical (you cannot
+        // sleep longer than you are in bed). Using the asleep span as a
+        // floor pins the worst case to 100%.
+        let inBedMinutes = max(inBedFromEvents, asleepMinutes)
+        let isBedTimeEstimated = inBedFromEvents == 0 || inBedFromEvents < asleepMinutes
 
         // WASO = awake intervals that fall BETWEEN the first asleep onset
         // and the last asleep offset. Awake before onset (sleep latency) and
@@ -76,7 +85,7 @@ nonisolated enum SleepEfficiencyCalculator {
             asleepMinutes: asleepMinutes,
             wasoMinutes: wasoMinutes,
             efficiencyPct: efficiency,
-            isBedTimeEstimated: inBedFromEvents == 0
+            isBedTimeEstimated: isBedTimeEstimated
         )
     }
 }

@@ -61,6 +61,10 @@ AnxietyWatch/Utilities/BuildVersion.swift
 .claude/hooks/*
 !.claude/hooks/swiftlint-edited.py
 !.claude/hooks/pre-pr-reviewer-reminder.py
+!.claude/hooks/flake8-edited.py
+!.claude/hooks/voiceover-consistency-edited.py
+!.claude/hooks/block-pii-in-fixtures.py
+!.claude/hooks/medication-name-drift-warn.py
 
 # Clinical chart pipeline — local-only. Inputs are HIPAA-sensitive
 # prod pulls, outputs are large rendered artifacts; neither belongs in

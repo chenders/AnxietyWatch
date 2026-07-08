@@ -1,0 +1,180 @@
+# Semgrep rules for AnxietyWatch SwiftUI/SwiftData pitfalls.
+#
+# These rules codify the most-checkable items from CLAUDE.md "Common pitfalls"
+# as static analysis. CI runs `semgrep --config .semgrep/ --error` on PRs
+# touching Swift; any match fails the run and blocks merge.
+#
+# Each rule documents the specific production bug it prevents. New rules are
+# added here when a CLAUDE.md pitfall becomes a recurring Copilot-review hit.
+
+rules:
+
+  # ---------------------------------------------------------------------------
+  # Pitfall: Hardcoded "polar_h10" / "healthkit" source-label string literals
+  # outside #Predicate macros where the typed constant (e.g.
+  # `PolarHRMService.sourceLabel`) is available.
+  #
+  # Drift between literals and the typed constant has been the #1
+  # Copilot-flagged category across recent PRs. This rule catches it before
+  # the string lands.
+  # ---------------------------------------------------------------------------
+  - id: anxietywatch-hardcoded-source-label
+    languages: [generic]
+    paths:
+      include:
+        - "AnxietyWatch/**/*.swift"
+        - "AnxietyWatch Watch App/**/*.swift"
+        - "AnxietyWatchWidgets/**/*.swift"
+      exclude:
+        - "**/Tests/**"
+        - "**/Models/**"  # Model files define the canonical values
+        - "**/PolarHRMService.swift"  # The source-of-truth file
+        # DeviceProvenance maps source-label strings to display labels — it
+        # needs to know all the literals to do the mapping, so it's a
+        # legitimate location for them.
+        - "AnxietyWatch/Utilities/DeviceProvenance.swift"
+    severity: WARNING
+    message: |
+      Hardcoded source-label string literal. Outside #Predicate / @Query macros,
+      use the typed constant (e.g. `PolarHRMService.sourceLabel`) instead.
+      String literals drift; typed constants stay in sync with the source-of-truth.
+    patterns:
+      - pattern-either:
+          - pattern-regex: '"polar_h10"'
+          - pattern-regex: '"healthkit"'
+          - pattern-regex: '"apple_watch"'
+          - pattern-regex: '"emay"'
+      # Predicate-body uses are allowed per CLAUDE.md — the @Query property
+      # wrapper macro can't see the defining type, so a string literal is the
+      # only option inside `$0.source == "..."`.
+      - pattern-not-regex: '\$0\.\w+\s*==\s*"(polar_h10|healthkit|apple_watch|emay)"'
+      - pattern-not-regex: '#Predicate'
+
+  # ---------------------------------------------------------------------------
+  # Pitfall: chartYScale(domain:) paired with .nan y-values on iOS 26.
+  #
+  # When a LineMark's y-value can be .nan (the documented gap-drawing pattern)
+  # AND .chartYScale(domain:) clamps the axis, Swift Charts on iOS 26 hits a
+  # pathologically slow layout pass — three stacked charts can lock the main
+  # thread for ~1s per render.
+  #
+  # Fix: pre-clip outliers at the data layer
+  # (`value.map { min($0, robustBound) } ?? .nan`) so the chart auto-scales to
+  # the clipped data instead.
+  # ---------------------------------------------------------------------------
+  # The `chartYScale(domain:)` + `.nan` pitfall is intentionally NOT a Semgrep
+  # rule. Pure-regex detection produced too many false positives on charts
+  # that use bounded discrete domains (severity 1-10, SpO2 0-100) where NaN
+  # is impossible. The swiftui-render-pitfall-detector sub-agent does
+  # semantic analysis on this pattern instead — it can read the data-feeder
+  # pipeline above the chart and confirm NaN is actually emitted.
+
+# ---------------------------------------------------------------------------
+  # Pitfall: SwiftLint won't flag literal repetition across files.
+  #
+  # Common magic numbers used in 2+ chart files belong in a named constant.
+  # This rule catches `3 * 3600` (overnight-session threshold) which is the
+  # canonical example. Add more as they appear.
+  # ---------------------------------------------------------------------------
+  - id: anxietywatch-overnight-threshold-magic-number
+    languages: [generic]
+    paths:
+      include:
+        - "AnxietyWatch/**/*.swift"
+      exclude:
+        - "**/LFHFAggregator.swift"  # The constant lives here
+    severity: WARNING
+    message: |
+      Magic number `3 * 3600` is the overnight-session threshold and lives in
+      LFHFAggregator.overnightThresholdSeconds. Reference the named constant
+      instead of duplicating the literal.
+    pattern-either:
+      - pattern: '3 * 3600'
+      - pattern: '10800'
+
+  # ---------------------------------------------------------------------------
+  # Pitfall: Date arithmetic on a cutoff without Calendar.current.startOfDay.
+  #
+  # `Date() - N * 86400` ignores DST and produces a time-of-day-dependent
+  # cutoff. Any "N days ago" math used for filtering or bucketing must wrap
+  # `Calendar.current.startOfDay(for:)`.
+  # ---------------------------------------------------------------------------
+  - id: anxietywatch-date-arithmetic-no-calendar
+    languages: [generic]
+    paths:
+      include:
+        - "AnxietyWatch/**/*.swift"
+      exclude:
+        - "**/Tests/**"
+    severity: WARNING
+    message: |
+      Date arithmetic with raw seconds ignores DST and produces a
+      time-of-day-dependent cutoff. Use Calendar.current.date(byAdding:value:to:)
+      and wrap day-bucketing with Calendar.current.startOfDay(for:).
+    pattern-regex: 'Date\(\)\s*-\s*\d+\s*\*\s*86400|Date\(\)\.addingTimeInterval\(\s*-\s*\d+\s*\*\s*86400\s*\)'
+
+  # ---------------------------------------------------------------------------
+  # Pitfall: Hardcoded Color literals in chart series (post-ChartPalette).
+  #
+  # After the ChartPalette migration, any `.foregroundStyle(.red)` (etc.) on
+  # a chart mark (LineMark, PointMark, BarMark, RuleMark, AreaMark) is drift.
+  # The replacement is a ChartPalette token. Status indicators (warnings,
+  # icons) are out of scope and live outside Views/Trends/.
+  # ---------------------------------------------------------------------------
+  - id: anxietywatch-chart-color-literal
+    languages: [generic]
+    paths:
+      include:
+        - "AnxietyWatch/Views/Trends/**/*.swift"
+      exclude:
+        # TrendsView is the container/navigation root, not a chart series file.
+        # SF Symbol icons (chart.dots.scatter etc.) intentionally use .blue,
+        # .orange as accent colors and aren't part of the palette refactor.
+        - "AnxietyWatch/Views/Trends/TrendsView.swift"
+        # CorrelationCardView uses .orange on the "Insufficient data" status
+        # text, not on a chart series. Same rationale.
+        - "AnxietyWatch/Views/Trends/CorrelationCardView.swift"
+        # CorrelationInsightsView is a list/summary view, not a chart file.
+        - "AnxietyWatch/Views/Trends/CorrelationInsightsView.swift"
+    severity: WARNING
+    message: |
+      Hardcoded color literal on a chart series. Use a ChartPalette token
+      (e.g. ChartPalette.hkHeartRate) so the palette stays consistent across
+      the Trends suite. (UI accents like SF Symbol icons and warning status
+      text are out of scope — keep those as literal `.blue` / `.orange` if
+      they aren't tied to a chart series.)
+    patterns:
+      - pattern-regex: '\.foregroundStyle\(\.(red|blue|green|orange|indigo|cyan|purple|yellow|pink|teal|gray)(\.opacity\([^)]+\))?\)'
+      # Exclude lines that are styling an SF Symbol image or non-chart text.
+      # The .foregroundStyle on a chart series sits directly after a *Mark
+      # construction, not after an Image() or status-warning Text().
+      - pattern-not-regex: 'Image\(systemName:'
+      - pattern-not-regex: 'Text\("Insufficient'
+
+  # ---------------------------------------------------------------------------
+  # Pitfall: Incremental-sync cursor advanced to `.now` after I/O.
+  #
+  # `lastSyncDate = .now` (or `Date()`) after a network round-trip introduces
+  # a race: records created during the round-trip have timestamps less than
+  # the new cursor but greater than the old, so the next sync's `since`
+  # filter skips them forever. The cursor must be captured BEFORE the export
+  # and advanced to the captured value on success.
+  # ---------------------------------------------------------------------------
+  - id: anxietywatch-sync-cursor-now
+    languages: [generic]
+    paths:
+      include:
+        - "AnxietyWatch/Services/SyncService.swift"
+    severity: ERROR
+    message: |
+      Sync cursor advanced to `.now` / `Date()` after I/O — this introduces
+      the race documented in CLAUDE.md (records created during the round-trip
+      are skipped forever). Capture the cursor BEFORE the export, pass it as
+      the export's `end:` cap, and assign the captured value on success.
+    patterns:
+      - pattern-regex: 'lastSyncDate\s*=\s*(\.now|Date\(\))'
+      # Comment-quoted anti-pattern documentation is legitimate. The
+      # canonical case is `// The naive pattern \`lastSyncDate = .now\``
+      # — written to warn the reader, not to be flagged.
+      - pattern-not-regex: '`lastSyncDate\s*=\s*\.now`'
+      - pattern-not-regex: '//.*lastSyncDate'
