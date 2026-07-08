@@ -954,7 +954,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: efficiency, server-safety.  
 
-**Disposition:** approved
+**Disposition:** fixed (#169)
 
 ### F-059 · P3 · confirmed · efficiency · server-export
 
@@ -966,7 +966,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** approved (deferred to backlog — needs a paginated/streamed /api/data protocol change touching the iOS restore client; F-058 already removed the dominant per-row cost)
 
 ### F-060 · P3 · confirmed · efficiency · sync-upserts
 
@@ -978,7 +978,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#169)
 
 ### F-061 · P3 · confirmed · efficiency · correlations
 
@@ -990,7 +990,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 2/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#169)
 
 ### F-062 · P3 · confirmed · efficiency · journal
 
