@@ -250,6 +250,36 @@ def test_sync_all_entity_types(client):
     assert counts["barometric_readings"] == 1
 
 
+def test_sync_barometric_readings_batched_and_idempotent(client, app):
+    """F-060: _upsert_barometric_readings batches via execute_values. Verify a
+    multi-row batch inserts all rows, and that re-syncing the same timestamp
+    updates in place (ON CONFLICT) rather than duplicating."""
+    payload = {
+        "barometricReadings": [
+            {"timestamp": "2025-03-20T10:30:00Z", "pressureKPa": 101.3, "relativeAltitudeM": 0.5},
+            {"timestamp": "2025-03-20T10:31:00Z", "pressureKPa": 101.2, "relativeAltitudeM": 0.7},
+            {"timestamp": "2025-03-20T10:32:00Z", "pressureKPa": 101.1, "relativeAltitudeM": 0.9},
+        ],
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+    assert resp.get_json()["counts"]["barometric_readings"] == 3
+
+    # Re-sync one timestamp with changed values → upsert, not duplicate.
+    resp = client.post("/api/sync", json={
+        "barometricReadings": [
+            {"timestamp": "2025-03-20T10:31:00Z", "pressureKPa": 99.9, "relativeAltitudeM": 1.5},
+        ],
+    }, headers=auth_header())
+    assert resp.status_code == 200
+
+    rows = client.get("/api/data/barometricReadings", headers=auth_header()).get_json()["barometricReadings"]
+    assert len(rows) == 3  # still 3, not 4
+    updated = [r for r in rows if r["pressure_kpa"] == 99.9]
+    assert len(updated) == 1
+    assert updated[0]["relative_altitude_m"] == 1.5
+
+
 def test_sync_health_snapshot_cpap_barometric_fields(client, app):
     """CPAP and barometric fields round-trip through sync and read back."""
     payload = {
@@ -1079,9 +1109,12 @@ def test_get_data_exports_restore_entities(client):
 
 
 def test_get_data_drops_bytea_columns_from_json(client):
-    """sensor_sessions.rr_archive is BYTEA; psycopg returns it as a
-    memoryview, which json.dumps cannot serialize. The export path must
-    null it out rather than 500 on any session that has an archive."""
+    """sensor_sessions.rr_archive is a large BYTEA the export never returns.
+    Since F-058, _query_entity selects an explicit column list for
+    sensor_sessions that EXCLUDES rr_archive entirely, so it is never detoasted
+    out of Postgres and the key is absent from the JSON (rather than present as
+    null). Either way the response must not 500 on a session that has an
+    archive, and the metadata fields must still be present."""
     session_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     client.post(
         "/api/sync",
@@ -1099,7 +1132,10 @@ def test_get_data_drops_bytea_columns_from_json(client):
     assert resp.status_code == 200
     sessions = resp.get_json()["sensorSessions"]
     assert len(sessions) == 1
-    assert sessions[0]["rr_archive"] is None
+    # rr_archive is not selected at all (F-058) — absent, not null — and the
+    # binary payload never reaches the JSON either way.
+    assert "rr_archive" not in sessions[0]
+    assert sessions[0]["id"] == session_id
 
 
 # ---------------------------------------------------------------------------

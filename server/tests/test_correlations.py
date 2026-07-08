@@ -154,6 +154,38 @@ def test_correlations_computed(client, app):
     assert hrv["p_value"] < 1.0
 
 
+def test_correlations_sample_count_is_per_signal_not_total(client, app):
+    """F-061 regression: after consolidating to one join, sample_count must be
+    the per-signal non-null day count, not the total paired-day count. Seed
+    hrv_avg on all 20 days but cpap_ahi on only 15 — a signal with missing days
+    must report its own smaller sample_count, not 20."""
+    _insert_paired_data(app, days=20)
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        # Add cpap_ahi to the first 15 days only (leaves 5 days NULL for it).
+        for i in range(15):
+            date = f"2026-01-{i + 1:02d}"
+            cur.execute(
+                "UPDATE health_snapshots SET cpap_ahi = %s WHERE date = %s",
+                (2.0 + (i % 4), date),
+            )
+        db.commit()
+
+    data = client.get("/api/correlations", headers=auth_header()).get_json()
+    assert data["paired_days"] == 20
+
+    hrv = next(c for c in data["correlations"] if c["signal_name"] == "hrv_avg")
+    assert hrv["sample_count"] == 20  # present on every paired day
+
+    cpap = next(
+        (c for c in data["correlations"] if c["signal_name"] == "cpap_ahi"), None
+    )
+    # cpap_ahi present on 15 of 20 days → sample_count 15, NOT the total 20.
+    if cpap is not None:  # may be skipped only if pearson can't compute
+        assert cpap["sample_count"] == 15
+
+
 def test_correlations_include_severity_buckets(client, app):
     """Results include mean severity when normal vs abnormal."""
     _insert_paired_data(app, days=20)

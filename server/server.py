@@ -778,15 +778,25 @@ def create_app(test_config=None):
         return len(readings)
 
     def _upsert_barometric_readings(cur, readings):
-        for r in readings:
-            cur.execute(
-                """INSERT INTO barometric_readings (timestamp, pressure_kpa, relative_altitude_m)
-                   VALUES (%s, %s, %s)
-                   ON CONFLICT (timestamp) DO UPDATE SET
-                       pressure_kpa = EXCLUDED.pressure_kpa,
-                       relative_altitude_m = EXCLUDED.relative_altitude_m""",
-                (r["timestamp"], r["pressureKPa"], r["relativeAltitudeM"]),
-            )
+        # Batched via execute_values (one round trip) to match its unbounded
+        # time-series siblings (quantity samples, sensor sessions, HRV readings,
+        # sleep events); it was the last per-row execute loop, so a night's
+        # worth of readings meant one round trip per row (F-060).
+        if not readings:
+            return 0
+        rows = [
+            (r["timestamp"], r["pressureKPa"], r["relativeAltitudeM"])
+            for r in readings
+        ]
+        psycopg2.extras.execute_values(
+            cur,
+            """INSERT INTO barometric_readings (timestamp, pressure_kpa, relative_altitude_m)
+               VALUES %s
+               ON CONFLICT (timestamp) DO UPDATE SET
+                   pressure_kpa = EXCLUDED.pressure_kpa,
+                   relative_altitude_m = EXCLUDED.relative_altitude_m""",
+            rows,
+        )
         return len(readings)
 
     def _upsert_pharmacies(cur, pharmacies):
@@ -1054,15 +1064,28 @@ def create_app(test_config=None):
         "sleepStageEvents": ("sleep_stage_events", "start_time", "start_time"),
     }
 
+    # Explicit column lists for entities where `SELECT *` would detoast a large
+    # column the response never uses. sensor_sessions.rr_archive is an ~80-120KB
+    # gzip BYTEA per overnight session that `_serialize_row` immediately nulls
+    # out (the binary lives at GET .../rr_archive), so selecting it out of
+    # Postgres into Python is pure waste (F-058). Any entity absent here uses *.
+    ENTITY_SELECT_COLS = {
+        "sensorSessions": (
+            "id, source, start_time, end_time, battery_at_start, "
+            "interruption_count, summary_json, created_at"
+        ),
+    }
+
     def _query_entity(cur, entity, since=None):
         table, time_col, order_col = ENTITY_QUERIES[entity]
+        cols = ENTITY_SELECT_COLS.get(entity, "*")
         if since and time_col:
             cur.execute(
-                f"SELECT * FROM {table} WHERE {time_col} >= %s ORDER BY {order_col} DESC",
+                f"SELECT {cols} FROM {table} WHERE {time_col} >= %s ORDER BY {order_col} DESC",
                 (since,),
             )
         else:
-            cur.execute(f"SELECT * FROM {table} ORDER BY {order_col} DESC")
+            cur.execute(f"SELECT {cols} FROM {table} ORDER BY {order_col} DESC")
         rows = cur.fetchall()
         # Serialize dates/datetimes to ISO strings
         return [_serialize_row(r) for r in rows]

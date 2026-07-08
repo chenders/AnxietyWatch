@@ -52,24 +52,36 @@ def compute_correlations(cur, tz_name=DEFAULT_ANALYSIS_TIMEZONE):
     """
     results = []
 
-    for signal_name, sql_expr, required_cols in SIGNALS:
-        not_null = " AND ".join(f"{col} IS NOT NULL" for col in required_cols)
+    # ONE health_snapshots<->anxiety_entries join for ALL signals, instead of
+    # re-running the identical join once per signal (F-061). health_snapshots.date
+    # is the table's PRIMARY KEY, so GROUP BY h.date lets us select every
+    # signal expression alongside the per-day AVG severity in a single pass;
+    # each signal's non-null subset is then partitioned in Python. (The
+    # per-signal WHERE ... IS NOT NULL filters become the `value is not None`
+    # check below — identical for the single-column signals, and slightly more
+    # correct for sleep_quality_ratio, whose CASE returns NULL for a zero
+    # sleep_duration that the old column-only WHERE let through as NaN.)
+    select_exprs = ", ".join(
+        f"{sql_expr} AS sig_{idx}" for idx, (_, sql_expr, _) in enumerate(SIGNALS)
+    )
+    cur.execute(f"""
+        SELECT AVG(a.severity) AS avg_severity, {select_exprs}
+        FROM health_snapshots h
+        JOIN anxiety_entries a ON (a.timestamp AT TIME ZONE %s)::date = h.date
+        GROUP BY h.date
+        ORDER BY h.date
+    """, (tz_name,))
+    rows = cur.fetchall()
 
-        cur.execute(f"""
-            SELECT {sql_expr} AS signal_value, AVG(a.severity) AS avg_severity
-            FROM health_snapshots h
-            JOIN anxiety_entries a ON (a.timestamp AT TIME ZONE %s)::date = h.date
-            WHERE {not_null}
-            GROUP BY h.date, {sql_expr}
-            ORDER BY h.date
-        """, (tz_name,))
-        rows = cur.fetchall()
+    for idx, (signal_name, _sql_expr, _required_cols) in enumerate(SIGNALS):
+        # Row layout: [avg_severity, sig_0, sig_1, ...] — signal idx is col idx+1.
+        paired = [(row[idx + 1], row[0]) for row in rows if row[idx + 1] is not None]
 
-        if len(rows) < MINIMUM_PAIRED_DAYS:
+        if len(paired) < MINIMUM_PAIRED_DAYS:
             continue
 
-        signal_values = np.array([r[0] for r in rows], dtype=float)
-        severity_values = np.array([r[1] for r in rows], dtype=float)
+        signal_values = np.array([float(p[0]) for p in paired])
+        severity_values = np.array([float(p[1]) for p in paired])
 
         # Skip if either array is constant — pearsonr returns NaN
         if np.std(signal_values) == 0 or np.std(severity_values) == 0:
@@ -98,7 +110,10 @@ def compute_correlations(cur, tz_name=DEFAULT_ANALYSIS_TIMEZONE):
             "signal_name": signal_name,
             "correlation": float(r),
             "p_value": float(p),
-            "sample_count": len(rows),
+            # Paired days actually used for THIS signal's pearsonr — not
+            # len(rows), which is now the unfiltered all-signal result set and
+            # would over-report for signals with missing days (Copilot #169).
+            "sample_count": len(paired),
             "mean_severity_when_abnormal": mean_sev_abnormal,
             "mean_severity_when_normal": mean_sev_normal,
         })
