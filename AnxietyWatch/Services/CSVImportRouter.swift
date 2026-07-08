@@ -95,6 +95,13 @@ nonisolated enum CSVImportRouter {
         if CPAPImporter.isCPAPFormat(header) {
             do {
                 let result = try CPAPImporter.importContent(content, into: context)
+                // Clock-reset detection surfaces as a warning string so it
+                // flows through every alert path (in-app import button and
+                // multi-file share sheet) without view-level special-casing.
+                var warnings = result.warnings
+                if let clockResetWarning = CPAPImporter.clockResetWarning(count: result.suspiciousDateCount) {
+                    warnings.append(clockResetWarning)
+                }
                 return Result(
                     kind: .cpap,
                     inserted: result.inserted,
@@ -102,7 +109,7 @@ nonisolated enum CSVImportRouter {
                     dateRange: result.dateRange,
                     skippedRowCount: result.skippedRowCount,
                     sensorGapRowCount: 0,
-                    warnings: result.warnings
+                    warnings: warnings
                 )
             } catch let error as CPAPImporter.ImportError {
                 throw ImportError.cpapImport(error)

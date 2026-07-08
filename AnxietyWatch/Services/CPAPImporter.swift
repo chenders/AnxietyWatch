@@ -16,6 +16,9 @@ nonisolated enum CPAPImporter {
         let dateRange: ClosedRange<Date>?
         let skippedRowCount: Int
         let warnings: [String]
+        /// Sessions whose date predates `earliestPlausibleDate`, suggesting the CPAP machine's
+        /// internal clock had reset to its epoch (~Jan 2009 on AirSense firmware).
+        let suspiciousDateCount: Int
         var total: Int { inserted + updated }
 
         init(
@@ -23,14 +26,40 @@ nonisolated enum CPAPImporter {
             updated: Int,
             dateRange: ClosedRange<Date>?,
             skippedRowCount: Int = 0,
-            warnings: [String] = []
+            warnings: [String] = [],
+            suspiciousDateCount: Int = 0
         ) {
             self.inserted = inserted
             self.updated = updated
             self.dateRange = dateRange
             self.skippedRowCount = skippedRowCount
             self.warnings = warnings
+            self.suspiciousDateCount = suspiciousDateCount
         }
+    }
+
+    /// Sessions dated before this are flagged (not blocked) as a likely CPAP-clock-reset
+    /// symptom. AirSense machines fall back to a ~Jan 2009 epoch when their internal clock
+    /// loses state; 2015 leaves generous margin around that cluster. Imports of genuinely
+    /// old OSCAR archives still succeed — they just carry a warning the user can ignore.
+    /// Fixed Gregorian calendar: the boundary is a device-firmware artifact, not a
+    /// user-locale concept, so it must not shift under non-Gregorian system calendars.
+    static let earliestPlausibleDate: Date = {
+        var components = DateComponents()
+        components.year = 2015
+        components.month = 1
+        components.day = 1
+        return Calendar(identifier: .gregorian).date(from: components) ?? .distantPast
+    }()
+
+    /// User-facing warning for `ImportResult.suspiciousDateCount`, nil when the
+    /// count is zero. Lives here (not in the view) so both the in-app import
+    /// alert and the share-sheet batch alert render identical wording.
+    static func clockResetWarning(count: Int) -> String? {
+        guard count > 0 else { return nil }
+        let sessions = count == 1 ? "1 session has" : "\(count) sessions have"
+        return "Note: \(sessions) an implausibly old date, which may mean the CPAP machine's "
+            + "internal clock has reset. Check the date/time setting on the device."
     }
 
     enum ImportError: Error, LocalizedError {
@@ -225,6 +254,7 @@ nonisolated enum CPAPImporter {
         var existingByDate = try prefetchSessions(in: context)
         var inserted = 0
         var updated = 0
+        var suspiciousDates = 0
         var minDate: Date?
         var maxDate: Date?
         var tracker = ImportSkipTracker()
@@ -245,6 +275,7 @@ nonisolated enum CPAPImporter {
             }
 
             let normalized = Calendar.current.startOfDay(for: parsed.date)
+            if normalized < Self.earliestPlausibleDate { suspiciousDates += 1 }
             if minDate == nil || normalized < minDate! { minDate = normalized }
             if maxDate == nil || normalized > maxDate! { maxDate = normalized }
 
@@ -297,7 +328,8 @@ nonisolated enum CPAPImporter {
             updated: updated,
             dateRange: dateRange,
             skippedRowCount: tracker.count,
-            warnings: tracker.warnings
+            warnings: tracker.warnings,
+            suspiciousDateCount: suspiciousDates
         )
     }
 
@@ -373,6 +405,7 @@ nonisolated enum CPAPImporter {
         var existingByDate = try prefetchSessions(in: context)
         var inserted = 0
         var updated = 0
+        var suspiciousDates = 0
         var minDate: Date?
         var maxDate: Date?
         var tracker = ImportSkipTracker()
@@ -393,6 +426,7 @@ nonisolated enum CPAPImporter {
             }
 
             let normalized = Calendar.current.startOfDay(for: parsed.date)
+            if normalized < Self.earliestPlausibleDate { suspiciousDates += 1 }
             if minDate == nil || normalized < minDate! { minDate = normalized }
             if maxDate == nil || normalized > maxDate! { maxDate = normalized }
 
@@ -445,7 +479,8 @@ nonisolated enum CPAPImporter {
             updated: updated,
             dateRange: dateRange,
             skippedRowCount: tracker.count,
-            warnings: tracker.warnings
+            warnings: tracker.warnings,
+            suspiciousDateCount: suspiciousDates
         )
     }
 

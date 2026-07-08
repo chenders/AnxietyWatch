@@ -204,6 +204,9 @@ struct CPAPImporterTests {
         let result = try CPAPImporter.importCSV(from: url, into: context)
         #expect(result.inserted == 1)
         #expect(result.updated == 0)
+        // The 2007-12-31 fixture date predates earliestPlausibleDate — this
+        // doubles as OSCAR-path coverage for clock-reset detection.
+        #expect(result.suspiciousDateCount == 1)
 
         let session = try context.fetch(FetchDescriptor<CPAPSession>()).first!
         #expect(session.ahi == 4.073)
@@ -412,6 +415,51 @@ struct CPAPImporterTests {
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
+    }
+
+    // MARK: - Suspicious date detection (CPAP clock-reset symptom)
+
+    @Test("Flags sessions dated before earliestPlausibleDate as suspicious")
+    func flagsSuspiciousDates() throws {
+        // 2009-01-15 mimics an AirSense epoch-reset session; 2026-03-21 is normal.
+        let csv = """
+        date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea
+        2009-01-15,2.5,420,18.3,6.0,12.0,9.5,3,1,2
+        2026-03-21,1.8,390,15.1,6.0,11.5,9.2,2,0,1
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let result = try CPAPImporter.importCSV(from: url, into: context)
+        #expect(result.inserted == 2) // both rows still imported
+        #expect(result.suspiciousDateCount == 1)
+    }
+
+    @Test("Suspicious count is zero for plausible recent dates")
+    func noSuspiciousDatesForRecentImport() throws {
+        let csv = """
+        date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea
+        2026-03-20,2.5,420,18.3,6.0,12.0,9.5,3,1,2
+        2026-03-21,1.8,390,15.1,6.0,11.5,9.2,2,0,1
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let result = try CPAPImporter.importCSV(from: url, into: context)
+        #expect(result.suspiciousDateCount == 0)
+    }
+
+    @Test("Clock-reset warning pluralizes and is nil at zero")
+    func clockResetWarningText() {
+        #expect(CPAPImporter.clockResetWarning(count: 0) == nil)
+        #expect(CPAPImporter.clockResetWarning(count: 1)?.contains("1 session has") == true)
+        #expect(CPAPImporter.clockResetWarning(count: 3)?.contains("3 sessions have") == true)
     }
 
     @Test("Mixed insert and update when pre-existing session overlaps")
