@@ -43,6 +43,18 @@ struct ChartPaletteTests {
         #expect(ChartPalette.healthKitHRV != ChartPalette.polarRMSSD)
     }
 
+    @Test("Glucose and Polar RMSSD tokens are distinct (both were Color.purple)")
+    func glucoseVsPolarRMSSDDistinct() throws {
+        // The live collision F-049 surfaced: `glucose` was literally
+        // `Color.purple` — the same value as `polarRMSSD` — despite its comment
+        // claiming a "magenta family." They live in different charts but the
+        // same Trends scroll; the palette contract is that semantic tokens are
+        // distinct. This locks the fix so a future "simplify glucose back to
+        // .purple" PR trips here.
+        #expect(ChartPalette.glucose != ChartPalette.polarRMSSD)
+        #expect(ChartPalette.glucose != ChartPalette.healthKitHRV)
+    }
+
     // MARK: - LF / HF / ratio separation
 
     @Test("LF, HF, and LF/HF ratio tokens are mutually distinct")

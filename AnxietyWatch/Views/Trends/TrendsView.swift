@@ -75,7 +75,18 @@ struct TrendsView: View {
     // MARK: - Filtered Data
 
     private func filterBySource(_ entries: [AnxietyEntry]) -> [AnxietyEntry] {
-        switch sourceFilter {
+        Self.filterBySource(entries, filter: sourceFilter)
+    }
+
+    /// Pure source-filter used by the Source segmented control. `nonisolated
+    /// static` so SourceFilterTests can exercise the PRODUCTION predicate
+    /// directly (it was previously private, forcing every test to re-implement
+    /// the self-reported/check-in logic inline — the nil-source back-compat
+    /// invariant went unprotected, F-048).
+    nonisolated static func filterBySource(
+        _ entries: [AnxietyEntry], filter: SourceFilter
+    ) -> [AnxietyEntry] {
+        switch filter {
         case .all: return entries
         case .selfReported: return entries.filter { $0.source == nil || $0.source == "user" || $0.source == "dose_followup" }
         case .checkIns: return entries.filter { $0.source == "random_checkin" }

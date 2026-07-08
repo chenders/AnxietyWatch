@@ -90,9 +90,12 @@ enum ChartPalette {
     /// and T90 marks above it.
     static let cpapUsage = Color(red: 0.30, green: 0.45, blue: 0.60)
 
-    /// Continuous glucose monitoring. Magenta family — distinct from HRV
-    /// purples so a multi-metric overlay doesn't blur.
-    static let glucose = Color.purple
+    /// Continuous glucose monitoring. A true magenta (NOT `Color.purple`,
+    /// which `polarRMSSD` already owns) — the comment always claimed the
+    /// "magenta family" but the token was literally `.purple`, colliding with
+    /// the HRV RMSSD series (F-049). Distinct redder/pinker hue keeps a
+    /// multi-metric overlay legible.
+    static let glucose = Color(red: 0.85, green: 0.12, blue: 0.55)
 
     /// Activity (active energy / move ring).
     static let activity = Color.orange

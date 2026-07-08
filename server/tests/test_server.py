@@ -55,6 +55,26 @@ def client(app):
 
 
 @pytest.fixture(autouse=True)
+def _preserve_credential_env():
+    """Snapshot + restore the credential env vars around every test (F-088).
+
+    Several admin/crypto tests set ADMIN_PASSWORD / SECRET_KEY via direct
+    ``os.environ[...] =`` assignment with no teardown, which otherwise leaks
+    those values into every subsequent test in the session (a later test that
+    never sets ADMIN_PASSWORD would silently inherit "testpass"). Restoring the
+    original values here makes those mutations test-local without having to
+    thread ``monkeypatch`` through ~15 signatures."""
+    keys = ("ADMIN_PASSWORD", "SECRET_KEY")
+    saved = {k: os.environ.get(k) for k in keys}
+    yield
+    for key, value in saved.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+
+@pytest.fixture(autouse=True)
 def _clean_tables(app):
     """Truncate all tables before each test."""
     with app.app_context():

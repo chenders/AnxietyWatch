@@ -16,6 +16,17 @@ struct SleepRespiratoryTrendChart: View {
         BaselineCalculator.cpapAHIBaseline(from: allSnapshots)
     }
 
+    /// Empty-state gate: the card has data iff there's a CPAP session, an SpO₂
+    /// nadir (oximeter or Apple Watch), or a T90 value in the window. Extracted
+    /// as a pure static so it's unit-testable — the four sibling charts have
+    /// tested gates; this one was an inline `let` in `body` and went untested
+    /// (F-050). Mirrors exactly what makes `nadirData`/`t90Data` non-empty.
+    nonisolated static func hasAnyData(sessions: [CPAPSession], snapshots: [HealthSnapshot]) -> Bool {
+        !sessions.isEmpty
+            || snapshots.contains { $0.spo2NadirOvernight != nil || $0.spo2NadirOpportunistic != nil }
+            || snapshots.contains { $0.spo2TimeBelow90Min != nil }
+    }
+
     /// Unified data point for the AHI chart — avoids ForEach/MapContentBuilder
     /// ambiguity that occurs on some Xcode versions when Charts and MapKit
     /// cross-import overlays are both active.
@@ -116,7 +127,7 @@ struct SleepRespiratoryTrendChart: View {
         // a local `let` keeps the chart sub-views consuming the same array
         // instead of re-deriving it. (CLAUDE.md "Per-render recomputation".)
         let nadirData = self.nadirData
-        let hasAnyData = !sessions.isEmpty || !nadirData.isEmpty || !t90Data.isEmpty
+        let hasAnyData = Self.hasAnyData(sessions: sessions, snapshots: snapshots)
         let observedMin = nadirData.map(\.value).min() ?? 75
         let nadirDomainFloor = min(75, observedMin - 2)
 

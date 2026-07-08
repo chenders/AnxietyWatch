@@ -11,17 +11,28 @@ struct TrendsDateFilteringTests {
 
     // MARK: - Helpers
 
+    /// Fixed reference "now" so fixtures and the cutoff are derived from the
+    /// SAME instant. Previously both helpers read `.now` independently, so a
+    /// test that crossed local midnight between the two reads could compute a
+    /// cutoff one day off from its fixture and flip a boundary assertion
+    /// (F-087). Anchored to midday to keep startOfDay math unambiguous.
+    private static let referenceNow: Date = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal.date(from: DateComponents(year: 2026, month: 4, day: 15, hour: 12))!
+    }()
+
     /// Creates a HealthSnapshot for N days ago (normalized to midnight).
-    private func makeSnapshot(daysAgo: Int, hrvAvg: Double? = 42.0) -> HealthSnapshot {
-        let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: .now)!
+    private func makeSnapshot(daysAgo: Int, now: Date = referenceNow, hrvAvg: Double? = 42.0) -> HealthSnapshot {
+        let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: now)!
         let snapshot = HealthSnapshot(date: date)
         snapshot.hrvAvg = hrvAvg
         return snapshot
     }
 
     /// Replicates TrendsView.startDate logic (the fixed version).
-    private func computeStartDate(daysBack: Int) -> Date {
-        let daysAgo = Calendar.current.date(byAdding: .day, value: -daysBack, to: .now)!
+    private func computeStartDate(daysBack: Int, now: Date = referenceNow) -> Date {
+        let daysAgo = Calendar.current.date(byAdding: .day, value: -daysBack, to: now)!
         return Calendar.current.startOfDay(for: daysAgo)
     }
 
@@ -91,8 +102,10 @@ struct TrendsDateFilteringTests {
     @Test("AnxietyEntry with exact timestamp is included in range")
     func anxietyEntryTimestampIncluded() {
         let startDate = computeStartDate(daysBack: 7)
-        // Entry logged at 3 PM, 5 days ago
-        let entryDate = Calendar.current.date(byAdding: .day, value: -5, to: .now)!
+        // Entry 5 days ago — derived from the SAME pinned instant as startDate
+        // so this exercises a genuine 7-day boundary rather than "any date
+        // before whenever the test happens to run" (F-087).
+        let entryDate = Calendar.current.date(byAdding: .day, value: -5, to: Self.referenceNow)!
         let entry = AnxietyEntry(timestamp: entryDate, severity: 7)
 
         #expect(entry.timestamp >= startDate)
@@ -102,7 +115,7 @@ struct TrendsDateFilteringTests {
     func anxietyEntryAtMidnightBoundary() {
         let startDate = computeStartDate(daysBack: 7)
         let midnight7DaysAgo = Calendar.current.startOfDay(
-            for: Calendar.current.date(byAdding: .day, value: -7, to: .now)!
+            for: Calendar.current.date(byAdding: .day, value: -7, to: Self.referenceNow)!
         )
         let entry = AnxietyEntry(timestamp: midnight7DaysAgo, severity: 3)
 
