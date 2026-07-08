@@ -8,7 +8,21 @@ struct LabTestHistoryView: View, Equatable {
     let loincCode: String
     let definition: LabTestRegistry.TestDefinition
 
+    // Bounded to this test's LOINC code at the SwiftData layer (single-clause
+    // #Predicate — safe from the compound-predicate hang) and sorted ascending
+    // in SQLite, rather than fetching the whole ClinicalLabResult table and
+    // filter+sorting it in an uncached computed property on every access
+    // (F-070). loincCode is captured from init.
     @Query private var allResults: [ClinicalLabResult]
+
+    init(loincCode: String, definition: LabTestRegistry.TestDefinition) {
+        self.loincCode = loincCode
+        self.definition = definition
+        _allResults = Query(
+            filter: #Predicate<ClinicalLabResult> { $0.loincCode == loincCode },
+            sort: \ClinicalLabResult.effectiveDate
+        )
+    }
 
     // Equatable on `loincCode` (stable identity) only; paired with `.equatable()`
     // at the NavigationLink destination call site so SwiftUI dedupes rebuilds when
@@ -18,11 +32,10 @@ struct LabTestHistoryView: View, Equatable {
         lhs.loincCode == rhs.loincCode
     }
 
-    private var results: [ClinicalLabResult] {
-        allResults
-            .filter { $0.loincCode == loincCode }
-            .sorted { $0.effectiveDate < $1.effectiveDate }
-    }
+    /// Already filtered to `loincCode` and sorted ascending by the @Query — a
+    /// plain passthrough so `body` and `labChartData` share one array with no
+    /// per-access filter/sort work.
+    private var results: [ClinicalLabResult] { allResults }
 
     var body: some View {
         List {

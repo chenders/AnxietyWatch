@@ -6,8 +6,9 @@ import UniformTypeIdentifiers
 struct CPAPListView: View, Equatable {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \CPAPSession.date, order: .reverse) private var sessions: [CPAPSession]
-    @Query(sort: \HealthSnapshot.date, order: .reverse) private var snapshots: [HealthSnapshot]
-    @Query(sort: \AnxietyEntry.timestamp, order: .reverse) private var entries: [AnxietyEntry]
+    // CPAPDetailView now owns its own date-scoped snapshot/entry queries, so
+    // this list no longer fetches those whole tables just to forward them
+    // (F-074).
 
     // Trivially Equatable (no identity inputs — all state is @Query/@State);
     // paired with `.equatable()` at the NavigationLink call site so SwiftUI
@@ -43,7 +44,7 @@ struct CPAPListView: View, Equatable {
                 Section("Sessions (\(sessions.count))") {
                     ForEach(sessions) { session in
                         NavigationLink {
-                            CPAPDetailView(session: session, snapshots: snapshots, entries: entries)
+                            CPAPDetailView(session: session).equatable()
                         } label: {
                             CPAPSessionRow(session: session)
                         }

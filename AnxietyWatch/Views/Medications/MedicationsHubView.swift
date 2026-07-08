@@ -13,12 +13,26 @@ struct MedicationsHubView: View {
         sort: \MedicationDefinition.name
     )
     private var inactiveMeds: [MedicationDefinition]
-    @Query(sort: \MedicationDose.timestamp, order: .reverse)
-    private var recentDoses: [MedicationDose]
+    // Capped at the 10 rows the "Recent Doses" section actually renders. The
+    // MedicationDose table grows unboundedly (multiple doses/day), and this
+    // view only ever shows/deletes the first 10 — a fetchLimit bounds the
+    // fetch in SQLite instead of materializing the whole table to truncate it
+    // in memory each body (F-072).
+    @Query private var recentDoses: [MedicationDose]
     @Query(sort: \Prescription.dateFilled, order: .reverse)
     private var prescriptions: [Prescription]
     @State private var showingAddMed = false
     @State private var promptMedication: MedicationDefinition?
+
+    private static let recentDosesLimit = 10
+
+    init() {
+        var descriptor = FetchDescriptor<MedicationDose>(
+            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+        )
+        descriptor.fetchLimit = Self.recentDosesLimit
+        _recentDoses = Query(descriptor)
+    }
 
     var body: some View {
         NavigationStack {
@@ -118,7 +132,8 @@ struct MedicationsHubView: View {
     private var recentDosesSection: some View {
         if !recentDoses.isEmpty {
             Section("Recent Doses") {
-                ForEach(recentDoses.prefix(10)) { dose in
+                // Already capped at `recentDosesLimit` by the @Query fetchLimit.
+                ForEach(recentDoses) { dose in
                     HStack {
                         VStack(alignment: .leading) {
                             Text(dose.medicationName).font(.subheadline)
@@ -180,9 +195,13 @@ struct MedicationsHubView: View {
     }
 
     private func deleteDoses(offsets: IndexSet) {
-        let allDoses = Array(recentDoses.prefix(10))
-        for index in offsets {
-            modelContext.delete(allDoses[index])
+        // Snapshot the target objects BEFORE mutating the context: deleting by
+        // live index would shift subsequent offsets as the @Query collection
+        // updates (Copilot review of #165). `recentDoses` is already the
+        // capped, newest-first set the section renders.
+        let toDelete = offsets.map { recentDoses[$0] }
+        for dose in toDelete {
+            modelContext.delete(dose)
         }
     }
 }

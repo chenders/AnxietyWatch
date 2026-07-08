@@ -15,7 +15,12 @@ struct CorrelationChartView: View, Equatable {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // Cache the grouping-heavy derivation once per body — it was previously
+        // rebuilt twice (the `.isEmpty` gate and the `Chart` data) on every
+        // render, each pass re-running Dictionary(grouping:) over all entries
+        // and compactMapping all snapshots (F-057).
+        let paired = pairedData
+        return VStack(alignment: .leading, spacing: 12) {
             Text(correlation.displayName)
                 .font(.title3.bold())
 
@@ -23,10 +28,10 @@ struct CorrelationChartView: View, Equatable {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            if pairedData.isEmpty {
+            if paired.isEmpty {
                 ContentUnavailableView("No Paired Data", systemImage: "chart.dots.scatter")
             } else {
-                Chart(pairedData, id: \.date) { point in
+                Chart(paired, id: \.date) { point in
                     PointMark(
                         x: .value(correlation.displayName, point.signalValue),
                         y: .value("Severity", point.severity)

@@ -16,7 +16,13 @@ struct PrescriptionListView: View, Equatable {
     @State private var dismissedSyncHint = false
 
     var body: some View {
-        NavigationStack {
+        // Cache the two supply-status partitions once per body. Each was read
+        // three times (the sync-hint gate, the empty-state gate, and its own
+        // Section), re-running PrescriptionSupplyCalculator.supplyStatus over
+        // the whole prescriptions table on every access (F-065).
+        let active = activePrescriptions
+        let expired = expiredPrescriptions
+        return NavigationStack {
             List {
                 if SyncService.shared.isConfigured {
                     Section {
@@ -39,7 +45,7 @@ struct PrescriptionListView: View, Equatable {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                } else if activePrescriptions.isEmpty && expiredPrescriptions.isEmpty && !dismissedSyncHint {
+                } else if active.isEmpty && expired.isEmpty && !dismissedSyncHint {
                     Section {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
@@ -68,14 +74,14 @@ struct PrescriptionListView: View, Equatable {
                     }
                 }
 
-                if activePrescriptions.isEmpty && expiredPrescriptions.isEmpty {
+                if active.isEmpty && expired.isEmpty {
                     Text("No prescriptions yet. Tap + to add one.")
                         .foregroundStyle(.secondary)
                 }
 
-                if !activePrescriptions.isEmpty {
+                if !active.isEmpty {
                     Section("Active") {
-                        ForEach(activePrescriptions) { rx in
+                        ForEach(active) { rx in
                             NavigationLink {
                                 PrescriptionDetailView(prescription: rx)
                             } label: {
@@ -83,14 +89,14 @@ struct PrescriptionListView: View, Equatable {
                             }
                         }
                         .onDelete { offsets in
-                            deleteFromFiltered(offsets, in: activePrescriptions)
+                            deleteFromFiltered(offsets, in: active)
                         }
                     }
                 }
 
-                if !expiredPrescriptions.isEmpty {
+                if !expired.isEmpty {
                     Section("Recently Expired") {
-                        ForEach(expiredPrescriptions) { rx in
+                        ForEach(expired) { rx in
                             NavigationLink {
                                 PrescriptionDetailView(prescription: rx)
                             } label: {
@@ -98,7 +104,7 @@ struct PrescriptionListView: View, Equatable {
                             }
                         }
                         .onDelete { offsets in
-                            deleteFromFiltered(offsets, in: expiredPrescriptions)
+                            deleteFromFiltered(offsets, in: expired)
                         }
                     }
                 }

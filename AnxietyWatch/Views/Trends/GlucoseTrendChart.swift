@@ -13,33 +13,21 @@ struct GlucoseTrendChart: View {
     let entries: [AnxietyEntry]
     let dateRange: ClosedRange<Date>
 
-    private var datums: [GlucoseTrendDatum] {
-        GlucoseTrendDatum.from(snapshots: snapshots)
-    }
-
-    private var rollingMean: Double? {
-        GlucoseTrendDatum.rollingMean(datums)
-    }
-
-    /// Mean CV% across the visible window. nil when no day has CV.
-    private var meanCV: Double? {
-        let cvs = datums.compactMap { $0.cv }
-        guard !cvs.isEmpty else { return nil }
-        return cvs.reduce(0, +) / Double(cvs.count)
-    }
-
-    private var subtitle: String {
-        let avgDayCount = datums.count
-        let cvDayCount = datums.compactMap { $0.cv }.count
-        return GlucoseTrendDatum.subtitle(
-            meanCV: meanCV,
-            avgDayCount: avgDayCount,
-            cvDayCount: cvDayCount
-        )
-    }
-
     var body: some View {
-        ChartCard(
+        // Build the per-day datums ONCE per body. `GlucoseTrendDatum.from`
+        // JSON-parses each snapshot's dataQuality blob, and it was previously
+        // fanned out to `subtitle`, `meanCV`, `rollingMean`, `isEmpty`,
+        // `ForEach`, and `cvData` as six independent computed-property reads,
+        // re-parsing every blob six-plus times per render (F-064).
+        let datums = GlucoseTrendDatum.from(snapshots: snapshots)
+        let meanCV = GlucoseTrendDatum.meanCV(datums)
+        let rollingMean = GlucoseTrendDatum.rollingMean(datums)
+        let subtitle = GlucoseTrendDatum.subtitle(
+            meanCV: meanCV,
+            avgDayCount: datums.count,
+            cvDayCount: datums.compactMap { $0.cv }.count
+        )
+        return ChartCard(
             title: "Glucose",
             subtitle: subtitle,
             isEmpty: datums.isEmpty
@@ -146,6 +134,15 @@ extension GlucoseTrendDatum {
                 isLowReliability: parseGlucoseLowReliability(snap.dataQuality)
             )
         }
+    }
+
+    /// Mean CV% across the visible window. nil when no day has a CV value.
+    /// Static + pure so the chart body can compute it from a single cached
+    /// `datums` array (F-064) and so it can be unit-tested directly.
+    static func meanCV(_ datums: [GlucoseTrendDatum]) -> Double? {
+        let cvs = datums.compactMap { $0.cv }
+        guard !cvs.isEmpty else { return nil }
+        return cvs.reduce(0, +) / Double(cvs.count)
     }
 
     /// Simple arithmetic mean across the visible window. The plan calls this

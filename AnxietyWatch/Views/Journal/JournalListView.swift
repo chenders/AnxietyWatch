@@ -2,11 +2,14 @@ import SwiftUI
 import SwiftData
 
 struct JournalListView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query(sort: \AnxietyEntry.timestamp, order: .reverse)
-    private var entries: [AnxietyEntry]
+    /// Entries fetched per page. The list starts bounded to this many and grows
+    /// on demand rather than materializing the entire (unbounded, multiple-per-
+    /// day) AnxietyEntry history at once (F-084).
+    static let pageSize = 200
+
     @State private var showingAddEntry = false
     @State private var selectedSegment = 0
+    @State private var journalLimit = JournalListView.pageSize
 
     var body: some View {
         NavigationStack {
@@ -20,7 +23,9 @@ struct JournalListView: View {
                 .padding(.vertical, 8)
 
                 if selectedSegment == 0 {
-                    journalList
+                    JournalEntriesList(limit: journalLimit) {
+                        journalLimit += Self.pageSize
+                    }
                 } else {
                     SongCatalogView()
                 }
@@ -43,7 +48,31 @@ struct JournalListView: View {
         }
     }
 
-    private var journalList: some View {
+}
+
+/// Paginated journal list. Owns a `fetchLimit`-bounded @Query so the primary
+/// history isn't fully materialized on every change; when a full page comes
+/// back there may be older entries, so it offers a "Load older entries" row
+/// that raises the parent's limit (F-084). This preserves full access to the
+/// user's history — nothing is silently hidden — while bounding the fetch.
+private struct JournalEntriesList: View {
+    @Environment(\.modelContext) private var modelContext
+    let limit: Int
+    let onLoadMore: () -> Void
+
+    @Query private var entries: [AnxietyEntry]
+
+    init(limit: Int, onLoadMore: @escaping () -> Void) {
+        self.limit = limit
+        self.onLoadMore = onLoadMore
+        var descriptor = FetchDescriptor<AnxietyEntry>(
+            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+        )
+        descriptor.fetchLimit = limit
+        _entries = Query(descriptor)
+    }
+
+    var body: some View {
         List {
             ForEach(entries) { entry in
                 NavigationLink {
@@ -53,6 +82,15 @@ struct JournalListView: View {
                 }
             }
             .onDelete(perform: deleteEntries)
+
+            // A full page means the fetch was capped — older entries may exist.
+            // (When the total is an exact multiple of the page size this shows
+            // once more and then disappears; harmless.)
+            if entries.count == limit {
+                Button(action: onLoadMore) {
+                    Label("Load older entries", systemImage: "clock.arrow.circlepath")
+                }
+            }
         }
         .overlay {
             if entries.isEmpty {
@@ -66,8 +104,11 @@ struct JournalListView: View {
     }
 
     private func deleteEntries(offsets: IndexSet) {
-        for index in offsets {
-            modelContext.delete(entries[index])
+        // Snapshot targets before mutating so shifting @Query indices can't
+        // delete the wrong row on a multi-offset delete (Copilot review of #165).
+        let toDelete = offsets.map { entries[$0] }
+        for entry in toDelete {
+            modelContext.delete(entry)
         }
     }
 }

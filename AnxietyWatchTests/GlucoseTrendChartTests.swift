@@ -146,6 +146,29 @@ struct GlucoseTrendChartTests {
         #expect(s == "Daily avg over 4 days")
     }
 
+    @Test("meanCV averages the per-day CV values, ignoring nil-CV days")
+    func meanCVAveragesPresentValues() {
+        // 3 days with glucose, CV present on two of them (25, 45) → mean 35.
+        let avgs: [Double?] = [100, 110, 120]
+        let cvs: [Double?] = [25, nil, 45]
+        let snapshots = makeSnapshots(avgs: avgs, cvs: cvs)
+
+        let datums = GlucoseTrendDatum.from(snapshots: snapshots)
+        let mean = GlucoseTrendDatum.meanCV(datums)
+
+        #expect(mean != nil)
+        #expect(abs((mean ?? 0) - 35) < 0.0001)
+    }
+
+    @Test("meanCV returns nil when no day has a CV value")
+    func meanCVNilWhenNoCV() {
+        let avgs: [Double?] = [100, 110]
+        let snapshots = makeSnapshots(avgs: avgs) // no cvs
+
+        let datums = GlucoseTrendDatum.from(snapshots: snapshots)
+        #expect(GlucoseTrendDatum.meanCV(datums) == nil)
+    }
+
     @Test("preservesCVValue: glucoseCV passes through to the datum when present")
     func preservesCVValue() {
         let avgs: [Double?] = [100, 110, 120]

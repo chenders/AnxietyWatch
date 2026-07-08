@@ -1,4 +1,5 @@
 import HealthKit
+import SwiftData
 import SwiftUI
 
 /// 2-column tile grid for the bulk of vital metrics. Heart Rate and HRV are
@@ -6,7 +7,6 @@ import SwiftUI
 /// that has at least a recent reading.
 struct VitalsGridSectionView: View {
     let vm: DashboardViewModel
-    let snapshots: [HealthSnapshot]
 
     private let columns = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
 
@@ -22,7 +22,7 @@ struct VitalsGridSectionView: View {
                 glucoseTile
                 vo2Tile
                 steadinessTile
-                afibTile
+                AFibTile(vm: vm)
             }
         }
     }
@@ -140,13 +140,39 @@ struct VitalsGridSectionView: View {
         }
     }
 
-    @ViewBuilder private var afibTile: some View {
-        if let (snap, isToday) = vm.lastSnapshotWith(\.atrialFibrillationBurden, from: snapshots) {
-            let b = snap.atrialFibrillationBurden!
+}
+
+/// AFib Burden tile. Owns a dedicated "latest non-nil" @Query rather than
+/// scanning the Dashboard's 30-day-bounded `recentSnapshots`: AFib History is
+/// intermittent and can go far longer than 30 days between readings, so reading
+/// the bounded array would make this clinically significant tile silently
+/// vanish once the last reading ages past the cutoff (medical review of Batch
+/// H-1). This query always finds the most recent burden reading regardless of
+/// age; the tile surfaces that age via a staleness label. Single-clause
+/// predicate + fetchLimit 1, so it's cheap and off the compound-#Predicate
+/// hang path. Rendered inline in the grid (not a NavigationLink destination),
+/// so no `.equatable()` is required.
+private struct AFibTile: View {
+    let vm: DashboardViewModel
+    @Query private var latestAFib: [HealthSnapshot]
+
+    init(vm: DashboardViewModel) {
+        self.vm = vm
+        var descriptor = FetchDescriptor<HealthSnapshot>(
+            predicate: #Predicate { $0.atrialFibrillationBurden != nil },
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        _latestAFib = Query(descriptor)
+    }
+
+    var body: some View {
+        if let snap = latestAFib.first, let burden = snap.atrialFibrillationBurden {
+            let isToday = snap.date == Calendar.current.startOfDay(for: .now)
             LiveMetricCard(
-                title: "AFib Burden", value: String(format: "%.1f", b * 100), unitLabel: "%",
+                title: "AFib Burden", value: String(format: "%.1f", burden * 100), unitLabel: "%",
                 trend: nil, freshness: isToday ? "today" : vm.staleLabel(snap.date),
-                color: b < 0.01 ? .green : .orange, visualization: .none
+                color: burden < 0.01 ? .green : .orange, visualization: .none
             )
         }
     }

@@ -5,8 +5,10 @@ struct AddJournalEntryView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    @Query(sort: \AnxietyEntry.timestamp, order: .reverse)
-    private var recentEntries: [AnxietyEntry]
+    // Capped at the 50 most-recent entries the frequent-tags counter needs, so
+    // the fetch is bounded in SQLite instead of materializing the whole
+    // AnxietyEntry table each body (F-062).
+    @Query private var recentEntries: [AnxietyEntry]
 
     @State private var severity: Int? = nil
     @State private var notes = ""
@@ -16,6 +18,18 @@ struct AddJournalEntryView: View {
     @State private var expressMode = true
     @State private var selectedSong: Song?
     @State private var showingSongSearch = false
+
+    /// Number of recent entries the frequent-tags counter scans. Shared with
+    /// JournalEntryDetailView's identical counter via the same fetch cap.
+    static let frequentTagsScanLimit = 50
+
+    init() {
+        var descriptor = FetchDescriptor<AnxietyEntry>(
+            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+        )
+        descriptor.fetchLimit = Self.frequentTagsScanLimit
+        _recentEntries = Query(descriptor)
+    }
 
     /// Express mode: tapping a severity circle saves immediately and dismisses.
     /// Toggle off to add notes/tags before saving.
@@ -153,7 +167,9 @@ struct AddJournalEntryView: View {
     /// Most-used tags from recent entries, deduplicated and ranked by frequency.
     private var frequentTags: [String] {
         var counts: [String: Int] = [:]
-        for entry in recentEntries.prefix(50) {
+        // `recentEntries` is already capped at `frequentTagsScanLimit` by the
+        // @Query fetchLimit, so no additional prefix is needed.
+        for entry in recentEntries {
             for tag in entry.tags {
                 counts[tag, default: 0] += 1
             }

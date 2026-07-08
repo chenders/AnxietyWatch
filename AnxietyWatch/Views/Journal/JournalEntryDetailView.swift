@@ -9,8 +9,20 @@ struct JournalEntryDetailView: View, Equatable {
     @State private var selectedSong: Song?
     @State private var showingSongSearch = false
 
-    @Query(sort: \AnxietyEntry.timestamp, order: .reverse)
-    private var recentEntries: [AnxietyEntry]
+    // Capped at the most-recent entries the frequent-tags counter needs,
+    // bounding the fetch in SQLite instead of materializing the whole
+    // AnxietyEntry table each body (F-062). Shares the scan limit with
+    // AddJournalEntryView's identical counter.
+    @Query private var recentEntries: [AnxietyEntry]
+
+    init(entry: AnxietyEntry) {
+        _entry = Bindable(wrappedValue: entry)
+        var descriptor = FetchDescriptor<AnxietyEntry>(
+            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+        )
+        descriptor.fetchLimit = AddJournalEntryView.frequentTagsScanLimit
+        _recentEntries = Query(descriptor)
+    }
 
     // Equatable on the entry's stable identity only; paired with `.equatable()`
     // at the NavigationLink call site. @Query/@State otherwise defeat memberwise
@@ -150,7 +162,8 @@ struct JournalEntryDetailView: View, Equatable {
     /// Most-used tags from recent entries, excluding tags already on this entry.
     private var frequentTags: [String] {
         var counts: [String: Int] = [:]
-        for e in recentEntries.prefix(50) {
+        // `recentEntries` is already capped by the @Query fetchLimit.
+        for e in recentEntries {
             for tag in e.tags { counts[tag, default: 0] += 1 }
         }
         return counts.sorted { $0.value > $1.value }

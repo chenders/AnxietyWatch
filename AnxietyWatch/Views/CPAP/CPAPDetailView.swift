@@ -1,20 +1,64 @@
+import SwiftData
 import SwiftUI
 
-struct CPAPDetailView: View {
+struct CPAPDetailView: View, Equatable {
     let session: CPAPSession
-    let snapshots: [HealthSnapshot]
-    let entries: [AnxietyEntry]
+
+    // Previously the parent list handed in two whole-table arrays just so this
+    // view could read one day's snapshot/entries and a 30-day SpO₂ baseline
+    // (F-074). This view now owns date-scoped @Querys instead, so the parent
+    // (CPAPListView / DashboardView) no longer fetches those tables at all.
+    //
+    // Both predicates are two-clause Date-only windows, fully bounded on both
+    // edges (so viewing an OLD session fetches a fixed window, not everything
+    // up to now). Two-clause Date compounds are safe from the iOS 26 SwiftData
+    // ORDER BY hang — that path targets captured non-primitive locals (UUID,
+    // String), not Date; see PolarSessionHRDetailView for the same documented
+    // pattern. The snapshot window [sessionDay-30d, sessionDay] exactly matches
+    // BaselineCalculator's window anchored at the session date and includes the
+    // exact session-day snapshot; the entry window is the session's single day.
+    @Query private var snapshots: [HealthSnapshot]
+    @Query private var entries: [AnxietyEntry]
+
+    init(session: CPAPSession) {
+        self.session = session
+        let calendar = Calendar.current
+        let sessionDayStart = calendar.startOfDay(for: session.date)
+        let snapshotLowerCutoff = calendar.date(
+            byAdding: .day, value: -Constants.baselineWindowDays, to: sessionDayStart
+        ) ?? sessionDayStart
+        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: sessionDayStart) ?? sessionDayStart
+        _snapshots = Query(
+            filter: #Predicate<HealthSnapshot> {
+                $0.date >= snapshotLowerCutoff && $0.date <= sessionDayStart
+            },
+            sort: \HealthSnapshot.date, order: .reverse
+        )
+        _entries = Query(
+            filter: #Predicate<AnxietyEntry> {
+                $0.timestamp >= sessionDayStart && $0.timestamp < nextDayStart
+            },
+            sort: \AnxietyEntry.timestamp, order: .reverse
+        )
+    }
+
+    // Equatable on the session's stable identity only; paired with
+    // `.equatable()` at the NavigationLink call sites so SwiftUI dedupes
+    // rebuilds. @Query state otherwise defeats memberwise comparison and a
+    // parent re-render storm can cascade into a CA::Layer use-after-free on
+    // iOS 26. See CLAUDE.md render-pitfall #2.
+    static func == (lhs: CPAPDetailView, rhs: CPAPDetailView) -> Bool {
+        lhs.session.persistentModelID == rhs.session.persistentModelID
+    }
 
     private var daySnapshot: HealthSnapshot? {
         let sessionDate = Calendar.current.startOfDay(for: session.date)
         return snapshots.first { $0.date == sessionDate }
     }
 
-    private var dayEntries: [AnxietyEntry] {
-        let start = Calendar.current.startOfDay(for: session.date)
-        guard let end = Calendar.current.date(byAdding: .day, value: 1, to: start) else { return [] }
-        return entries.filter { $0.timestamp >= start && $0.timestamp < end }
-    }
+    /// The `entries` @Query is already bounded to the session's single day, so
+    /// this is a plain passthrough (the day filter now lives in the predicate).
+    private var dayEntries: [AnxietyEntry] { entries }
 
     var body: some View {
         List {
