@@ -830,7 +830,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#171)
 
 ### F-049 · P2 · plausible · test-gap · chart-palette
 
@@ -842,7 +842,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#171)
 
 ### F-050 · P2 · plausible · test-gap · trends-empty-state
 
@@ -854,7 +854,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#171)
 
 ### F-051 · P3 · confirmed · bug · server-jobs
 
@@ -1312,7 +1312,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#171)
 
 ### F-088 · P3 · plausible · test-gap · server-tests
 
@@ -1324,7 +1324,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#171)
 
 ### F-089 · P0 · confirmed · render · reports-nav · _added post-audit during Batch A review_
 
