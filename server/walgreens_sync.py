@@ -83,6 +83,41 @@ def should_run_now(sync_time_str, current_hour):
 
 
 # ---------------------------------------------------------------------------
+# Lookback window
+# ---------------------------------------------------------------------------
+
+# Normal-case lookback floor: generous overlap for a scraper that runs daily.
+DEFAULT_LOOKBACK_DAYS = 90
+# First sync goes back 2 years — the maximum range Walgreens allows.
+FIRST_SYNC_LOOKBACK_DAYS = 730
+# Overlap past the last success, so a fill dispensed just before that run
+# (but not yet visible in Walgreens' system) is still picked up.
+LAST_SYNC_OVERLAP_DAYS = 7
+
+
+def compute_lookback_start(today, last_success_date):
+    """Compute the start date of the prescription fetch window.
+
+    A fixed 90-day lookback from *today* silently loses fills whenever the
+    scraper is broken for longer than 90 days (a realistic failure mode for
+    headed-Playwright + security-question auth): fills dispensed between the
+    last success and today-90d would never be fetched, with the next run
+    logging 'success' so nothing signals the hole. So the window must reach
+    back to the last successful sync (minus a small overlap), keeping 90 days
+    as the floor for the normal case. Walgreens caps history at 2 years, so
+    the window never widens past that; None (no prior success) also gets the
+    full 2-year first-sync default.
+    """
+    if last_success_date is None:
+        return today - timedelta(days=FIRST_SYNC_LOOKBACK_DAYS)
+    start = min(
+        today - timedelta(days=DEFAULT_LOOKBACK_DAYS),
+        last_success_date - timedelta(days=LAST_SYNC_OVERLAP_DAYS),
+    )
+    return max(start, today - timedelta(days=FIRST_SYNC_LOOKBACK_DAYS))
+
+
+# ---------------------------------------------------------------------------
 # Core upsert logic
 # ---------------------------------------------------------------------------
 
@@ -259,14 +294,19 @@ def main(argv=None):
             logger.warning("Failed to decrypt saved session — will do full login")
 
     # --- Determine date range ------------------------------------------------
+    # walgreens_last_sync is only written on success (see log_sync), so it is
+    # the timestamp of the last run that actually fetched data.
     last_sync = get_setting(conn, "walgreens_last_sync")
-    today = datetime.now(timezone.utc).date()
+    last_success_date = None
     if last_sync:
-        # Look back 90 days on subsequent syncs
-        start = (today - timedelta(days=90)).strftime("%m/%d/%Y")
-    else:
-        # First sync: go back 2 years (max Walgreens allows)
-        start = (today - timedelta(days=730)).strftime("%m/%d/%Y")
+        try:
+            last_success_date = datetime.fromisoformat(last_sync).date()
+        except ValueError:
+            # Unparseable cursor: fall back to the widest (first-sync) window
+            # rather than risk a gap.
+            logger.warning("Unparseable walgreens_last_sync value %r — using full lookback", last_sync)
+    today = datetime.now(timezone.utc).date()
+    start = compute_lookback_start(today, last_success_date).strftime("%m/%d/%Y")
     end = today.strftime("%m/%d/%Y")
 
     # --- Fetch from Walgreens ------------------------------------------------

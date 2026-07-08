@@ -159,6 +159,32 @@ class TestUpsertCpapLeak:
         ])
         assert result == 1
 
+    def test_edf_only_insert_stores_null_ahi(self):
+        """EDF-only dates must store NULL ahi, not a 0.0 sentinel (F-068):
+        detail EDFs carry no AHI, and a fabricated zero is indistinguishable
+        from a real zero-event night in every downstream AHI consumer."""
+        conn, cur = self._make_mock_conn()
+        cur.rowcount = 0
+        cur.fetchone.return_value = None
+
+        execute_calls = []
+
+        def tracking_execute(*args, **kwargs):
+            execute_calls.append(args)
+
+        cur.execute = tracking_execute
+
+        upsert_cpap_leak(conn, [
+            {"date": datetime(2024, 1, 1), "leak_rate_95th": 15.3,
+             "total_usage_minutes": 420},
+        ])
+        # Call order: UPDATE (miss), SELECT (miss), INSERT.
+        insert_sql, insert_params = execute_calls[2]
+        assert "INSERT INTO cpap_sessions" in insert_sql
+        assert insert_params[1] is None  # ahi — unknown, not 0.0
+        assert insert_params[2] == 420   # total_usage_minutes
+        assert insert_params[3] == 15.3  # leak_rate_95th
+
     def test_multiple_sessions(self):
         conn, cur = self._make_mock_conn()
         cur.rowcount = 1

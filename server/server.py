@@ -16,6 +16,7 @@ from markupsafe import Markup, escape
 from correlations import (
     compute_correlations, store_correlations, get_correlations,
     get_paired_day_count, correlations_are_stale, MINIMUM_PAIRED_DAYS,
+    compute_staleness_fingerprint, resolve_analysis_timezone,
 )
 from genius import search_songs, fetch_song_metadata, scrape_lyrics, fetch_lyrics_musixmatch
 
@@ -212,7 +213,12 @@ def create_app(test_config=None):
             counts["pharmacy_call_logs"] = _upsert_pharmacy_call_logs(cur, data.get("pharmacyCallLogs", []))
             _upsert_demographics(cur, data.get("demographics"))
             counts["songs"] = _upsert_songs(cur, data.get("songs", []))
-            counts["song_occurrences"] = _upsert_song_occurrences(cur, data.get("songOccurrences", []))
+            occ_upserted, occ_skipped = _upsert_song_occurrences(cur, data.get("songOccurrences", []))
+            counts["song_occurrences"] = occ_upserted
+            if occ_skipped:
+                # Additive key — the iOS client ignores unknown count keys.
+                # Also lands in sync_log.record_counts via the insert below.
+                counts["song_occurrences_skipped"] = occ_skipped
 
             # Log the sync
             cur.execute(
@@ -236,10 +242,14 @@ def create_app(test_config=None):
         correlation_data = {}
         try:
             cur2 = db.cursor()
-            paired_days = get_paired_day_count(cur2)
+            tz_name = resolve_analysis_timezone(cur2)
+            paired_days = get_paired_day_count(cur2, tz_name)
             if paired_days >= MINIMUM_PAIRED_DAYS and correlations_are_stale(cur2):
-                corr_results = compute_correlations(cur2)
-                store_correlations(cur2, corr_results)
+                # Capture the fingerprint BEFORE computing so a row inserted
+                # mid-computation still reads as stale on the next check.
+                fingerprint = compute_staleness_fingerprint(cur2)
+                corr_results = compute_correlations(cur2, tz_name)
+                store_correlations(cur2, corr_results, fingerprint)
                 db.commit()
             correlation_data = {
                 "correlations": get_correlations(cur2),
@@ -325,11 +335,15 @@ def create_app(test_config=None):
         db = get_db()
         cur = db.cursor()
 
-        paired_days = get_paired_day_count(cur)
+        tz_name = resolve_analysis_timezone(cur)
+        paired_days = get_paired_day_count(cur, tz_name)
 
         if paired_days >= MINIMUM_PAIRED_DAYS and correlations_are_stale(cur):
-            results = compute_correlations(cur)
-            store_correlations(cur, results)
+            # Capture the fingerprint BEFORE computing so a row inserted
+            # mid-computation still reads as stale on the next check.
+            fingerprint = compute_staleness_fingerprint(cur)
+            results = compute_correlations(cur, tz_name)
+            store_correlations(cur, results, fingerprint)
             db.commit()
 
         correlations = get_correlations(cur)
@@ -389,7 +403,7 @@ def create_app(test_config=None):
                        obstructive_events, central_events, hypopnea_events, import_source)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (date) DO UPDATE SET
-                       ahi = EXCLUDED.ahi,
+                       ahi = COALESCE(EXCLUDED.ahi, cpap_sessions.ahi),
                        total_usage_minutes = EXCLUDED.total_usage_minutes,
                        leak_rate_95th = COALESCE(EXCLUDED.leak_rate_95th, cpap_sessions.leak_rate_95th),
                        pressure_min = EXCLUDED.pressure_min,
@@ -400,7 +414,10 @@ def create_app(test_config=None):
                        hypopnea_events = EXCLUDED.hypopnea_events,
                        import_source = EXCLUDED.import_source""",
                 (
-                    s["date"], s["ahi"], s["totalUsageMinutes"], s.get("leakRate95th"),
+                    # ahi is nullable (migration 0007): NULL means "not
+                    # measured" (EDF-only import). COALESCE above ensures a
+                    # null from the client never clobbers a measured value.
+                    s["date"], s.get("ahi"), s["totalUsageMinutes"], s.get("leakRate95th"),
                     s["pressureMin"], s["pressureMax"], s["pressureMean"],
                     s.get("obstructiveEvents", 0), s.get("centralEvents", 0),
                     s.get("hypopneaEvents", 0), s.get("importSource", "sd_card"),
@@ -927,6 +944,18 @@ def create_app(test_config=None):
         return len(songs)
 
     def _upsert_song_occurrences(cur, occurrences):
+        """Upsert song occurrences; returns (upserted_count, skipped_count).
+
+        Occurrences that can't be linked to a songs row are counted as
+        skipped, not upserted: the iOS client advances its sync cursor after
+        a 200 response, so an occurrence silently folded into the upserted
+        count would never be re-sent and the record would be lost with no
+        signal anywhere. The skip count is surfaced in the /api/sync response
+        (and therefore in sync_log.record_counts) instead of failing the
+        whole sync.
+        """
+        upserted = 0
+        skipped = 0
         for o in occurrences:
             # Resolve song_id from genius_id or server_id
             song_id = None
@@ -942,7 +971,14 @@ def create_app(test_config=None):
                     song_id = server_id
 
             if not song_id:
-                continue  # Can't link occurrence without a song
+                # Can't link occurrence without a song. Log timestamp only —
+                # notes may contain personal content.
+                skipped += 1
+                app.logger.warning(
+                    "Skipping unlinkable song occurrence at %s (no matching genius_id or server_id)",
+                    o.get("timestamp"),
+                )
+                continue
 
             cur.execute(
                 """INSERT INTO song_occurrences (song_id, timestamp, source, anxiety_entry_id, notes)
@@ -951,7 +987,8 @@ def create_app(test_config=None):
                 (song_id, o["timestamp"], o.get("source") or "standalone",
                  o.get("anxietyEntryTimestamp"), o.get("notes")),
             )
-        return len(occurrences)
+            upserted += 1
+        return upserted, skipped
 
     # ---------------------------------------------------------------------------
     # GET /api/data

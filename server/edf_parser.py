@@ -136,7 +136,11 @@ def upsert_cpap_leak(conn, sessions: list[dict[str, Any]]) -> int:
             # Row exists with leak already set — skip
             continue
 
-        # No row exists — insert with what we have
+        # No row exists — insert with what we have. AHI is NULL, not 0.0:
+        # detail EDF files carry no AHI, and a 0.0 sentinel would read as a
+        # genuinely perfect zero-event night in every downstream AHI consumer
+        # (trends, correlations, the analysis prompt). NULL lets consumers
+        # skip the unknown value instead of averaging in a fabricated zero.
         cur.execute(
             """INSERT INTO cpap_sessions
                    (date, ahi, total_usage_minutes, leak_rate_95th,
@@ -145,7 +149,7 @@ def upsert_cpap_leak(conn, sessions: list[dict[str, Any]]) -> int:
                ON CONFLICT (date) DO NOTHING""",
             (
                 d,
-                0.0,  # AHI unknown from detail EDF
+                None,  # AHI unknown from detail EDF
                 duration or 0,
                 leak,
             ),

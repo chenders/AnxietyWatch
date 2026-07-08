@@ -1,7 +1,7 @@
 import os
 import pytest
 import psycopg2
-from resmed_sync import upsert_sessions, should_run_now
+from resmed_sync import upsert_sessions, should_run_now, log_sync, get_setting, set_setting
 
 
 @pytest.fixture(scope="session")
@@ -113,3 +113,53 @@ def test_should_run_now_default_2pm_pacific():
     """Default sync time is 21:00 UTC (2:00 PM Pacific)."""
     assert should_run_now("21", 21) is True
     assert should_run_now("21:00", 21) is True
+
+
+# ---------------------------------------------------------------------------
+# log_sync cursor-advancement tests (F-039)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def clean_resmed_settings(db):
+    """Ensure resmed settings and sync_log rows don't leak between tests.
+
+    log_sync commits internally, so the db fixture's rollback teardown isn't
+    enough — clean up explicitly on both sides.
+    """
+    def _cleanup():
+        cur = db.cursor()
+        cur.execute("DELETE FROM settings WHERE key IN ('resmed_last_sync', 'resmed_last_status')")
+        cur.execute("DELETE FROM sync_log WHERE sync_type = 'resmed_cloud'")
+        db.commit()
+
+    _cleanup()
+    yield db
+    _cleanup()
+
+
+def test_log_sync_failure_does_not_advance_cursor(clean_resmed_settings):
+    """A failed run must leave resmed_last_sync unset — main() keys the
+    365-day first-run backfill off its absence, so advancing the cursor on
+    e.g. an auth typo would permanently forfeit a year of CPAP history."""
+    conn = clean_resmed_settings
+    for status in ("auth_error", "api_error", "decrypt_error", "no_credentials"):
+        log_sync(conn, status, 0)
+        assert get_setting(conn, "resmed_last_sync") is None
+    # The status setting still records the failure.
+    assert get_setting(conn, "resmed_last_status") == "no_credentials"
+
+
+def test_log_sync_failure_preserves_existing_cursor(clean_resmed_settings):
+    """A failure after a prior success must not move the cursor forward."""
+    conn = clean_resmed_settings
+    set_setting(conn, "resmed_last_sync", "2026-01-01T00:00:00+00:00")
+    log_sync(conn, "api_error", 0)
+    assert get_setting(conn, "resmed_last_sync") == "2026-01-01T00:00:00+00:00"
+
+
+def test_log_sync_success_advances_cursor(clean_resmed_settings):
+    conn = clean_resmed_settings
+    log_sync(conn, "success", 5)
+    assert get_setting(conn, "resmed_last_sync") is not None
+    assert get_setting(conn, "resmed_last_status") == "success: 5 sessions upserted"

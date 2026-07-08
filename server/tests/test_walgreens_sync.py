@@ -1,11 +1,19 @@
 """Tests for the Walgreens prescription sync script."""
 
 import os
+from datetime import date, timedelta
 from urllib.parse import urlparse
 
 import pytest
 import psycopg2
-from walgreens_sync import upsert_prescriptions, should_run_now
+from walgreens_sync import (
+    upsert_prescriptions,
+    should_run_now,
+    compute_lookback_start,
+    DEFAULT_LOOKBACK_DAYS,
+    FIRST_SYNC_LOOKBACK_DAYS,
+    LAST_SYNC_OVERLAP_DAYS,
+)
 
 DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
@@ -163,3 +171,48 @@ def test_should_run_now_empty():
 
 def test_should_run_now_invalid():
     assert should_run_now("not-a-time", 21) is False
+
+
+# ---------------------------------------------------------------------------
+# compute_lookback_start tests (F-054)
+# ---------------------------------------------------------------------------
+
+TODAY = date(2026, 7, 8)
+
+
+def test_lookback_no_prior_sync_uses_two_year_default():
+    """First sync goes back the full 2 years Walgreens allows."""
+    start = compute_lookback_start(TODAY, None)
+    assert start == TODAY - timedelta(days=FIRST_SYNC_LOOKBACK_DAYS)
+
+
+def test_lookback_recent_sync_uses_90_day_floor():
+    """A sync that succeeded last week keeps the normal 90-day floor."""
+    last_success = TODAY - timedelta(days=7)
+    start = compute_lookback_start(TODAY, last_success)
+    assert start == TODAY - timedelta(days=DEFAULT_LOOKBACK_DAYS)
+
+
+def test_lookback_widens_past_90_days_after_long_outage():
+    """An outage longer than 90 days must widen the window back to the last
+    success (minus overlap), or fills dispensed in the gap are permanently
+    lost — the F-054 failure mode."""
+    last_success = TODAY - timedelta(days=200)
+    start = compute_lookback_start(TODAY, last_success)
+    assert start == last_success - timedelta(days=LAST_SYNC_OVERLAP_DAYS)
+    # The widened window fully covers the gap since the last success.
+    assert start < last_success
+
+
+def test_lookback_exactly_90_days_gets_overlap():
+    """At exactly 90 days since success, the overlap wins (min of the two)."""
+    last_success = TODAY - timedelta(days=DEFAULT_LOOKBACK_DAYS)
+    start = compute_lookback_start(TODAY, last_success)
+    assert start == last_success - timedelta(days=LAST_SYNC_OVERLAP_DAYS)
+
+
+def test_lookback_capped_at_walgreens_two_year_max():
+    """Walgreens only serves 2 years of history — never ask for more."""
+    last_success = TODAY - timedelta(days=900)
+    start = compute_lookback_start(TODAY, last_success)
+    assert start == TODAY - timedelta(days=FIRST_SYNC_LOOKBACK_DAYS)

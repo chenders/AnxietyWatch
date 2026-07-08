@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS medication_doses (
 
 CREATE TABLE IF NOT EXISTS cpap_sessions (
     date                DATE NOT NULL PRIMARY KEY,
-    ahi                 DOUBLE PRECISION NOT NULL,
+    -- Nullable (migration 0007): NULL means "AHI not measured" (EDF-only
+    -- imports carry leak/duration but no AHI). 0.0 is a real measured value.
+    ahi                 DOUBLE PRECISION,
     total_usage_minutes INTEGER NOT NULL,
     leak_rate_95th      DOUBLE PRECISION,
     pressure_min        DOUBLE PRECISION,

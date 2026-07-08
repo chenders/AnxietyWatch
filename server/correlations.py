@@ -3,6 +3,8 @@
 import numpy as np
 from scipy import stats
 
+from analysis import DEFAULT_ANALYSIS_TIMEZONE, _resolve_timezone
+
 SIGNALS = [
     ("hrv_avg", "h.hrv_avg", ["h.hrv_avg"]),
     ("resting_hr", "h.resting_hr", ["h.resting_hr"]),
@@ -22,9 +24,32 @@ SIGNALS = [
 
 MINIMUM_PAIRED_DAYS = 12
 
+# settings-table key for the staleness fingerprint written by store_correlations.
+STALENESS_FINGERPRINT_KEY = "correlations_fingerprint"
 
-def compute_correlations(cur):
-    """Compute Pearson correlations for all signals. Returns list of result dicts."""
+
+def resolve_analysis_timezone(cur):
+    """Read the settings-driven analysis timezone (canonical IANA name).
+
+    Reuses analysis._resolve_timezone so correlation day-bucketing follows the
+    exact same settings key + fallback the analysis prompt uses — a divergence
+    would silently bucket the two pipelines onto different calendar days.
+    """
+    cur.execute("SELECT value FROM settings WHERE key = 'timezone'")
+    row = cur.fetchone()
+    return str(_resolve_timezone(row[0] if row else DEFAULT_ANALYSIS_TIMEZONE))
+
+
+def compute_correlations(cur, tz_name=DEFAULT_ANALYSIS_TIMEZONE):
+    """Compute Pearson correlations for all signals. Returns list of result dicts.
+
+    *tz_name* is the local timezone for day-bucketing (pass the value from
+    resolve_analysis_timezone). anxiety_entries.timestamp is TIMESTAMPTZ, so
+    `AT TIME ZONE <zone>` converts it to local wall-clock time before the
+    ::date cast — a bare `timestamp::date` would cast in the DB session
+    timezone (UTC in deployment), pairing a 9 PM Pacific entry with the NEXT
+    day's snapshot.
+    """
     results = []
 
     for signal_name, sql_expr, required_cols in SIGNALS:
@@ -33,11 +58,11 @@ def compute_correlations(cur):
         cur.execute(f"""
             SELECT {sql_expr} AS signal_value, AVG(a.severity) AS avg_severity
             FROM health_snapshots h
-            JOIN anxiety_entries a ON a.timestamp::date = h.date
+            JOIN anxiety_entries a ON (a.timestamp AT TIME ZONE %s)::date = h.date
             WHERE {not_null}
             GROUP BY h.date, {sql_expr}
             ORDER BY h.date
-        """)
+        """, (tz_name,))
         rows = cur.fetchall()
 
         if len(rows) < MINIMUM_PAIRED_DAYS:
@@ -81,8 +106,15 @@ def compute_correlations(cur):
     return results
 
 
-def store_correlations(cur, results):
-    """Upsert correlation results into the database."""
+def store_correlations(cur, results, fingerprint=None):
+    """Upsert correlation results and record the staleness fingerprint.
+
+    *fingerprint* should be captured (via compute_staleness_fingerprint)
+    BEFORE compute_correlations runs: a row inserted mid-computation is then
+    still detected as a change on the next staleness check, instead of being
+    baked into the fingerprint without being part of the results. Falls back
+    to computing it at store time when not provided.
+    """
     for r in results:
         cur.execute(
             """INSERT INTO correlations
@@ -103,6 +135,14 @@ def store_correlations(cur, results):
                 r["mean_severity_when_normal"],
             ),
         )
+
+    if fingerprint is None:
+        fingerprint = compute_staleness_fingerprint(cur)
+    cur.execute(
+        "INSERT INTO settings (key, value) VALUES (%s, %s) "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+        (STALENESS_FINGERPRINT_KEY, fingerprint),
+    )
 
 
 def get_correlations(cur):
@@ -127,33 +167,54 @@ def get_correlations(cur):
     ]
 
 
-def get_paired_day_count(cur):
-    """Count days that have both a health snapshot and an anxiety entry."""
+def get_paired_day_count(cur, tz_name=DEFAULT_ANALYSIS_TIMEZONE):
+    """Count days that have both a health snapshot and an anxiety entry.
+
+    Same local-day bucketing as compute_correlations (see its docstring for
+    the AT TIME ZONE rationale) — the two must agree or the MINIMUM_PAIRED_DAYS
+    gate could pass while the compute query finds fewer pairs, or vice versa.
+    """
     cur.execute("""
         SELECT COUNT(DISTINCT h.date)
         FROM health_snapshots h
-        JOIN anxiety_entries a ON a.timestamp::date = h.date
-    """)
+        JOIN anxiety_entries a ON (a.timestamp AT TIME ZONE %s)::date = h.date
+    """, (tz_name,))
     return cur.fetchone()[0]
 
 
+def compute_staleness_fingerprint(cur):
+    """Fingerprint of the correlation inputs: row counts + max watermarks.
+
+    The counts are the point (F-069): a backfilled entry or snapshot dated
+    BEFORE the current MAX moves neither watermark, so a max-only check never
+    triggers a recompute and correlations keep ignoring the imported history.
+    Counts catch backfills; the maxes stay in the fingerprint so an append
+    that replaces a deleted row (count unchanged) is still detected.
+    """
+    cur.execute("SELECT COUNT(*), MAX(timestamp) FROM anxiety_entries")
+    entry_count, entry_max = cur.fetchone()
+    cur.execute("SELECT COUNT(*), MAX(date) FROM health_snapshots")
+    snapshot_count, snapshot_max = cur.fetchone()
+    return "|".join([
+        str(entry_count),
+        entry_max.isoformat() if entry_max else "",
+        str(snapshot_count),
+        snapshot_max.isoformat() if snapshot_max else "",
+    ])
+
+
 def correlations_are_stale(cur):
-    """Check if correlations need recomputing (new entries or snapshots since last computation)."""
-    cur.execute("SELECT MAX(computed_at) FROM correlations")
-    last_computed = cur.fetchone()[0]
-    if last_computed is None:
-        return True
+    """Check if correlations need recomputing (inputs changed since last computation).
 
-    # Stale if new anxiety entries since last computation
-    cur.execute("SELECT MAX(timestamp) FROM anxiety_entries")
-    last_entry = cur.fetchone()[0]
-    if last_entry and last_entry > last_computed:
+    Compares the stored fingerprint (written by store_correlations) against
+    the current one. A missing fingerprint — never computed, or a deployment
+    that predates fingerprinting — reads as stale so the first check after
+    upgrade recomputes and stores one.
+    """
+    cur.execute(
+        "SELECT value FROM settings WHERE key = %s", (STALENESS_FINGERPRINT_KEY,)
+    )
+    row = cur.fetchone()
+    if row is None:
         return True
-
-    # Also stale if new health snapshots (new physiological data to correlate)
-    cur.execute("SELECT MAX(date) FROM health_snapshots")
-    last_snapshot = cur.fetchone()[0]
-    if last_snapshot and last_snapshot > last_computed.date():
-        return True
-
-    return False
+    return row[0] != compute_staleness_fingerprint(cur)

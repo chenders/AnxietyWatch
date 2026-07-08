@@ -3,6 +3,7 @@
 import datetime
 import hashlib
 import json
+import logging
 import os
 
 import psycopg2
@@ -1904,3 +1905,146 @@ def test_rr_archive_upload_413_for_oversize_payload(client, app):
         cur.execute("SELECT rr_archive FROM sensor_sessions WHERE id = %s", (session_id,))
         # rr_archive should still be NULL — the oversize upload didn't land.
         assert cur.fetchone()[0] is None
+
+
+# ---------------------------------------------------------------------------
+# Song occurrence skip accounting (F-038)
+# ---------------------------------------------------------------------------
+
+
+def test_sync_unlinkable_song_occurrence_counted_as_skipped(client, app, caplog):
+    """An occurrence that can't be linked to any song must be reported as
+    skipped, not silently folded into the upserted count: the iOS client
+    advances its sync cursor on a 200 response, so a miscounted occurrence
+    would never be re-sent and would be lost with no signal anywhere."""
+    payload = {
+        "songs": [
+            {
+                "title": "Everybody Hurts",
+                "artist": "R.E.M.",
+                "geniusId": 4535,
+                "updatedAt": "2026-04-18T15:00:00Z",
+            }
+        ],
+        "songOccurrences": [
+            # Linkable — matches the song above by genius_id.
+            {"songGeniusId": 4535, "timestamp": "2026-04-18T14:30:00Z", "source": "journal"},
+            # Unlinkable — unknown genius_id and no songServerId (e.g. a
+            # manually-added song created offline whose serverId the client
+            # never learned).
+            {"songGeniusId": 99999, "timestamp": "2026-04-18T15:45:00Z", "source": "journal"},
+        ],
+    }
+    with caplog.at_level(logging.WARNING):
+        resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200  # a skip must NOT fail the whole sync
+    counts = resp.get_json()["counts"]
+    assert counts["song_occurrences"] == 1
+    assert counts["song_occurrences_skipped"] == 1
+
+    # A server-side warning names the occurrence by timestamp (never notes).
+    warning = next(
+        (r for r in caplog.records if "unlinkable song occurrence" in r.getMessage()), None
+    )
+    assert warning is not None
+    assert "2026-04-18T15:45:00Z" in warning.getMessage()
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        # Only the linkable occurrence landed.
+        cur.execute("SELECT COUNT(*) FROM song_occurrences")
+        assert cur.fetchone()[0] == 1
+        # The skip count is also recorded in the sync_log counts JSON.
+        cur.execute("SELECT record_counts FROM sync_log ORDER BY received_at DESC LIMIT 1")
+        record_counts = cur.fetchone()[0]
+        assert record_counts["song_occurrences"] == 1
+        assert record_counts["song_occurrences_skipped"] == 1
+
+
+def test_sync_song_occurrences_no_skipped_key_when_all_link(client):
+    """The skipped key is additive and only present when something was skipped."""
+    payload = {
+        "songs": [
+            {
+                "title": "Everybody Hurts",
+                "artist": "R.E.M.",
+                "geniusId": 4535,
+                "updatedAt": "2026-04-18T15:00:00Z",
+            }
+        ],
+        "songOccurrences": [
+            {"songGeniusId": 4535, "timestamp": "2026-04-18T14:30:00Z", "source": "journal"},
+        ],
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+    counts = resp.get_json()["counts"]
+    assert counts["song_occurrences"] == 1
+    assert "song_occurrences_skipped" not in counts
+
+
+# ---------------------------------------------------------------------------
+# Nullable CPAP AHI (F-068)
+# ---------------------------------------------------------------------------
+
+
+def _cpap_payload(**overrides):
+    base = {
+        "date": "2025-03-21", "ahi": 1.8, "totalUsageMinutes": 400,
+        "leakRate95th": 4.2, "pressureMin": 6.0, "pressureMax": 12.0, "pressureMean": 9.0,
+        "obstructiveEvents": 2, "centralEvents": 1, "hypopneaEvents": 1, "importSource": "sd_card",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_sync_cpap_session_without_ahi_stores_null(client, app):
+    """A session with no measured AHI (EDF-only provenance) stores NULL,
+    which /api/data exports as JSON null — not a fabricated 0.0."""
+    payload = {"cpapSessions": [_cpap_payload(importSource="edf")]}
+    del payload["cpapSessions"][0]["ahi"]
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute("SELECT ahi FROM cpap_sessions WHERE date = '2025-03-21'")
+        assert cur.fetchone()[0] is None
+
+    resp = client.get("/api/data/cpapSessions", headers=auth_header())
+    sessions = resp.get_json()["cpapSessions"]
+    assert len(sessions) == 1
+    assert sessions[0]["ahi"] is None
+
+
+def test_sync_cpap_null_ahi_does_not_clobber_measured_value(client, app):
+    """A later null-AHI upsert for the same date must preserve a previously
+    measured AHI (COALESCE keeps the existing value)."""
+    resp = client.post(
+        "/api/sync", json={"cpapSessions": [_cpap_payload(ahi=2.4)]}, headers=auth_header()
+    )
+    assert resp.status_code == 200
+    payload = {"cpapSessions": [_cpap_payload()]}
+    del payload["cpapSessions"][0]["ahi"]
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute("SELECT ahi FROM cpap_sessions WHERE date = '2025-03-21'")
+        assert cur.fetchone()[0] == 2.4
+
+
+def test_sync_cpap_measured_ahi_still_stored(client, app):
+    """Regression guard: the nullable-ahi change must not affect sessions
+    that carry a real measured AHI."""
+    resp = client.post(
+        "/api/sync", json={"cpapSessions": [_cpap_payload(ahi=0.0)]}, headers=auth_header()
+    )
+    assert resp.status_code == 200
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute("SELECT ahi FROM cpap_sessions WHERE date = '2025-03-21'")
+        # A measured 0.0 is a real clinical value and must round-trip as 0.0.
+        assert cur.fetchone()[0] == 0.0

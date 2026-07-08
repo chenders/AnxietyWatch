@@ -9,7 +9,12 @@ from sqlalchemy import create_engine
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: create_app() runs `alembic upgrade` at
+    # startup, and fileConfig's default (True) would silently disable every
+    # logger created before that point — including Flask's app logger — so
+    # app.logger.warning() calls would produce nothing in any process that
+    # creates more than one app (tests, reloaders).
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # No SQLAlchemy models — we use raw SQL migrations.
 target_metadata = None

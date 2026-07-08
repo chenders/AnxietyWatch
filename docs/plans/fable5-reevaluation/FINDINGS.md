@@ -41,6 +41,7 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 | F-091 | P2 | plaus | S | accuracy | server-correlations | correlations.py joins anxiety entries to health snapshots via a::timestamp::date cast in the DB session timezone (UTC), so a 9 PM Pacific entry joins to the NEXT day's snapshot — same UTC/Pacific day-bucketing family as F-029, one layer down in the correlation engine. | `server/correlations.py:36` |
 | F-092 | P2 | plaus | M | accuracy | spo2-provenance | applyOvernightSpO2Precedence can pair avg/nadir from a sparse preferred-oximeter subset with T90/desats kept from the broader HK-direct set (post-F-023), and no rendered surface (LastNightCard, CPAPDetailView, clinician PDF) discloses the mixed provenance. | `AnxietyWatch/Services/SnapshotAggregator.swift:applyOvernightSpO2Precedence` |
 | F-093 | P2 | plaus | M | accuracy | polar-hrv-freqdomain | The frequency-domain path still receives the spliced artifact-filtered RR array: resampleRRIntervals builds its tachogram from cumulative sums over the filtered array, fabricating a gap-spanning interval at each excised artifact — the same splicing defect F-026 fixed for RMSSD/pNN50, live for LF/HF/ratio. | `AnxietyWatch/Services/HRVSessionRecorder.swift:tick` |
+| F-094 | P3 | conf | S | bug | restore-from-server | RestoreFromServer.importCPAPSessions guards `row["ahi"] as? Double`, so the JSON null AHI that EDF-only sessions now carry (post-F-068) fails the cast and the whole session row is silently skipped on restore — leak data never reaches a new device. | `AnxietyWatch/Services/RestoreFromServer.swift:importCPAPSessions` |
 | F-015 | P2 | conf | S | silent-failure | sync-rr-archive | A failed RR-archive POST is never retried: the retry scan is keyed to uploadedIDs.sensorSessions (sessions in the current payload), but markSamplesSynced flips those sessions' syncedToServer=true in the same call, so they never appear in any future payload and rrArchiveUploadedAt==nil is never re-examined. | `AnxietyWatch/Services/SyncService.swift:applyPostUploadResponse` |
 | F-016 | P1 | conf | S | bug | sync-actor-isolation | SongService.fetchCatalog(into:) and SyncService.fetchPrescriptions(modelContext:) are nonisolated async functions that fetch/insert/save on the caller's MainActor-bound ModelContext from the global concurrent executor — the exact undefined-behavior hazard the sync() doc comment was written to prevent, and it runs on every sync. | `AnxietyWatch/Services/SongService.swift:fetchCatalog` |
 | F-017 | P2 | conf | S | bug | watch-connectivity | PhoneConnectivityManager.updateCheckInContext builds the outgoing applicationContext from WCSession.receivedApplicationContext (the context received FROM the Watch — always empty, since the Watch never calls updateApplicationContext) instead of .applicationContext (the last-sent context), so every check-in state change wipes the stats keys from the Watch's app context. | `AnxietyWatch/Services/PhoneConnectivityManager.swift:updateCheckInContext` |
@@ -703,7 +704,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#161)
 
 ### F-039 · P2 · confirmed · bug · resmed-sync
 
@@ -717,7 +718,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 4 finder reports** (same root defect); all at the same anchor, independently found by dimensions: concurrency-state, medical-accuracy, server-safety, silent-failures.  
 
-**Disposition:** approved
+**Disposition:** fixed (#161)
 
 ### F-040 · P2 · plausible · accuracy · cpap-import-provenance
 
@@ -901,7 +902,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#161)
 
 ### F-055 · P3 · confirmed · efficiency · snapshot-aggregator
 
@@ -1071,7 +1072,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#161)
 
 ### F-069 · P3 · confirmed · accuracy · server-analysis
 
@@ -1085,7 +1086,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: concurrency-state, medical-accuracy.  
 
-**Disposition:** approved
+**Disposition:** fixed (#161)
 
 ### F-070 · P3 · confirmed · efficiency · lab-results-query-scope
 
@@ -1359,7 +1360,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** surfaced by the F-029 fix pass (same-pattern sweep); not adversarially verified — plausible. Fix shape: `(a.timestamp AT TIME ZONE 'America/Los_Angeles')::date = h.date` (two sites, lines ~36 and ~135), plus regression tests; changes stored correlation results, so re-run the engine after deploy.  
 
-**Disposition:** approved
+**Disposition:** fixed (#161)
 
 ### F-092 · P2 · plausible · accuracy · spo2-provenance · _added post-audit during Batch F review_
 
@@ -1382,6 +1383,18 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 **Failure scenario:** A window with interior artifacts produces HRVReading.lfPower/hfPower/lfHfRatio computed over a compressed, spliced tachogram; these feed LFHFAggregator and the Trends LF/HF charts. Proper fix likely resamples from actual sample timestamps rather than cumulative RR sums — a deeper change than the time-domain fix, hence split out.  
 
 **Verification:** anticipated during the F-026 fix and confirmed by the medical-data-accuracy-reviewer pass on Batch F; plausible.  
+
+**Disposition:** approved
+
+### F-094 · P3 · confirmed · bug · restore-from-server · _added post-audit during Batch C work_
+
+**Anchor:** `AnxietyWatch/Services/RestoreFromServer.swift:importCPAPSessions`  
+
+**Summary:** With F-068 fixed (server stores NULL AHI for EDF-only nights instead of a fabricated 0.0), `/api/data/cpap_sessions` exports `"ahi": null` for those rows. `importCPAPSessions` requires `row["ahi"] as? Double`, so the cast fails and the session is silently skipped — an EDF-only night's leak/usage data never restores onto a new device.  
+
+**Failure scenario:** Fresh install + Restore From Server: every EDF-only cpap_sessions row is dropped without a log line; the restored history has holes exactly where only detail EDF data existed. No crash and no fabricated zero (strictly better than pre-F-068), but silently incomplete.  
+
+**Verification:** identified during the F-068 consumer audit (Batch C); confirmed by inspection of the guard. Fix requires making `CPAPSession.ahi` optional (SwiftData schema change) or a documented sentinel + display handling — pairs naturally with the CPAPDetailView/pressureMin precedent from F-007.  
 
 **Disposition:** approved
 

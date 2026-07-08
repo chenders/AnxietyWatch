@@ -3,6 +3,7 @@
 import hashlib
 import os
 import sys
+from datetime import datetime, timedelta
 
 import psycopg2
 import pytest
@@ -10,6 +11,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from server import create_app  # noqa: E402
+from correlations import correlations_are_stale  # noqa: E402
 
 DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
@@ -50,9 +52,11 @@ def _clean_tables(app):
     with app.app_context():
         db = app.get_db()
         cur = db.cursor()
+        # settings is included because the staleness fingerprint
+        # (correlations_fingerprint) lives there and must not leak across tests.
         cur.execute(
             "TRUNCATE anxiety_entries, health_snapshots, correlations, "
-            "api_keys, sync_log RESTART IDENTITY CASCADE"
+            "api_keys, sync_log, settings RESTART IDENTITY CASCADE"
         )
         cur.execute(
             "INSERT INTO api_keys (key_hash, key_prefix, label) "
@@ -181,3 +185,144 @@ def test_correlations_sorted_by_strength(client, app):
     corrs = resp.get_json()["correlations"]
     abs_values = [abs(c["correlation"]) for c in corrs]
     assert abs_values == sorted(abs_values, reverse=True)
+
+
+# ---------------------------------------------------------------------------
+# Staleness fingerprint (F-069)
+# ---------------------------------------------------------------------------
+
+
+def test_stale_when_never_computed(app):
+    with app.app_context():
+        cur = app.get_db().cursor()
+        assert correlations_are_stale(cur) is True
+
+
+def test_not_stale_when_nothing_changed(client, app):
+    _insert_paired_data(app, days=20)
+    resp = client.get("/api/correlations", headers=auth_header())
+    assert len(resp.get_json()["correlations"]) > 0
+    with app.app_context():
+        cur = app.get_db().cursor()
+        assert correlations_are_stale(cur) is False
+
+
+def test_backfilled_entry_marks_correlations_stale(client, app):
+    """An entry dated BEFORE the newest existing row must still trigger a
+    recompute. The old MAX-watermark check could never fire for backfills, so
+    correlations silently kept ignoring imported history (F-069)."""
+    _insert_paired_data(app, days=20)
+    resp = client.get("/api/correlations", headers=auth_header())
+    assert len(resp.get_json()["correlations"]) > 0
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        assert correlations_are_stale(cur) is False
+        # 2025-12-15 predates every 2026-01-* row: MAX(timestamp) is unmoved,
+        # only the row count changes.
+        cur.execute(
+            "INSERT INTO anxiety_entries (timestamp, severity) VALUES (%s, %s)",
+            ("2025-12-15 12:00:00+00", 9),
+        )
+        db.commit()
+        assert correlations_are_stale(cur) is True
+
+
+def test_backfilled_snapshot_marks_correlations_stale(client, app):
+    """Same as above, but for the health_snapshots side of the fingerprint."""
+    _insert_paired_data(app, days=20)
+    client.get("/api/correlations", headers=auth_header())
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        assert correlations_are_stale(cur) is False
+        cur.execute(
+            "INSERT INTO health_snapshots (date, hrv_avg) VALUES (%s, %s)",
+            ("2025-12-15", 50.0),
+        )
+        db.commit()
+        assert correlations_are_stale(cur) is True
+
+
+# ---------------------------------------------------------------------------
+# Local-day bucketing of evening entries (F-091)
+# ---------------------------------------------------------------------------
+
+
+def _insert_evening_paired_data(app, days=20, start=datetime(2026, 1, 1)):
+    """Snapshots on day D with anxiety entries at 04:00 UTC on D+1 — which is
+    20:00 (or 21:00 in PDT) on day D in the default US/Pacific analysis
+    timezone. severity is a perfect linear function of the SAME day's hrv, so
+    only correct local-day pairing yields r == -1."""
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        for i in range(days):
+            snap_date = (start + timedelta(days=i)).date()
+            entry_ts = start + timedelta(days=i + 1, hours=4)  # 04:00 UTC next day
+            hrv = 40.0 + (i % 7) * 3
+            severity = 10 - (i % 7)  # perfectly anti-correlated with same-day hrv
+            cur.execute(
+                "INSERT INTO health_snapshots (date, hrv_avg) VALUES (%s, %s) "
+                "ON CONFLICT (date) DO NOTHING",
+                (snap_date.isoformat(), hrv),
+            )
+            cur.execute(
+                "INSERT INTO anxiety_entries (timestamp, severity) VALUES (%s, %s) "
+                "ON CONFLICT (timestamp) DO NOTHING",
+                (entry_ts.strftime("%Y-%m-%d %H:%M:%S+00"), severity),
+            )
+        db.commit()
+
+
+def test_evening_entries_bucket_to_local_day(client, app):
+    """A 9 PM Pacific entry (04:00 UTC next day) must pair with THAT Pacific
+    day's snapshot. Under the old session-timezone (UTC) cast, every entry
+    paired with the NEXT day's snapshot and the last one paired with nothing
+    (F-091)."""
+    _insert_evening_paired_data(app, days=20)
+    resp = client.get("/api/correlations", headers=auth_header())
+    data = resp.get_json()
+    # UTC bucketing would yield 19 (the last entry falls past the last snapshot).
+    assert data["paired_days"] == 20
+
+    hrv = next(c for c in data["correlations"] if c["signal_name"] == "hrv_avg")
+    assert hrv["sample_count"] == 20
+    # severity was constructed as a perfect linear function of the same
+    # Pacific day's hrv; day-shifted (UTC) pairing scrambles the cyclic
+    # pattern and cannot reach -1.
+    assert hrv["correlation"] == pytest.approx(-1.0)
+
+
+def test_backfilled_evening_entry_recomputed_with_local_bucketing(client, app):
+    """F-069 and F-091 compose: a backfilled evening pair marks correlations
+    stale, and the recompute buckets it onto the correct Pacific day."""
+    _insert_evening_paired_data(app, days=19)
+    resp = client.get("/api/correlations", headers=auth_header())
+    hrv = next(
+        c for c in resp.get_json()["correlations"] if c["signal_name"] == "hrv_avg"
+    )
+    assert hrv["sample_count"] == 19
+
+    # Backfill one pair EARLIER than everything above: snapshot 2025-12-01,
+    # entry 2025-12-02 04:00 UTC (= 20:00 Pacific on 2025-12-01). Neither MAX
+    # watermark moves — only the counts change.
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO health_snapshots (date, hrv_avg) VALUES (%s, %s)",
+            ("2025-12-01", 61.0),
+        )
+        cur.execute(
+            "INSERT INTO anxiety_entries (timestamp, severity) VALUES (%s, %s)",
+            ("2025-12-02 04:00:00+00", 3),
+        )
+        db.commit()
+
+    resp = client.get("/api/correlations", headers=auth_header())
+    hrv = next(
+        c for c in resp.get_json()["correlations"] if c["signal_name"] == "hrv_avg"
+    )
+    # The recompute picked up the backfilled pair on its Pacific day.
+    assert hrv["sample_count"] == 20

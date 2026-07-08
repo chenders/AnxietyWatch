@@ -149,7 +149,12 @@ def upsert_sessions(conn, sessions):
 def log_sync(conn, status, count):
     """Write an entry to sync_log and update resmed_last_status setting."""
     now = datetime.now(timezone.utc).isoformat()
-    set_setting(conn, "resmed_last_sync", now)
+    # Only advance the cursor on success (matching walgreens_sync/caprx_sync):
+    # main() uses resmed_last_sync to pick the lookback window (7 vs 365 days),
+    # so advancing it on a failed run — e.g. an auth typo on the very first
+    # attempt — would permanently forfeit the 365-day first-run backfill.
+    if status == "success":
+        set_setting(conn, "resmed_last_sync", now)
     set_setting(conn, "resmed_last_status", f"{status}: {count} sessions upserted" if status == "success" else status)
 
     cur = conn.cursor()
