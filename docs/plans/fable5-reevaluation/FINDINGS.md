@@ -1374,7 +1374,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** surfaced by the medical-data-accuracy-reviewer pass on Batch F; plausible. Fix sketch: record the SpO2 source basis on HealthSnapshot (schema addition the LastNightCard source-chip comment already anticipates) and annotate the rendered surfaces when nadir and T90 bases diverge; alternatively gate the avg/nadir override on the same sufficiency check as T90 (weigh against reintroducing the Watch-artifact-nadir problem the preferred-wins rule exists to prevent).  
 
-**Disposition:** approved
+**Disposition:** approved (queued for Batch L — post-audit follow-ups; verify mechanism first)
 
 ### F-093 · P2 · plausible · accuracy · polar-hrv-freqdomain · _added post-audit during Batch F review_
 
@@ -1386,7 +1386,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** anticipated during the F-026 fix and confirmed by the medical-data-accuracy-reviewer pass on Batch F; plausible.  
 
-**Disposition:** approved
+**Disposition:** approved (queued for Batch L — post-audit follow-ups; verify mechanism first)
 
 ### F-094 · P3 · confirmed · bug · restore-from-server · _added post-audit during Batch C work_
 
@@ -1398,7 +1398,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** identified during the F-068 consumer audit (Batch C); confirmed by inspection of the guard. Fix requires making `CPAPSession.ahi` optional (SwiftData schema change) or a documented sentinel + display handling — pairs naturally with the CPAPDetailView/pressureMin precedent from F-007.  
 
-**Disposition:** approved
+**Disposition:** approved (queued for Batch L — post-audit follow-ups; confirmed bug)
 
 ### F-095 · P3 · plausible · accuracy · reports-pdf · _added post-audit during Batch K review_
 
@@ -1412,7 +1412,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** flagged by swift-pre-pr-reviewer and medical-data-accuracy-reviewer on Batch K; plausible.  
 
-**Disposition:** approved
+**Disposition:** approved (queued for Batch L — post-audit follow-ups; verify mechanism first)
 
 ### F-096 · P3 · plausible · efficiency · watch-connectivity · _added post-audit during Batch K review_
 
@@ -1426,7 +1426,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** flagged by swift-pre-pr-reviewer on Batch K; plausible.  
 
-**Disposition:** approved
+**Disposition:** approved (queued for Batch L — post-audit follow-ups; verify mechanism first)
 
 ## Deferred backlog
 
