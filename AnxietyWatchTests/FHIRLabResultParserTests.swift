@@ -291,4 +291,75 @@ struct FHIRLabResultParserTests {
             #expect(result?.loincCode == code)
         }
     }
+
+    // MARK: - Parse Outcome Classification (F-081)
+
+    @Test("Outcome is .parsed for a valid tracked result")
+    func outcomeParsedForValid() {
+        let data = makeFHIRJSON()
+        guard case .parsed(let result) = FHIRLabResultParser.parseOutcome(fhirJSON: data) else {
+            Issue.record("Expected .parsed")
+            return
+        }
+        #expect(result.loincCode == "3016-3")
+    }
+
+    @Test("Outcome is .untracked for a LOINC test outside the registry")
+    func outcomeUntrackedForUnknownCode() {
+        // Intentional skip — not a failure — so it must NOT be counted as a drop.
+        let data = makeFHIRJSON(loincCode: "9999-9", display: "Some Random Test")
+        guard case .untracked = FHIRLabResultParser.parseOutcome(fhirJSON: data) else {
+            Issue.record("Expected .untracked")
+            return
+        }
+    }
+
+    @Test("Outcome is .untracked for a non-LOINC coding system")
+    func outcomeUntrackedForNonLOINC() {
+        let json: [String: Any] = [
+            "resourceType": "Observation",
+            "code": ["coding": [["system": "http://snomed.info/sct", "code": "3016-3"]]],
+            "valueQuantity": ["value": 2.5, "unit": "mIU/L"],
+            "effectiveDateTime": "2025-11-15T08:30:00Z",
+        ]
+        let data = try! JSONSerialization.data(withJSONObject: json)
+        guard case .untracked = FHIRLabResultParser.parseOutcome(fhirJSON: data) else {
+            Issue.record("Expected .untracked")
+            return
+        }
+    }
+
+    @Test("Outcome is .unparseable for undecodable JSON")
+    func outcomeUnparseableForBadJSON() {
+        let data = Data("not json".utf8)
+        guard case .unparseable = FHIRLabResultParser.parseOutcome(fhirJSON: data) else {
+            Issue.record("Expected .unparseable")
+            return
+        }
+    }
+
+    @Test("Outcome is .unparseable for a tracked test missing its value")
+    func outcomeUnparseableForMissingValue() {
+        // Tracked LOINC but no numeric value: a result we *should* have imported
+        // but couldn't — the silent-drop case F-081 makes visible.
+        let json: [String: Any] = [
+            "resourceType": "Observation",
+            "code": ["coding": [["system": "http://loinc.org", "code": "3016-3", "display": "TSH"]]],
+            "effectiveDateTime": "2025-11-15T08:30:00Z",
+        ]
+        let data = try! JSONSerialization.data(withJSONObject: json)
+        guard case .unparseable = FHIRLabResultParser.parseOutcome(fhirJSON: data) else {
+            Issue.record("Expected .unparseable")
+            return
+        }
+    }
+
+    @Test("Outcome is .unparseable for a tracked test with no effective date")
+    func outcomeUnparseableForMissingDate() {
+        let data = makeFHIRJSON(effectiveDateTime: nil)
+        guard case .unparseable = FHIRLabResultParser.parseOutcome(fhirJSON: data) else {
+            Issue.record("Expected .unparseable")
+            return
+        }
+    }
 }

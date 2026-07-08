@@ -249,6 +249,31 @@ struct DataExporterTests {
         #expect(bundle.anxietyEntries.first?.severity == 7)
     }
 
+    // The `end` bound is EXCLUSIVE (half-open range) — a record dated exactly
+    // on the end instant belongs to the next window, not this one. This is
+    // what keeps a whole-day export (end = start-of-next-day) from pulling in
+    // the next day's day-keyed snapshot/CPAP rows (F-044 follow-up).
+    @Test("Export end bound is exclusive")
+    func endBoundExclusive() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let boundary = Date(timeIntervalSince1970: 1_711_300_000)
+        let before = AnxietyEntry(timestamp: boundary.addingTimeInterval(-1), severity: 4)
+        let atBoundary = AnxietyEntry(timestamp: boundary, severity: 8)
+        context.insert(before)
+        context.insert(atBoundary)
+        try context.save()
+
+        let data = try DataExporter.exportJSON(from: context, end: boundary)
+        let bundle = try JSONDecoder().decode(DataExporter.ExportBundle.self, from: data)
+
+        // Only the strictly-before record is in-range; the one AT the end
+        // instant is excluded.
+        #expect(bundle.anxietyEntries.count == 1)
+        #expect(bundle.anxietyEntries.first?.severity == 4)
+    }
+
     @Test("JSON export includes song and song occurrence data")
     func jsonExportIncludesSongs() throws {
         let container = try TestHelpers.makeFullContainer()

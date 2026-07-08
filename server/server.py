@@ -119,12 +119,20 @@ def create_app(test_config=None):
             init_db()
             print("Database initialized.")
 
-    # Auto-initialize on first request
+    # Auto-initialize at app creation (startup), before the app serves any
+    # request. We deliberately keep booting on failure (a transient lock or a partially
+    # applied migration shouldn't take the whole service down), but the danger
+    # is booting silently against a stale schema. Log the full traceback at
+    # ERROR so a failed migration is loud and diagnosable, not a one-line
+    # type-name at WARNING that hides why later /api/sync calls 500.
     with app.app_context():
         try:
             init_db()
-        except Exception as e:
-            app.logger.warning("Database init skipped: %s", type(e).__name__)
+        except Exception:
+            app.logger.exception(
+                "Database migration failed on startup; continuing against a "
+                "possibly stale schema"
+            )
 
     # Make get_db available to admin blueprint
     app.get_db = get_db

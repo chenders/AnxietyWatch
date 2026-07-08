@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftData
 import WatchConnectivity
 import WidgetKit
@@ -13,6 +14,8 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
     var restingHR: Double?
     var lastSyncStatus: String?
     var pendingRandomCheckIn = false
+
+    private let log = Logger(subsystem: "AnxietyWatch", category: "WatchConnectivity")
 
     func activate() {
         guard WCSession.isSupported() else { return }
@@ -46,31 +49,60 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
 
     // MARK: - Sensor Data Transfer
 
-    /// Batch sensor data into JSON and transfer to iPhone via file transfer.
-    /// Call periodically (e.g., every 5 minutes) during active sensor capture.
+    /// Persistent identifiers of the rows in each in-flight transfer, keyed
+    /// by the temp file's path. The rows' `transferredToPhone` flag is flipped
+    /// only when that transfer COMPLETES (`didFinish`, no error), so an
+    /// interrupted transfer leaves them eligible for the next cycle — at worst
+    /// re-sent (the phone dedups on `#Unique(\.id)`), never lost. See F-018.
+    private var pendingTransfers: [String: [PersistentIdentifier]] = [:]
+    /// Container captured from the most recent transfer call so `didFinish`
+    /// (which carries no context of its own) can flip the delivered rows'
+    /// transferredToPhone flag.
+    private var transferModelContainer: ModelContainer?
+
+    /// `@MainActor` (explicit, though the target's default actor isolation
+    /// already provides it): this mutates `pendingTransfers`/@Observable state
+    /// that the `didFinish` delegate callback also touches, so both must share
+    /// the main actor to stay race-free (Copilot review of #164).
+    @MainActor
     func transferSensorData(modelContainer: ModelContainer) {
         guard WCSession.default.activationState == .activated else { return }
+        transferModelContainer = modelContainer
+
+        // Don't stack a new batch on top of an outstanding one: overlapping
+        // transfers of the same not-yet-flagged rows would re-deliver
+        // duplicates to the phone (F-018 review). One in-flight sensor
+        // transfer at a time; the next tick picks up where this one leaves off.
+        let sensorTransfersInFlight = WCSession.default.outstandingFileTransfers.contains {
+            $0.file.metadata?["type"] as? String == "sensorData"
+        }
+        guard !sensorTransfersInFlight else { return }
 
         let context = ModelContext(modelContainer)
 
         do {
-            // Fetch un-synced spectrograms (most recent 500)
+            // Fetch only rows NOT yet transferred to the phone (persistent
+            // per-row flag, not a timestamp watermark — a backward clock step
+            // can't make a row permanently unfetchable). Ascending + capped so
+            // the oldest un-sent rows go first. Single-clause Bool predicate,
+            // safe under the iOS 26 compound-#Predicate footgun.
             var specDescriptor = FetchDescriptor<AccelSpectrogram>(
-                sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+                predicate: #Predicate { !$0.transferredToPhone },
+                sortBy: [SortDescriptor(\.timestamp, order: .forward)]
             )
             specDescriptor.fetchLimit = 500
             let spectrograms = try context.fetch(specDescriptor)
 
-            // Fetch un-synced breathing rates
             var brDescriptor = FetchDescriptor<DerivedBreathingRate>(
-                sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+                predicate: #Predicate { !$0.transferredToPhone },
+                sortBy: [SortDescriptor(\.timestamp, order: .forward)]
             )
             brDescriptor.fetchLimit = 500
             let breathingRates = try context.fetch(brDescriptor)
 
-            // Fetch un-synced HRV readings
             var hrvDescriptor = FetchDescriptor<HRVReading>(
-                sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+                predicate: #Predicate { !$0.transferredToPhone },
+                sortBy: [SortDescriptor(\.timestamp, order: .forward)]
             )
             hrvDescriptor.fetchLimit = 500
             let hrvReadings = try context.fetch(hrvDescriptor)
@@ -98,10 +130,45 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
             let tempURL = tempDir
                 .appendingPathComponent("sensor_\(UUID().uuidString).json")
             try data.write(to: tempURL)
+
+            // Stash this batch's row IDs; flip transferredToPhone only when the
+            // transfer completes (didFinish).
+            pendingTransfers[tempURL.path] =
+                spectrograms.map(\.persistentModelID)
+                + breathingRates.map(\.persistentModelID)
+                + hrvReadings.map(\.persistentModelID)
+
             WCSession.default.transferFile(tempURL, metadata: ["type": "sensorData"])
 
         } catch {
             lastSyncStatus = "Sensor sync failed"
+        }
+    }
+
+    /// Flip `transferredToPhone` on the rows a completed transfer carried.
+    /// Uses a fresh context off the shared container so it works regardless of
+    /// which context fetched them. IDs missing from the store (deleted) are
+    /// skipped.
+    @MainActor
+    private func markTransferred(_ ids: [PersistentIdentifier], modelContainer: ModelContainer) {
+        guard !ids.isEmpty else { return }
+        let context = ModelContext(modelContainer)
+        for id in ids {
+            if let row = context.model(for: id) as? any PhoneTransferable {
+                row.transferredToPhone = true
+            }
+        }
+        do {
+            try context.save()
+        } catch {
+            // If the flags don't persist, the rows stay un-flagged and get
+            // re-transferred next cycle (benign — the phone dedups on
+            // #Unique(\.id)); surface it so the re-transfer loop is
+            // diagnosable rather than silent (Copilot review of #164).
+            lastSyncStatus = "Sensor sync flag save failed"
+            log.error(
+                "markTransferred save failed: \(String(describing: type(of: error)), privacy: .public)"
+            )
         }
     }
 
@@ -147,6 +214,26 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
         Task { @MainActor in
             self.applyIncomingData(userInfo)
+        }
+    }
+
+    /// Flip transferredToPhone on a batch's rows only when its file transfer
+    /// actually finished (F-018). A failed/interrupted transfer leaves them
+    /// unflagged so the next cycle re-sends them rather than losing them.
+    nonisolated func session(
+        _ session: WCSession,
+        didFinish fileTransfer: WCSessionFileTransfer,
+        error: (any Error)?
+    ) {
+        let path = fileTransfer.file.fileURL.path
+        Task { @MainActor in
+            defer { self.pendingTransfers[path] = nil }
+            guard error == nil, let ids = self.pendingTransfers[path],
+                  let container = self.transferModelContainer else {
+                if error != nil { self.lastSyncStatus = "Sensor sync failed" }
+                return
+            }
+            self.markTransferred(ids, modelContainer: container)
         }
     }
 

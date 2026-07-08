@@ -1,6 +1,52 @@
 import SwiftData
 import SwiftUI
 
+/// Effective query range for the date-only export picker.
+///
+/// The `From`/`To` `DatePicker`s display calendar days only, but their bound
+/// `Date` values carry the time-of-day that was current when the sheet opened
+/// (both seeded from `.now`). Filtering directly against those raw instants
+/// silently drops same-day records logged after the sheet opened — e.g. an
+/// anxiety entry at 8 PM when the sheet was opened at 10 AM (F-044). We
+/// normalize to whole calendar days: the lower bound is the start of the
+/// selected start day, and the upper bound is the start of the day *after* the
+/// selected end day, treated as exclusive (`timestamp < upperBoundExclusive`)
+/// so the entire end day — including its late records — is in range.
+///
+/// This is the "padded vs unpadded" pitfall inverted: the query bound must be
+/// end-of-day, never the raw picked instant.
+enum ExportDateRange {
+    /// Inclusive lower bound: start of the selected start day.
+    static func lowerBound(for start: Date, calendar: Calendar = .current) -> Date {
+        calendar.startOfDay(for: start)
+    }
+
+    /// Exclusive upper bound: start of the day after the selected end day.
+    /// A record is in range iff `timestamp >= lowerBound && timestamp < upperBoundExclusive`.
+    static func upperBoundExclusive(for end: Date, calendar: Calendar = .current) -> Date {
+        // Start of the day AFTER the selected end day. Both the primary and
+        // fallback paths are Calendar-based (DST-safe): `dateInterval(of:.day)`
+        // gives this day's [start, nextStart) so `.end` IS the next midnight,
+        // and `date(byAdding:.day, 1)` is the same instant computed the other
+        // way. Neither uses fixed 24h arithmetic, which would land at 01:00 on
+        // a spring-forward day (Copilot review of #164). Never falls back to
+        // the raw picked instant, which would reintroduce the same-day-drop.
+        //
+        // The last-ditch `+86_400s` runs only if BOTH Calendar paths return
+        // nil (not reachable with the Gregorian calendar). It uses fixed 24h
+        // arithmetic — so on a DST boundary it could land at 23:00 or 01:00
+        // rather than exactly midnight — but that still ADVANCES past the end
+        // day, which is the function's contract. Returning startOfEndDay here
+        // would collapse the range and silently drop the entire selected end
+        // day; a one-hour skew on an already-impossible branch is the far
+        // better failure mode (Copilot review of #164, round 6).
+        let startOfEndDay = calendar.startOfDay(for: end)
+        return calendar.dateInterval(of: .day, for: startOfEndDay)?.end
+            ?? calendar.date(byAdding: .day, value: 1, to: startOfEndDay)
+            ?? startOfEndDay.addingTimeInterval(24 * 60 * 60)
+    }
+}
+
 struct ExportView: View, Equatable {
     @Environment(\.modelContext) private var modelContext
     @State private var startDate = Calendar.current.date(byAdding: .month, value: -1, to: .now)!
@@ -79,11 +125,13 @@ struct ExportView: View, Equatable {
     // MARK: - Counts
 
     private var filteredCounts: (entries: Int, doses: Int, snapshots: Int, cpap: Int) {
-        (
-            entries: allEntries.filter { $0.timestamp >= startDate && $0.timestamp <= endDate }.count,
-            doses: allDoses.filter { $0.timestamp >= startDate && $0.timestamp <= endDate }.count,
-            snapshots: allSnapshots.filter { $0.date >= startDate && $0.date <= endDate }.count,
-            cpap: allCPAP.filter { $0.date >= startDate && $0.date <= endDate }.count
+        let lower = ExportDateRange.lowerBound(for: startDate)
+        let upper = ExportDateRange.upperBoundExclusive(for: endDate)
+        return (
+            entries: allEntries.filter { $0.timestamp >= lower && $0.timestamp < upper }.count,
+            doses: allDoses.filter { $0.timestamp >= lower && $0.timestamp < upper }.count,
+            snapshots: allSnapshots.filter { $0.date >= lower && $0.date < upper }.count,
+            cpap: allCPAP.filter { $0.date >= lower && $0.date < upper }.count
         )
     }
 
@@ -91,7 +139,16 @@ struct ExportView: View, Equatable {
 
     private func exportJSON() {
         do {
-            let data = try DataExporter.exportJSON(from: modelContext, start: startDate, end: endDate)
+            // Whole selected end day (F-044). DataExporter's range is
+            // half-open with an EXCLUSIVE end (`date < end`), so passing the
+            // start-of-next-day instant keeps every record of the selected
+            // day and excludes the next day's day-keyed rows (which land
+            // exactly at that midnight boundary).
+            let data = try DataExporter.exportJSON(
+                from: modelContext,
+                start: ExportDateRange.lowerBound(for: startDate),
+                end: ExportDateRange.upperBoundExclusive(for: endDate)
+            )
             let url = tempURL("anxietywatch-export.json")
             try data.write(to: url)
             shareItems = [url]
@@ -103,7 +160,12 @@ struct ExportView: View, Equatable {
 
     private func exportCSV() {
         do {
-            let files = try DataExporter.exportCSV(from: modelContext, start: startDate, end: endDate)
+            // Whole selected end day, exclusive-end half-open range (F-044) — see exportJSON.
+            let files = try DataExporter.exportCSV(
+                from: modelContext,
+                start: ExportDateRange.lowerBound(for: startDate),
+                end: ExportDateRange.upperBoundExclusive(for: endDate)
+            )
             var urls: [URL] = []
             for (filename, data) in files {
                 let url = tempURL(filename)
@@ -118,11 +180,23 @@ struct ExportView: View, Equatable {
     }
 
     private func generatePDF() {
-        let filteredEntries = allEntries.filter { $0.timestamp >= startDate && $0.timestamp <= endDate }
-        let filteredDoses = allDoses.filter { $0.timestamp >= startDate && $0.timestamp <= endDate }
-        let filteredSnapshots = allSnapshots.filter { $0.date >= startDate && $0.date <= endDate }
-        let filteredCPAP = allCPAP.filter { $0.date >= startDate && $0.date <= endDate }
-        let filteredLabs = allLabResults.filter { $0.effectiveDate >= startDate && $0.effectiveDate <= endDate }
+        // Filter to the whole selected day range (F-044); the raw picked
+        // instants would drop same-day late records.
+        let lower = ExportDateRange.lowerBound(for: startDate)
+        let upper = ExportDateRange.upperBoundExclusive(for: endDate)
+        let filteredEntries = allEntries.filter { $0.timestamp >= lower && $0.timestamp < upper }
+        let filteredDoses = allDoses.filter { $0.timestamp >= lower && $0.timestamp < upper }
+        let filteredSnapshots = allSnapshots.filter { $0.date >= lower && $0.date < upper }
+        let filteredCPAP = allCPAP.filter { $0.date >= lower && $0.date < upper }
+        let filteredLabs = allLabResults.filter { $0.effectiveDate >= lower && $0.effectiveDate < upper }
+
+        // Hand ReportGenerator DAY-ALIGNED bounds so its per-day rate math
+        // (dateComponents(.day, from:to:)) and HRV status anchor operate on
+        // the same window the data was filtered to — passing the raw picked
+        // instants (with the sheet-open time-of-day) computed against a
+        // different window than the filtered arrays (Copilot review of #164).
+        let reportStart = lower
+        let reportEnd = Calendar.current.startOfDay(for: endDate)
 
         let data = ReportGenerator.generatePDF(
             entries: filteredEntries,
@@ -131,8 +205,8 @@ struct ExportView: View, Equatable {
             snapshots: filteredSnapshots,
             cpapSessions: filteredCPAP,
             labResults: filteredLabs,
-            start: startDate,
-            end: endDate
+            start: reportStart,
+            end: reportEnd
         )
 
         let url = tempURL("anxietywatch-report.pdf")

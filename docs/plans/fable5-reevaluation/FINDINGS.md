@@ -42,6 +42,8 @@ Severity-ranked; confirmed before plausible within a tier. Full failure scenario
 | F-092 | P2 | plaus | M | accuracy | spo2-provenance | applyOvernightSpO2Precedence can pair avg/nadir from a sparse preferred-oximeter subset with T90/desats kept from the broader HK-direct set (post-F-023), and no rendered surface (LastNightCard, CPAPDetailView, clinician PDF) discloses the mixed provenance. | `AnxietyWatch/Services/SnapshotAggregator.swift:applyOvernightSpO2Precedence` |
 | F-093 | P2 | plaus | M | accuracy | polar-hrv-freqdomain | The frequency-domain path still receives the spliced artifact-filtered RR array: resampleRRIntervals builds its tachogram from cumulative sums over the filtered array, fabricating a gap-spanning interval at each excised artifact — the same splicing defect F-026 fixed for RMSSD/pNN50, live for LF/HF/ratio. | `AnxietyWatch/Services/HRVSessionRecorder.swift:tick` |
 | F-094 | P3 | conf | S | bug | restore-from-server | RestoreFromServer.importCPAPSessions guards `row["ahi"] as? Double`, so the JSON null AHI that EDF-only sessions now carry (post-F-068) fails the cast and the whole session row is silently skipped on restore — leak data never reaches a new device. | `AnxietyWatch/Services/RestoreFromServer.swift:importCPAPSessions` |
+| F-095 | P3 | plaus | M | accuracy | reports-pdf | ExportView pre-filters snapshots to the selected report range before handing them to ReportGenerator, so the HRV "30-day baseline" is computed from only the range (mislabeled, or omitted) for report ranges shorter than 30 days. | `AnxietyWatch/Views/Reports/ExportView.swift:generatePDF` |
+| F-096 | P3 | plaus | S | efficiency | watch-connectivity | The phone-side receive of watch sensor data constructs HRVReading with syncedToServer=false via the #Unique upsert, so any WCSession redelivery of an unchanged row (e.g. after a watch relaunch mid-transfer) re-dirties it and triggers a server re-upload. | `AnxietyWatch/Services/PhoneConnectivityManager.swift:session(_:didReceive:)` |
 | F-015 | P2 | conf | S | silent-failure | sync-rr-archive | A failed RR-archive POST is never retried: the retry scan is keyed to uploadedIDs.sensorSessions (sessions in the current payload), but markSamplesSynced flips those sessions' syncedToServer=true in the same call, so they never appear in any future payload and rrArchiveUploadedAt==nil is never re-examined. | `AnxietyWatch/Services/SyncService.swift:applyPostUploadResponse` |
 | F-016 | P1 | conf | S | bug | sync-actor-isolation | SongService.fetchCatalog(into:) and SyncService.fetchPrescriptions(modelContext:) are nonisolated async functions that fetch/insert/save on the caller's MainActor-bound ModelContext from the global concurrent executor — the exact undefined-behavior hazard the sync() doc comment was written to prevent, and it runs on every sync. | `AnxietyWatch/Services/SongService.swift:fetchCatalog` |
 | F-017 | P2 | conf | S | bug | watch-connectivity | PhoneConnectivityManager.updateCheckInContext builds the outgoing applicationContext from WCSession.receivedApplicationContext (the context received FROM the Watch — always empty, since the Watch never calls updateApplicationContext) instead of .applicationContext (the last-sent context), so every check-in state change wipes the stats keys from the Watch's app context. | `AnxietyWatch/Services/PhoneConnectivityManager.swift:updateCheckInContext` |
@@ -442,7 +444,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#164)
 
 ### F-018 · P2 · confirmed · efficiency · watch-connectivity
 
@@ -456,7 +458,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: concurrency-state, silent-failures.  
 
-**Disposition:** approved
+**Disposition:** fixed (#164)
 
 ### F-019 · P2 · confirmed · silent-failure · server-jobs
 
@@ -692,7 +694,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#164)
 
 ### F-038 · P2 · confirmed · silent-failure · sync-api
 
@@ -756,7 +758,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#164)
 
 ### F-043 · P2 · plausible · accuracy · reports-pdf
 
@@ -768,7 +770,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#164)
 
 ### F-044 · P2 · plausible · bug · export
 
@@ -780,7 +782,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#164)
 
 ### F-045 · P2 · plausible · accuracy · snapshot-aggregation
 
@@ -1238,7 +1240,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#164)
 
 ### F-082 · P3 · confirmed · silent-failure · health-records-auth
 
@@ -1250,7 +1252,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#164)
 
 ### F-083 · P3 · confirmed · silent-failure · server-core
 
@@ -1262,7 +1264,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#164)
 
 ### F-084 · P3 · plausible · efficiency · journal
 
@@ -1298,7 +1300,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P3, 1/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#164)
 
 ### F-087 · P3 · plausible · test-gap · trends-tests
 
@@ -1395,6 +1397,34 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 **Failure scenario:** Fresh install + Restore From Server: every EDF-only cpap_sessions row is dropped without a log line; the restored history has holes exactly where only detail EDF data existed. No crash and no fabricated zero (strictly better than pre-F-068), but silently incomplete.  
 
 **Verification:** identified during the F-068 consumer audit (Batch C); confirmed by inspection of the guard. Fix requires making `CPAPSession.ahi` optional (SwiftData schema change) or a documented sentinel + display handling — pairs naturally with the CPAPDetailView/pressureMin precedent from F-007.  
+
+**Disposition:** approved
+
+### F-095 · P3 · plausible · accuracy · reports-pdf · _added post-audit during Batch K review_
+
+**Anchor:** `AnxietyWatch/Views/Reports/ExportView.swift:generatePDF`  
+
+**Summary:** `generatePDF` filters `allSnapshots` to the selected report range and passes only that array to `ReportGenerator`, whose HRV section then computes its "30-day baseline" from that array. For a report range shorter than 30 days (a common "since my last visit" 1–2 week report) the baseline is drawn from fewer samples than the "30-day" label claims, or omitted entirely below the 14-sample minimum.  
+
+**Failure scenario:** A 2-week report prints "30-day baseline: X ms" computed from ~14 days of data — a mislabeled statistic in the clinician PDF. Fails safe (omits rather than fabricates) below the sample floor, so not a wrong-status bug, but the label overstates the window. Pre-existing (the pre-F-043 `.now`-anchored call had the same array scoping); surfaced by both Batch K pre-PR reviewers.  
+
+**Fix sketch:** pass the full snapshot history to `ReportGenerator` and let it filter to the range only for the period-summary sections, while computing the baseline over a true 30-day window ending at `rangeEnd`. Touches ReportGenerator's parameter contract, hence deferred from Batch K.  
+
+**Verification:** flagged by swift-pre-pr-reviewer and medical-data-accuracy-reviewer on Batch K; plausible.  
+
+**Disposition:** approved
+
+### F-096 · P3 · plausible · efficiency · watch-connectivity · _added post-audit during Batch K review_
+
+**Anchor:** `AnxietyWatch/Services/PhoneConnectivityManager.swift:session(_:didReceive:)`  
+
+**Summary:** The phone-side receive path builds each incoming watch `HRVReading` with `syncedToServer = false` via the `#Unique(\.id)` upsert, so any WCSession redelivery of an already-synced, unchanged row re-dirties it and causes a redundant server re-upload. Batch K's watch-side `transferredToPhone` flag stops routine re-sends, but WCSession can still redeliver across a watch relaunch mid-transfer.  
+
+**Failure scenario:** Watch relaunches between `transferFile` and `didFinish`; WCSession redelivers the (already-ingested) batch; the phone upsert flips `syncedToServer` back to false for unchanged rows → they re-upload to the server on the next sync. Bounded and rare (not the every-60s storm F-018 fixed), efficiency-only.  
+
+**Fix sketch:** on the phone receive path, preserve `syncedToServer` when the incoming row is field-identical to the stored one (the same "only re-dirty on real change" pattern used in HealthDataCoordinator's mirror pass).  
+
+**Verification:** flagged by swift-pre-pr-reviewer on Batch K; plausible.  
 
 **Disposition:** approved
 

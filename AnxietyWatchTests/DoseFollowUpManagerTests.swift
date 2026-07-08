@@ -11,9 +11,10 @@ struct DoseFollowUpManagerTests {
     /// Using ModelFactory.referenceDate avoids flaky behavior near midnight.
     private let now = ModelFactory.referenceDate
 
-    /// Clear pending follow-ups before each test.
+    /// Clear pending follow-ups (and any corrupt backup) before each test.
     private func clearPending() {
         UserDefaults.standard.removeObject(forKey: "pendingDoseFollowUps")
+        UserDefaults.standard.removeObject(forKey: DoseFollowUpManager.corruptBackupKey)
     }
 
     /// Insert a pending follow-up directly into UserDefaults (avoids UNUserNotificationCenter).
@@ -125,6 +126,53 @@ struct DoseFollowUpManagerTests {
         let pending = DoseFollowUpManager.loadPending()
         #expect(pending.count == 1)
         #expect(pending[0].medicationName == "Recent")
+
+        clearPending()
+    }
+
+    // MARK: - Decode-failure migration safety (F-086)
+
+    @Test("Nil stored data loads as empty without creating a backup")
+    func nilLoadsEmpty() {
+        clearPending()
+        #expect(DoseFollowUpManager.loadPending().isEmpty)
+        // A clean empty state is not a failure — nothing should be backed up.
+        #expect(UserDefaults.standard.data(forKey: DoseFollowUpManager.corruptBackupKey) == nil)
+    }
+
+    @Test("Corrupt blob loads as empty but is preserved under the backup key")
+    func corruptBlobPreserved() {
+        clearPending()
+        let corrupt = Data("{not valid follow-up json".utf8)
+        UserDefaults.standard.set(corrupt, forKey: "pendingDoseFollowUps")
+
+        // Decode fails → returns [] (doesn't crash, doesn't leak stale data)...
+        #expect(DoseFollowUpManager.loadPending().isEmpty)
+        // ...but the undecodable bytes are preserved, not silently discarded.
+        let backup = UserDefaults.standard.data(forKey: DoseFollowUpManager.corruptBackupKey)
+        #expect(backup == corrupt)
+        // ...and the primary key is cleared so a repeat loadPending doesn't
+        // re-hit the decode-failure path and re-log every call (Copilot #164).
+        #expect(UserDefaults.standard.data(forKey: "pendingDoseFollowUps") == nil)
+
+        clearPending()
+    }
+
+    @Test("A later save does not destroy the preserved corrupt blob")
+    func savingDoesNotClobberBackup() {
+        clearPending()
+        let corrupt = Data("\u{FF}\u{FE} garbage".utf8)
+        UserDefaults.standard.set(corrupt, forKey: "pendingDoseFollowUps")
+
+        // First load triggers the backup.
+        _ = DoseFollowUpManager.loadPending()
+        // Simulate the next savePending overwriting the primary key with [].
+        let empty = try! JSONEncoder().encode([DoseFollowUpManager.PendingFollowUp]())
+        UserDefaults.standard.set(empty, forKey: "pendingDoseFollowUps")
+
+        // The original corrupt data must still be recoverable from the backup.
+        let backup = UserDefaults.standard.data(forKey: DoseFollowUpManager.corruptBackupKey)
+        #expect(backup == corrupt)
 
         clearPending()
     }

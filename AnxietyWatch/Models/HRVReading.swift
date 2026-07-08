@@ -31,6 +31,10 @@ final class HRVReading {
     /// any future correction path that re-dirties a reading is automatically
     /// covered by the same race guard as the other synced types.
     var pendingSyncVersion: Int = 0
+    /// True once this Watch-captured reading has been transferred to the
+    /// phone; see `PhoneTransferable` (F-018). Unused on phone-origin rows.
+    /// Defaulted for lightweight SwiftData migration.
+    var transferredToPhone: Bool = false
 
     init(id: UUID = UUID(), timestamp: Date, rmssd: Double, sdnn: Double, pnn50: Double,
          lfPower: Double, hfPower: Double, lfHfRatio: Double,
@@ -47,5 +51,8 @@ final class HRVReading {
         self.source = source
         self.syncedToServer = false
         self.pendingSyncVersion = 0
+        self.transferredToPhone = false
     }
 }
+
+extension HRVReading: PhoneTransferable {}

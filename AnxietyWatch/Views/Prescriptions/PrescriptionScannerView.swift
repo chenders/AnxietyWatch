@@ -148,14 +148,26 @@ struct PrescriptionScannerView: View {
 
     private func reviewForm(_ data: PrescriptionLabelScanner.ScannedPrescriptionData) -> some View {
         Form {
-            Section("Detected Fields") {
-                fieldRow("Rx Number", value: data.rxNumber)
-                fieldRow("Medication", value: data.medicationName)
-                fieldRow("Dose", value: data.dose)
-                fieldRow("Quantity", value: data.quantity.map(String.init))
-                fieldRow("Refills", value: data.refillsRemaining.map(String.init))
-                fieldRow("Pharmacy", value: data.pharmacyName)
-                fieldRow("Date Filled", value: data.dateFilled.map { formattedDate($0) })
+            Section {
+                fieldRow("Rx Number", value: data.rxNumber, lowConfidence: data.isLowConfidence(.rxNumber))
+                fieldRow("Medication", value: data.medicationName, lowConfidence: data.isLowConfidence(.medicationName))
+                fieldRow("Dose", value: data.dose, lowConfidence: data.isLowConfidence(.dose))
+                fieldRow("Quantity", value: data.quantity.map(String.init), lowConfidence: data.isLowConfidence(.quantity))
+                fieldRow("Refills", value: data.refillsRemaining.map(String.init),
+                         lowConfidence: data.isLowConfidence(.refillsRemaining))
+                fieldRow("Pharmacy", value: data.pharmacyName, lowConfidence: data.isLowConfidence(.pharmacyName))
+                fieldRow("Date Filled", value: data.dateFilled.map { formattedDate($0) },
+                         lowConfidence: data.isLowConfidence(.dateFilled))
+            } header: {
+                Text("Detected Fields")
+            } footer: {
+                if data.hasLowConfidenceField {
+                    Label(
+                        "Fields marked in orange were read with low confidence. Check them against the label before saving.",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .foregroundStyle(.orange)
+                }
             }
 
             if !data.rawText.isEmpty {
@@ -191,13 +203,37 @@ struct PrescriptionScannerView: View {
 
     // MARK: - Helpers
 
-    private func fieldRow(_ label: String, value: String?) -> some View {
+    private func fieldRow(_ label: String, value: String?, lowConfidence: Bool = false) -> some View {
         HStack {
             Text(label)
             Spacer()
+            if lowConfidence {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.caption)
+                    .accessibilityHidden(true)
+            }
             Text(value ?? "Not detected")
-                .foregroundStyle(value != nil ? .primary : .secondary)
+                .foregroundStyle(fieldValueColor(hasValue: value != nil, lowConfidence: lowConfidence))
         }
+        // Collapse the row into one VoiceOver element (label + value + the
+        // low-confidence caveat) so the warning isn't a purely visual (orange)
+        // cue. `.ignore` (not `.combine`): the row has no interactive children.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(fieldAccessibilityLabel(label, value: value, lowConfidence: lowConfidence))
+    }
+
+    private func fieldValueColor(hasValue: Bool, lowConfidence: Bool) -> Color {
+        guard hasValue else { return .secondary }
+        return lowConfidence ? .orange : .primary
+    }
+
+    private func fieldAccessibilityLabel(_ label: String, value: String?, lowConfidence: Bool) -> String {
+        let valueText = value ?? "Not detected"
+        if lowConfidence {
+            return "\(label), \(valueText), low confidence reading, verify against the label"
+        }
+        return "\(label), \(valueText)"
     }
 
     private func errorBanner(_ message: String) -> some View {

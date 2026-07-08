@@ -15,33 +15,65 @@ enum FHIRLabResultParser {
         let interpretation: String?
     }
 
+    /// Outcome of attempting to parse a single FHIR Observation. Lets callers
+    /// distinguish an *intentional* skip (the record isn't a lab test we track)
+    /// from a *genuine* parse failure (a tracked result we should have imported
+    /// but couldn't decode). Collapsing both to `nil` (as `parse` does) hid the
+    /// latter — the importer surfaces `.unparseable` as a skip count so a
+    /// provider emitting a shape we reject is no longer permanently invisible.
+    enum ParseOutcome {
+        /// Successfully parsed a tracked lab result.
+        case parsed(ParsedResult)
+        /// Decoded fine but isn't a LOINC test in our registry — skipping is correct.
+        case untracked
+        /// A record that should have yielded a tracked result but was malformed:
+        /// undecodable JSON, missing numeric value, or an unparseable effective date.
+        case unparseable
+    }
+
     /// Parse a FHIR R4 Observation JSON blob into a `ParsedResult`.
     /// Returns nil if the record isn't a tracked lab test or can't be parsed.
     static func parse(fhirJSON data: Data) -> ParsedResult? {
-        guard let observation = try? JSONDecoder().decode(FHIRObservation.self, from: data) else {
-            return nil
-        }
-        return parse(observation: observation)
+        if case .parsed(let result) = parseOutcome(fhirJSON: data) { return result }
+        return nil
     }
 
     static func parse(observation: FHIRObservation) -> ParsedResult? {
-        // Find the first LOINC coding we track
+        if case .parsed(let result) = parseOutcome(observation: observation) { return result }
+        return nil
+    }
+
+    /// Classifying variant of `parse(fhirJSON:)` — see `ParseOutcome`.
+    static func parseOutcome(fhirJSON data: Data) -> ParseOutcome {
+        guard let observation = try? JSONDecoder().decode(FHIRObservation.self, from: data) else {
+            return .unparseable
+        }
+        return parseOutcome(observation: observation)
+    }
+
+    /// Classifying variant of `parse(observation:)` — see `ParseOutcome`.
+    static func parseOutcome(observation: FHIRObservation) -> ParseOutcome {
+        // Find the first LOINC coding we track. No tracked coding means this is
+        // simply a test outside our registry — an intentional skip, not a failure.
         guard let coding = observation.code?.coding?.first(where: { coding in
             coding.system == "http://loinc.org" && LabTestRegistry.isTracked(coding.code ?? "")
         }),
         let loincCode = coding.code else {
-            return nil
+            return .untracked
         }
+
+        // From here the record IS a tracked test, so any failure to extract its
+        // value or date is a genuine parse failure we must not silently drop.
 
         // Must have a numeric value
         guard let valueQuantity = observation.valueQuantity,
               let value = valueQuantity.value else {
-            return nil
+            return .unparseable
         }
 
         // Parse the effective date
         guard let effectiveDate = effectiveDate(of: observation) else {
-            return nil
+            return .unparseable
         }
 
         let unit = valueQuantity.unit ?? valueQuantity.code ?? ""
@@ -55,7 +87,7 @@ enum FHIRLabResultParser {
         // Extract interpretation code (e.g., "N", "H", "L")
         let interpretation = observation.interpretation?.first?.coding?.first?.code
 
-        return ParsedResult(
+        return .parsed(ParsedResult(
             loincCode: loincCode,
             displayName: displayName,
             value: value,
@@ -64,7 +96,7 @@ enum FHIRLabResultParser {
             referenceRangeLow: refLow,
             referenceRangeHigh: refHigh,
             interpretation: interpretation
-        )
+        ))
     }
 
     // MARK: - Date Parsing

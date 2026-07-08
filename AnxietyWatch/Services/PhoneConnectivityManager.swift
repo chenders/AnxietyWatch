@@ -46,7 +46,13 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
               WCSession.default.isWatchAppInstalled
         else { return }
 
-        var context = WCSession.default.receivedApplicationContext
+        // Merge into the last context WE SENT (`applicationContext`), not the
+        // context received FROM the Watch (`receivedApplicationContext`) —
+        // the Watch never calls updateApplicationContext, so the received one
+        // is always empty and starting from it wiped the stats keys
+        // (lastAnxiety/hrvAvg/restingHR) that sendStatsToWatch had written on
+        // every check-in state change (F-017).
+        var context = WCSession.default.applicationContext
         context["pendingRandomCheckIn"] = pending
         try? WCSession.default.updateApplicationContext(context)
     }
@@ -150,7 +156,20 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
             let context = ModelContext(container)
             let entry = AnxietyEntry(timestamp: timestamp, severity: severity, notes: notes, source: source)
             context.insert(entry)
-            try? context.save()
+            do {
+                try context.save()
+            } catch {
+                // The Watch already played a success haptic and keeps no local
+                // copy, so a swallowed save here permanently and silently loses
+                // the journal entry (F-037). Log it, and do NOT mark the
+                // check-in complete — leaving it pending lets the next sync/
+                // prompt cycle recover rather than reporting phantom success.
+                // Log the error TYPE only, never the error string — a
+                // SwiftData save error can embed the failing row's field
+                // values (the journal note), which must not reach logs.
+                log.error("Watch quick-log save failed, entry lost: \(String(describing: type(of: error)), privacy: .public)")
+                return
+            }
 
             // If this was a check-in from the Watch, complete it on the iPhone side
             if source == "random_checkin" {

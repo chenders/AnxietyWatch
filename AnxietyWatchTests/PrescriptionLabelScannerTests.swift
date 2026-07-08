@@ -151,4 +151,54 @@ struct PrescriptionLabelScannerTests {
         ])
         #expect(result.rawText.count == 4)
     }
+
+    // MARK: - OCR Confidence Gating (F-042)
+
+    typealias RecognizedLine = PrescriptionLabelScanner.RecognizedLine
+
+    @Test("Confidence below threshold is flagged")
+    func lowConfidenceFlagged() {
+        // A dose read at confidence below 0.5 must be flagged for verification.
+        #expect(PrescriptionLabelScanner.isLowConfidence(0.3))
+        #expect(PrescriptionLabelScanner.isLowConfidence(0.49))
+    }
+
+    @Test("Confidence at or above threshold is not flagged")
+    func highConfidenceNotFlagged() {
+        #expect(!PrescriptionLabelScanner.isLowConfidence(0.5))
+        #expect(!PrescriptionLabelScanner.isLowConfidence(0.9))
+        #expect(!PrescriptionLabelScanner.isLowConfidence(1.0))
+    }
+
+    @Test("Absent confidence is not flagged")
+    func nilConfidenceNotFlagged() {
+        #expect(!PrescriptionLabelScanner.isLowConfidence(nil))
+        // The [String] overload carries no OCR metadata, so nothing is flagged.
+        let result = PrescriptionLabelScanner.parse(lines: ["10mg tablet"])
+        #expect(!result.isLowConfidence(.dose))
+        #expect(!result.hasLowConfidenceField)
+    }
+
+    @Test("A low-confidence dose line flags the dose field")
+    func lowConfidenceDoseFieldFlagged() {
+        let result = PrescriptionLabelScanner.parse(recognizedLines: [
+            RecognizedLine(text: "Rx# 7654321", confidence: 0.95),
+            RecognizedLine(text: "7mg tablet", confidence: 0.30),
+        ])
+        #expect(result.dose != nil)
+        #expect(result.isLowConfidence(.dose))
+        // The clean Rx line is not flagged, so only genuinely uncertain fields warn.
+        #expect(!result.isLowConfidence(.rxNumber))
+        #expect(result.hasLowConfidenceField)
+    }
+
+    @Test("A high-confidence dose line does not flag the dose field")
+    func highConfidenceDoseFieldNotFlagged() {
+        let result = PrescriptionLabelScanner.parse(recognizedLines: [
+            RecognizedLine(text: "1mg tablet", confidence: 0.92),
+        ])
+        #expect(result.dose != nil)
+        #expect(!result.isLowConfidence(.dose))
+        #expect(!result.hasLowConfidenceField)
+    }
 }

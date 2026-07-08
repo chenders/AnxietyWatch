@@ -327,6 +327,99 @@ struct ReportGeneratorTests {
         #expect(!data.isEmpty)
     }
 
+    // MARK: - HRV current-status anchoring (F-043)
+
+    /// Calendar.current-relative day offsets so the arithmetic matches the
+    /// production code (BaselineCalculator uses Calendar.current), independent
+    /// of the machine's time zone.
+    private func snapshot(daysBefore n: Int, of anchor: Date, hrv: Double) -> HealthSnapshot {
+        let date = Calendar.current.date(byAdding: .day, value: -n, to: anchor)!
+        return ModelFactory.healthSnapshot(date: date, hrvAvg: hrv, restingHR: nil, sleepDurationMin: nil)
+    }
+
+    @Test("HRV status is BELOW BASELINE when the range-end data is low — not 'within range' from today's absent data")
+    func hrvStatusAnchoredToRangeEnd() throws {
+        // A report range that ended well in the past. Baseline over the 30 days
+        // ending at rangeEnd is high (~50), but the 3 days ending at rangeEnd
+        // are low (~10). Anchored to rangeEnd → BELOW BASELINE. Anchored to
+        // .now (the old bug) the 3-day window would be empty → the report would
+        // falsely print "Within normal range".
+        let rangeEnd = Calendar.current.date(from: DateComponents(year: 2024, month: 4, day: 1))!
+        var snapshots: [HealthSnapshot] = []
+        // Baseline body: high HRV on days 4...25 before the end.
+        for n in 4...25 {
+            snapshots.append(snapshot(daysBefore: n, of: rangeEnd, hrv: 50.0 + Double(n % 3)))
+        }
+        // Trailing window ending at rangeEnd: sharply low HRV. recentAverage's
+        // 3-day cutoff is inclusive at day 3, so seed days 0...3 all-low.
+        for n in 0...3 {
+            snapshots.append(snapshot(daysBefore: n, of: rangeEnd, hrv: 10.0))
+        }
+
+        let result = try #require(ReportGenerator.hrvReportStatus(snapshots: snapshots, rangeEnd: rangeEnd))
+        #expect(result.status == .belowBaseline)
+        #expect(result.baseline.mean > 20.0) // baseline reflects the high body, not the low tail
+    }
+
+    @Test("HRV status is 'no recent data' when the range ends long ago with no near-end data")
+    func hrvStatusNoRecentDataForStaleRange() throws {
+        // Baseline can be formed (≥14 snapshots in the 30 days before the end)
+        // but nothing falls in the final 3 days, so the status must be honest
+        // about the absence rather than defaulting to "within normal range".
+        let rangeEnd = Calendar.current.date(from: DateComponents(year: 2024, month: 4, day: 1))!
+        var snapshots: [HealthSnapshot] = []
+        for n in 8...25 { // 18 days, all older than the trailing 3-day window
+            snapshots.append(snapshot(daysBefore: n, of: rangeEnd, hrv: 45.0 + Double(n % 4)))
+        }
+
+        let result = try #require(ReportGenerator.hrvReportStatus(snapshots: snapshots, rangeEnd: rangeEnd))
+        #expect(result.status == .noRecentData)
+        #expect(result.status.reportLabel != "Within normal range")
+    }
+
+    @Test("HRV status is within range when near-end data matches baseline")
+    func hrvStatusWithinRange() throws {
+        let rangeEnd = Calendar.current.date(from: DateComponents(year: 2024, month: 4, day: 1))!
+        var snapshots: [HealthSnapshot] = []
+        for n in 0...25 { // steady HRV through the range end
+            snapshots.append(snapshot(daysBefore: n, of: rangeEnd, hrv: 50.0 + Double(n % 3)))
+        }
+
+        let result = try #require(ReportGenerator.hrvReportStatus(snapshots: snapshots, rangeEnd: rangeEnd))
+        #expect(result.status == .withinRange)
+    }
+
+    @Test("HRV status is nil (baseline omitted) when too few snapshots exist near the range end")
+    func hrvStatusNilWhenBaselineUnavailable() {
+        let rangeEnd = Calendar.current.date(from: DateComponents(year: 2024, month: 4, day: 1))!
+        // Only a handful of snapshots — below the 14-sample baseline minimum.
+        let snapshots = (0...4).map { snapshot(daysBefore: $0, of: rangeEnd, hrv: 48.0) }
+        #expect(ReportGenerator.hrvReportStatus(snapshots: snapshots, rangeEnd: rangeEnd) == nil)
+    }
+
+    @Test("Stale-range PDF never prints a fabricated 'Within normal range' HRV status (F-043)")
+    func stalePDFOmitsFabricatedStatus() throws {
+        let rangeEnd = Calendar.current.date(from: DateComponents(year: 2024, month: 4, day: 1))!
+        let rangeStart = Calendar.current.date(byAdding: .day, value: -30, to: rangeEnd)!
+        var snapshots: [HealthSnapshot] = []
+        for n in 8...25 { // baseline forms, but nothing in the last 3 days
+            snapshots.append(snapshot(daysBefore: n, of: rangeEnd, hrv: 45.0 + Double(n % 4)))
+        }
+
+        let pdfData = ReportGenerator.generatePDF(
+            entries: [], doses: [], definitions: [],
+            snapshots: snapshots, cpapSessions: [],
+            start: rangeStart, end: rangeEnd
+        )
+        let doc = try #require(PDFDocument(data: pdfData))
+        var raw = ""
+        for i in 0..<doc.pageCount where doc.page(at: i) != nil {
+            raw += doc.page(at: i)?.string ?? ""
+        }
+        #expect(!raw.contains("Within normal range"))
+        #expect(raw.contains("No recent data in range"))
+    }
+
     @Test("Report includes overnight respiratory and glucose section with both halves")
     func reportIncludesOvernightSection() throws {
         let cal = Calendar.current

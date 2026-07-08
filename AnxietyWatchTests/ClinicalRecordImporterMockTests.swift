@@ -11,8 +11,9 @@ struct ClinicalRecordImporterMockTests {
         let context = ModelContext(container)
         let mock = MockHealthKitDataSource()
         let importer = ClinicalRecordImporter(healthKit: mock, modelContext: context)
-        let count = try await importer.importLabResults()
-        #expect(count == 0)
+        let result = try await importer.importLabResults()
+        #expect(result.imported == 0)
+        #expect(result.skipped == 0)
     }
 
     @Test("No save when zero records imported")
@@ -35,8 +36,8 @@ struct ClinicalRecordImporterMockTests {
         context.insert(existing)
         try context.save()
         let importer = ClinicalRecordImporter(healthKit: mock, modelContext: context)
-        let count = try await importer.importLabResults()
-        #expect(count == 0)
+        let result = try await importer.importLabResults()
+        #expect(result.imported == 0)
         let results = try context.fetch(FetchDescriptor<ClinicalLabResult>())
         #expect(results.count == 1)
     }

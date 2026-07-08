@@ -197,9 +197,18 @@ enum DataExporter {
         let allSongs: [Song] = (try? context.fetch(FetchDescriptor<Song>(sortBy: [SortDescriptor(\.title)]))) ?? []
         let allSongOccurrences: [SongOccurrence] = (try? context.fetch(FetchDescriptor<SongOccurrence>(sortBy: [SortDescriptor(\.timestamp)]))) ?? []
 
+        // Half-open range [start, end): start inclusive, end EXCLUSIVE.
+        // Callers pass an exclusive upper bound — ExportView passes the
+        // start-of-next-day instant for a whole-selected-day export, and
+        // day-keyed rows (HealthSnapshot/CPAPSession, dated exactly at
+        // startOfDay) land precisely on that boundary; an inclusive end
+        // would pull in the day AFTER the selection (F-044 follow-up), and
+        // would also double-send a record sitting exactly on the sync
+        // cursor. Exclusive end + the `since`/`>= start` filter on the next
+        // window means a boundary record is counted once, in the next window.
         func inRange(_ date: Date) -> Bool {
             if let s = start, date < s { return false }
-            if let e = end, date > e { return false }
+            if let e = end, date >= e { return false }
             return true
         }
 

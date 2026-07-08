@@ -35,6 +35,11 @@ struct AddPrescriptionView: View {
     @State private var newMedName: String
     @State private var newMedCategory = ""
 
+    /// Fields that arrived from an OCR scan with low confidence — surfaced as
+    /// an inline warning next to the field so a misread dose/Rx digit isn't
+    /// silently accepted just because it pre-populated the form (F-042).
+    @State private var lowConfidenceScannedFields: Set<PrescriptionLabelScanner.Field> = []
+
     private let categories = [
         "SSRI", "SNRI", "Benzodiazepine", "Beta Blocker",
         "Z-Drug", "Supplement", "Other"
@@ -103,6 +108,10 @@ struct AddPrescriptionView: View {
     private var prescriptionSection: some View {
         Section("Prescription") {
             TextField("Rx Number", text: $rxNumber)
+                .onChange(of: rxNumber) { _, _ in lowConfidenceScannedFields.remove(.rxNumber) }
+            if lowConfidenceScannedFields.contains(.rxNumber) {
+                lowConfidenceWarning("Rx number was read with low confidence — verify against the label.")
+            }
             DatePicker("Date Filled", selection: $dateFilled, displayedComponents: .date)
         }
     }
@@ -117,7 +126,22 @@ struct AddPrescriptionView: View {
 
             TextField("Dose Description", text: $doseDescription)
                 .textContentType(.none)
+                // A manual edit means the user has taken ownership of the
+                // value, so the low-confidence OCR warning no longer applies.
+                .onChange(of: doseDescription) { _, _ in lowConfidenceScannedFields.remove(.dose) }
+            if lowConfidenceScannedFields.contains(.dose) {
+                lowConfidenceWarning("Dose was read with low confidence — verify against the label.")
+            }
         }
+    }
+
+    /// Inline "verify this OCR reading" caption for a low-confidence scanned field.
+    @ViewBuilder
+    private func lowConfidenceWarning(_ text: String) -> some View {
+        Label(text, systemImage: "exclamationmark.triangle.fill")
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .accessibilityLabel("Warning. \(text)")
     }
 
     @ViewBuilder
@@ -157,6 +181,10 @@ struct AddPrescriptionView: View {
         }
 
         TextField("Name", text: $newMedName)
+            .onChange(of: newMedName) { _, _ in lowConfidenceScannedFields.remove(.medicationName) }
+        if lowConfidenceScannedFields.contains(.medicationName) {
+            lowConfidenceWarning("Medication name was read with low confidence — verify against the label.")
+        }
         TextField("Dose (mg)", value: $doseMg, format: .number)
             .keyboardType(.decimalPad)
         Picker("Category", selection: $newMedCategory) {
@@ -214,13 +242,22 @@ struct AddPrescriptionView: View {
             }
             .sheet(isPresented: $showingScanner) {
                 PrescriptionScannerView(onScanComplete: { scannedData in
-                    if let rx = scannedData.rxNumber { rxNumber = rx }
+                    // Carry each populated field's low-confidence flag through
+                    // to the form so the pre-filled value is visibly marked
+                    // "verify" rather than looking authoritative (F-042).
+                    var flagged: Set<PrescriptionLabelScanner.Field> = []
+                    if let rx = scannedData.rxNumber {
+                        rxNumber = rx
+                        if scannedData.isLowConfidence(.rxNumber) { flagged.insert(.rxNumber) }
+                    }
                     if let name = scannedData.medicationName {
                         newMedName = name
                         addingNewMed = true
+                        if scannedData.isLowConfidence(.medicationName) { flagged.insert(.medicationName) }
                     }
                     if let dose = scannedData.dose {
                         doseDescription = dose
+                        if scannedData.isLowConfidence(.dose) { flagged.insert(.dose) }
                         let lower = dose.lowercased()
                         if let numeric = Double(dose.filter { $0.isNumber || $0 == "." }) {
                             if lower.contains("mcg") {
@@ -235,6 +272,7 @@ struct AddPrescriptionView: View {
                     if let qty = scannedData.quantity { quantityText = String(qty) }
                     if let refills = scannedData.refillsRemaining { refillsRemaining = refills }
                     if let date = scannedData.dateFilled { dateFilled = date }
+                    lowConfidenceScannedFields = flagged
                 })
             }
         }

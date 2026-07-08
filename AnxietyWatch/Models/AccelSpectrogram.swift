@@ -14,6 +14,11 @@ final class AccelSpectrogram {
     var fidgetBandPower: Double     // 0.5–4 Hz spectral power
     var activityLevel: Double       // Overall RMS acceleration (g)
     var sensorSessionID: UUID?
+    /// True once this row has been successfully transferred to the phone.
+    /// Gates the Watch → phone batch so already-sent rows aren't re-sent
+    /// every cycle; see `PhoneTransferable` (F-018). Defaulted for
+    /// lightweight SwiftData migration of existing rows.
+    var transferredToPhone: Bool = false
 
     init(id: UUID = UUID(), timestamp: Date, tremorBandPower: Double, breathingBandPower: Double,
          fidgetBandPower: Double, activityLevel: Double,
@@ -27,3 +32,5 @@ final class AccelSpectrogram {
         self.sensorSessionID = sensorSessionID
     }
 }
+
+extension AccelSpectrogram: PhoneTransferable {}

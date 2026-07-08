@@ -13,6 +13,8 @@ final class DerivedBreathingRate {
     var confidence: Double          // 0–1 quality of the estimate
     var source: String              // "accelerometer" or "healthkit_sleep"
     var sensorSessionID: UUID?
+    /// True once transferred to the phone; see `PhoneTransferable` (F-018).
+    var transferredToPhone: Bool = false
 
     init(id: UUID = UUID(), timestamp: Date, breathsPerMinute: Double, confidence: Double,
          source: String, sensorSessionID: UUID? = nil) {
@@ -24,3 +26,5 @@ final class DerivedBreathingRate {
         self.sensorSessionID = sensorSessionID
     }
 }
+
+extension DerivedBreathingRate: PhoneTransferable {}
