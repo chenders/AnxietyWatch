@@ -484,7 +484,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** approved (deferred to Batch H-3 — window-reactive TrendsView extraction)
 
 ### F-021 · P2 · confirmed · efficiency · lfhf-sessions-list
 
@@ -496,7 +496,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** approved (deferred to Batch H-3 — window-reactive TrendsView extraction)
 
 ### F-022 · P2 · confirmed · efficiency · trends-charts
 
@@ -508,7 +508,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** approved (deferred to Batch H-3 — window-reactive TrendsView extraction)
 
 ### F-023 · P2 · confirmed · accuracy · spo2-precedence
 
@@ -620,7 +620,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: efficiency, render-pitfalls.  
 
-**Disposition:** approved
+**Disposition:** approved (deferred to Batch H-3 — window-reactive TrendsView extraction)
 
 ### F-032 · P2 · confirmed · render · medications-nav
 
@@ -916,7 +916,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P3, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#167)
 
 ### F-056 · P3 · confirmed · efficiency · export
 
@@ -928,7 +928,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 3/3 verify lenses confirmed, lens votes [P2, P3, P3].  
 
-**Disposition:** approved
+**Disposition:** fixed (#167)
 
 ### F-057 · P3 · confirmed · efficiency · correlation-chart
 
