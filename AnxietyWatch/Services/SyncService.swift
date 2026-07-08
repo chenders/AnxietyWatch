@@ -1248,7 +1248,12 @@ final class SyncService {
         for session in sessions where session.rrArchiveUploadedAt == nil && session.endTime != nil {
             let url = RRArchiveWriter.archiveURL(for: session.id)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            guard let raw = try? Data(contentsOf: url), !raw.isEmpty else { continue }
+            // Aligned prefix only: a partial trailing record from an
+            // interrupted write must not reach the server (the upload is
+            // one-shot — rrArchiveUploadedAt stamps and never re-examines).
+            guard let rawFile = try? Data(contentsOf: url) else { continue }
+            let raw = RRArchiveWriter.alignedPrefix(of: rawFile)
+            guard !raw.isEmpty else { continue }
             guard let compressed = try? (raw as NSData).compressed(using: .zlib) as Data else {
                 Log.sync.error(
                     "RR archive: zlib compression failed for session \(session.id.uuidString, privacy: .public)"

@@ -13,6 +13,11 @@ nonisolated enum CPAPImporter {
     struct ImportResult {
         let inserted: Int
         let updated: Int
+        /// Range of PLAUSIBLE session dates only — clock-reset artifact rows
+        /// (before `earliestPlausibleDate`) still import but are excluded
+        /// here, because callers walk this range with one `aggregateDay` per
+        /// day and a ~2009 epoch-reset row would stretch it across decades
+        /// (F-028). Nil when no plausible-dated rows imported.
         let dateRange: ClosedRange<Date>?
         let skippedRowCount: Int
         let warnings: [String]
@@ -135,10 +140,16 @@ nonisolated enum CPAPImporter {
         let obstructiveEvents: Int
         let centralEvents: Int
         let hypopneaEvents: Int
-        let importSource: String
     }
 
     /// Update an existing session's fields with new values.
+    ///
+    /// `importSource` is deliberately NOT overwritten: it records how the
+    /// session FIRST entered the store. A CSV/OSCAR re-import that happens
+    /// to cover the same calendar date must not relabel a manually-entered
+    /// ("manual") or server-restored ("resmed_cloud", "edf") session's
+    /// provenance — the views display it as "Source" and a fabricated label
+    /// misrepresents where the numbers came from (F-040).
     private static func updateSession(_ session: CPAPSession, fields: ImportedFields) {
         session.ahi = fields.ahi
         session.totalUsageMinutes = fields.totalUsageMinutes
@@ -149,7 +160,6 @@ nonisolated enum CPAPImporter {
         session.obstructiveEvents = fields.obstructiveEvents
         session.centralEvents = fields.centralEvents
         session.hypopneaEvents = fields.hypopneaEvents
-        session.importSource = fields.importSource
     }
 
     // MARK: - Format Detection
@@ -275,9 +285,19 @@ nonisolated enum CPAPImporter {
             }
 
             let normalized = Calendar.current.startOfDay(for: parsed.date)
-            if normalized < Self.earliestPlausibleDate { suspiciousDates += 1 }
-            if minDate == nil || normalized < minDate! { minDate = normalized }
-            if maxDate == nil || normalized > maxDate! { maxDate = normalized }
+            if normalized < Self.earliestPlausibleDate {
+                // Clock-reset artifact (see `earliestPlausibleDate`): count it
+                // for the warning but keep it OUT of the returned dateRange.
+                // The range drives the callers' per-day aggregateDay backfill
+                // loop, and a single ~2009 epoch-reset row would otherwise
+                // stretch it across two decades — thousands of sequential
+                // aggregateDay calls and near-empty snapshots for one bad
+                // row (F-028). The session row itself still imports.
+                suspiciousDates += 1
+            } else {
+                if minDate == nil || normalized < minDate! { minDate = normalized }
+                if maxDate == nil || normalized > maxDate! { maxDate = normalized }
+            }
 
             if let existing = existingByDate[normalized] {
                 updateSession(existing, fields: ImportedFields(
@@ -289,8 +309,7 @@ nonisolated enum CPAPImporter {
                     pressureMean: parsed.pMean,
                     obstructiveEvents: parsed.obstructive,
                     centralEvents: parsed.central,
-                    hypopneaEvents: parsed.hypopnea,
-                    importSource: "csv"
+                    hypopneaEvents: parsed.hypopnea
                 ))
                 updated += 1
             } else {
@@ -440,9 +459,19 @@ nonisolated enum CPAPImporter {
             }
 
             let normalized = Calendar.current.startOfDay(for: parsed.date)
-            if normalized < Self.earliestPlausibleDate { suspiciousDates += 1 }
-            if minDate == nil || normalized < minDate! { minDate = normalized }
-            if maxDate == nil || normalized > maxDate! { maxDate = normalized }
+            if normalized < Self.earliestPlausibleDate {
+                // Clock-reset artifact (see `earliestPlausibleDate`): count it
+                // for the warning but keep it OUT of the returned dateRange.
+                // The range drives the callers' per-day aggregateDay backfill
+                // loop, and a single ~2009 epoch-reset row would otherwise
+                // stretch it across two decades — thousands of sequential
+                // aggregateDay calls and near-empty snapshots for one bad
+                // row (F-028). The session row itself still imports.
+                suspiciousDates += 1
+            } else {
+                if minDate == nil || normalized < minDate! { minDate = normalized }
+                if maxDate == nil || normalized > maxDate! { maxDate = normalized }
+            }
 
             if let existing = existingByDate[normalized] {
                 updateSession(existing, fields: ImportedFields(
@@ -457,8 +486,7 @@ nonisolated enum CPAPImporter {
                     pressureMean: parsed.medianPressure,
                     obstructiveEvents: parsed.obstructiveEvents,
                     centralEvents: parsed.centralEvents,
-                    hypopneaEvents: parsed.hypopneaEvents,
-                    importSource: "oscar"
+                    hypopneaEvents: parsed.hypopneaEvents
                 ))
                 updated += 1
             } else {

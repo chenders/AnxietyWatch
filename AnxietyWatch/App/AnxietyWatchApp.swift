@@ -244,32 +244,36 @@ struct AnxietyWatchApp: App {
         let alert = MultiFileImportAlert.compose(results: outcome.results, errors: outcome.errors)
         importAlert = ImportAlert(title: alert.title, message: alert.message)
 
-        if let range = outcome.cpapRange {
+        if let range = outcome.snapshotBackfillRange {
             await backfillSnapshots(dateRange: range, context: ModelContext(container))
         }
     }
 
-    private struct ImportBatchOutcome: Sendable {
+    /// Internal (not private) so tests can drive the backfill-gate logic —
+    /// which import kinds trigger the per-day snapshot re-aggregation —
+    /// without standing up the whole app (see F-006 regression tests).
+    struct ImportBatchOutcome: Sendable {
         let results: [MultiFileImportAlert.PerFileResult]
         let errors: [MultiFileImportAlert.PerFileError]
-        let cpapRange: ClosedRange<Date>?
+        let snapshotBackfillRange: ClosedRange<Date>?
     }
 
     /// Pure import work — parses each URL into the given container's store and
-    /// returns per-file results and the union of CPAP date ranges. Marked
-    /// `nonisolated static` so it can run inside a detached task without
-    /// capturing `self` or any actor-isolated state.
+    /// returns per-file results and the union of snapshot-affecting date
+    /// ranges. Marked `nonisolated static` so it can run inside a detached
+    /// task without capturing `self` or any actor-isolated state; internal
+    /// (not private) for the same testability reason as `ImportBatchOutcome`.
     ///
     /// Uses a fresh `ModelContext` per file so a failed import (which may
     /// leave pending inserts in its context after throwing) cannot leak into
     /// the next file's successful `save()`. Each file is its own transaction.
-    private nonisolated static func runImports(
+    nonisolated static func runImports(
         urls: [URL],
         in container: ModelContainer
     ) -> ImportBatchOutcome {
         var results: [MultiFileImportAlert.PerFileResult] = []
         var errors: [MultiFileImportAlert.PerFileError] = []
-        var cpapRange: ClosedRange<Date>?
+        var backfillRange: ClosedRange<Date>?
 
         for url in urls {
             let filename = url.lastPathComponent
@@ -277,13 +281,21 @@ struct AnxietyWatchApp: App {
             do {
                 let result = try CSVImportRouter.importCSV(from: url, into: context)
                 results.append(.init(filename: filename, result: result))
-                if result.kind == .cpap, let range = result.dateRange {
-                    if let existing = cpapRange {
+                // BOTH import kinds feed HealthSnapshot fields (CPAP → AHI/
+                // usage stitch, EMAY → overnight SpO2/pulse precedence), so
+                // both need the per-day re-aggregation. Gating on .cpap alone
+                // meant an EMAY import for a night that already had a
+                // snapshot silently never reached spo2Avg/nadir/T90 until a
+                // manual "Rebuild All History" (F-006) — fillGaps() only
+                // fills missing days, never re-aggregates existing ones.
+                if result.kind == .cpap || result.kind == .emay,
+                   let range = result.dateRange {
+                    if let existing = backfillRange {
                         let lower = min(existing.lowerBound, range.lowerBound)
                         let upper = max(existing.upperBound, range.upperBound)
-                        cpapRange = lower...upper
+                        backfillRange = lower...upper
                     } else {
-                        cpapRange = range
+                        backfillRange = range
                     }
                 }
             } catch let error as CSVImportRouter.ImportError {
@@ -292,7 +304,7 @@ struct AnxietyWatchApp: App {
                 errors.append(.init(filename: filename, message: error.localizedDescription))
             }
         }
-        return ImportBatchOutcome(results: results, errors: errors, cpapRange: cpapRange)
+        return ImportBatchOutcome(results: results, errors: errors, snapshotBackfillRange: backfillRange)
     }
 
     @MainActor
@@ -301,15 +313,16 @@ struct AnxietyWatchApp: App {
             healthKit: HealthKitManager.shared,
             modelContext: context
         )
-        var date = dateRange.lowerBound
-        while date <= dateRange.upperBound {
+        // Day-aligned walk including the morning-after day — raw-timestamp
+        // stepping missed the one day whose noon-to-noon window actually
+        // held an overnight import's samples. See backfillDays (F-006).
+        for date in SnapshotAggregator.backfillDays(covering: dateRange) {
             do {
                 try await aggregator.aggregateDay(date)
             } catch {
                 let label = date.formatted(.dateTime.month().day())
                 Log.data.error("Backfill snapshot failed for \(label, privacy: .public): \(error, privacy: .public)")
             }
-            date = Calendar.current.date(byAdding: .day, value: 1, to: date) ?? dateRange.upperBound.addingTimeInterval(1)
         }
     }
 

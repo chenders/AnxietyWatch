@@ -148,4 +148,40 @@ struct SnapshotAggregatorTests {
         let afternoon = calendar.date(byAdding: .hour, value: 14, to: today)!
         #expect(afternoon >= today && afternoon < tomorrow)
     }
+
+    // MARK: - backfillDays (F-006)
+
+    // An overnight EMAY file (bedtime 22:30 May 8 → wake 06:15 May 9) needs
+    // aggregateDay(May 9) — its noon-to-noon window [noon May 8, noon May 9]
+    // is the only one containing the samples. The old raw-timestamp walk ran
+    // aggregateDay at May 8 22:30, stepped to May 9 22:30 (> upper bound),
+    // and never aggregated May 9.
+    @Test("backfillDays includes the morning-after day for an overnight range")
+    func backfillDaysCoversMorningAfter() {
+        let calendar = Calendar.current
+        let bedtime = calendar.date(from: DateComponents(year: 2026, month: 5, day: 8, hour: 22, minute: 30))!
+        let wake = calendar.date(from: DateComponents(year: 2026, month: 5, day: 9, hour: 6, minute: 15))!
+
+        let days = SnapshotAggregator.backfillDays(covering: bedtime...wake)
+
+        let may9 = calendar.startOfDay(
+            for: calendar.date(from: DateComponents(year: 2026, month: 5, day: 9))!
+        )
+        #expect(days.contains(may9), "The night's own snapshot day must be aggregated")
+        // Day-aligned, strictly ascending, and bounded: May 8, 9, 10.
+        #expect(days == days.sorted())
+        #expect(days.count == 3)
+        #expect(days.allSatisfy { calendar.startOfDay(for: $0) == $0 })
+    }
+
+    @Test("backfillDays for a single day-aligned date spans that day plus one")
+    func backfillDaysSingleDay() {
+        let calendar = Calendar.current
+        let day = calendar.startOfDay(
+            for: calendar.date(from: DateComponents(year: 2026, month: 3, day: 20))!
+        )
+        let days = SnapshotAggregator.backfillDays(covering: day...day)
+        #expect(days.count == 2)  // the day itself + the morning-after day
+        #expect(days.first == day)
+    }
 }

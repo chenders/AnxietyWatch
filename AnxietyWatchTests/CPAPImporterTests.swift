@@ -254,8 +254,9 @@ struct CPAPImporterTests {
     func oscarUpdateOverwritesPressureMin() throws {
         // The update path (updateSession) is separate code from the insert path;
         // both must stop writing the median into pressureMin. An OSCAR re-import
-        // rewrites the whole session as an "oscar"-sourced row (leak already
-        // becomes nil), so pressureMin becoming the sentinel is consistent.
+        // rewrites the session's data fields (leak already becomes nil), so
+        // pressureMin becoming the sentinel is consistent — but provenance is
+        // preserved (F-040), so importSource stays with the original creator.
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
@@ -288,7 +289,8 @@ struct CPAPImporterTests {
         #expect(session.pressureMin == CPAPImporter.oscarPressureMinUnavailable)
         #expect(abs(session.pressureMean - 10.0) < 0.001)
         #expect(abs(session.pressureMax - 14.0) < 0.001)
-        #expect(session.importSource == "oscar")
+        // F-040: re-imports refresh data, never provenance.
+        #expect(session.importSource == "csv")
     }
 
     @Test("Auto-detects simple format vs OSCAR format")
@@ -507,6 +509,67 @@ struct CPAPImporterTests {
         let result = try CPAPImporter.importCSV(from: url, into: context)
         #expect(result.inserted == 2) // both rows still imported
         #expect(result.suspiciousDateCount == 1)
+
+        // F-028: the clock-reset date must NOT stretch the returned range —
+        // callers walk it with one aggregateDay per day, so folding a ~2009
+        // epoch-reset row in meant thousands of backfill iterations.
+        let range = try #require(result.dateRange)
+        #expect(range.lowerBound >= CPAPImporter.earliestPlausibleDate)
+    }
+
+    @Test("A file containing ONLY clock-reset dates yields a nil dateRange")
+    func allSuspiciousDatesYieldNilRange() throws {
+        let csv = """
+        date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea
+        2009-01-15,2.5,420,18.3,6.0,12.0,9.5,3,1,2
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let result = try CPAPImporter.importCSV(from: url, into: context)
+        #expect(result.inserted == 1)
+        #expect(result.suspiciousDateCount == 1)
+        // No plausible dates → no backfill range at all (callers skip the loop).
+        #expect(result.dateRange == nil)
+    }
+
+    // F-040: a re-import covering the same date must not relabel a manually-
+    // entered (or server-restored) session's provenance as "csv"/"oscar".
+    @Test("Re-import preserves an existing session's importSource")
+    func reimportPreservesImportSource() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        var comps = DateComponents()
+        comps.year = 2026
+        comps.month = 3
+        comps.day = 21
+        let day = Calendar(identifier: .gregorian).date(from: comps)!
+        let manual = CPAPSession(
+            date: day, ahi: 2.0, totalUsageMinutes: 400,
+            pressureMin: 6, pressureMax: 12, pressureMean: 9,
+            obstructiveEvents: 1, centralEvents: 0, hypopneaEvents: 1,
+            importSource: "manual"
+        )
+        context.insert(manual)
+        try context.save()
+
+        let csv = """
+        date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea
+        2026-03-21,1.8,390,15.1,6.0,11.5,9.2,2,0,1
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let result = try CPAPImporter.importCSV(from: url, into: context)
+        #expect(result.updated == 1)
+
+        let sessions = try context.fetch(FetchDescriptor<CPAPSession>())
+        let session = try #require(sessions.first)
+        // Data fields refresh; provenance does not.
+        #expect(abs(session.ahi - 1.8) < 0.001)
+        #expect(session.importSource == "manual")
     }
 
     @Test("Suspicious count is zero for plausible recent dates")

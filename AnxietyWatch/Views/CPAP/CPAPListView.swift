@@ -115,9 +115,12 @@ struct CPAPListView: View, Equatable {
                         return try CSVImportRouter.importCSV(from: url, into: context)
                     }.value
                     alertMessage = routerResult.alertMessage
-                    // Snapshot backfill is CPAP-only — EMAY samples don't drive
-                    // overnight snapshots in the same way.
-                    if routerResult.kind == .cpap, let dateRange = routerResult.dateRange {
+                    // Both kinds feed HealthSnapshot fields (CPAP → AHI stitch,
+                    // EMAY → overnight SpO2 precedence), so both need the
+                    // per-day re-aggregation — fillGaps() never re-aggregates
+                    // days that already have a snapshot (F-006).
+                    if routerResult.kind == .cpap || routerResult.kind == .emay,
+                       let dateRange = routerResult.dateRange {
                         await backfillSnapshots(dateRange: dateRange)
                     }
                 } catch let error as CSVImportRouter.ImportError {
@@ -137,16 +140,16 @@ struct CPAPListView: View, Equatable {
             healthKit: HealthKitManager.shared,
             modelContext: modelContext
         )
-        var date = dateRange.lowerBound
-        while date <= dateRange.upperBound {
+        // Day-aligned walk including the morning-after day — raw-timestamp
+        // stepping missed the one day whose noon-to-noon window actually
+        // held an overnight import's samples. See backfillDays (F-006).
+        for date in SnapshotAggregator.backfillDays(covering: dateRange) {
             do {
                 try await aggregator.aggregateDay(date)
             } catch {
                 let label = date.formatted(.dateTime.month().day())
                 Log.data.error("Backfill snapshot failed for \(label, privacy: .public): \(error, privacy: .public)")
             }
-            let next = Calendar.current.date(byAdding: .day, value: 1, to: date)
-            date = next ?? dateRange.upperBound.addingTimeInterval(1)
         }
     }
 

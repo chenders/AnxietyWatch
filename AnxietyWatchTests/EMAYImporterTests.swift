@@ -272,6 +272,162 @@ struct EMAYImporterTests {
         #expect(result.dateRange == nil)  // no valid rows → no range to report
     }
 
+    // MARK: - DST fall-back fold correction
+
+    // The corrector is a pure sequential function; coverage tests it directly
+    // with an INJECTED DST-observing zone so the transition cross-check (a
+    // fold correction only fires when the zone really set clocks back nearby)
+    // is deterministic regardless of the simulator's timezone. `foldBase` is
+    // derived from the zone's own transition table (one second before a real
+    // clocks-back instant), not hardcoded — no Date.now, no magic epoch.
+    private static let foldZone = TimeZone(identifier: "America/Los_Angeles")!
+
+    /// One second before a real fall-back transition in `foldZone` — the
+    /// last naive-parse-correct instant before the repeated hour.
+    private static let foldBase: Date = {
+        // Start the search mid-2026 so the found transition is the November
+        // clocks-back one (the March transition is spring-forward).
+        var search = Date(timeIntervalSince1970: 1_782_000_000)  // mid-2026
+        for _ in 0..<4 {
+            guard let t = foldZone.nextDaylightSavingTimeTransition(after: search) else { break }
+            let before = foldZone.secondsFromGMT(for: t.addingTimeInterval(-1))
+            let after = foldZone.secondsFromGMT(for: t)
+            if after < before { return t.addingTimeInterval(-1) }
+            search = t.addingTimeInterval(1)
+        }
+        fatalError("No clocks-back transition found in America/Los_Angeles")
+    }()
+
+    @Test("Fold corrector shifts the repeated hour forward and stays monotonic")
+    func foldCorrectorMapsRepeatedHourForward() {
+        var corrector = EMAYImporter.DSTFoldCorrector(timeZone: Self.foldZone)
+        let base = Self.foldBase
+
+        // Approaching the fold: 1:59:58, 1:59:59 (naive parse = physical time).
+        #expect(corrector.corrected(base) == base)
+        #expect(corrector.corrected(base.addingTimeInterval(1)) == base.addingTimeInterval(1))
+
+        // Fold: wall clock repeats the hour, so the naive parse jumps
+        // backward 3599s. Physically this row is 1s after the previous one.
+        let refolded = base.addingTimeInterval(1 - 3599)
+        #expect(corrector.corrected(refolded) == base.addingTimeInterval(2))
+
+        // Subsequent rows in the repeated hour keep parsing an hour early;
+        // the offset must keep applying.
+        let nextInFold = refolded.addingTimeInterval(1)
+        #expect(corrector.corrected(nextInFold) == base.addingTimeInterval(3))
+    }
+
+    @Test("Fold corrector drops the offset once wall clock passes the transition")
+    func foldCorrectorResetsAfterTransition() {
+        var corrector = EMAYImporter.DSTFoldCorrector(timeZone: Self.foldZone)
+        let base = Self.foldBase
+
+        // Simulated fold night, using naive-parse values as a formatter in
+        // the fold's timezone would produce them:
+        //   wall 1:59:59 (1st occurrence) → naive X        physical X
+        //   wall 1:00:00 (2nd occurrence) → naive X-3599   physical X+1
+        //   wall 1:59:59 (2nd occurrence) → naive X        physical X+3600
+        //   wall 2:00:00 (unambiguous)    → naive X+3601   physical X+3601
+        _ = corrector.corrected(base)
+        let foldStart = base.addingTimeInterval(-3599)
+        #expect(corrector.corrected(foldStart) == base.addingTimeInterval(1))
+        // Last second of the repeated hour still parses an hour early.
+        #expect(corrector.corrected(base) == base.addingTimeInterval(3600))
+
+        // At 2:00:00 the formatter is past the ambiguity and the naive parse
+        // is physically correct again — the offset must reset here, or we'd
+        // push the rest of the night an hour into the future.
+        let pastFold = base.addingTimeInterval(3601)
+        #expect(corrector.corrected(pastFold) == pastFold)
+        // And stay reset for ordinary rows after.
+        let next = pastFold.addingTimeInterval(1)
+        #expect(corrector.corrected(next) == next)
+    }
+
+    @Test("Fold corrector handles a probe-off gap spanning the transition")
+    func foldCorrectorHandlesGapAcrossFold() {
+        var corrector = EMAYImporter.DSTFoldCorrector(timeZone: Self.foldZone)
+        let base = Self.foldBase
+
+        _ = corrector.corrected(base)
+        // A gap swallowed part of the repeated hour: the next timestamp
+        // regresses only 900s, not ~3600s. Still a fold (only a backward
+        // jump can produce this in a sequential file), still +1h.
+        let afterGap = base.addingTimeInterval(-900)
+        #expect(corrector.corrected(afterGap) == base.addingTimeInterval(2700))
+    }
+
+    @Test("Fold corrector leaves duplicate and near-duplicate timestamps alone")
+    func foldCorrectorIgnoresDuplicates() {
+        var corrector = EMAYImporter.DSTFoldCorrector(timeZone: Self.foldZone)
+        let base = Self.foldBase
+
+        _ = corrector.corrected(base)
+        // Exact duplicate: not a fold — leave it for the normal dedup path.
+        #expect(corrector.corrected(base) == base)
+        // Tiny regression (clock jitter): also not a fold.
+        let jitter = base.addingTimeInterval(-2)
+        #expect(corrector.corrected(jitter) == jitter)
+    }
+
+    @Test("Fold corrector ignores backward jumps too large to be a fold")
+    func foldCorrectorIgnoresLargeBackwardJumps() {
+        var corrector = EMAYImporter.DSTFoldCorrector(timeZone: Self.foldZone)
+        let base = Self.foldBase
+
+        _ = corrector.corrected(base)
+        // A 3h regression can't be a DST fold (folds are at most 1h) — treat
+        // it as a genuine discontinuity (device clock reset) and don't touch it.
+        let clockReset = base.addingTimeInterval(-3 * 3600)
+        #expect(corrector.corrected(clockReset) == clockReset)
+    }
+
+    // With the transition cross-check, a backward wall-clock jump AWAY from
+    // any real clocks-back transition (a device-clock resync, a manual time
+    // change, or these early-May rows in any simulator timezone) must be
+    // left untouched — "correcting" it would shift every subsequent sample
+    // forward an hour, a worse corruption than the dropped-hour bug. No DST
+    // zone on Earth sets clocks back in early May, so this is deterministic.
+    @Test("Backward jump away from a DST transition is not 'corrected'")
+    func backwardJumpWithoutTransitionLeftAlone() throws {
+        let csv = """
+        Date,Time,SpO2(%),PR(bpm)
+        5/8/2026,1:59:58 AM,98,52
+        5/8/2026,1:59:59 AM,97,53
+        5/8/2026,1:00:00 AM,96,54
+        5/8/2026,1:00:01 AM,,
+        5/8/2026,1:00:02 AM,95,55
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let result = try EMAYImporter.importCSV(from: url, into: context)
+        // No wall-clock values collide, so nothing dedups away even without
+        // a correction; all 4 data rows land.
+        #expect(result.inserted == 8)
+        #expect(result.sensorGapRowCount == 1)
+
+        // The naive parses stand: the span from min to max stays ~59.9 min.
+        // A misfired +1h correction would compress it to ~4 s.
+        let timestamps = try emaySamples(in: context)
+            .filter { $0.metricType == EMAYImporter.heartRateMetricType }
+            .map(\.timestamp)
+            .sorted()
+        #expect(timestamps.count == 4)
+        let span = timestamps.last!.timeIntervalSince(timestamps.first!)
+        #expect(abs(span - 3599) < 0.001)
+    }
+
+    // Corrector-level fold coverage lives in the tests above with an
+    // injected DST-observing zone anchored at a real clocks-back
+    // transition; end-to-end import coverage of the fold itself would
+    // depend on the simulator's timezone (the importer parses in
+    // TimeZone.current), so it is deliberately not asserted here.
+
     @Test("Throws noData on header-only file")
     func headerOnly() throws {
         let csv = "Date,Time,SpO2(%),PR(bpm)\n"

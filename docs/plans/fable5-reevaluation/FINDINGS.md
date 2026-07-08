@@ -309,7 +309,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#160)
 
 ### F-007 · P1 · plausible · accuracy · cpap-oscar-import
 
@@ -541,7 +541,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P0, 3/3 verify lenses confirmed, lens votes [P2, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#160)
 
 ### F-026 · P2 · confirmed · accuracy · polar-hrv-timedomain
 
@@ -577,7 +577,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P1, 3/3 verify lenses confirmed, lens votes [P1, P2, P2].  
 
-**Disposition:** approved
+**Disposition:** fixed (#160)
 
 ### F-029 · P2 · confirmed · accuracy · server-analysis
 
@@ -729,7 +729,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#160)
 
 ### F-041 · P2 · plausible · accuracy · emay-import
 
@@ -743,7 +743,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Merged from 2 finder reports** (same root defect); all at the same anchor, independently found by dimensions: medical-accuracy.  
 
-**Disposition:** approved
+**Disposition:** fixed (#160)
 
 ### F-042 · P2 · plausible · silent-failure · prescription-ocr
 
@@ -815,7 +815,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** finder P2, 0/0 verify lenses confirmed, lens votes: none captured (verify cut off by session limit).  
 
-**Disposition:** approved
+**Disposition:** fixed (#160)
 
 ### F-048 · P2 · plausible · test-gap · trends-source-filter
 

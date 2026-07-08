@@ -8,12 +8,16 @@ struct FHIRLabResultParserTests {
     // MARK: - Helpers
 
     /// Build a minimal FHIR Observation JSON for a tracked lab test.
+    /// Pass `effectiveDateTime: nil` plus period fields to exercise the
+    /// `effectivePeriod` variant of FHIR R4 effective[x].
     private func makeFHIRJSON(
         loincCode: String = "3016-3",
         display: String = "TSH",
         value: Double = 2.5,
         unit: String = "mIU/L",
-        effectiveDateTime: String = "2025-11-15T08:30:00Z",
+        effectiveDateTime: String? = "2025-11-15T08:30:00Z",
+        effectivePeriodStart: String? = nil,
+        effectivePeriodEnd: String? = nil,
         refLow: Double? = 0.4,
         refHigh: Double? = 4.0,
         interpretation: String? = "N"
@@ -33,8 +37,17 @@ struct FHIRLabResultParserTests {
                 "value": value,
                 "unit": unit,
             ] as [String: Any],
-            "effectiveDateTime": effectiveDateTime,
         ]
+
+        if let effectiveDateTime {
+            json["effectiveDateTime"] = effectiveDateTime
+        }
+        if effectivePeriodStart != nil || effectivePeriodEnd != nil {
+            var period: [String: Any] = [:]
+            if let start = effectivePeriodStart { period["start"] = start }
+            if let end = effectivePeriodEnd { period["end"] = end }
+            json["effectivePeriod"] = period
+        }
 
         if refLow != nil || refHigh != nil {
             var range: [String: Any] = [:]
@@ -85,17 +98,99 @@ struct FHIRLabResultParserTests {
         #expect(result?.value == 28.0)
     }
 
-    @Test("Parses date-only effectiveDateTime")
-    func parsesDateOnly() {
+    @Test("Parses date-only effectiveDateTime to noon UTC")
+    func parsesDateOnly() throws {
         let data = makeFHIRJSON(effectiveDateTime: "2025-06-15")
-        let result = FHIRLabResultParser.parse(fhirJSON: data)
+        let result = try #require(FHIRLabResultParser.parse(fhirJSON: data))
 
-        #expect(result != nil)
-        let calendar = Calendar.current
-        let components = calendar.dateComponents([.year, .month, .day], from: result!.effectiveDate)
-        #expect(components.year == 2025)
-        #expect(components.month == 6)
-        #expect(components.day == 15)
+        // Date-only labs are pinned to noon UTC (not device-local midnight),
+        // so the stored instant is the same regardless of where the device
+        // was at import time. Assert the exact instant, not just the day.
+        let iso = ISO8601DateFormatter()
+        let expected = try #require(iso.date(from: "2025-06-15T12:00:00Z"))
+        #expect(abs(result.effectiveDate.timeIntervalSince(expected)) < 0.001)
+    }
+
+    @Test("Date-only lab keeps its calendar day across display timezones")
+    func dateOnlyDayStableAcrossTimezones() throws {
+        let data = makeFHIRJSON(effectiveDateTime: "2025-06-15")
+        let result = try #require(FHIRLabResultParser.parse(fhirJSON: data))
+
+        // Noon UTC renders as June 15 at any offset within ±12h — spot-check
+        // the far west and far east of the commonly inhabited range. (Local
+        // midnight, the old behavior, flipped to June 14 anywhere west of the
+        // importing device.)
+        for zoneID in ["Pacific/Pago_Pago", "America/Los_Angeles", "UTC", "Asia/Tokyo"] {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = try #require(TimeZone(identifier: zoneID))
+            let components = calendar.dateComponents([.year, .month, .day], from: result.effectiveDate)
+            #expect(components.year == 2025, "wrong year in \(zoneID)")
+            #expect(components.month == 6, "wrong month in \(zoneID)")
+            #expect(components.day == 15, "wrong day in \(zoneID)")
+        }
+    }
+
+    @Test("Full effectiveDateTime still parses to its exact instant")
+    func fullDateTimeUnchanged() throws {
+        // Guard against the date-only noon shift leaking into full datetimes.
+        let data = makeFHIRJSON(effectiveDateTime: "2025-11-15T08:30:00Z")
+        let result = try #require(FHIRLabResultParser.parse(fhirJSON: data))
+
+        let iso = ISO8601DateFormatter()
+        let expected = try #require(iso.date(from: "2025-11-15T08:30:00Z"))
+        #expect(abs(result.effectiveDate.timeIntervalSince(expected)) < 0.001)
+    }
+
+    // MARK: - effectivePeriod (FHIR R4 effective[x] variant)
+
+    @Test("Parses Observation with effectivePeriod using its start")
+    func parsesEffectivePeriodStart() throws {
+        let data = makeFHIRJSON(
+            effectiveDateTime: nil,
+            effectivePeriodStart: "2025-09-01T07:15:00Z",
+            effectivePeriodEnd: "2025-09-01T07:45:00Z"
+        )
+        let result = try #require(FHIRLabResultParser.parse(fhirJSON: data))
+
+        // The start is the specimen-collection time — the clinically
+        // meaningful date for a lab.
+        let iso = ISO8601DateFormatter()
+        let expected = try #require(iso.date(from: "2025-09-01T07:15:00Z"))
+        #expect(abs(result.effectiveDate.timeIntervalSince(expected)) < 0.001)
+        #expect(result.loincCode == "3016-3")
+    }
+
+    @Test("Falls back to effectivePeriod end when start is missing")
+    func parsesEffectivePeriodEndOnly() throws {
+        let data = makeFHIRJSON(
+            effectiveDateTime: nil,
+            effectivePeriodEnd: "2025-09-01T07:45:00Z"
+        )
+        let result = try #require(FHIRLabResultParser.parse(fhirJSON: data))
+
+        let iso = ISO8601DateFormatter()
+        let expected = try #require(iso.date(from: "2025-09-01T07:45:00Z"))
+        #expect(abs(result.effectiveDate.timeIntervalSince(expected)) < 0.001)
+    }
+
+    @Test("Date-only effectivePeriod start pins to noon UTC like effectiveDateTime")
+    func parsesDateOnlyEffectivePeriod() throws {
+        let data = makeFHIRJSON(
+            effectiveDateTime: nil,
+            effectivePeriodStart: "2025-09-01"
+        )
+        let result = try #require(FHIRLabResultParser.parse(fhirJSON: data))
+
+        let iso = ISO8601DateFormatter()
+        let expected = try #require(iso.date(from: "2025-09-01T12:00:00Z"))
+        #expect(abs(result.effectiveDate.timeIntervalSince(expected)) < 0.001)
+    }
+
+    @Test("Returns nil when neither effectiveDateTime nor effectivePeriod is present")
+    func nilForNoEffectiveVariant() {
+        let data = makeFHIRJSON(effectiveDateTime: nil)
+        let result = FHIRLabResultParser.parse(fhirJSON: data)
+        #expect(result == nil)
     }
 
     // MARK: - Missing Fields

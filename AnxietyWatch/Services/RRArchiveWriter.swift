@@ -1,5 +1,6 @@
 // AnxietyWatch/Services/RRArchiveWriter.swift
 import Foundation
+import os
 
 /// Streams per-session RR intervals to an uncompressed binary file.
 /// Format per record (10 bytes, big-endian):
@@ -21,7 +22,6 @@ nonisolated final class RRArchiveWriter: @unchecked Sendable {
     enum WriteError: Error, Equatable {
         case rrOutOfRange
         case createFileFailed
-        case truncatedArchive(byteCount: Int)
         case timestampOutOfRange
     }
 
@@ -61,7 +61,9 @@ nonisolated final class RRArchiveWriter: @unchecked Sendable {
     /// `append: true` opens an existing per-session file without truncating,
     /// used during state-restoration recovery so RR data flowing in after
     /// app relaunch lands at the end of the archive rather than rewriting
-    /// the recording from scratch.
+    /// the recording from scratch. A misaligned file (partial trailing
+    /// record from an interrupted flush) has only that partial tail
+    /// truncated — see the inline comment in the body (F-025).
     init(url: URL, append: Bool) throws {
         self.url = url
         try FileManager.default.createDirectory(
@@ -70,14 +72,26 @@ nonisolated final class RRArchiveWriter: @unchecked Sendable {
         )
         let exists = FileManager.default.fileExists(atPath: url.path)
         if append && exists {
-            // Verify the file is record-aligned; if it isn't, truncate so we
-            // don't append into a partial record and produce a misaligned
-            // archive that read() would refuse with .truncatedArchive.
             let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
             let size = (attrs[.size] as? Int) ?? 0
             if size % Self.recordSize == 0 {
                 return  // good to go; file stays as-is, FileHandle will seekToEnd in flush
             }
+            // Misaligned = a crash/jetsam interrupted flushToDisk mid-write,
+            // leaving a partial trailing record. Truncate ONLY that partial
+            // tail so subsequent appends stay record-aligned. The previous
+            // behavior recreated the file empty — silently destroying every
+            // beat recorded before the crash for a multi-hour session, the
+            // exact data recovery exists to preserve (F-025).
+            let alignedSize = size - (size % Self.recordSize)
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.truncate(atOffset: UInt64(alignedSize))
+            Log.data.warning("""
+                RR archive at \(url.lastPathComponent, privacy: .public) was misaligned \
+                (\(size) bytes); truncated partial trailing record to \(alignedSize) bytes
+                """)
+            return
         }
         guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
             throw WriteError.createFileFailed
@@ -127,22 +141,25 @@ nonisolated final class RRArchiveWriter: @unchecked Sendable {
     }
 
     /// Count the records in an existing archive file. Returns 0 if the file
-    /// doesn't exist or its byte count isn't an exact multiple of the
-    /// record size — both indistinguishable from "nothing usable here"
-    /// from the caller's perspective.
-    ///
-    /// Pairs with `init(url:append:true)`'s alignment behavior: that
-    /// initializer truncates an unaligned file before appending, so any
-    /// caller that wants a count consistent with what the writer will
-    /// actually preserve should use this helper rather than dividing the
-    /// raw byte count by `recordSize`.
+    /// doesn't exist. A misaligned file (partial trailing record from an
+    /// interrupted write) counts its aligned prefix — matching what
+    /// `read(url:)` salvages and what `init(url:append:true)` preserves
+    /// after truncating the partial tail (F-025).
     static func recordCount(url: URL) -> Int {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = attrs[.size] as? Int else {
             return 0
         }
-        guard size % recordSize == 0 else { return 0 }
-        return size / recordSize
+        return size / recordSize  // integer division floors away a partial tail
+    }
+
+    /// The record-aligned prefix of raw archive bytes — drops a partial
+    /// trailing record left by an interrupted write. Used by the sync
+    /// uploader so the server never stores a misaligned archive even for
+    /// sessions whose file is never reopened by a writer (F-025).
+    static func alignedPrefix(of data: Data) -> Data {
+        let alignedCount = data.count - (data.count % recordSize)
+        return alignedCount == data.count ? data : data.prefix(alignedCount)
     }
 
     /// Count only the archive records whose RR value passes the shared
@@ -162,12 +179,21 @@ nonisolated final class RRArchiveWriter: @unchecked Sendable {
     }
 
     static func read(url: URL) throws -> [RRIntervalSample] {
-        let raw = try Data(contentsOf: url)
-        guard raw.count % Self.recordSize == 0 else {
-            // Trailing partial record: signal truncation/corruption rather than
-            // silently dropping the last bytes. Phase 3 sync will be able to
-            // surface this so the upload doesn't ship a corrupt archive.
-            throw WriteError.truncatedArchive(byteCount: raw.count)
+        var raw = try Data(contentsOf: url)
+        if raw.count % Self.recordSize != 0 {
+            // Trailing partial record from an interrupted write. Salvage the
+            // aligned prefix (hours of intact per-beat data) rather than
+            // refusing the whole file: every caller treated the old
+            // .truncatedArchive throw as "no archive" (`try? … ?? []`),
+            // discarding the intact portion along with the corrupt tail —
+            // the HR detail chart and recovery silently lost the whole
+            // night for one partial record (F-025).
+            let alignedCount = raw.count - (raw.count % Self.recordSize)
+            Log.data.warning("""
+                RR archive at \(url.lastPathComponent, privacy: .public) has a partial \
+                trailing record (\(raw.count) bytes); reading aligned prefix of \(alignedCount) bytes
+                """)
+            raw = raw.prefix(alignedCount)
         }
         let count = raw.count / Self.recordSize
         var out: [RRIntervalSample] = []

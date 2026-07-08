@@ -16,6 +16,34 @@ struct SnapshotAggregator {
     /// aggregator's convention.
     static let overnightOffsetHours = 12
 
+    /// The calendar days whose snapshots can be affected by samples in
+    /// `range` — one `aggregateDay` call per returned day. Walks
+    /// `startOfDay(lowerBound)` through `startOfDay(upperBound) + 1 day`:
+    /// the extra trailing day matters because `aggregateDay(D)`'s overnight
+    /// window is `[noon D-1, noon D)`, so a sample recorded in the EVENING
+    /// of day D lands in day D+1's snapshot. Import backfill loops that
+    /// stepped raw timestamps by 24 h missed exactly that morning-after day
+    /// for overnight EMAY files (bedtime 22:30 → dateRange upper 06:15 next
+    /// day: one iteration at 22:30, then 22:30+1d > 06:15, loop over —
+    /// the only day whose window held the samples never aggregated).
+    /// `aggregateDay` is an idempotent upsert, so the extra day is harmless
+    /// for day-aligned (CPAP) ranges.
+    static func backfillDays(covering range: ClosedRange<Date>) -> [Date] {
+        let calendar = Calendar.current
+        let first = calendar.startOfDay(for: range.lowerBound)
+        guard let end = calendar.date(
+            byAdding: .day, value: 1, to: calendar.startOfDay(for: range.upperBound)
+        ) else { return [first] }
+        var days: [Date] = []
+        var date = first
+        while date <= end {
+            days.append(date)
+            guard let next = calendar.date(byAdding: .day, value: 1, to: date) else { break }
+            date = next
+        }
+        return days
+    }
+
     /// Minimum SpO₂ sample count to compute T90 / desat stats. Below this we
     /// treat the data as spot-reading only (e.g., Apple Watch periodic checks)
     /// and emit nil rather than a misleading "good night" zero.

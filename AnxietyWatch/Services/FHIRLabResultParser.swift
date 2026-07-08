@@ -40,8 +40,7 @@ enum FHIRLabResultParser {
         }
 
         // Parse the effective date
-        guard let dateString = observation.effectiveDateTime,
-              let effectiveDate = parseDate(dateString) else {
+        guard let effectiveDate = effectiveDate(of: observation) else {
             return nil
         }
 
@@ -70,6 +69,28 @@ enum FHIRLabResultParser {
 
     // MARK: - Date Parsing
 
+    /// FHIR R4 `effective[x]` is a choice type: EHRs may emit either
+    /// `effectiveDateTime` or `effectivePeriod` (a start/end window, common
+    /// for collected-specimen labs). Accept both — requiring only
+    /// `effectiveDateTime` silently dropped every Period-emitting EHR's labs.
+    /// For a Period, the start is the clinically meaningful collection time;
+    /// fall back to end when start is absent (Period requires at least one).
+    private static func effectiveDate(of observation: FHIRObservation) -> Date? {
+        if let dateString = observation.effectiveDateTime,
+           let date = parseDate(dateString) {
+            return date
+        }
+        if let period = observation.effectivePeriod {
+            if let start = period.start, let date = parseDate(start) {
+                return date
+            }
+            if let end = period.end, let date = parseDate(end) {
+                return date
+            }
+        }
+        return nil
+    }
+
     private static let isoFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -86,13 +107,33 @@ enum FHIRLabResultParser {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         f.locale = Locale(identifier: "en_US_POSIX")
+        // Pin to UTC so the parsed instant is independent of the device
+        // timezone at import time (previously: local midnight, which made
+        // the stored instant — and thus the displayed day — depend on where
+        // the device happened to be when the record was imported).
+        f.timeZone = TimeZone(identifier: "UTC")
         return f
     }()
 
+    /// Seconds to shift a date-only parse from midnight UTC to noon UTC.
+    private static let noonUTCOffset: TimeInterval = 12 * 3600
+
     private static func parseDate(_ string: String) -> Date? {
-        isoFormatter.date(from: string)
-            ?? isoFormatterNoFraction.date(from: string)
-            ?? dateOnlyFormatter.date(from: string)
+        if let dateTime = isoFormatter.date(from: string)
+            ?? isoFormatterNoFraction.date(from: string) {
+            return dateTime
+        }
+        // Date-only lab dates carry no time-of-day, but we must store an
+        // instant. Anchor to *noon* UTC: noon is maximally distant from both
+        // midnights, so the instant renders as the same calendar day at any
+        // UTC offset in [-12h, +11h] — every offset except the UTC+12..+14
+        // sliver (Line Islands/Tonga/Chatham), where the day rolls forward
+        // one; acceptable for this app's US/Pacific deployment. A later
+        // device-timezone change can no longer shift the lab's displayed
+        // day. Midnight UTC would flip to the previous day anywhere west
+        // of Greenwich.
+        return dateOnlyFormatter.date(from: string)
+            .map { $0.addingTimeInterval(noonUTCOffset) }
     }
 
     // MARK: - FHIR R4 Codable Structs (minimal)
@@ -102,8 +143,15 @@ enum FHIRLabResultParser {
         let code: FHIRCodeableConcept?
         let valueQuantity: FHIRQuantity?
         let effectiveDateTime: String?
+        let effectivePeriod: FHIRPeriod?
         let referenceRange: [FHIRReferenceRange]?
         let interpretation: [FHIRCodeableConcept]?
+    }
+
+    /// FHIR R4 Period: at least one of start/end is present per the spec.
+    struct FHIRPeriod: Codable {
+        let start: String?
+        let end: String?
     }
 
     struct FHIRCodeableConcept: Codable {

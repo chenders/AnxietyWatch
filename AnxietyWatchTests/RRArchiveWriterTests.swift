@@ -81,16 +81,77 @@ struct RRArchiveWriterTests {
         #expect(size == 300_000)
     }
 
-    @Test("read throws when the file's byte count isn't an exact multiple of the record size")
-    func readDetectsTruncation() throws {
+    // F-025: a partial trailing record (interrupted flush) must not discard
+    // the intact aligned prefix — throwing here made every caller treat the
+    // whole night's archive as "no archive".
+    @Test("read salvages the aligned prefix of a file with a partial trailing record")
+    func readSalvagesAlignedPrefix() throws {
         let url = tempURL()
         defer { try? FileManager.default.removeItem(at: url) }
-        // Write 15 bytes — 1 full record (10) + 5 trailing bytes.
-        try Data(repeating: 0xAB, count: 15).write(to: url)
 
-        #expect(throws: RRArchiveWriter.WriteError.truncatedArchive(byteCount: 15)) {
-            _ = try RRArchiveWriter.read(url: url)
+        // Write 3 real records, then simulate an interrupted flush by
+        // appending 5 junk bytes (half a record).
+        let writer = try RRArchiveWriter(url: url)
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        for i in 0..<3 {
+            try writer.append(RRIntervalSample(timestamp: t0.addingTimeInterval(Double(i)), rrMs: Double(800 + i)))
         }
+        try writer.finalize()
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(repeating: 0xAB, count: 5))
+        try handle.close()
+
+        let read = try RRArchiveWriter.read(url: url)
+        #expect(read.count == 3)
+        #expect(read.map(\.rrMs) == [800, 801, 802])
+    }
+
+    @Test("append=true over a zero-byte existing file starts cleanly")
+    func appendToZeroByteFile() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data().write(to: url)
+
+        let writer = try RRArchiveWriter(url: url, append: true)
+        try writer.append(RRIntervalSample(timestamp: Date(timeIntervalSince1970: 1_700_000_000), rrMs: 800))
+        try writer.finalize()
+
+        #expect(try RRArchiveWriter.read(url: url).count == 1)
+    }
+
+    @Test("append=true over a file smaller than one record truncates to empty, then appends")
+    func appendToSubRecordFile() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        // 4 junk bytes — less than one 10-byte record; the aligned prefix is 0.
+        try Data(repeating: 0xAB, count: 4).write(to: url)
+
+        let writer = try RRArchiveWriter(url: url, append: true)
+        try writer.append(RRIntervalSample(timestamp: Date(timeIntervalSince1970: 1_700_000_000), rrMs: 800))
+        try writer.finalize()
+
+        let read = try RRArchiveWriter.read(url: url)
+        #expect(read.count == 1)
+        #expect(read.first?.rrMs == 800)
+    }
+
+    @Test("recordCount counts the aligned prefix of a misaligned file")
+    func recordCountCountsAlignedPrefix() throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        // 2 full records + half a record of junk.
+        try Data(repeating: 0xAB, count: 25).write(to: url)
+        #expect(RRArchiveWriter.recordCount(url: url) == 2)
+    }
+
+    @Test("alignedPrefix drops only the partial trailing record bytes")
+    func alignedPrefixTrimsPartialTail() {
+        let misaligned = Data(repeating: 0xCD, count: 25)
+        #expect(RRArchiveWriter.alignedPrefix(of: misaligned).count == 20)
+        let aligned = Data(repeating: 0xCD, count: 20)
+        #expect(RRArchiveWriter.alignedPrefix(of: aligned).count == 20)
+        #expect(RRArchiveWriter.alignedPrefix(of: Data()).isEmpty)
     }
 
     @Test("init throws when the file cannot be created at an invalid path")
@@ -144,25 +205,34 @@ struct RRArchiveWriterTests {
         #expect(read.map(\.rrMs) == [800, 801, 802, 803, 804, 805, 806, 807])
     }
 
-    @Test("append=true truncates when existing file isn't record-aligned")
-    func appendTruncatesUnalignedFile() throws {
+    // F-025: append-mode used to recreate a misaligned file EMPTY, silently
+    // destroying every beat recorded before the crash that misaligned it.
+    // It must truncate only the partial trailing record and keep the rest.
+    @Test("append=true keeps the aligned prefix when existing file isn't record-aligned")
+    func appendKeepsAlignedPrefixOfUnalignedFile() throws {
         let url = tempURL()
         defer { try? FileManager.default.removeItem(at: url) }
 
-        // Write 15 bytes — 1 complete record (10) + 5 trailing junk bytes.
-        try Data(repeating: 0xAB, count: 15).write(to: url)
+        // 4 real records, then 5 junk bytes simulating an interrupted flush.
+        let writer1 = try RRArchiveWriter(url: url)
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        for i in 0..<4 {
+            try writer1.append(RRIntervalSample(timestamp: t0.addingTimeInterval(Double(i)), rrMs: Double(800 + i)))
+        }
+        try writer1.finalize()
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(repeating: 0xAB, count: 5))
+        try handle.close()
 
-        // Append-mode should treat this as corrupt and start fresh.
-        let writer = try RRArchiveWriter(url: url, append: true)
-        try writer.append(RRIntervalSample(
-            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
-            rrMs: 800
-        ))
-        try writer.finalize()
+        // Append-mode repairs the tail and appends after the intact records.
+        let writer2 = try RRArchiveWriter(url: url, append: true)
+        try writer2.append(RRIntervalSample(timestamp: t0.addingTimeInterval(10), rrMs: 900))
+        try writer2.finalize()
 
         let read = try RRArchiveWriter.read(url: url)
-        #expect(read.count == 1)
-        #expect(read.first?.rrMs == 800)
+        #expect(read.count == 5)
+        #expect(read.map(\.rrMs) == [800, 801, 802, 803, 900])
     }
 
     @Test("non-finite or pre-1970 timestamps throw rather than trapping")

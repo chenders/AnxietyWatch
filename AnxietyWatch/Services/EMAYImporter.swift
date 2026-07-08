@@ -55,6 +55,108 @@ nonisolated enum EMAYImporter {
     static let spo2MetricType = "HKQuantityTypeIdentifierOxygenSaturation"
     static let heartRateMetricType = "HKQuantityTypeIdentifierHeartRate"
 
+    // MARK: - DST fold correction
+
+    /// Restores physical-time monotonicity across a fall-back DST transition.
+    ///
+    /// EMAY CSVs record device-local wall-clock strings with no UTC offset. On
+    /// the one night per year the local 1:00–2:00 AM hour repeats (the DST
+    /// "fold"), `DateFormatter` maps both wall-clock occurrences to the same
+    /// `Date`, so every sample from the second physical hour would collide
+    /// with the first hour's `(timestamp, metricType)` dedup key and be
+    /// silently dropped — an hour of real oximetry lost with no error.
+    ///
+    /// Because EMAY exports are strictly sequential (one row per second), a
+    /// *backward* wall-clock jump is the unambiguous signature of the fold:
+    /// feed timestamps in file order and, when one parses earlier than its
+    /// predecessor by more than a few seconds (but no more than 2 hours —
+    /// larger jumps are treated as genuine discontinuities such as a device
+    /// clock reset, not a fold), add one hour so the repeated hour lands on
+    /// its true physical instants. The offset keeps applying to subsequent
+    /// rows (they keep parsing an hour early until wall clock passes the
+    /// transition) and drops automatically once the naive parse catches back
+    /// up to the corrected timeline.
+    ///
+    /// Assumptions (documented so future edits don't misapply this):
+    /// - Rows are in recording order. A genuinely out-of-order row whose
+    ///   timestamp regresses by between ~5s and 2h is NOT misread as a fold
+    ///   unless it also brackets a real clocks-back DST transition in the
+    ///   parse timezone — the transition cross-check below is what separates
+    ///   the fold from a device-clock resync or a manual time change, whose
+    ///   "correction" would silently shift the rest of the night's
+    ///   timestamps forward an hour (worse than the dropped-hour bug this
+    ///   fixes).
+    /// - All real-world DST folds are 1 hour (the 30-minute Lord Howe fold
+    ///   would be under-corrected, but timestamps stay monotonic and no
+    ///   samples are dropped, which is the invariant that matters here).
+    /// - Duplicate consecutive timestamps (backward jump of 0) are left for
+    ///   the normal dedup path, as before.
+    struct DSTFoldCorrector {
+        /// Backward jumps at or below this are noise or duplicated rows, not a fold.
+        static let minimumBackwardJump: TimeInterval = 5
+        /// Backward jumps beyond this can't be a DST fold (folds are at most 1h);
+        /// treat them as a real discontinuity and leave the parse untouched.
+        static let maximumBackwardJump: TimeInterval = 2 * 3600
+        /// Every real-world DST fold repeats exactly one hour.
+        static let foldDuration: TimeInterval = 3600
+
+        private var offset: TimeInterval = 0
+        private var previousCorrected: Date?
+        /// The zone the naive parse ran in — the fold cross-check consults
+        /// its real DST transition table. Injectable so tests can pin a
+        /// DST-observing zone regardless of the simulator's setting.
+        private let timeZone: TimeZone
+
+        init(timeZone: TimeZone = .current) {
+            self.timeZone = timeZone
+        }
+
+        /// Feed naively parsed timestamps in file order; returns the
+        /// fold-corrected physical timestamp.
+        mutating func corrected(_ parsed: Date) -> Date {
+            guard let previous = previousCorrected else {
+                previousCorrected = parsed
+                return parsed
+            }
+            // Once the naive parse catches back up to the corrected timeline,
+            // wall clock has passed the ambiguous hour and the formatter is
+            // correct again — stop compensating.
+            if offset > 0 && parsed >= previous {
+                offset = 0
+            }
+            var candidate = parsed.addingTimeInterval(offset)
+            let delta = candidate.timeIntervalSince(previous)
+            if delta < -Self.minimumBackwardJump,
+               delta >= -Self.maximumBackwardJump,
+               clocksFellBackNear(previous) {
+                offset += Self.foldDuration
+                candidate = parsed.addingTimeInterval(offset)
+            }
+            previousCorrected = candidate
+            return candidate
+        }
+
+        /// True only when the parse timezone actually sets clocks BACK within
+        /// ±2h of `instant`. A genuine fold always passes (the backward jump
+        /// IS the transition, and samples arrive at 1 Hz, so the transition
+        /// physically sits within seconds of it); a device-clock resync or a
+        /// manually adjusted time regresses the wall clock with no transition
+        /// anywhere near and is left untouched.
+        private func clocksFellBackNear(_ instant: Date) -> Bool {
+            let searchStart = instant.addingTimeInterval(-Self.maximumBackwardJump)
+            guard let transition = timeZone.nextDaylightSavingTimeTransition(after: searchStart),
+                  transition <= instant.addingTimeInterval(Self.maximumBackwardJump) else {
+                return false
+            }
+            // Clocks-back only: the GMT offset decreases across the
+            // transition (spring-forward transitions increase it and can't
+            // produce a repeated hour).
+            let before = timeZone.secondsFromGMT(for: transition.addingTimeInterval(-1))
+            let after = timeZone.secondsFromGMT(for: transition)
+            return after < before
+        }
+    }
+
     static func importCSV(from url: URL, into context: ModelContext) throws -> ImportResult {
         let isSecurityScoped = url.startAccessingSecurityScopedResource()
         defer { if isSecurityScoped { url.stopAccessingSecurityScopedResource() } }
@@ -94,6 +196,10 @@ nonisolated enum EMAYImporter {
         parsed.reserveCapacity(lines.count)
         var minDate: Date?
         var maxDate: Date?
+        // Sequentially restores physical time across a fall-back DST fold —
+        // without it, the repeated 1-2 AM hour collides in dedup and an hour
+        // of real samples silently vanishes. See DSTFoldCorrector.
+        var foldCorrector = DSTFoldCorrector()
 
         for (index, line) in lines.enumerated() {
             // Header is Row 1; first data line is Row 2.
@@ -103,12 +209,28 @@ nonisolated enum EMAYImporter {
 
             switch parseRow(fields, using: formatter) {
             case .parsed(let row):
-                if minDate == nil || row.timestamp < minDate! { minDate = row.timestamp }
-                if maxDate == nil || row.timestamp > maxDate! { maxDate = row.timestamp }
-                parsed.append(row)
-            case .sensorGap:
+                let timestamp = foldCorrector.corrected(row.timestamp)
+                let correctedRow = ParsedEMAYRow(
+                    timestamp: timestamp,
+                    spo2Fraction: row.spo2Fraction,
+                    pulseBPM: row.pulseBPM
+                )
+                if minDate == nil || timestamp < minDate! { minDate = timestamp }
+                if maxDate == nil || timestamp > maxDate! { maxDate = timestamp }
+                parsed.append(correctedRow)
+            case .sensorGap(let timestamp):
+                // Gap rows aren't stored, but they still carry 1 Hz timestamps:
+                // feeding them keeps the fold detector working even when the
+                // DST transition falls inside a probe-off stretch.
+                _ = foldCorrector.corrected(timestamp)
                 sensorGapCount += 1
-            case .skip(let reason):
+            case .skip(let reason, let timestamp):
+                // Feed timestamped skips too, matching the sensorGap
+                // treatment, so a fold inside a malformed-value burst is
+                // still detected in sequence.
+                if let timestamp {
+                    _ = foldCorrector.corrected(timestamp)
+                }
                 tracker.record(row: rowNumber, reason: reason)
             }
         }
@@ -187,8 +309,14 @@ nonisolated enum EMAYImporter {
         /// those rows both SpO2 and PR fields are blank. The device's own
         /// report excludes these from clinical stats — we drop them silently
         /// (separately counted) rather than reporting them as parse errors.
-        case sensorGap
-        case skip(reason: String)
+        /// The timestamp is carried so DST fold detection stays continuous
+        /// across probe-off stretches.
+        case sensorGap(timestamp: Date)
+        /// `timestamp` is non-nil when the row's date/time parsed but a value
+        /// field didn't — carried so the DST fold detector's sequential feed
+        /// stays continuous across malformed-value rows, matching the
+        /// sensorGap treatment.
+        case skip(reason: String, timestamp: Date? = nil)
     }
 
     private static func parseRow(_ fields: [String], using formatter: DateFormatter) -> ParseOutcome {
@@ -200,13 +328,13 @@ nonisolated enum EMAYImporter {
             return .skip(reason: "invalid date/time '\(combined)'")
         }
         if fields[2].isEmpty && fields[3].isEmpty {
-            return .sensorGap
+            return .sensorGap(timestamp: timestamp)
         }
         guard let spo2Pct = Double(fields[2]) else {
-            return .skip(reason: "invalid SpO2 '\(fields[2])'")
+            return .skip(reason: "invalid SpO2 '\(fields[2])'", timestamp: timestamp)
         }
         guard let pulse = Double(fields[3]) else {
-            return .skip(reason: "invalid pulse rate '\(fields[3])'")
+            return .skip(reason: "invalid pulse rate '\(fields[3])'", timestamp: timestamp)
         }
         // EMAY reports 0 for "no reading" gaps. Drop those rather than store
         // physiologically impossible zeros.

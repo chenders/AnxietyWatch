@@ -32,6 +32,51 @@ struct CSVImportRouterTests {
         #expect(result.updated == 0)
     }
 
+    // F-006: EMAY imports must trigger the snapshot backfill just like CPAP
+    // imports — an EMAY night whose day already has a HealthSnapshot is
+    // otherwise never re-aggregated (fillGaps only fills missing days), so
+    // the imported oximeter data silently never reached spo2Avg/nadir/T90.
+    @Test("Import batch produces a snapshot-backfill range for EMAY files")
+    func emayImportProducesBackfillRange() throws {
+        let csv = """
+        Date,Time,SpO2(%),PR(bpm)
+        5/8/2026,4:46:58 PM,98,52
+        5/8/2026,4:46:59 PM,97,53
+        """
+        let url = try writeTempCSV(csv)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let container = try TestHelpers.makeFullContainer()
+        let outcome = AnxietyWatchApp.runImports(urls: [url], in: container)
+
+        #expect(outcome.errors.isEmpty)
+        #expect(outcome.snapshotBackfillRange != nil)
+    }
+
+    @Test("Import batch unions CPAP and EMAY ranges into one backfill range")
+    func mixedImportUnionsBackfillRange() throws {
+        let emay = try writeTempCSV("""
+        Date,Time,SpO2(%),PR(bpm)
+        5/8/2026,11:46:58 PM,98,52
+        """)
+        let cpap = try writeTempCSV("""
+        date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea
+        2026-03-20,2.5,420,18.3,6.0,12.0,9.5,3,1,2
+        """)
+        defer {
+            try? FileManager.default.removeItem(at: emay)
+            try? FileManager.default.removeItem(at: cpap)
+        }
+
+        let container = try TestHelpers.makeFullContainer()
+        let outcome = AnxietyWatchApp.runImports(urls: [emay, cpap], in: container)
+
+        let range = try #require(outcome.snapshotBackfillRange)
+        // Union spans from the CPAP date (March) through the EMAY date (May).
+        let spanDays = range.upperBound.timeIntervalSince(range.lowerBound) / 86_400
+        #expect(spanDays > 30)
+    }
+
     @Test("Routes simple CPAP header to CPAP importer")
     func routesCPAPSimple() throws {
         let csv = """
