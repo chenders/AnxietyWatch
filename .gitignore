@@ -23,6 +23,7 @@ xcuserdata/
 
 # AI / local tooling
 .claude/settings.local.json
+.claude/pii-denylist.local.txt
 .claude/worktrees/
 .serena/
 .superpowers/

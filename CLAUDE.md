@@ -15,7 +15,7 @@
 - **Doctor/provider names:** Use `Jane Smith MD`, `Dr. Test Provider`. Never use real names.
 - **Addresses:** Use `100 Example Blvd, Anytown, ST 00000`. Never use real addresses.
 - **Phone numbers:** Use `555-0100` through `555-0199` (reserved fictional range).
-- **Device names:** Use `Test iPhone`, `Test Apple Watch`. Never `the paired iPhone` or any personalized name.
+- **Device names:** Use `Test iPhone`, `Test Apple Watch`. Never a real personalized name (`Sam's iPhone`-style) or device nickname.
 - **Pharmacy store numbers:** Use `#12345`. Never a real store identifier.
 - **Insurance/claim data:** Use `TESTPLAN`, `0000000000`. Never real claim numbers.
 - **Medication names in test data are OK** (e.g., "Clonazepam 1mg") — these are public drug names, not personal info.
@@ -185,7 +185,7 @@ AnxietyWatch/
 │       ├── flake8-edited.py             # Runs flake8 on edited server/*.py files
 │       ├── voiceover-consistency-edited.py  # Flags a11y pitfalls in Swift
 │       ├── medication-name-drift-warn.py    # Warns on medication name literal drift
-│       ├── block-pii-in-fixtures.py     # Blocks PII in test fixtures (PreToolUse)
+│       ├── block-pii-in-fixtures.py     # Blocks PII in fixtures + denylisted terms everywhere (PreToolUse)
 │       └── pre-pr-reviewer-reminder.py  # Nudges pre-PR review before git push
 ├── .semgrep/
 │   └── swift-pitfalls.yml               # Project-specific static-analysis rules
@@ -247,7 +247,7 @@ In addition to the existing `swiftlint-edited.py` (Swift PostToolUse) and `pre-p
 
 - **`flake8-edited.py`** (PostToolUse, Python in `server/`) — mirror of swiftlint-edited.py. Runs `flake8` on every edited `*.py` and surfaces violations in-loop.
 - **`voiceover-consistency-edited.py`** (PostToolUse, Swift in production targets) — flags four CLAUDE.md accessibility pitfalls deterministically: `Int(x)` near `%.0f` format strings, `Button` inside `NavigationLink` label, `.accessibilityElement(children: .combine)` on container with interactive children, slashes in accessibility labels.
-- **`block-pii-in-fixtures.py`** (PreToolUse, Write/Edit/MultiEdit in test paths) — **blocks** writes that introduce real-looking PII (phone numbers outside the 555-01XX fictional range, personalized device names like "X's iPhone", non-fictional addresses, Rx numbers outside the documented patterns). Reduces the risk of a repeat of the prior history-rewrite incidents documented in the Sensitive Data Rules section above.
+- **`block-pii-in-fixtures.py`** (PreToolUse, Write/Edit/MultiEdit) — **blocks** writes that introduce real-looking PII. Two layers: (1) fixture-scoped heuristics in test paths (phone numbers outside the 555-01XX fictional range, personalized device names like "X's iPhone", non-fictional addresses, Rx numbers outside the documented patterns, emails outside example domains); (2) a personal denylist check on **every** path, driven by the gitignored `.claude/pii-denylist.local.txt` (one real term per line — the public repo never contains the strings it guards against; matches are reported masked). Reduces the risk of a repeat of the prior history-rewrite incidents documented in the Sensitive Data Rules section above.
 - **`medication-name-drift-warn.py`** (PostToolUse, Swift/Python) — warns when a `medication_name` string literal in code doesn't match the canonical names declared in `AnxietyWatch/Models/MedicationDefinition.swift`. Prevents new instances of the `clonazePAM` vs `Clonazepam 1mg Tablets` drift documented in the production sync DB.
 
 ### Static analysis: Semgrep

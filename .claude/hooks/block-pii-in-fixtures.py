@@ -15,12 +15,20 @@ What it flags:
 
 - Phone numbers that look real (outside the 555-0100..555-0199 fictional range)
 - Addresses not containing 'Example' or 'Anytown' suggesting a real street
-- Device names like "the paired iPhone" / "X's Apple Watch" / "Y's iPad"
+- Personalized device names like "Sam's iPhone" / "X's Apple Watch" / "Y's iPad"
 - Pharmacy store numbers other than the fixture #12345
 - Rx numbers that don't match the documented fictional patterns (9999999-*, 7654321)
-- Email addresses other than test@example.com / @groundeffectsoftware.com placeholders
+- Email addresses outside the allowed example domains (example.com/org/net,
+  users.noreply.github.com)
 - Real doctor names — heuristic: "Dr. <FirstName> <LastName>" or "<Last>, MD"
   outside an allowlist of explicit fictional names
+
+In addition to the fixture-scoped checks above, a personal denylist check runs on
+EVERY Write/Edit regardless of path: `.claude/pii-denylist.local.txt` (gitignored,
+one term per line, '#' comments) holds the owner's real PII strings — names,
+emails, device nicknames — that must never appear anywhere in the repo. The file
+is local-only so the public repo never contains the strings it is guarding
+against; matches are reported masked for the same reason.
 
 The hook is opinionated: it BLOCKS the write (returns exit 2 with the finding
 listed on stderr). The model then has to revise the fixture to use the
@@ -51,6 +59,73 @@ FICTIONAL_RX_PATTERNS = (
     re.compile(r"^7654321$"),
 )
 FICTIONAL_STORE = "#12345"
+
+DENYLIST_FILENAME = "pii-denylist.local.txt"
+
+ALLOWED_EMAIL_DOMAINS = (
+    "example.com",
+    "example.org",
+    "example.net",
+    "users.noreply.github.com",
+)
+# Subdomains are fine for the RFC 2606 example domains (e.g. mail.example.org).
+SUBDOMAIN_ALLOWED_SUFFIXES = tuple(
+    f".{d}" for d in ("example.com", "example.org", "example.net")
+)
+
+
+def denylist_path() -> str:
+    """The gitignored local denylist lives next to the hooks dir: .claude/pii-denylist.local.txt."""
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR")
+    if project_dir:
+        return os.path.join(project_dir, ".claude", DENYLIST_FILENAME)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", DENYLIST_FILENAME)
+
+
+def load_denylist() -> list[str]:
+    try:
+        with open(denylist_path(), encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return []
+    terms: list[str] = []
+    for line in lines:
+        term = line.strip()
+        if term and not term.startswith("#"):
+            terms.append(term)
+    return terms
+
+
+def find_denylisted_terms(content: str) -> list[str]:
+    """Case-insensitive substring match against the local denylist.
+
+    Matches are reported MASKED (first character + length) so the real string
+    never lands in hook output or session transcripts."""
+    findings: list[str] = []
+    lowered = content.lower()
+    for term in load_denylist():
+        if term.lower() in lowered:
+            masked = f"{term[0]}…({len(term)} chars)"
+            findings.append(
+                f"Denylisted personal term '{masked}' from .claude/{DENYLIST_FILENAME} — "
+                f"this string must never appear in the repo."
+            )
+    return findings
+
+
+def find_disallowed_emails(content: str) -> list[str]:
+    """Email addresses outside the allowed example domains."""
+    findings: list[str] = []
+    pattern = re.compile(r"\b[\w.+-]+@([\w-]+(?:\.[\w-]+)+)\b")
+    for m in pattern.finditer(content):
+        domain = m.group(1).lower()
+        if domain in ALLOWED_EMAIL_DOMAINS or domain.endswith(SUBDOMAIN_ALLOWED_SUFFIXES):
+            continue
+        findings.append(
+            f"Email address with domain '{domain}' — use an example.com/org/net "
+            f"placeholder (e.g. test@example.com)."
+        )
+    return findings
 
 
 def is_in_scope(file_path: str) -> bool:
@@ -106,7 +181,7 @@ def find_real_rx_numbers(content: str) -> list[str]:
 
 
 def find_personalized_device_names(content: str) -> list[str]:
-    """Device names like "the paired iPhone" — never commit a real one."""
+    """Personalized device names like "Sam's iPhone" — never commit a real one."""
     findings: list[str] = []
     pattern = re.compile(r"\b([A-Z][a-z]+)['’]s\s+(iPhone|iPad|Apple\s+Watch|Mac|MacBook)")
     for m in pattern.finditer(content):
@@ -178,6 +253,7 @@ def find_findings(content: str) -> list[str]:
     findings.extend(find_non_fictional_addresses(content))
     findings.extend(find_real_doctor_names(content))
     findings.extend(find_non_fictional_store_numbers(content))
+    findings.extend(find_disallowed_emails(content))
     # Deduplicate while preserving order
     seen: set[str] = set()
     deduped: list[str] = []
@@ -224,14 +300,20 @@ def main() -> int:
     if not isinstance(tool_input, dict):
         return 0
     file_path = tool_input.get("file_path")
-    if not isinstance(file_path, str) or not is_in_scope(file_path):
+    if not isinstance(file_path, str):
+        return 0
+    # Never scan the denylist file itself — writing it would otherwise self-block.
+    if os.path.basename(file_path) == DENYLIST_FILENAME:
         return 0
 
     content = extract_content(tool_input, tool_name)
     if not content:
         return 0
 
-    findings = find_findings(content)
+    # Personal denylist applies to EVERY path; fixture heuristics only in scope.
+    findings = find_denylisted_terms(content)
+    if is_in_scope(file_path):
+        findings.extend(find_findings(content))
     if not findings:
         return 0
 
@@ -241,7 +323,7 @@ def main() -> int:
         rel_path = file_path[len(project_dir):].lstrip("/")
 
     print(
-        f"Possible PII in test fixture {rel_path} — blocking write. This is a public "
+        f"Possible PII in {rel_path} — blocking write. This is a public "
         f"repository; per CLAUDE.md 'Public Repository — Sensitive Data Rules', use "
         f"only documented fictional values.",
         file=sys.stderr,

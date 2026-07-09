@@ -4,7 +4,7 @@
 
 Chris upgraded from Apple Watch Series 8 to Apple Watch Ultra 3 on 2026-04-20. The Ultra 3's 42-hour battery, S10 chip, dual-frequency GPS, and watchOS 26 APIs unlock a class of features that were impractical on Series 8. This spec defines the full scope of Ultra 3-specific enhancements to AnxietyWatch.
 
-**Paired iPhone:** iPhone 14 ("Test Apple Watch") — does NOT support Apple Intelligence / FoundationModels framework. All LLM work goes through the existing server-side Claude API integration.
+**Paired iPhone:** iPhone 14 — does NOT support Apple Intelligence / FoundationModels framework. All LLM work goes through the existing server-side Claude API integration.
 
 **Approach:** Two parallel implementation tracks that converge once sufficient labeled data accumulates for ML features.
 
