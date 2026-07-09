@@ -54,7 +54,8 @@ struct HFPowerTrendChart: View {
     let entries: [AnxietyEntry]
     let dateRange: ClosedRange<Date>
     /// Right edge of the *unpadded* window. `dateRange.upperBound` carries
-    /// a +12h padding for chart axis breathing room — using that for the
+    /// axis-breathing-room padding (fixed 12h for the multi-day presets,
+    /// proportional 5% for the 1D/custom windows) — using that for the
     /// baseline cutoff would exclude legitimate late-evening sessions on
     /// the last day of a past period.
     let baselineAnchor: Date

@@ -25,6 +25,13 @@ struct TrendsView: View {
     @State private var timeRange: TimeRange = .week
     /// 0 = current period (ending now), -1 = previous period, etc.
     @State private var pageOffset = 0
+    /// User-picked bounds for `.custom` — event-anchored windows down to
+    /// hour granularity ("the 6 hours after that dose"), which the fixed
+    /// day presets can't express. Defaults to a rolling last-24-hours,
+    /// matching the 1D preset (startOfDay(yesterday) would span 24–48h
+    /// depending on time of day).
+    @State private var customStart: Date = .now.addingTimeInterval(-24 * 3600)
+    @State private var customEnd: Date = .now
     @State private var sourceFilter: SourceFilter = .all
     @State private var tappedNight: CoalescedNightRef?
 
@@ -35,15 +42,33 @@ struct TrendsView: View {
     }
 
     enum TimeRange: String, CaseIterable {
-        case week = "7 Days"
-        case month = "30 Days"
-        case quarter = "90 Days"
+        case day = "1D"
+        case week = "7D"
+        case month = "30D"
+        case quarter = "90D"
+        case custom = "Custom"
 
-        var days: Int {
+        /// Window width for the fixed presets; nil for `.custom`, whose
+        /// window comes from the user-picked start/end instead.
+        var days: Int? {
             switch self {
+            case .day: return 1
             case .week: return 7
             case .month: return 30
             case .quarter: return 90
+            case .custom: return nil
+            }
+        }
+
+        /// Spoken-friendly label — VoiceOver would read the compact visual
+        /// labels as "seven D".
+        var accessibilityLabel: String {
+            switch self {
+            case .day: return "1 day"
+            case .week: return "7 days"
+            case .month: return "30 days"
+            case .quarter: return "90 days"
+            case .custom: return "Custom range"
             }
         }
     }
@@ -54,14 +79,19 @@ struct TrendsView: View {
 
     /// Snapshot the window once per body evaluation to avoid recomputing from .now on every access.
     private var windowState: (start: Date, end: Date, chartEnd: Date) {
-        let w = TrendWindow(now: .now, periodDays: timeRange.days, pageOffset: pageOffset)
-        if isShowingCurrentPeriod {
+        guard let periodDays = timeRange.days else {
+            // Custom mode: the window IS the picked range (shifted by
+            // paging); the end doubles as the chart's right edge. Boundary
+            // semantics live in inWindow(): the active page includes its end
+            // instant, paged windows are end-exclusive so pages tile.
+            let w = TrendWindow(customStart: customStart, customEnd: customEnd, pageOffset: pageOffset)
             return (w.start, w.end, w.end)
-        } else {
-            // For past periods, end is exclusive (midnight). Chart domain uses the inclusive last day.
-            let inclusiveEnd = Calendar.current.date(byAdding: .day, value: -1, to: w.end) ?? w.end
-            return (w.start, w.end, inclusiveEnd)
         }
+        let w = TrendWindow(now: .now, periodDays: periodDays, pageOffset: pageOffset)
+        // chartEnd derivation lives in TrendWindow (tested there): past
+        // multi-day pages show their inclusive last day; 1-day and current
+        // windows keep their exact end.
+        return (w.start, w.end, w.chartEnd(isCurrentPeriod: isShowingCurrentPeriod, periodDays: periodDays))
     }
 
     // MARK: - Date Label
@@ -69,6 +99,15 @@ struct TrendsView: View {
     private static let windowDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "MMM d"
+        return f
+    }()
+
+    /// Custom windows can span hours, not just days, so their header label
+    /// carries the time of day too. Localized template (not a fixed format)
+    /// so the hour respects the user's 12/24-hour preference and locale.
+    private static let windowDateTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("MMMdjmm")
         return f
     }()
 
@@ -94,20 +133,62 @@ struct TrendsView: View {
     }
 
     private func inWindow(_ date: Date, start: Date, end: Date) -> Bool {
+        // The active window (pageOffset 0) includes its end instant — the
+        // picked custom end, or "now" for presets. Paged windows use an
+        // exclusive end so adjacent pages tile without double-counting a
+        // sample sitting exactly on the boundary instant.
         date >= start && (isShowingCurrentPeriod ? date <= end : date < end)
     }
 
     var body: some View {
         let ws = windowState
-        let f = Self.windowDateFormatter
-        let label = "\(f.string(from: ws.start)) – \(f.string(from: ws.chartEnd))"
-        // Pad trailing edge so data doesn't crowd the Y-axis labels on the right
-        let paddedChartEnd = Calendar.current.date(byAdding: .hour, value: 12, to: ws.chartEnd) ?? ws.chartEnd
+        let f = timeRange == .custom ? Self.windowDateTimeFormatter : Self.windowDateFormatter
+        // A past 1-day page IS one calendar day — "Mar 23 – Mar 24" would
+        // misread as a two-day window.
+        let label = timeRange == .day && !isShowingCurrentPeriod
+            ? f.string(from: ws.start)
+            : "\(f.string(from: ws.start)) – \(f.string(from: ws.chartEnd))"
+        // Chart-domain end. Sub-day-capable modes pad proportionally (5% of
+        // the window — a fixed 12h pad would blank half of a 24h window),
+        // clamped to never end before the window (late-day marks plot at
+        // hour granularity). Multi-day presets pad a fixed 12h from the
+        // window's TRUE end — not from the inclusive last day, whose noon
+        // landing clipped evening marks — so current and past pages get
+        // identical breathing room.
+        let paddedChartEnd: Date = (timeRange == .day || timeRange == .custom)
+            ? max(ws.chartEnd.addingTimeInterval(ws.chartEnd.timeIntervalSince(ws.start) * 0.05), ws.end)
+            : ws.end.addingTimeInterval(12 * 3600)
         let dateRange = ws.start...paddedChartEnd
 
-        let snapshots = allSnapshots.filter { inWindow($0.date, start: ws.start, end: ws.end) }
+        // HealthSnapshot and CPAPSession rows are midnight-normalized, so an
+        // intraday custom window (2 PM–8 PM) matches none of them by exact
+        // instant even though the day's data exists — the CLAUDE.md "filter
+        // granularity vs aggregation unit" pitfall. Custom windows spanning
+        // at least a full day compare calendar DAYS for those series; shorter
+        // custom windows intentionally show them empty (a caption near the
+        // pickers says why) rather than a misleading full-plot day bar.
+        let customSpanSeconds = ws.end.timeIntervalSince(ws.start)
+        let showsDayGranularSeries = timeRange != .custom || customSpanSeconds >= 24 * 3600
+        let dayWindow: ClosedRange<Date> = {
+            let cal = Calendar.current
+            let startDay = cal.startOfDay(for: ws.start)
+            // Anchor the end day to the last instant BEFORE ws.end: a range
+            // ending exactly at midnight contains none of that day, so its
+            // midnight-normalized rows must not be pulled in. max() keeps the
+            // range valid for windows contained within a single day.
+            let endDay = cal.startOfDay(for: ws.end.addingTimeInterval(-1))
+            return startDay...max(startDay, endDay)
+        }()
+        let isCustomWindow = timeRange == .custom
+        let inDayGranularWindow: (Date) -> Bool = { [self] date in
+            guard showsDayGranularSeries else { return false }
+            if isCustomWindow { return dayWindow.contains(date) }
+            return inWindow(date, start: ws.start, end: ws.end)
+        }
+
+        let snapshots = allSnapshots.filter { inDayGranularWindow($0.date) }
         let entries = filterBySource(allEntries.filter { inWindow($0.timestamp, start: ws.start, end: ws.end) })
-        let cpapSessions = allCPAPSessions.filter { inWindow($0.date, start: ws.start, end: ws.end) }
+        let cpapSessions = allCPAPSessions.filter { inDayGranularWindow($0.date) }
         let barometricReadings = allBarometric.filter { inWindow($0.timestamp, start: ws.start, end: ws.end) }
 
         // LF/HF card: coalesce all Polar sessions into logical nights first,
@@ -166,12 +247,55 @@ struct TrendsView: View {
                 VStack(spacing: 20) {
                     Picker("Time Range", selection: $timeRange) {
                         ForEach(TimeRange.allCases, id: \.self) { range in
-                            Text(range.rawValue).tag(range)
+                            Text(range.rawValue)
+                                .accessibilityLabel(range.accessibilityLabel)
+                                .tag(range)
                         }
                     }
                     .pickerStyle(.segmented)
                     .padding(.horizontal)
                     .onChange(of: timeRange) { _, _ in pageOffset = 0 }
+
+                    if timeRange == .custom {
+                        // Event-anchored range: date AND time, so a window
+                        // like "8 PM last night through 9 AM" is expressible.
+                        VStack(spacing: 4) {
+                            DatePicker(
+                                "From",
+                                selection: $customStart,
+                                displayedComponents: [.date, .hourAndMinute]
+                            )
+                            DatePicker(
+                                "To",
+                                selection: $customEnd,
+                                in: customStart...,
+                                displayedComponents: [.date, .hourAndMinute]
+                            )
+                        }
+                        .font(.subheadline)
+                        .padding(.horizontal)
+                        .onChange(of: customStart) { _, newStart in
+                            // Keep the invariant in code, not just in the
+                            // picker's UI bound: dragging From to/past To
+                            // moves To an hour ahead — the same window the
+                            // math would normalize a degenerate range to —
+                            // so the pickers never display a zero-length
+                            // range that the charts silently render as 1h.
+                            if customEnd <= newStart {
+                                customEnd = newStart.addingTimeInterval(3600)
+                            }
+                            pageOffset = 0
+                        }
+                        .onChange(of: customEnd) { _, _ in pageOffset = 0 }
+
+                        if customEnd.timeIntervalSince(customStart) < 24 * 3600 {
+                            Text("Daily metrics (sleep, activity, glucose, CPAP) appear "
+                                + "when the range spans at least a full day.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal)
+                        }
+                    }
 
                     Picker("Source", selection: $sourceFilter) {
                         ForEach(SourceFilter.allCases, id: \.self) { filter in
@@ -206,7 +330,9 @@ struct TrendsView: View {
                         .disabled(isShowingCurrentPeriod)
 
                         if !isShowingCurrentPeriod {
-                            Button("Today") { pageOffset = 0 }
+                            // In custom mode offset 0 is the picked range,
+                            // not "today" — label it honestly.
+                            Button(timeRange == .custom ? "Reset" : "Today") { pageOffset = 0 }
                                 .font(.subheadline.weight(.medium))
                                 .padding(.leading, 4)
                         }
@@ -227,7 +353,12 @@ struct TrendsView: View {
                         ContentUnavailableView(
                             "No Data Yet",
                             systemImage: "chart.xyaxis.line",
-                            description: Text("No data for this period. Try navigating to a different time range.")
+                            description: Text(
+                                timeRange == .custom
+                                    ? "No data in this exact range. Daily metrics only appear "
+                                        + "for ranges spanning a full day — try widening the range."
+                                    : "No data for this period. Try navigating to a different time range."
+                            )
                         )
                     } else {
                         AnxietySeverityChart(entries: entries, dateRange: dateRange)

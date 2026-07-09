@@ -159,4 +159,79 @@ struct TrendWindowTests {
         #expect(wEarly.end == earlyMorning)
         #expect(wLate.end == lateNight)
     }
+
+    // MARK: - Custom explicit range
+
+    /// A 6-hour event-anchored window: 8 AM – 2 PM on the reference day.
+    private var customStart: Date {
+        var c = DateComponents()
+        c.year = 2026; c.month = 3; c.day = 24; c.hour = 8
+        return calendar.date(from: c)!
+    }
+    private var customEnd: Date {
+        var c = DateComponents()
+        c.year = 2026; c.month = 3; c.day = 24; c.hour = 14
+        return calendar.date(from: c)!
+    }
+
+    @Test("Custom window at offset 0 is exactly the picked range")
+    func customWindowExactRange() {
+        let w = TrendWindow(customStart: customStart, customEnd: customEnd, pageOffset: 0)
+        #expect(w.start == customStart)
+        #expect(w.end == customEnd)
+    }
+
+    @Test("Custom window pages by its own duration")
+    func customWindowPagesByDuration() {
+        // One page back from an 8 AM–2 PM window is 2 AM–8 AM the same day:
+        // event-sized steps, not fixed weeks.
+        let w = TrendWindow(customStart: customStart, customEnd: customEnd, pageOffset: -1)
+        #expect(w.end == customStart)
+        #expect(w.start == customStart.addingTimeInterval(-6 * 3600))
+    }
+
+    @Test("A custom end at or before the start is normalized to a one-hour window")
+    func customWindowDegenerateRangeNormalized() {
+        // The view clamps customEnd forward whenever customStart passes it,
+        // so this is defense-in-depth: the math must never yield a
+        // zero/negative-length window (paging would break).
+        let w = TrendWindow(customStart: customEnd, customEnd: customStart, pageOffset: 0)
+        #expect(w.start == customEnd)
+        #expect(abs(w.end.timeIntervalSince(customEnd) - 3600) < 0.001)
+    }
+
+    // MARK: - One-day preset
+
+    @Test("Current 1-day window is a rolling 24 hours, not startOfDay-aligned")
+    func currentOneDayIsRolling24Hours() {
+        // startOfDay(yesterday) would make "1D" span up to ~48h at 11 PM.
+        let w = TrendWindow(now: now, periodDays: 1, pageOffset: 0)
+        #expect(w.end == now)
+        #expect(abs(now.timeIntervalSince(w.start) - 24 * 3600) < 0.001)
+    }
+
+    // MARK: - Chart-domain end
+
+    @Test("Past multi-day pages chart through their inclusive last day")
+    func chartEndPastMultiDay() {
+        let w = TrendWindow(now: now, periodDays: 7, pageOffset: -1)
+        let expected = calendar.date(byAdding: .day, value: -1, to: w.end)!
+        #expect(w.chartEnd(isCurrentPeriod: false, periodDays: 7) == expected)
+    }
+
+    @Test("A past 1-day page keeps its exact end — never a zero-width chart domain")
+    func chartEndPastOneDay() {
+        // Subtracting a day from a 1-day window would make chartEnd == start,
+        // collapsing every chart's x-scale to a single instant.
+        let w = TrendWindow(now: now, periodDays: 1, pageOffset: -1)
+        let chartEnd = w.chartEnd(isCurrentPeriod: false, periodDays: 1)
+        #expect(chartEnd == w.end)
+        #expect(chartEnd > w.start)
+    }
+
+    @Test("Current windows chart through their exact end regardless of width")
+    func chartEndCurrent() {
+        let w = TrendWindow(now: now, periodDays: 7, pageOffset: 0)
+        #expect(w.chartEnd(isCurrentPeriod: true, periodDays: 7) == w.end)
+    }
 }
