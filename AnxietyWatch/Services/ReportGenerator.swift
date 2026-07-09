@@ -9,6 +9,15 @@ enum ReportGenerator {
     /// instants (e.g. `startOfDay`) matching the window their `snapshots`/
     /// `doses` arrays were filtered to, so the per-day-rate denominator and
     /// the HRV status anchor describe the same window as the data.
+    ///
+    /// `baselineSnapshots` is the UNFILTERED snapshot history used solely for
+    /// the HRV "30-day baseline" (which `hrvReportStatus` windows internally to
+    /// the 30 days ending at `end`). It must NOT be pre-filtered to the report
+    /// range: a 2-week "since my last visit" report would otherwise compute a
+    /// "30-day baseline" from only 2 weeks of data, or omit it below the
+    /// 14-sample floor (F-095). Defaults to `snapshots` for callers that don't
+    /// distinguish the two (the range-filtered period sections keep using
+    /// `snapshots`).
     static func generatePDF(
         entries: [AnxietyEntry],
         doses: [MedicationDose],
@@ -17,8 +26,18 @@ enum ReportGenerator {
         cpapSessions: [CPAPSession],
         labResults: [ClinicalLabResult] = [],
         start: Date,
-        end: Date
+        end: Date,
+        baselineSnapshots: [HealthSnapshot]? = nil
     ) -> Data {
+        // Cap the baseline history at `end`. `baselineSnapshots` is
+        // deliberately unfiltered so the "30-day baseline" sees a true 30 days
+        // (F-095), but BaselineCalculator.hrvBaseline/recentAverage only bound
+        // the window BELOW (>= cutoff), not above (the F-085 gap, deferred). So
+        // for a past-dated report, snapshots AFTER `end` would otherwise leak
+        // into — and can dominate — the baseline, describing data from after
+        // the visit. Excluding `> end` here windows it correctly to
+        // [end-30d, end] without touching the shared BaselineCalculator.
+        let hrvBaselineSnapshots = (baselineSnapshots ?? snapshots).filter { $0.date <= end }
         let pageRect = CGRect(x: 0, y: 0, width: 612, height: 792) // US Letter
         let margin: CGFloat = 50
         // Note: page content width is computed where needed via PDFCursor.contentWidth.
@@ -125,7 +144,11 @@ enum ReportGenerator {
                 // that was simply absent near the range end. When a baseline
                 // exists but there is no data in the 3 days ending at the range
                 // end, the status says so rather than fabricating "normal".
-                if let hrv = hrvReportStatus(snapshots: snapshots, rangeEnd: end) {
+                // Baseline drawn from the UNFILTERED history (F-095) so the
+                // "30-day baseline" reflects a true 30 days even for a report
+                // range shorter than 30 days; hrvReportStatus windows it to the
+                // 30 days ending at `end` internally.
+                if let hrv = hrvReportStatus(snapshots: hrvBaselineSnapshots, rangeEnd: end) {
                     cursor.drawBody(String(format: "30-day baseline: %.1f ms (σ = %.1f)",
                                            hrv.baseline.mean, hrv.baseline.standardDeviation))
                     cursor.drawBody("Current status: \(hrv.status.reportLabel)")

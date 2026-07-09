@@ -85,4 +85,56 @@ struct SensorTransferFlagTests {
         )
         #expect(unsent.map(\.id) == [older.id])
     }
+
+    // MARK: - F-096: phone-side redelivery preserves syncedToServer
+
+    @Test("Re-ingesting an already-synced HRVReading (WCSession redelivery) preserves syncedToServer")
+    func redeliveryPreservesSyncedFlag() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        // A reading that has already synced to the server.
+        let id = UUID()
+        let synced = HRVReading(
+            id: id, timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            rmssd: 40, sdnn: 50, pnn50: 10, lfPower: 1, hfPower: 1, lfHfRatio: 1
+        )
+        synced.syncedToServer = true
+        context.insert(synced)
+        try context.save()
+
+        // WCSession redelivers the same reading (DTO carries no sync flag).
+        let payload = SensorTransferPayload(
+            spectrograms: [],
+            breathingRates: [],
+            hrvReadings: [SensorTransferPayload.HRVDTO(from: synced)]
+        )
+        try PhoneConnectivityManager.ingestSensorPayload(payload, into: context)
+
+        let rows = try context.fetch(FetchDescriptor<HRVReading>())
+        #expect(rows.count == 1, "redelivery must not duplicate the row")
+        // Before F-096 the blind #Unique upsert reset this to false → redundant re-upload.
+        #expect(rows.first?.syncedToServer == true)
+    }
+
+    @Test("Ingesting a genuinely new HRVReading still inserts it")
+    func newReadingStillInserts() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let reading = HRVReading(
+            id: UUID(), timestamp: Date(timeIntervalSince1970: 1_700_000_100),
+            rmssd: 42, sdnn: 55, pnn50: 12, lfPower: 2, hfPower: 3, lfHfRatio: 0.66
+        )
+        let payload = SensorTransferPayload(
+            spectrograms: [],
+            breathingRates: [],
+            hrvReadings: [SensorTransferPayload.HRVDTO(from: reading)]
+        )
+        try PhoneConnectivityManager.ingestSensorPayload(payload, into: context)
+
+        let rows = try context.fetch(FetchDescriptor<HRVReading>())
+        #expect(rows.count == 1)
+        #expect(rows.first?.id == reading.id)
+    }
 }

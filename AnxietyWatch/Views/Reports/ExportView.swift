@@ -250,7 +250,11 @@ struct ExportView: View, Equatable {
             cpapSessions: filteredCPAP,
             labResults: filteredLabs,
             start: reportStart,
-            end: reportEnd
+            end: reportEnd,
+            // Unfiltered history for the HRV 30-day baseline so a report range
+            // shorter than 30 days doesn't compute a mislabeled "30-day"
+            // baseline from only the range's data (F-095).
+            baselineSnapshots: allSnapshots
         )
 
         let url = Self.tempURL("anxietywatch-report.pdf")

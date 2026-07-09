@@ -420,6 +420,38 @@ struct ReportGeneratorTests {
         #expect(raw.contains("No recent data in range"))
     }
 
+    @Test("Short report range draws its 30-day HRV baseline from the unfiltered history, capped at range end (F-095)")
+    func shortRangeUsesUnfilteredBaselineCappedAtEnd() throws {
+        let rangeEnd = Calendar.current.date(from: DateComponents(year: 2024, month: 4, day: 1))!
+        // A short 5-day report window: its range-filtered snapshots are below
+        // the 14-sample baseline floor on their own.
+        let rangeStart = Calendar.current.date(byAdding: .day, value: -4, to: rangeEnd)!
+        let rangeSnapshots = (0...4).map { snapshot(daysBefore: $0, of: rangeEnd, hrv: 50.0) }
+
+        // Unfiltered history: 30 days ENDING at rangeEnd all at HRV 50, PLUS 40
+        // days AFTER rangeEnd all at HRV 90. The post-end block outnumbers the
+        // in-window block, so if the baseline window weren't capped at `end`
+        // the MAD trim would treat the 50s as the outliers and the baseline
+        // mean would come out ~90 — data from after the visit (the F-085 leak
+        // this fix must not trigger).
+        var fullHistory = (0...29).map { snapshot(daysBefore: $0, of: rangeEnd, hrv: 50.0) }
+        fullHistory += (1...40).map { snapshot(daysBefore: -$0, of: rangeEnd, hrv: 90.0) }
+
+        let pdfData = ReportGenerator.generatePDF(
+            entries: [], doses: [], definitions: [],
+            snapshots: rangeSnapshots, cpapSessions: [],
+            start: rangeStart, end: rangeEnd,
+            baselineSnapshots: fullHistory
+        )
+        let doc = try #require(PDFDocument(data: pdfData))
+        var raw = ""
+        for i in 0..<doc.pageCount { raw += doc.page(at: i)?.string ?? "" }
+        // Baseline is present (drawn from the 30-day history, not the 5 in-range
+        // days) AND reflects the in-window value 50.0 — NOT the post-end 90.0.
+        #expect(raw.contains("30-day baseline: 50.0"))
+        #expect(!raw.contains("30-day baseline: 90.0"))
+    }
+
     @Test("Report includes overnight respiratory and glucose section with both halves")
     func reportIncludesOvernightSection() throws {
         let cal = Calendar.current

@@ -97,10 +97,46 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
         do {
             let data = try Data(contentsOf: file.fileURL)
             let payload = try JSONDecoder().decode(SensorTransferPayload.self, from: data)
-            let context = ModelContext(container)
+            try Self.ingestSensorPayload(payload, into: ModelContext(container))
+        } catch {
+            // Log the error TYPE only — a SwiftData/decoding error's string can
+            // embed the failing row's field values (health data), which must
+            // not reach logs (matches handleIncoming).
+            log.error("Sensor data receive failed: \(String(describing: type(of: error)), privacy: .public)")
+        }
+    }
 
-            for dto in payload.spectrograms {
-                let spec = AccelSpectrogram(
+    /// Ingests a decoded sensor transfer into `context`. `nonisolated static`
+    /// so `didReceive`'s nonisolated WCSession callback can call it synchronously
+    /// (no main-actor hop) and so it's unit-testable without a WCSession/file
+    /// (F-096 regression test).
+    ///
+    /// These sensor rows are write-once per id, and WCSession can REDELIVER a
+    /// file across a watch relaunch mid-transfer. A blind `insert` with the
+    /// models' `#Unique(\.id)` constraint upserts on redelivery, re-writing the
+    /// row from the DTO defaults — which for HRVReading resets `syncedToServer`
+    /// back to false and triggers a redundant server re-upload of an
+    /// already-synced reading (F-096). We skip any id already stored (one
+    /// batched lookup per type), so a redelivery is a no-op and the stored row
+    /// (incl. its syncedToServer flag) is preserved. New rows still insert.
+    nonisolated static func ingestSensorPayload(_ payload: SensorTransferPayload, into context: ModelContext) throws {
+        // Each block is guarded on a non-empty array so a transfer carrying
+        // only one type doesn't issue existence queries against the other
+        // (unbounded, growing) tables — matches SyncService.markSamplesSynced's
+        // `if !uploaded.X.isEmpty` convention for the same Set<UUID>.contains
+        // fetch shape.
+        // The existence-check fetches use `try` (not `try?`): a swallowed
+        // fetch failure would leave the "existing ids" set empty, re-enabling
+        // the blind upsert this method exists to prevent (F-096). The method
+        // throws, so a fetch failure aborts the ingest and surfaces in
+        // didReceive's catch instead of silently corrupting sync state.
+        if !payload.spectrograms.isEmpty {
+            let specIDs = Set(payload.spectrograms.map(\.id))
+            let existingSpecIDs = Set(try context.fetch(
+                FetchDescriptor<AccelSpectrogram>(predicate: #Predicate { specIDs.contains($0.id) })
+            ).map(\.id))
+            for dto in payload.spectrograms where !existingSpecIDs.contains(dto.id) {
+                context.insert(AccelSpectrogram(
                     id: dto.id,
                     timestamp: dto.timestamp,
                     tremorBandPower: dto.tremorBandPower,
@@ -108,37 +144,44 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
                     fidgetBandPower: dto.fidgetBandPower,
                     activityLevel: dto.activityLevel,
                     sensorSessionID: dto.sensorSessionID
-                )
-                context.insert(spec)
+                ))
             }
+        }
 
-            for dto in payload.breathingRates {
-                let rate = DerivedBreathingRate(
+        if !payload.breathingRates.isEmpty {
+            let rateIDs = Set(payload.breathingRates.map(\.id))
+            let existingRateIDs = Set(try context.fetch(
+                FetchDescriptor<DerivedBreathingRate>(predicate: #Predicate { rateIDs.contains($0.id) })
+            ).map(\.id))
+            for dto in payload.breathingRates where !existingRateIDs.contains(dto.id) {
+                context.insert(DerivedBreathingRate(
                     id: dto.id,
                     timestamp: dto.timestamp,
                     breathsPerMinute: dto.breathsPerMinute,
                     confidence: dto.confidence,
                     source: dto.source,
                     sensorSessionID: dto.sensorSessionID
-                )
-                context.insert(rate)
+                ))
             }
+        }
 
-            for dto in payload.hrvReadings {
-                let reading = HRVReading(
+        if !payload.hrvReadings.isEmpty {
+            let hrvIDs = Set(payload.hrvReadings.map(\.id))
+            let existingHRVIDs = Set(try context.fetch(
+                FetchDescriptor<HRVReading>(predicate: #Predicate { hrvIDs.contains($0.id) })
+            ).map(\.id))
+            for dto in payload.hrvReadings where !existingHRVIDs.contains(dto.id) {
+                context.insert(HRVReading(
                     id: dto.id,
                     timestamp: dto.timestamp,
                     rmssd: dto.rmssd, sdnn: dto.sdnn, pnn50: dto.pnn50,
                     lfPower: dto.lfPower, hfPower: dto.hfPower, lfHfRatio: dto.lfHfRatio,
                     sensorSessionID: dto.sensorSessionID
-                )
-                context.insert(reading)
+                ))
             }
-
-            try context.save()
-        } catch {
-            log.error("Sensor data receive failed: \(error, privacy: .public)")
         }
+
+        try context.save()
     }
 
     nonisolated private func handleIncoming(_ message: [String: Any]) {
