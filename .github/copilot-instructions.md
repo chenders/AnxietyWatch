@@ -44,6 +44,16 @@ This repo runs SwiftLint `--strict`, Semgrep (`.semgrep/swift-pitfalls.yml`), an
 - **Don't flag Semgrep findings already enforced by `.semgrep/swift-pitfalls.yml`**: hardcoded `"polar_h10"` / `"healthkit"` source labels outside `#Predicate`, `3 * 3600` magic numbers outside `LFHFAggregator`, `Date() - N * 86400` patterns, hardcoded chart-series colors in `Views/Trends/`, `lastSyncDate = .now` after I/O in `SyncService`. CI will block these before review.
 - **Do flag *substantive* warnings whose cause isn't obvious from the diff** — deprecation, force-unwrap risks, unused-but-should-be-used vars, missing-init issues. CI will also fail on these, but your comment explains the *fix* faster than the CI message does. Per Testing Requirements below, fixing new warnings is always in scope for the author.
 
+## CNS Detection Engine (`AnxietyWatch/Services/CNSRisk/`)
+
+Safety-critical path — the physiological detection half of the CNS-depression early-warning Klaxon. Treat any change here as priority-1 correctness review regardless of diff size. Specific rules (full detail in `.github/instructions/swift.instructions.md`):
+
+- Every threshold, onset, floor, fidelity, fusion weight, or sustain duration must be a `CNSThresholds` member — never a re-typed literal.
+- Severity ramps must scale their saturation floor down with a personalized onset, never clamp the onset to a fixed floor (a fixed floor degenerates the ramp to a step and can score a user's own normal baseline as maximal severity).
+- An indeterminate quality-gate window must never yield a severity/confidence score — indeterminate is not safe and not dangerous.
+- Escalation and clearing both require primary-informed (SpO₂/respiratory-rate) evidence — a corroborating-only (HR/HRV) reading must never clear a raised alert tier.
+- `medical-data-accuracy-reviewer` is required (not just recommended) on every PR touching this directory, per `CLAUDE.md`/`AGENTS.md`.
+
 ## Git Workflow
 
 **Never push directly to `main`.** Always create a feature branch from `main`. Use descriptive branch names like `feat/add-export-csv` or `fix/healthkit-auth-crash`.

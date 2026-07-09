@@ -1972,3 +1972,36 @@ Deferred to Phase 2 (unchanged from the plan's phasing): activation gating/dose 
 monitoring-session model + sensor adapters, device-state matrix, EMAY service promotion to
 app-scoped environment. Phase 3: KlaxonAlarmService, watch haptics, UI surfaces, Critical
 Alerts entitlement path.
+
+### Post-merge follow-up review (Task 12)
+
+A follow-up review of the hardening commit (the whole-branch review + pre-PR reviewer pass
+recorded above) came back clean — no additional correctness issues found. Three items are
+carried forward to the Phase 2 design checklist rather than fixed here, because each is a
+judgment call about intended behavior, not a bug:
+
+1. **Corroborating-only watch ratchet.** A watch tier raised by HR/HRV alone can never clear
+   without primary (SpO₂/respiratory-rate) evidence returning: `CNSAlertTierMachine.advanceClear`
+   requires `primaryInformed` unconditionally, so a watch tier entered on corroborating signals
+   alone — with the primary stream then going silent or indeterminate — sits at watch
+   indefinitely. This is fail-safe (never a false "all clear"), but it needs a deliberate decision
+   before Phase 2: either document it as intentional in the tier machine's doc comment, or add a
+   `tierWasPrimaryInformed` flag so a corroborating-only rise can clear on its own terms once the
+   corroborating signals return to baseline.
+2. **RR confidence constants are invisibly coupled.** Respiratory-rate confidence is
+   `sourceFidelity` (0.6, Apple Watch) `× missing-baseline factor` (0.8) = 0.48 whenever
+   `respiratoryRateMean` is absent (true for all of Phase 1, since nothing populates it yet) —
+   below `elevatedConfidenceFloor` (0.5). RR can therefore never satisfy `multiSourceBonus`'s
+   "elevated" test in the real pipeline until Phase 2 wires a baseline. The two constants aren't
+   linked by any assertion or comment today; a future change to either one could silently
+   re-enable or re-disable RR's multi-source contribution without anyone noticing. Flag for a
+   coupling test or comment once Phase 2 lands the RR baseline.
+3. **Baseline provenance needs a robust percentile, and must exclude alarm nights.** The
+   SpO₂-nadir baseline this engine consumes (`CNSBaselines.spo2Nadir`) should come from a robust
+   percentile (e.g. 5th) of the personal history, not a literal minimum — one extreme genuine
+   desaturation night would otherwise permanently lower the nadir and desensitize
+   `spo2Onset`/`spo2Ramp` for every subsequent night. Nights where the detection engine itself
+   escalated (watch/confirm/klaxon) must also be excluded from the baseline-computation window, or
+   a real overdose night would train the engine to expect it as normal. Both are Phase 2 concerns
+   (`BaselineCalculator` wiring), not Phase 1 code changes, but need to land before real baselines
+   feed this engine.

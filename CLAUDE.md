@@ -136,7 +136,8 @@ AnxietyWatch/
 │   │   ├── PharmacySearchService.swift  # MapKit local search for pharmacies
 │   │   ├── PharmacyCallService.swift    # CXCallObserver + tel: dial + manual logging
 │   │   ├── PrescriptionSupplyCalculator.swift # Supply estimation + status
-│   │   └── PrescriptionLabelScanner.swift     # Vision OCR for pill bottle labels
+│   │   ├── PrescriptionLabelScanner.swift     # Vision OCR for pill bottle labels
+│   │   └── CNSRisk/                     # CNS-depression detection engine (see "CNS Detection Engine" below)
 │   ├── Views/
 │   │   ├── Dashboard/
 │   │   ├── Journal/
@@ -227,7 +228,7 @@ The generalist `swift-pre-pr-reviewer` is paired with four narrower agents that 
 |-------|-------|
 | `swiftui-render-pitfall-detector` | Any PR touching SwiftUI views, `@Query`, `#Predicate`, `NavigationLink`, Swift Charts, or `@Observable` types. Targets the four "main thread hang" patterns that have actually crashed the app on iOS 26. |
 | `chart-ux-auditor` | Any PR touching `AnxietyWatch/Views/Trends/`. Static pass walks every chart file to map color tokens to series semantics; dynamic pass (when XcodeBuildMCP is available) screenshots each chart at three data densities. |
-| `medical-data-accuracy-reviewer` | Any PR touching `Services/` files that ingest, aggregate, or arbitrate physiological data (HealthKit, CPAP, Polar, EMAY, FHIR labs, OCR). Catches unit mismatches, timezone bugs, source-discriminator gaps, OCR-result validation, baseline math sanity. |
+| `medical-data-accuracy-reviewer` | Any PR touching `Services/` files that ingest, aggregate, or arbitrate physiological data (HealthKit, CPAP, Polar, EMAY, FHIR labs, OCR, CNSRisk). Catches unit mismatches, timezone bugs, source-discriminator gaps, OCR-result validation, baseline math sanity. **Required (not just recommended) on every PR touching `Services/CNSRisk/`** — see "CNS Detection Engine" below. |
 | `process-walkthrough` | When a non-obvious clinical or systems process needs a lay-prose + Mermaid diagram explainer in `docs/research/`. Calibrated against `LFHFExplainerSheet.swift` as the prose bar. |
 
 These agents live at `.claude/agents/<name>.md` and are dispatched via `Task` with `subagent_type: <name>`.
@@ -326,6 +327,22 @@ For V1, focus on daily summary data (AHI, leak, usage, pressure stats). Detailed
 - `pressure` — atmospheric pressure in kPa
 
 It requires the `NSMotionUsageDescription` key in Info.plist. Readings are only available while the app is running or during background tasks. Store readings in SwiftData since they aren't persisted by the system.
+
+## CNS Detection Engine
+
+`AnxietyWatch/Services/CNSRisk/` implements the physiological detection half of the CNS-depression early-warning Klaxon (`docs/superpowers/specs/2026-07-09-cns-depression-klaxon-design.md`). Phase 1 only — pure value types and stateless/mutating-struct logic (no CoreBluetooth, no SwiftData, no SwiftUI, no `Date.now` inside the logic); there is no alarm UI or dashboard indicator yet.
+
+**Pipeline shape:** `CNSQualityGate` (per-source rolling-window validity) → `CNSSeverityScorer` (baseline-relative severity × confidence per signal) → `CNSFusionEngine` (cross-sensor composite risk score) → `CNSAlertTierMachine` (hysteretic `clear → watch → confirm → klaxon`). `CNSDetectionPipeline` composes all four and is the **only entry point** Phase 2 (sensor adapters, activation gating) should call — never invoke the four stages individually from new code.
+
+**Every tunable constant lives in `CNSThresholds`** — onsets, floors, fidelities, fusion weights, tier thresholds, sustain durations. Never re-type a threshold literal; add it to `CNSThresholds` and reference the member.
+
+**Core invariants (do not weaken without a design-doc update):**
+- **Asymmetry:** indeterminate ≠ safe ≠ dangerous. A low-quality window surfaces as "can't assess," never "OK" and never an escalation either.
+- **Ramps scale their floor with the personalized onset** (`spo2Ramp`, `heartRateRamp`) — never clamp the onset to a fixed floor. A fixed floor degenerates the ramp to a step for an apnea-lowered baseline and scores a user's own normal nadir as maximal severity (see the phase-1 plan's "Spec erratum" and its "Implementation notes" items 1-2).
+- **Escalation and clearing both require observed, primary-informed evidence.** Only SpO₂/respiratory-rate contributions can raise a tier past watch or clear a raised tier — a healthy corroborating stream (HR/HRV) must never launder a missing or indeterminate primary signal into "all clear," and two readings bracketing a data gap must never satisfy a sustain window.
+- **Invalid data contributes nothing.** Artifact / no-contact / no-finger samples never get coerced to a value; missing data holds the current tier rather than reassuring or escalating.
+
+`medical-data-accuracy-reviewer` is **required** (not just recommended) on every PR touching `Services/CNSRisk/`, in addition to `swift-pre-pr-reviewer`.
 
 ## Sync Server
 
