@@ -32,6 +32,11 @@ struct SettingsView: View {
                     } label: {
                         Label("Polar H10", systemImage: "heart.text.square")
                     }
+                    NavigationLink {
+                        EMAYLiveView()
+                    } label: {
+                        Label("EMAY Oximeter (Live)", systemImage: "lungs.fill")
+                    }
                 } header: {
                     Text("Data Sources")
                 } footer: {
