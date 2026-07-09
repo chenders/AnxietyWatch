@@ -37,10 +37,19 @@ These are starting points for the detection model, deliberately *above* PRODIGY'
 
 | Signal | Watch-window / early-warning trigger (sustained ≥ ~60–90 s) | Notes |
 |---|---|---|
-| SpO₂ | sustained below max(88%, personal-nadir − N) | absolute backstop well under a personal apnea-inclusive baseline |
+| SpO₂ | sustained below min(88%, personal-nadir − N) | absolute backstop well under a personal apnea-inclusive baseline |
 | Respiratory rate | sustained < ~8–10 /min, or a sharp downward trend vs baseline | opioid-dominant sign; benzo may not show here |
 | Heart rate | sustained bradycardia vs personal baseline | corroborating, not primary |
 | HRV | acute collapse vs baseline | corroborating |
+
+> **Erratum (Phase 1, 2026-07-09):** the SpO₂ trigger originally read `max(88%, nadir − N)`;
+> for an apnea-lowered nadir that puts the trigger *above* the user's normal nightly dips —
+> the exact nightly-false-alarm failure this section's confound paragraph forbids. Implemented
+> (and corrected here) as `min` — see `CNSThresholds.spo2Onset(nadirBaseline:)` and
+> `docs/plans/klaxon-phase-1-detection-engine.md` § "Spec erratum". The same degenerate-ramp
+> hazard applies one level deeper wherever a personalized onset can cross a fixed severity
+> floor: the implementation scales the floor with the onset (`spo2Ramp`, `heartRateRamp`)
+> rather than clamping the onset to the floor.
 
 ## 4. Sensor inventory & real-time capability
 
@@ -177,6 +186,8 @@ iOS/HealthKit sleep is **retrospective** (category samples written *after* the s
 ### 14.4 Companion-mode threshold delta — RESOLVED (direction; magnitude is tunable)
 Different physiology, different alarm job: **alone** → the only rescuer is the user, whose arousability decays on the *same* few-minute clock as hypoxia (severe desat within ~3 min; hypoxic injury 3–6 min), so fire at the **earliest defensible threshold, haptics-first, fast escalation**, tolerating more false positives to catch it *while still rousable*. **Companion present** → the loud klaxon recruits an external actor who can act *after* unconsciousness, so you may trade a **small** amount of sensitivity for specificity (alarm-fatigue cost). **Keep the delta modest** — present bystanders actually administer help only ~26–32% of the time — and **when companion-attentiveness is uncertain, default to alone-mode behavior** (fail-safe). Magnitude is a tunable judgment call; instrument it and revisit with usage data (no calibrated arousability-vs-time curve exists).
 *(Witnessed-vs-unwitnessed overdose survival modeling, RI/BC bystander data, sedation/arousability literature, alarm-fatigue reviews.)*
+
+*Phase-1 note (2026-07-09):* the threshold half of alone-mode is implemented (`aloneModeThresholdDelta`); the "fast escalation" half (shorter sustains when alone) is deliberately deferred to the phase that ships the confirmation tier — worst-case detection-to-klaxon latency and its remediation are tracked in the Phase 1 plan's implementation notes.
 
 ### 14.5 Alarm platform mechanism — RESOLVED
 **Mechanism (how PagerDuty / medical / safety apps do it):** the **Critical Alerts** entitlement `com.apple.developer.usernotifications.critical-alerts` + runtime `UNAuthorizationOptions.criticalAlert` permission + a **critical sound** payload / `UNNotificationInterruptionLevel.critical`. This is the *only* mechanism that plays a loud alert **bypassing the ringer/mute switch AND Focus/DND** at a system-controlled volume, even while the phone is locked/suspended. (Time-Sensitive notifications break Focus but **respect the mute switch** and need no entitlement — insufficient for a klaxon-through-silent.) `audio` background mode / `AVAudioSession.playback` plays through the silent switch only while the app is active/backgrounded-with-audio and can't reliably start from a suspended+locked state — so it's a supplement, not the bypass.

@@ -31,11 +31,13 @@ jobs:
           echo "Available iOS simulator runtimes:"
           xcrun simctl list runtimes | grep iOS || true
 
-      # Uncomment if you start seeing stale-build weirdness. Self-hosted runners
-      # keep DerivedData around between runs, which is usually a feature
-      # (faster incremental builds) but occasionally a problem.
-      # - name: Clean DerivedData
-      #   run: rm -rf ~/Library/Developer/Xcode/DerivedData/AnxietyWatch-*
+      # CI builds use a per-run DerivedData under RUNNER_TEMP (see the
+      # xcodebuild steps below) instead of the runner user's shared
+      # ~/Library/.../DerivedData: stale incremental state there produced a
+      # bogus single-arch "AnxietyEntry not Identifiable" compile failure on
+      # PR #185 in files the PR never touched. RUNNER_TEMP is wiped between
+      # runs, so every build is deterministic at the cost of no incremental
+      # reuse across runs.
 
       - name: Find simulator destination
         id: dest
@@ -93,6 +95,7 @@ jobs:
           xcodebuild test \
             -scheme AnxietyWatch \
             -destination "platform=iOS Simulator,name=$SIM_NAME" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult \
             SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
@@ -110,4 +113,5 @@ jobs:
           xcodebuild build \
             -scheme "AnxietyWatch Watch App" \
             -destination 'generic/platform=watchOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
