@@ -20,6 +20,9 @@ nonisolated enum Log {
     /// SwiftData operations, migrations, backfill
     static let data = Logger(subsystem: subsystem, category: "data")
 
+    /// Bluetooth LE device connectivity (Polar H10, EMAY oximeter, etc.)
+    static let ble = Logger(subsystem: subsystem, category: "ble")
+
     #if DEBUG
     /// Debug-only shake-to-capture screenshot pipeline. See
     /// `DebugScreenCapture.swift`; fenced because the only call sites
