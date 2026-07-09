@@ -1412,7 +1412,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** flagged by swift-pre-pr-reviewer and medical-data-accuracy-reviewer on Batch K; plausible.  
 
-**Disposition:** approved (queued for Batch L — post-audit follow-ups; verify mechanism first)
+**Disposition:** fixed (#176)
 
 ### F-096 · P3 · plausible · efficiency · watch-connectivity · _added post-audit during Batch K review_
 
@@ -1426,7 +1426,7 @@ Each batch is one or a few PRs; every confirmed-bug fix ships with a regression 
 
 **Verification:** flagged by swift-pre-pr-reviewer on Batch K; plausible.  
 
-**Disposition:** approved (queued for Batch L — post-audit follow-ups; verify mechanism first)
+**Disposition:** fixed (#176)
 
 ## Deferred backlog
 
