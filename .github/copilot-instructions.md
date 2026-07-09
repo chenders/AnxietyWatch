@@ -98,7 +98,8 @@ Language-specific testing conventions live in the path-scoped instruction files.
 ### No personal info in code
 - **Flag** "Created by [real name]" Xcode file headers — these should be removed or generic.
 - **Flag** references to real people, real device names, or real locations in code, comments, or PR descriptions.
-- **Flag** committed screenshots or images that haven't been reviewed for personal data (Xcode team names, device identifiers, real health data).
+- **Flag** committed screenshots or images that haven't been reviewed for personal data (Xcode team names, device identifiers, real health data). App screenshots must come from a simulator with fictional demo data.
+- **Flag** any committed browser-automation or network-capture artifact (`.playwright-mcp/` paths, `*-network.txt`, HAR files) — these can contain live authenticated-session data. Removing the file in a later commit is NOT a fix; the blob persists in history and the unpushed commits must be rewritten.
 
 ### Project name
 - The project was renamed from AnxietyScope to AnxietyWatch. **Flag** any remaining `AnxietyScope` references.

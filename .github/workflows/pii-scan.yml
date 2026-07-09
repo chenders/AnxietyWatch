@@ -1,0 +1,60 @@
+name: PII scan
+
+# Generic-pattern PII gate on every PR diff. Personal strings are NEVER
+# encoded here (this file is public) — those live in each contributor's
+# gitignored .claude/pii-denylist.local.txt, enforced locally by the
+# pii-push-gate hook. This job catches the shape-based leaks: capture
+# artifacts, personalized device names, non-fictional phone numbers, and
+# binary/image additions outside the approved directories.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan PR diff for PII shapes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          fail=0
+
+          added() { git diff "$BASE_SHA...$HEAD_SHA" --unified=0 -- "$@" | grep '^+' | grep -v '^+++' || true; }
+
+          # 1. Browser/network capture artifacts must never be committed.
+          if git diff --name-only --diff-filter=A "$BASE_SHA...$HEAD_SHA" | grep -E '\.playwright-mcp/|-network\.txt$'; then
+            echo '::error::Browser/network capture artifact committed — these can contain live session data.'
+            fail=1
+          fi
+
+          # 2. Personalized device-name possessives (Test/Sam/Jane/John allowed as documented fictional owners).
+          if added | grep -PoE "\b[A-Z][a-z]+['’]s (iPhone|iPad|Apple Watch|MacBook)" | grep -vE "^(Test|Fake|Mock|Sample|Sam|Jane|John)['’]" ; then
+            echo "::error::Personalized device name added — use 'Test iPhone' style (CLAUDE.md sensitive-data rules)."
+            fail=1
+          fi
+
+          # 3. Phone-shaped strings outside the fictional 555-01XX range.
+          if added | grep -PoE '\(?\d{3}\)?[-. ]\d{3}[-. ]\d{4}' | grep -v '555-01[0-9][0-9]' ; then
+            echo '::error::Phone-shaped string outside the fictional 555-0100..555-0199 range.'
+            fail=1
+          fi
+
+          # 4. New images/PDFs outside approved asset paths need explicit review.
+          if git diff --name-only --diff-filter=A "$BASE_SHA...$HEAD_SHA" \
+            | grep -iE '\.(png|jpe?g|gif|pdf|heic)$' \
+            | grep -vE '^(docs/screenshots/|.*Assets\.xcassets/)' ; then
+            echo '::error::Binary image/PDF added outside docs/screenshots/ or Assets.xcassets/ — review for personal data and relocate.'
+            fail=1
+          fi
+
+          exit $fail

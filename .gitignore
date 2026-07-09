@@ -66,6 +66,7 @@ AnxietyWatch/Utilities/BuildVersion.swift
 !.claude/hooks/voiceover-consistency-edited.py
 !.claude/hooks/block-pii-in-fixtures.py
 !.claude/hooks/medication-name-drift-warn.py
+!.claude/hooks/pii-push-gate.py
 
 # Clinical chart pipeline — local-only. Inputs are HIPAA-sensitive
 # prod pulls, outputs are large rendered artifacts; neither belongs in

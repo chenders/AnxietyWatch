@@ -305,6 +305,15 @@ def main() -> int:
     # Never scan the denylist file itself — writing it would otherwise self-block.
     if os.path.basename(file_path) == DENYLIST_FILENAME:
         return 0
+    # Only guard files that can actually reach the repo. Scratchpads, temp
+    # dirs, and other out-of-project paths can't be committed, and remediation
+    # tooling (e.g. git-filter-repo replace-text files) legitimately holds the
+    # guarded strings there.
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR")
+    if project_dir and not os.path.abspath(file_path).startswith(
+        os.path.abspath(project_dir) + os.sep
+    ):
+        return 0
 
     content = extract_content(tool_input, tool_name)
     if not content:

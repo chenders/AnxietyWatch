@@ -64,7 +64,8 @@ CI runs `semgrep --config .semgrep/ --error` on PRs touching Swift. Rules at `.s
 - **Test data must be obviously fictional:** Use `9999999-00001` for Rx numbers, `Jane Smith MD` for doctors, `555-0100` for phone numbers, `Test iPhone` for devices. Never use real names, addresses, or identifiers.
 - **Never log credentials or PII:** No passwords, API keys, tokens, usernames, or emails in logs — not even at DEBUG level. Log only non-identifying metadata (e.g., `password_present=True`, `field_len=12`).
 - **No personal info in code or comments:** Remove Xcode "Created by [real name]" headers. Do not reference real people, real devices, or real locations.
-- **No unreviewed images/screenshots:** Do not commit screenshots, images, or PDFs without reviewing for personal data.
+- **No unreviewed images/screenshots:** Do not commit screenshots, images, or PDFs without reviewing for personal data. App screenshots must be captured from a simulator running fictional demo data.
+- **No tool/session artifacts:** Never commit browser-automation or network captures (`.playwright-mcp/`, `*-network.txt`, HAR files) — they can contain live authenticated-session data. If one lands in a commit, rewrite the unpushed history; deleting it in a follow-up commit leaves the blob in history.
 - The project was renamed from **AnxietyScope** to **AnxietyWatch** — fix any remaining old references.
 
 ## Python Server Conventions (server/)

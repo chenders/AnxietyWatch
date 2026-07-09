@@ -32,7 +32,12 @@
 
 ### Images and binary files
 - Do not commit screenshots, images, or PDFs without reviewing them for personal data.
+- App screenshots for the README/docs must be captured from a simulator running obviously fictional demo data — never from a device or store containing real health data.
 - Add any scratch images to `.gitignore` before they can be accidentally staged.
+- CI (`pii-scan.yml`) fails PRs that add images/PDFs outside `docs/screenshots/` or `Assets.xcassets/`.
+
+### Never commit tool/session artifacts
+- Browser automation and network captures (`.playwright-mcp/`, `*-network.txt`, HAR files) can contain live authenticated-session data for real accounts. They are gitignored, blocked by the `pii-push-gate` hook, and failed by CI — if one ever lands in a commit, treat it as an incident: stop and rewrite the unpushed history, don't just delete the file in a follow-up commit (the blob survives in history).
 
 ### The old project name
 - The project was renamed from **AnxietyScope** to **AnxietyWatch**. If you encounter any remaining `AnxietyScope` references, fix them.
@@ -249,6 +254,7 @@ In addition to the existing `swiftlint-edited.py` (Swift PostToolUse) and `pre-p
 - **`voiceover-consistency-edited.py`** (PostToolUse, Swift in production targets) — flags four CLAUDE.md accessibility pitfalls deterministically: `Int(x)` near `%.0f` format strings, `Button` inside `NavigationLink` label, `.accessibilityElement(children: .combine)` on container with interactive children, slashes in accessibility labels.
 - **`block-pii-in-fixtures.py`** (PreToolUse, Write/Edit/MultiEdit) — **blocks** writes that introduce real-looking PII. Two layers: (1) fixture-scoped heuristics in test paths (phone numbers outside the 555-01XX fictional range, personalized device names like "X's iPhone", non-fictional addresses, Rx numbers outside the documented patterns, emails outside example domains); (2) a personal denylist check on **every** path, driven by the gitignored `.claude/pii-denylist.local.txt` (one real term per line — the public repo never contains the strings it guards against; matches are reported masked). Reduces the risk of a repeat of the prior history-rewrite incidents documented in the Sensitive Data Rules section above.
 - **`medication-name-drift-warn.py`** (PostToolUse, Swift/Python) — warns when a `medication_name` string literal in code doesn't match the canonical names declared in `AnxietyWatch/Models/MedicationDefinition.swift`. Prevents new instances of the `clonazePAM` vs `Clonazepam 1mg Tablets` drift documented in the production sync DB.
+- **`pii-push-gate.py`** (PreToolUse, Bash) — **blocks** `git push` when the added lines of unpushed commits contain a term from the local denylist (`.claude/pii-denylist.local.txt`, masked in output) or a generic PII shape (capture-artifact paths, personalized device names). Unlike the advisory `pre-pr-reviewer-reminder.py`, this one exits 2 and stops the push; fix by rewriting the unpushed commits, not by deleting in a follow-up commit.
 
 ### Static analysis: Semgrep
 
@@ -367,6 +373,7 @@ GitHub Actions workflows in `.github/workflows/`:
 | `ci.yml` | Push/PR to `main` or `master` (paths `server/**`, `.github/workflows/ci.yml`) | Lint (flake8) + pytest against Postgres |
 | `deploy.yml` | Push to `main` or `master` (paths `server/**`, `.github/workflows/deploy.yml`, runner configs); also `workflow_dispatch` | Server deployment |
 | `release.yml` | Tag pushes (e.g. version tags) | Release workflow |
+| `pii-scan.yml` | Every PR | Generic-pattern PII gate on the diff: capture artifacts, personalized device names, non-fictional phone numbers, image adds outside approved paths. Personal strings are never encoded in CI — those are enforced locally via the gitignored denylist + `pii-push-gate` hook. |
 
 Both iOS and server have CI gates. Lint, type, and test failures block merge.
 
