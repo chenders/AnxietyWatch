@@ -293,6 +293,26 @@ struct DashboardViewModelTests {
         #expect(result?.totalUsageMinutes == 430)
     }
 
+    // F-094: on a usage tie, a scored session must win over a duplicate whose
+    // AHI is unknown (nil) — a nil must never displace a measured AHI. The
+    // tie-break sentinel treats nil as +∞ so it always loses.
+    @Test("cpapSession tie-break prefers a scored session over a nil-AHI duplicate")
+    func cpapSessionTieBreakPrefersScoredOverNil() {
+        let vm = DashboardViewModel()
+        let snapshot = HealthSnapshot(date: referenceStartOfDay)
+        let scored = makeCPAP(date: referenceStartOfDay, ahi: 4.0, usageMinutes: 400)
+        // Same date and usage, but AHI never scored (EDF-only re-import).
+        let unscored = CPAPSession(
+            date: referenceStartOfDay, ahi: nil, totalUsageMinutes: 400,
+            pressureMin: 6, pressureMax: 12, pressureMean: 9,
+            obstructiveEvents: 1, centralEvents: 0, hypopneaEvents: 2,
+            importSource: "edf"
+        )
+        // Order both ways — selection must not depend on array order.
+        #expect(vm.cpapSession(for: snapshot, in: [scored, unscored])?.ahi == 4.0)
+        #expect(vm.cpapSession(for: snapshot, in: [unscored, scored])?.ahi == 4.0)
+    }
+
     // MARK: - latestLabResultPerTest
 
     @Test("Returns up to 4 unique tracked results from last 7 days")

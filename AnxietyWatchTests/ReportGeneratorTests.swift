@@ -452,6 +452,37 @@ struct ReportGeneratorTests {
         #expect(!raw.contains("30-day baseline: 90.0"))
     }
 
+    @Test("CPAP average AHI excludes unknown-AHI nights, never averaging nil as 0 (F-094)")
+    func cpapAverageExcludesUnknownAHI() throws {
+        func session(_ day: Int, ahi: Double?) -> CPAPSession {
+            CPAPSession(
+                date: Calendar.current.date(byAdding: .day, value: -day, to: end)!,
+                ahi: ahi, totalUsageMinutes: 420,
+                pressureMin: 6, pressureMax: 12, pressureMean: 9,
+                obstructiveEvents: 1, centralEvents: 0, hypopneaEvents: 1,
+                importSource: ahi == nil ? "edf" : "oscar"
+            )
+        }
+        // One scored night (AHI 10) + one EDF-only night (no scored AHI).
+        let cpap = [session(1, ahi: 10.0), session(0, ahi: nil)]
+
+        let pdfData = ReportGenerator.generatePDF(
+            entries: [], doses: [], definitions: [],
+            snapshots: [], cpapSessions: cpap,
+            start: start, end: end
+        )
+        let doc = try #require(PDFDocument(data: pdfData))
+        var raw = ""
+        for i in 0..<doc.pageCount { raw += doc.page(at: i)?.string ?? "" }
+
+        #expect(raw.contains("Sessions recorded: 2"))
+        // Average is 10.0 (the one scored night) — NOT 5.0 = (10+0)/2.
+        #expect(raw.contains("Average AHI: 10.0"))
+        #expect(!raw.contains("Average AHI: 5.0"))
+        // Honest denominator disclosure when not every night was scored.
+        #expect(raw.contains("1 of 2 scored nights"))
+    }
+
     @Test("Report includes overnight respiratory and glucose section with both halves")
     func reportIncludesOvernightSection() throws {
         let cal = Calendar.current

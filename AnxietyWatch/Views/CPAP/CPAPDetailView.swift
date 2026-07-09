@@ -71,7 +71,9 @@ struct CPAPDetailView: View, Equatable {
                 HStack {
                     Text("AHI")
                     Spacer()
-                    Text(String(format: "%.1f events/hr", session.ahi))
+                    // nil = EDF-only night with no scored AHI (F-094): show
+                    // "—", never a fabricated 0.0 events/hr.
+                    Text(session.ahi.map { String(format: "%.1f events/hr", $0) } ?? "—")
                         .foregroundStyle(ahiColor)
                         .fontWeight(.semibold)
                 }
@@ -191,6 +193,8 @@ struct CPAPDetailView: View, Equatable {
     }
 
     private var ahiColor: Color {
-        ClinicalSeverity.ahiSeverity(session.ahi).color
+        // Neutral when AHI is unknown (F-094) — no severity to convey.
+        guard let ahi = session.ahi else { return .secondary }
+        return ClinicalSeverity.ahiSeverity(ahi).color
     }
 }

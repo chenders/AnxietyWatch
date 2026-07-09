@@ -175,6 +175,10 @@ struct DashboardView: View {
             $0.spo2NadirOvernight != nil
                 || $0.sleepDurationMin != nil
                 || $0.cpapAHI != nil
+                // cpapAHI can be nil for an EDF-only night that still has real
+                // CPAP usage (F-094); usage is the reliable "CPAP happened"
+                // proxy now that AHI is optional.
+                || $0.cpapUsageMinutes != nil
         }) {
             // Noon-to-noon window for the snapshot's night — the previous
             // same-calendar-day filter spanned 48 hours and could dilute

@@ -568,7 +568,8 @@ struct CPAPImporterTests {
         let sessions = try context.fetch(FetchDescriptor<CPAPSession>())
         let session = try #require(sessions.first)
         // Data fields refresh; provenance does not.
-        #expect(abs(session.ahi - 1.8) < 0.001)
+        let ahi = try #require(session.ahi)
+        #expect(abs(ahi - 1.8) < 0.001)
         #expect(session.importSource == "manual")
     }
 

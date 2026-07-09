@@ -270,7 +270,12 @@ final class DashboardViewModel {
                 if lhs.totalUsageMinutes != rhs.totalUsageMinutes {
                     return lhs.totalUsageMinutes < rhs.totalUsageMinutes
                 }
-                return lhs.ahi > rhs.ahi
+                // Deterministic tie-break among same-usage duplicates. An
+                // unknown AHI (nil, F-094) is treated as +∞ so a scored night
+                // always wins the tie and its real AHI propagates — a nil must
+                // never displace a measured value. Comparison-only; the
+                // returned session's real (possibly nil) AHI is untouched.
+                return (lhs.ahi ?? .infinity) > (rhs.ahi ?? .infinity)
             })
     }
 

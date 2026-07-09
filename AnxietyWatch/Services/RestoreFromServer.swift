@@ -334,12 +334,18 @@ extension SyncService {
         return n
     }
 
-    private static func importCPAPSessions(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> Int {
+    /// `internal` (not private) so RestoreFromServerTests can verify a
+    /// null-AHI (EDF-only) row still imports rather than being skipped (F-094).
+    static func importCPAPSessions(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> Int {
         var n = 0
         for row in rows {
             guard let date = parseDate(row["date"]),
-                  let ahi = row["ahi"] as? Double,
                   let usage = row["total_usage_minutes"] as? Int else { continue }
+            // AHI is NULL for EDF-only nights (server stores null rather than a
+            // fabricated 0, F-068). Import the row regardless — its leak/usage/
+            // pressure are still valuable — carrying ahi through as nil rather
+            // than skipping the whole session (the F-094 data-loss bug).
+            let ahi = row["ahi"] as? Double
             let session = CPAPSession(
                 date: date.addingTimeInterval(shift),
                 ahi: ahi,

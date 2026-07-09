@@ -86,13 +86,17 @@ struct CPAPListView: View, Equatable {
             $0.date >= Calendar.current.date(byAdding: .day, value: -30, to: now)!
         }
 
+        // Average over nights with a SCORED AHI only — unknown-AHI nights
+        // (nil, F-094) are excluded, never averaged in as 0.
+        let scored7 = last7.compactMap(\.ahi)
+        let scored30 = last30.compactMap(\.ahi)
         Section("Summary") {
-            if !last7.isEmpty {
-                let avg7 = last7.map(\.ahi).reduce(0, +) / Double(last7.count)
+            if !scored7.isEmpty {
+                let avg7 = scored7.reduce(0, +) / Double(scored7.count)
                 LabeledContent("7-day avg AHI", value: String(format: "%.1f", avg7))
             }
-            if !last30.isEmpty {
-                let avg30 = last30.map(\.ahi).reduce(0, +) / Double(last30.count)
+            if !scored30.isEmpty {
+                let avg30 = scored30.reduce(0, +) / Double(scored30.count)
                 LabeledContent("30-day avg AHI", value: String(format: "%.1f", avg30))
             }
             LabeledContent("Total sessions", value: "\(sessions.count)")
@@ -172,7 +176,7 @@ struct CPAPSessionRow: View {
                 Text(session.date, format: .dateTime.month().day().year())
                     .font(.subheadline.bold())
                 Spacer()
-                Text(String(format: "AHI %.1f", session.ahi))
+                Text(session.ahi.map { String(format: "AHI %.1f", $0) } ?? "AHI —")
                     .font(.subheadline.bold().monospacedDigit())
                     .foregroundStyle(ahiColor)
             }
@@ -196,7 +200,9 @@ struct CPAPSessionRow: View {
     }
 
     private var ahiColor: Color {
-        ClinicalSeverity.ahiSeverity(session.ahi).color
+        // Neutral when AHI is unknown (F-094).
+        guard let ahi = session.ahi else { return .secondary }
+        return ClinicalSeverity.ahiSeverity(ahi).color
     }
 }
 

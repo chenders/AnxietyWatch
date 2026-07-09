@@ -62,13 +62,17 @@ struct LastNightCard: View {
 
             // CPAP row
             if let cpap = lastCPAP {
+                // Unknown AHI (EDF-only night, F-094) → "AHI —" and no baseline
+                // delta; usage still shows. Never fabricate a 0.0 or a delta
+                // against an absent value.
+                let ahiText = cpap.ahi.map { String(format: "AHI %.1f", $0) } ?? "AHI —"
                 let deltaText: String = {
-                    guard let b = cpapAHIBaseline else { return "" }
-                    return String(format: " · %+.1f vs baseline", cpap.ahi - b.mean)
+                    guard let ahi = cpap.ahi, let b = cpapAHIBaseline else { return "" }
+                    return String(format: " · %+.1f vs baseline", ahi - b.mean)
                 }()
                 row(label: "CPAP",
-                    value: String(format: "AHI %.1f · %dh %dm used%@",
-                                  cpap.ahi,
+                    value: String(format: "%@ · %dh %dm used%@",
+                                  ahiText,
                                   cpap.totalUsageMinutes / 60,
                                   cpap.totalUsageMinutes % 60,
                                   deltaText))

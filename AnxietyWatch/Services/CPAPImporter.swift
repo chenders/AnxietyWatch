@@ -189,7 +189,12 @@ nonisolated enum CPAPImporter {
         let all = try context.fetch(FetchDescriptor<CPAPSession>())
         return Dictionary(all.map { ($0.date, $0) }, uniquingKeysWith: { existing, new in
             if new.totalUsageMinutes > existing.totalUsageMinutes { return new }
-            if new.totalUsageMinutes == existing.totalUsageMinutes && new.ahi < existing.ahi { return new }
+            // Tie on usage → keep the lower AHI. An unknown AHI (nil, F-094)
+            // ranks as +∞ so a scored night is preferred over an unscored one;
+            // comparison-only, never stored. (Local imports always carry a real
+            // AHI, so nil only appears for server-restored EDF-only nights.)
+            if new.totalUsageMinutes == existing.totalUsageMinutes
+                && (new.ahi ?? .infinity) < (existing.ahi ?? .infinity) { return new }
             return existing
         })
     }

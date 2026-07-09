@@ -353,7 +353,12 @@ struct SnapshotAggregator {
             if lhs.totalUsageMinutes != rhs.totalUsageMinutes {
                 return lhs.totalUsageMinutes < rhs.totalUsageMinutes
             }
-            return lhs.ahi > rhs.ahi
+            // Deterministic tie-break among same-usage duplicates. An unknown
+            // AHI (nil, F-094) is treated as +∞ so a scored night always wins
+            // the tie — a nil must never displace a measured AHI when both
+            // exist for the same date. Comparison-only; the chosen session's
+            // actual (possibly nil) AHI is what propagates to the snapshot.
+            return (lhs.ahi ?? .infinity) > (rhs.ahi ?? .infinity)
         }) {
             snapshot.cpapAHI = cpapSession.ahi
             snapshot.cpapUsageMinutes = cpapSession.totalUsageMinutes

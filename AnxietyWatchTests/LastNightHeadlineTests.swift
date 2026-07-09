@@ -71,4 +71,23 @@ struct LastNightHeadlineTests {
         let h = LastNightHeadline.compose(efficiencyPct: 80, efficiencyEstimated: false, ahi: 3.0, nadirPct: 94)
         #expect(h.verdict == "OK")
     }
+
+    // F-094: an EDF-only night has real CPAP usage but no scored AHI (nil).
+    // An unknown AHI must not certify a "Solid night" — it could have been
+    // severe. It caps the verdict at OK, mirroring the estimated-efficiency
+    // rule, and is never coerced to 0 (which would have breached at >= 5).
+    @Test("Unknown AHI with otherwise-clean night caps the verdict at OK")
+    func unknownAHICapsVerdictAtOK() {
+        let h = LastNightHeadline.compose(efficiencyPct: 92, efficiencyEstimated: false, ahi: nil, nadirPct: 94)
+        #expect(h.verdict == "OK")
+        #expect(!h.text.contains("AHI"))
+    }
+
+    @Test("Unknown AHI does not add a breach on top of a real breach")
+    func unknownAHINotCountedAsBreach() {
+        // One real breach (nadir < 92). Unknown AHI must neither hide it nor
+        // inflate a single breach to Rough.
+        let h = LastNightHeadline.compose(efficiencyPct: 92, efficiencyEstimated: false, ahi: nil, nadirPct: 87)
+        #expect(h.verdict == "OK")
+    }
 }

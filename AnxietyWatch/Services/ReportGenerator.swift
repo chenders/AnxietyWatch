@@ -174,14 +174,27 @@ enum ReportGenerator {
             if !cpapSessions.isEmpty {
                 cursor.ensureSpace(100)
                 cursor.drawSectionHeader("CPAP Compliance")
-                let avgAHI = cpapSessions.map(\.ahi).reduce(0, +) / Double(cpapSessions.count)
+                // AHI stats are computed only over nights with a SCORED AHI —
+                // EDF-only nights (nil, F-094) are excluded, never counted as
+                // 0, which would understate the average and the ≥5 count.
+                // Usage is over every recorded night.
+                let scoredAHI = cpapSessions.compactMap(\.ahi)
                 let avgUsage = Double(cpapSessions.map(\.totalUsageMinutes).reduce(0, +)) / Double(cpapSessions.count)
-                let highAHI = cpapSessions.filter { $0.ahi >= 5 }.count
 
                 cursor.drawBody(String(format: "Sessions recorded: %d", cpapSessions.count))
-                cursor.drawBody(String(format: "Average AHI: %.1f events/hr", avgAHI))
+                if scoredAHI.isEmpty {
+                    cursor.drawBody("Average AHI: — (no scored nights)")
+                } else {
+                    let avgAHI = scoredAHI.reduce(0, +) / Double(scoredAHI.count)
+                    // Disclose the denominator when some nights weren't scored,
+                    // so "average AHI" isn't read as covering every session.
+                    let denom = scoredAHI.count == cpapSessions.count
+                        ? ""
+                        : String(format: " (over %d of %d scored nights)", scoredAHI.count, cpapSessions.count)
+                    cursor.drawBody(String(format: "Average AHI: %.1f events/hr%@", avgAHI, denom))
+                    cursor.drawBody("Nights with AHI ≥ 5: \(scoredAHI.filter { $0 >= 5 }.count)")
+                }
                 cursor.drawBody(String(format: "Average usage: %.1f hours", avgUsage / 60.0))
-                cursor.drawBody("Nights with AHI ≥ 5: \(highAHI)")
                 cursor.y += 12
             }
 

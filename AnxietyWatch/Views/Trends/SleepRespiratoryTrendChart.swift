@@ -38,8 +38,12 @@ struct SleepRespiratoryTrendChart: View {
     }
 
     private var ahiData: [AHIDatum] {
-        sessions.map {
-            AHIDatum(id: $0.id, date: $0.date, ahi: $0.ahi, color: ahiColor($0.ahi))
+        // Skip sessions with an unknown AHI (EDF-only nights, F-094): there's
+        // no bar to plot, and coercing nil to 0 would draw a false "perfect
+        // night". Usage/leak/SpO₂ for those nights still render elsewhere.
+        sessions.compactMap { s in
+            guard let ahi = s.ahi else { return nil }
+            return AHIDatum(id: s.id, date: s.date, ahi: ahi, color: ahiColor(ahi))
         }
     }
 

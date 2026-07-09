@@ -18,8 +18,12 @@ final class CPAPSession {
     var id: UUID
     #Unique<CPAPSession>([\.date])
     var date: Date
-    /// Apnea-Hypopnea Index — events per hour
-    var ahi: Double
+    /// Apnea-Hypopnea Index — events per hour. `nil` when the source recorded
+    /// usage/leak/pressure but no scored AHI (EDF-only nights: the server
+    /// stores NULL rather than a fabricated 0, F-068). Distinct from `0.0`,
+    /// which is a real, perfect night. Consumers must treat `nil` as "unknown"
+    /// (show "—", exclude from averages) — never coerce it to 0 (F-094).
+    var ahi: Double?
     var totalUsageMinutes: Int
     /// 95th percentile leak rate in L/min (nil when not available, e.g. OSCAR CSV import)
     var leakRate95th: Double?
@@ -34,7 +38,7 @@ final class CPAPSession {
 
     init(
         date: Date,
-        ahi: Double,
+        ahi: Double?,
         totalUsageMinutes: Int,
         leakRate95th: Double? = nil,
         pressureMin: Double,
