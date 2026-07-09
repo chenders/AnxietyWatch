@@ -86,12 +86,23 @@ struct LastNightCard: View {
                     snapshot.spo2DesatsCount.map { "\($0) desats" }
                 ]
                 let nonNil = parts.compactMap { $0 }
-                // Source chip omitted: HealthSnapshot does not yet record the
-                // SpO₂ source device, so we can't distinguish EMAY from Watch.
-                HStack {
-                    Text("SpO₂").font(.caption2).foregroundStyle(.secondary).frame(width: 60, alignment: .leading)
-                    Text(nonNil.joined(separator: " · ")).font(.caption)
-                    Spacer()
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text("SpO₂").font(.caption2).foregroundStyle(.secondary).frame(width: 60, alignment: .leading)
+                        Text(nonNil.joined(separator: " · ")).font(.caption)
+                        Spacer()
+                    }
+                    // Disclose mixed provenance (F-092): when the nadir/avg and
+                    // the T90/desats were computed from different source
+                    // populations, say which — otherwise a brief-oximeter nadir
+                    // reads as describing the same night as an all-Watch T90.
+                    if snapshot.spo2SourcesDiverge,
+                       let agg = snapshot.spo2AggregateBasis,
+                       let burden = snapshot.spo2BurdenBasis {
+                        Text("Nadir: \(agg.label) · T90/desats: \(burden.label)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }

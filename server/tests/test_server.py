@@ -491,6 +491,124 @@ def test_sync_health_snapshot_overnight_stats_v2_client_can_clear(client, app):
     assert row["glucose_max"] is None
 
 
+def test_sync_health_snapshot_spo2_basis_roundtrip(client, app):
+    """The two SpO2 source-basis columns (F-092) round-trip through sync."""
+    payload = {
+        "syncSchemaVersion": 5,
+        "healthSnapshots": [
+            {
+                "date": "2025-04-01",
+                "spo2NadirOvernight": 87.0,
+                "spo2TimeBelow90Min": 12,
+                "spo2AggregateSource": "oximeter",
+                "spo2BurdenSource": "mixed",
+            },
+        ],
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    resp = client.get("/api/data/healthSnapshots", headers=auth_header())
+    row = next(r for r in resp.get_json()["healthSnapshots"] if r["date"] == "2025-04-01")
+    # The diverged night's two bases persist independently.
+    assert row["spo2_aggregate_source"] == "oximeter"
+    assert row["spo2_burden_source"] == "mixed"
+
+
+def test_sync_health_snapshot_spo2_basis_null_when_omitted(client, app):
+    """Basis columns default to null when the client omits them."""
+    payload = {"healthSnapshots": [{"date": "2025-04-02", "hrvAvg": 55.0}]}
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    resp = client.get("/api/data/healthSnapshots", headers=auth_header())
+    row = next(r for r in resp.get_json()["healthSnapshots"] if r["date"] == "2025-04-02")
+    assert row["spo2_aggregate_source"] is None
+    assert row["spo2_burden_source"] is None
+
+
+def test_sync_health_snapshot_spo2_basis_older_client_does_not_wipe(client, app):
+    """A pre-v5 client that omits the basis keys must not wipe a stored basis.
+    The two columns use COALESCE under the <5 path so missing keys are
+    preserved (same shape as the overnight-stats clause, boundary v5)."""
+    modern = {
+        "syncSchemaVersion": 5,
+        "healthSnapshots": [
+            {
+                "date": "2025-04-03",
+                "spo2NadirOvernight": 87.0,
+                "spo2AggregateSource": "oximeter",
+                "spo2BurdenSource": "mixed",
+            },
+        ],
+    }
+    assert client.post("/api/sync", json=modern, headers=auth_header()).status_code == 200
+
+    # v4 client (predates the basis columns) re-syncs the same date.
+    older = {
+        "syncSchemaVersion": 4,
+        "healthSnapshots": [{"date": "2025-04-03", "hrvAvg": 50.0}],
+    }
+    assert client.post("/api/sync", json=older, headers=auth_header()).status_code == 200
+
+    resp = client.get("/api/data/healthSnapshots", headers=auth_header())
+    row = next(r for r in resp.get_json()["healthSnapshots"] if r["date"] == "2025-04-03")
+    assert row["hrv_avg"] == 50.0
+    assert row["spo2_aggregate_source"] == "oximeter"
+    assert row["spo2_burden_source"] == "mixed"
+
+
+def test_sync_health_snapshot_spo2_basis_v5_client_can_clear(client, app):
+    """A v5 client that re-aggregates a night to a single-source (no longer
+    diverged) profile omits the basis keys; v5 semantics clear them to NULL."""
+    initial = {
+        "syncSchemaVersion": 5,
+        "healthSnapshots": [
+            {
+                "date": "2025-04-04",
+                "spo2AggregateSource": "oximeter",
+                "spo2BurdenSource": "mixed",
+            },
+        ],
+    }
+    assert client.post("/api/sync", json=initial, headers=auth_header()).status_code == 200
+
+    cleared = {
+        "syncSchemaVersion": 5,
+        "healthSnapshots": [{"date": "2025-04-04", "hrvAvg": 60.0}],
+    }
+    assert client.post("/api/sync", json=cleared, headers=auth_header()).status_code == 200
+
+    resp = client.get("/api/data/healthSnapshots", headers=auth_header())
+    row = next(r for r in resp.get_json()["healthSnapshots"] if r["date"] == "2025-04-04")
+    assert row["hrv_avg"] == 60.0
+    assert row["spo2_aggregate_source"] is None
+    assert row["spo2_burden_source"] is None
+
+
+def test_sync_health_snapshot_spo2_basis_invalid_value_coerced_to_null(client, app):
+    """A basis value outside the allowed enum domain is coerced to NULL at
+    ingest, not stored verbatim — otherwise it would round-trip to iOS and
+    decode to nil there, silently suppressing the divergence disclosure."""
+    payload = {
+        "syncSchemaVersion": 5,
+        "healthSnapshots": [
+            {
+                "date": "2025-04-05",
+                "spo2NadirOvernight": 88.0,
+                "spo2AggregateSource": "oximeter",
+                "spo2BurdenSource": "bogus-device",  # not in {oximeter, mixed}
+            },
+        ],
+    }
+    assert client.post("/api/sync", json=payload, headers=auth_header()).status_code == 200
+
+    resp = client.get("/api/data/healthSnapshots", headers=auth_header())
+    row = next(r for r in resp.get_json()["healthSnapshots"] if r["date"] == "2025-04-05")
+    assert row["spo2_aggregate_source"] == "oximeter"  # valid value preserved
+    assert row["spo2_burden_source"] is None           # invalid coerced to NULL
+
+
 def test_sync_health_snapshot_overnight_stats_upsert(client, app):
     """The new fields update on conflict when both old and new are non-null."""
     initial = {

@@ -446,6 +446,18 @@ struct SnapshotAggregator {
         // the same row's sleep fields and the Trends Polar series (F-046).
         // The HK-direct hrv/rhr fallbacks above keep their calendar-day
         // convention (Watch spot samples are day-attributed by HealthKit).
+        // Tag the SpO₂ source basis (F-092). At this point avg/nadir/T90/desats
+        // are the HealthKit-direct mixed-source values, so default both bases
+        // to `.mixed` for whichever group was actually computed. The
+        // precedence override below upgrades a group to `.oximeter` only when
+        // it recomputes that group from the dedicated-oximeter subset — so a
+        // group left un-upgraded stays honestly `.mixed`, and the two bases
+        // can legitimately diverge (an oximeter nadir alongside a mixed T90).
+        snapshot.spo2AggregateBasis =
+            (snapshot.spo2Avg != nil || snapshot.spo2NadirOvernight != nil) ? .mixed : nil
+        snapshot.spo2BurdenBasis =
+            (snapshot.spo2TimeBelow90Min != nil || snapshot.spo2DesatsCount != nil) ? .mixed : nil
+
         try await applyOvernightSpO2Precedence(
             on: snapshot, overnightStart: overnightStart, overnightEnd: overnightEnd
         )
@@ -555,6 +567,11 @@ struct SnapshotAggregator {
         let breathingRateAvg: Double?
         let fidgetIndexAvg: Double?
         let dataQuality: String?
+        // F-092 SpO₂ source basis — included so a basis-only change (rare, but
+        // possible when a re-aggregation flips oximeter↔mixed while the numeric
+        // value coincidentally lands identical) still marks the row dirty.
+        let spo2AggregateSource: String?
+        let spo2BurdenSource: String?
 
         init(from s: HealthSnapshot) {
             hrvAvg = s.hrvAvg
@@ -604,6 +621,8 @@ struct SnapshotAggregator {
             breathingRateAvg = s.breathingRateAvg
             fidgetIndexAvg = s.fidgetIndexAvg
             dataQuality = s.dataQuality
+            spo2AggregateSource = s.spo2AggregateSource
+            spo2BurdenSource = s.spo2BurdenSource
         }
     }
 
@@ -787,6 +806,8 @@ struct SnapshotAggregator {
         if let preferredNadir = preferredValues.min() {
             snapshot.spo2NadirOvernight = preferredNadir * 100
         }
+        // avg/nadir now come from the dedicated-oximeter subset (F-092).
+        snapshot.spo2AggregateBasis = .oximeter
 
         // 8) T90 + desat count need start/end intervals. Synthesize 1-second
         // intervals — overnight oximeters write at 1 Hz so this matches
@@ -807,6 +828,11 @@ struct SnapshotAggregator {
             snapshot.spo2DesatsCount = Statistics.countDesatEvents(
                 preferredQS, dropThreshold: 0.04, recoveryThreshold: 0.02
             )
+            // T90/desats now come from the dedicated-oximeter subset (F-092).
+            // If this branch is skipped, the basis stays `.mixed` (set before
+            // the precedence call) — which is exactly the divergence F-092
+            // discloses: an oximeter nadir alongside a mixed-source T90.
+            snapshot.spo2BurdenBasis = .oximeter
         }
         // Preferred coverage exists but is too sparse for T90/desat math
         // (oximeter connected briefly, then dropped): KEEP the HK-direct

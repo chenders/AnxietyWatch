@@ -472,6 +472,132 @@ struct SnapshotAggregatorSourcePrecedenceTests {
         // sparse preferred subset can't replace them, and must not nil them.
         #expect((snap?.spo2TimeBelow90Min ?? 0) >= 3)
         #expect(snap?.spo2DesatsCount != nil)
+        // F-092: this is exactly the divergence case — the nadir/avg came from
+        // the oximeter subset while T90/desats stayed on the mixed HK-direct
+        // set. Both bases must be recorded and flagged as diverging so the
+        // clinical surfaces disclose it.
+        #expect(snap?.spo2AggregateBasis == .oximeter)
+        #expect(snap?.spo2BurdenBasis == .mixed)
+        #expect(snap?.spo2SourcesDiverge == true)
+    }
+
+    // F-092: when the oximeter subset is dense enough for BOTH the avg/nadir
+    // and the T90/desat gate, every metric shares the oximeter basis — no
+    // divergence, so the clinical surfaces show no source annotation.
+    @Test("Dense preferred coverage tags both groups oximeter with no divergence")
+    func densePreferredTagsBothOximeter() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        await mock.setMinimum(.oxygenSaturation, value: 0.78)
+        await mock.setAverage(.oxygenSaturation, value: 0.88)
+        // 360 EMAY samples spaced 1s apart → 360s monitored ≥ 300s and count
+        // ≥ 30, so the burden gate passes on the preferred subset. First 40
+        // below 0.90 to produce a non-zero T90.
+        for i in 0..<360 {
+            let start = overnightAnchor.addingTimeInterval(Double(i))
+            context.insert(QuantityHealthSample(
+                timestamp: start,
+                metricType: HKQuantityTypeIdentifier.oxygenSaturation.rawValue,
+                value: i < 40 ? 0.88 : 0.95,
+                unitString: "%",
+                sourceBundleID: "com.emay.SleepO2",
+                sourceName: "com.emay.SleepO2"
+            ))
+        }
+        try context.save()
+
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        #expect(snap?.spo2AggregateBasis == .oximeter)
+        #expect(snap?.spo2BurdenBasis == .oximeter)
+        #expect(snap?.spo2SourcesDiverge == false)
+    }
+
+    // F-092: no oximeter covered the window — avg/nadir and T90/desats are all
+    // the HK-direct mixed-source values, both tagged `.mixed`. Same basis, so
+    // they don't diverge and no annotation is shown.
+    @Test("No preferred coverage tags both groups mixed with no divergence")
+    func noPreferredTagsBothMixed() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        await mock.setMinimum(.oxygenSaturation, value: 0.90)
+        await mock.setAverage(.oxygenSaturation, value: 0.94)
+        // Sufficient HK-direct coverage, no dedicated-oximeter samples seeded.
+        var hkSamples: [QuantitySample] = []
+        for i in 0..<60 {
+            let start = overnightAnchor.addingTimeInterval(Double(i) * 10)
+            hkSamples.append(QuantitySample(
+                start: start, end: start.addingTimeInterval(10),
+                value: i < 20 ? 0.88 : 0.95
+            ))
+        }
+        await mock.setQuantitySamples(.oxygenSaturation, hkSamples)
+
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        #expect(snap?.spo2AggregateBasis == .mixed)
+        #expect(snap?.spo2BurdenBasis == .mixed)
+        #expect(snap?.spo2SourcesDiverge == false)
+    }
+
+    // F-092: re-aggregating the SAME night after its oximeter coverage
+    // disappears must flip the basis oximeter → mixed, never leave a stale
+    // `.oximeter` from the prior run. Directly exercises the "basis is
+    // recomputed every aggregateDay" property rather than relying on it by
+    // construction.
+    @Test("Re-aggregating after oximeter coverage drops flips basis oximeter→mixed")
+    func reaggregationClearsStaleOximeterBasis() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        await mock.setMinimum(.oxygenSaturation, value: 0.78)
+        await mock.setAverage(.oxygenSaturation, value: 0.88)
+        // Sufficient HK-direct coverage present throughout — in round 1 the
+        // oximeter subset overrides it, in round 2 (oximeter gone) it's what
+        // the T90/desats fall back to, so the burden basis becomes .mixed.
+        var hkSamples: [QuantitySample] = []
+        for i in 0..<60 {
+            let start = overnightAnchor.addingTimeInterval(Double(i) * 10)
+            hkSamples.append(QuantitySample(
+                start: start, end: start.addingTimeInterval(10),
+                value: i < 20 ? 0.88 : 0.95
+            ))
+        }
+        await mock.setQuantitySamples(.oxygenSaturation, hkSamples)
+
+        // Round 1: dense oximeter coverage → both groups tagged .oximeter.
+        for i in 0..<360 {
+            context.insert(QuantityHealthSample(
+                timestamp: overnightAnchor.addingTimeInterval(Double(i)),
+                metricType: HKQuantityTypeIdentifier.oxygenSaturation.rawValue,
+                value: i < 40 ? 0.88 : 0.95,
+                unitString: "%",
+                sourceBundleID: "com.emay.SleepO2",
+                sourceName: "com.emay.SleepO2"
+            ))
+        }
+        try context.save()
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+        let first = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        #expect(first?.spo2AggregateBasis == .oximeter)
+        #expect(first?.spo2BurdenBasis == .oximeter)
+
+        // Round 2: the oximeter rows are gone (e.g. a re-import corrected the
+        // data). HK-direct values remain via the mock. Re-aggregate the same
+        // date — the basis must fall back to .mixed, not stay .oximeter.
+        for sample in try context.fetch(FetchDescriptor<QuantityHealthSample>()) {
+            context.delete(sample)
+        }
+        try context.save()
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let second = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        #expect(second?.spo2AggregateBasis == .mixed, "stale .oximeter must not survive re-aggregation")
+        #expect(second?.spo2BurdenBasis == .mixed)
     }
 
     @Test("Sparse preferred with insufficient HK-direct coverage leaves T90/desats nil")

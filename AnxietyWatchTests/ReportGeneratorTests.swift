@@ -524,4 +524,45 @@ struct ReportGeneratorTests {
         #expect(raw.contains("165"))
         #expect(raw.contains("CV"))
     }
+
+    @Test("PDF discloses SpO₂ source basis only when nadir and T90 diverge (F-092)")
+    func reportDisclosesSpO2SourceDivergence() throws {
+        let cal = Calendar.current
+        let date = cal.date(from: DateComponents(year: 2026, month: 6, day: 15))!
+        let endDate = cal.date(byAdding: .day, value: 1, to: date)!
+
+        func pdfText(for snapshot: HealthSnapshot) throws -> String {
+            let data = ReportGenerator.generatePDF(
+                entries: [], doses: [], definitions: [],
+                snapshots: [snapshot], cpapSessions: [],
+                start: date, end: endDate
+            )
+            let doc = try #require(PDFDocument(data: data))
+            var raw = ""
+            for i in 0..<doc.pageCount { raw += doc.page(at: i)?.string ?? "" }
+            return raw
+        }
+
+        // Diverged night: oximeter set the nadir, mixed set the T90/desats.
+        let diverged = HealthSnapshot(date: date)
+        diverged.spo2NadirOvernight = 87.0
+        diverged.spo2TimeBelow90Min = 12
+        diverged.spo2DesatsCount = 4
+        diverged.spo2AggregateBasis = .oximeter
+        diverged.spo2BurdenBasis = .mixed
+        let divergedText = try pdfText(for: diverged)
+        #expect(divergedText.contains("SpO₂ sources —"))
+        #expect(divergedText.contains("nadir: pulse oximeter"))
+        #expect(divergedText.contains("T90/desats: Apple Health"))
+
+        // Same-basis night: no annotation clutters the line.
+        let sameBasis = HealthSnapshot(date: date)
+        sameBasis.spo2NadirOvernight = 87.0
+        sameBasis.spo2TimeBelow90Min = 12
+        sameBasis.spo2DesatsCount = 4
+        sameBasis.spo2AggregateBasis = .oximeter
+        sameBasis.spo2BurdenBasis = .oximeter
+        let sameText = try pdfText(for: sameBasis)
+        #expect(!sameText.contains("SpO₂ sources —"))
+    }
 }

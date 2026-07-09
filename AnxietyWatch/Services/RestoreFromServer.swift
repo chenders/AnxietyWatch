@@ -304,6 +304,9 @@ extension SyncService {
             snap.spo2NadirOpportunistic = row["spo2_nadir_opportunistic"] as? Double
             snap.spo2TimeBelow90Min = intf(row, "spo2_time_below_90_min")
             snap.spo2DesatsCount = intf(row, "spo2_desats_count")
+            // SpO₂ source basis (F-092). Text columns — no median fill.
+            snap.spo2AggregateSource = row["spo2_aggregate_source"] as? String
+            snap.spo2BurdenSource = row["spo2_burden_source"] as? String
             snap.steps = intf(row, "steps")
             snap.activeCalories = dbl(row, "active_calories")
             snap.exerciseMinutes = intf(row, "exercise_minutes")

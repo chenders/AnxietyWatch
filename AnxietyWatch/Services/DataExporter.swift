@@ -94,7 +94,7 @@ nonisolated enum DataExporter {
         // Health snapshots
         csv = "date,hrv_avg,hrv_min,resting_hr,sleep_total_min,sleep_deep_min,sleep_rem_min,"
         csv += "sleep_core_min,sleep_awake_min,skin_temp_dev,skin_temp_wrist,resp_rate,spo2_avg,"
-        csv += "spo2_nadir,spo2_t90_min,spo2_desats,"
+        csv += "spo2_nadir,spo2_t90_min,spo2_desats,spo2_aggregate_source,spo2_burden_source,"
         csv += "steps,active_cal,exercise_min,env_sound_avg,bp_sys,bp_dia,glucose_avg,"
         csv += "glucose_sd,glucose_cv,glucose_min,glucose_max\n"
         for h in bundle.healthSnapshots {
@@ -103,6 +103,7 @@ nonisolated enum DataExporter {
             csv += "\(opt(h.sleepCoreMin)),\(opt(h.sleepAwakeMin)),\(opt(h.skinTempDeviation)),\(opt(h.skinTempWrist)),"
             csv += "\(opt(h.respiratoryRate)),\(opt(h.spo2Avg)),"
             csv += "\(opt(h.spo2NadirOvernight)),\(opt(h.spo2TimeBelow90Min)),\(opt(h.spo2DesatsCount)),"
+            csv += "\(opt(h.spo2AggregateSource)),\(opt(h.spo2BurdenSource)),"
             csv += "\(opt(h.steps)),"
             csv += "\(opt(h.activeCalories)),\(opt(h.exerciseMinutes)),\(opt(h.environmentalSoundAvg)),"
             csv += "\(opt(h.bpSystolic)),\(opt(h.bpDiastolic)),\(opt(h.bloodGlucoseAvg)),"
@@ -279,6 +280,8 @@ nonisolated enum DataExporter {
                                   spo2NadirOpportunistic: h.spo2NadirOpportunistic,
                                   spo2TimeBelow90Min: h.spo2TimeBelow90Min,
                                   spo2DesatsCount: h.spo2DesatsCount,
+                                  spo2AggregateSource: h.spo2AggregateSource,
+                                  spo2BurdenSource: h.spo2BurdenSource,
                                   steps: h.steps, activeCalories: h.activeCalories,
                                   exerciseMinutes: h.exerciseMinutes,
                                   environmentalSoundAvg: h.environmentalSoundAvg,
@@ -392,6 +395,7 @@ nonisolated enum DataExporter {
         let respiratoryRate: Double?; let spo2Avg: Double?
         let spo2NadirOvernight: Double?; let spo2NadirOpportunistic: Double?
         let spo2TimeBelow90Min: Int?; let spo2DesatsCount: Int?
+        let spo2AggregateSource: String?; let spo2BurdenSource: String?
         let steps: Int?
         let activeCalories: Double?; let exerciseMinutes: Int?
         let environmentalSoundAvg: Double?; let bpSystolic: Double?

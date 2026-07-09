@@ -644,16 +644,18 @@ final class SyncService {
             json["since"] = ISO8601DateFormatter().string(from: since)
         }
         json["clientVersion"] = "1.0"
-        // syncSchemaVersion 4 adds top-level `sensorSessions` + `hrvReadings`
-        // arrays from the Polar H10 BLE pipeline. v3 added raw quantitySamples
-        // + sleepStageEvents arrays and the dataQuality JSONB on each
-        // HealthSnapshot; the server uses the version flag to interpret missing
-        // dataQuality keys as intentional nils (clear-on-conflict) on v3+
-        // clients vs. preserve-via-COALESCE on older. v2 added the seven
-        // overnight clinical stats fields (spo2NadirOvernight, spo2TimeBelow90Min,
-        // spo2DesatsCount, glucoseStdDev/CV/Min/Max) under the same
-        // clear-on-conflict semantics.
-        json["syncSchemaVersion"] = 4
+        // syncSchemaVersion 5 adds the two SpO₂ source-basis columns
+        // (spo2AggregateSource / spo2BurdenSource, F-092) under the same
+        // clear-on-conflict semantics as the groups below. v4 adds top-level
+        // `sensorSessions` + `hrvReadings` arrays from the Polar H10 BLE
+        // pipeline. v3 added raw quantitySamples + sleepStageEvents arrays and
+        // the dataQuality JSONB on each HealthSnapshot; the server uses the
+        // version flag to interpret missing dataQuality keys as intentional
+        // nils (clear-on-conflict) on v3+ clients vs. preserve-via-COALESCE on
+        // older. v2 added the seven overnight clinical stats fields
+        // (spo2NadirOvernight, spo2TimeBelow90Min, spo2DesatsCount,
+        // glucoseStdDev/CV/Min/Max) under the same clear-on-conflict semantics.
+        json["syncSchemaVersion"] = 5
         json["deviceName"] = "iOS \(UIDevice.current.systemVersion)"
         if let demographics {
             json["demographics"] = demographics
@@ -984,6 +986,11 @@ final class SyncService {
             put("spo2NadirOpportunistic", s.spo2NadirOpportunistic)
             put("spo2TimeBelow90Min", s.spo2TimeBelow90Min)
             put("spo2DesatsCount", s.spo2DesatsCount)
+            // SpO₂ source basis (F-092). Server clears-on-conflict for
+            // syncSchemaVersion>=5; an omitted key (locally nil) matches the
+            // server NULL, same pattern as dataQuality below.
+            put("spo2AggregateSource", s.spo2AggregateSource)
+            put("spo2BurdenSource", s.spo2BurdenSource)
             put("steps", s.steps)
             put("activeCalories", s.activeCalories)
             put("exerciseMinutes", s.exerciseMinutes)

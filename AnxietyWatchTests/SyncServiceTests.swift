@@ -621,7 +621,7 @@ struct SyncServiceTests {
         #expect(!ids.contains(notSynced.id), "an un-synced session must not be scanned (its server row doesn't exist yet)")
     }
 
-    @Test("buildPayload includes syncSchemaVersion=4 in the wrapper metadata")
+    @Test("buildPayload includes syncSchemaVersion=5 in the wrapper metadata")
     @MainActor
     func payloadIncludesSchemaVersion() throws {
         let restore = saveSyncDefaults()
@@ -637,12 +637,14 @@ struct SyncServiceTests {
         let data = try SyncService().buildPayload(from: context)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         #expect(json != nil)
-        // v4 adds top-level sensorSessions + hrvReadings (Polar H10 BLE).
-        // v3 added raw quantitySamples + sleepStageEvents arrays plus the
-        // dataQuality JSONB on each snapshot. The server uses the version flag
-        // to decide whether a missing dataQuality key is "clear-on-conflict"
-        // (v3+) or "preserve via COALESCE" (older clients).
-        #expect((json?["syncSchemaVersion"] as? Int) == 4)
+        // v5 adds the two SpO₂ source-basis columns (spo2AggregateSource /
+        // spo2BurdenSource, F-092). v4 adds top-level sensorSessions +
+        // hrvReadings (Polar H10 BLE). v3 added raw quantitySamples +
+        // sleepStageEvents arrays plus the dataQuality JSONB on each snapshot.
+        // The server uses the version flag to decide whether a missing key is
+        // "clear-on-conflict" (client knows the field) or "preserve via
+        // COALESCE" (older client that predates it).
+        #expect((json?["syncSchemaVersion"] as? Int) == 5)
     }
 
     @Test("buildPayload includes unsynced QuantityHealthSample rows")

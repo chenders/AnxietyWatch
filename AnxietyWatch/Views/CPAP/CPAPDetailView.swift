@@ -136,6 +136,17 @@ struct CPAPDetailView: View, Equatable {
                                 .fontWeight(.semibold)
                         }
                     }
+                    // Disclose mixed provenance (F-092): the nadir/avg and the
+                    // T90/desats above can come from different source
+                    // populations on the same night (e.g. a brief oximeter set
+                    // the nadir while the all-night Watch set the T90).
+                    if snap.spo2SourcesDiverge,
+                       let agg = snap.spo2AggregateBasis,
+                       let burden = snap.spo2BurdenBasis {
+                        Text("Sources differ — nadir: \(agg.label); time <90% & desats: \(burden.label).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     if let nadir = snap.spo2NadirOvernight,
                        let baseline = BaselineCalculator.spo2NadirBaseline(
                             from: snapshots,

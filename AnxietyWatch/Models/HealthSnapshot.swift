@@ -1,6 +1,38 @@
 import Foundation
 import SwiftData
 
+/// Which sample population a group of overnight SpO₂ metrics was actually
+/// computed from (F-092). Recorded per-snapshot so clinical surfaces can
+/// disclose when the avg/nadir and the T90/desaturation counts describe
+/// DIFFERENT source populations — e.g. a brief oximeter connection set the
+/// nadir from a handful of samples while an all-night Apple Watch spot-check
+/// set the T90 from the broader mixed set. Each field is individually correct
+/// against its own sufficiency gate; the hazard is presenting them together,
+/// undisclosed, as one coherent overnight profile.
+enum SpO2SourceBasis: String, Codable, Sendable, CaseIterable {
+    /// Computed from the dedicated overnight pulse-oximeter subset only
+    /// (EMAY / Wellue), after the source-precedence override.
+    case oximeter
+    /// Computed from the HealthKit-direct aggregate over whatever sources
+    /// HealthKit reported for the window — either no oximeter covered it, or
+    /// the oximeter subset was too sparse for this metric's sufficiency gate
+    /// so the HK-direct value was retained. NOTE: this may in practice be
+    /// Apple-Watch-only — CSV-imported oximeter sessions live only in
+    /// SwiftData and never reach the HealthKit query this value comes from —
+    /// so the label deliberately names the data source ("Apple Health") rather
+    /// than claiming a multi-device blend, which would overstate corroboration
+    /// to a clinician.
+    case mixed
+
+    /// Short label for clinical surfaces (card footnote, PDF annotation).
+    var label: String {
+        switch self {
+        case .oximeter: return "pulse oximeter"
+        case .mixed: return "Apple Health"
+        }
+    }
+}
+
 /// Daily aggregation of HealthKit data. One row per calendar day.
 /// HealthKit remains the source of truth — this is a cache for efficient trending.
 @Model
@@ -42,13 +74,26 @@ final class HealthSnapshot {
     /// SpO2 samples exist for the window.
     var spo2NadirOpportunistic: Double?
     /// Minutes spent below 90% during overnight window (T90 — hypoxic burden).
-    /// Computed from the preferred source subset; opportunistic samples are
-    /// dropped when a dedicated overnight oximeter is present.
+    /// Computed from the preferred (oximeter) subset when it clears the
+    /// continuous-monitoring sufficiency gate; otherwise retains the
+    /// HealthKit-direct mixed-source value (F-023). Which basis was used is
+    /// recorded in `spo2BurdenBasis` and can differ from `spo2AggregateBasis`
+    /// (F-092).
     var spo2TimeBelow90Min: Int?
     /// Rough ODI-style desaturation event count overnight. Not clinical-grade ODI4 —
     /// manufacturer-app reports remain authoritative; this is for trending only.
-    /// Computed from the preferred source subset.
+    /// Same source basis as `spo2TimeBelow90Min` — see `spo2BurdenBasis`.
     var spo2DesatsCount: Int?
+
+    /// Source basis for `spo2Avg` / `spo2NadirOvernight` (F-092). Stored as
+    /// the `SpO2SourceBasis` raw value; use `spo2AggregateBasis` for typed
+    /// access. Nil when no avg/nadir was computed for the window.
+    var spo2AggregateSource: String?
+    /// Source basis for `spo2TimeBelow90Min` / `spo2DesatsCount` (F-092).
+    /// Can differ from `spo2AggregateSource` on a night where a sparse
+    /// oximeter set the nadir but only the mixed HK-direct set was dense
+    /// enough for the burden stats. Nil when no T90/desats were computed.
+    var spo2BurdenSource: String?
 
     // Activity
     var steps: Int?
@@ -155,5 +200,29 @@ final class HealthSnapshot {
         // default of `true` exists only so SwiftData lightweight migration
         // doesn't mark every pre-existing row dirty on first launch.
         self.syncedToServer = false
+    }
+
+    // MARK: - SpO₂ source-provenance (F-092)
+
+    /// Typed accessor for `spo2AggregateSource` (avg/nadir basis).
+    var spo2AggregateBasis: SpO2SourceBasis? {
+        get { spo2AggregateSource.flatMap(SpO2SourceBasis.init(rawValue:)) }
+        set { spo2AggregateSource = newValue?.rawValue }
+    }
+
+    /// Typed accessor for `spo2BurdenSource` (T90/desats basis).
+    var spo2BurdenBasis: SpO2SourceBasis? {
+        get { spo2BurdenSource.flatMap(SpO2SourceBasis.init(rawValue:)) }
+        set { spo2BurdenSource = newValue?.rawValue }
+    }
+
+    /// True when the avg/nadir and the T90/desat counts were computed from
+    /// DIFFERENT source populations and BOTH are present — the F-092 case a
+    /// clinical surface must disclose. When either basis is nil (that metric
+    /// group wasn't computed) there is nothing to reconcile, so it is not a
+    /// divergence.
+    var spo2SourcesDiverge: Bool {
+        guard let agg = spo2AggregateBasis, let burden = spo2BurdenBasis else { return false }
+        return agg != burden
     }
 }

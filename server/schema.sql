@@ -71,6 +71,11 @@ CREATE TABLE IF NOT EXISTS health_snapshots (
     spo2_nadir_opportunistic DOUBLE PRECISION,
     spo2_time_below_90_min  INTEGER,
     spo2_desats_count       INTEGER,
+    -- SpO2 source basis (F-092): which sample population each metric group
+    -- was computed from ('oximeter' | 'mixed'). aggregate = avg/nadir,
+    -- burden = T90/desats; they can differ on a mixed-provenance night.
+    spo2_aggregate_source   TEXT,
+    spo2_burden_source      TEXT,
     steps                   INTEGER,
     active_calories         DOUBLE PRECISION,
     exercise_minutes        INTEGER,

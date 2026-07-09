@@ -213,7 +213,7 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal)
-                .accessibilityLabel("Last Night. \(headline.text).")
+                .accessibilityLabel("Last Night. \(headline.text).\(spo2SourceDisclosure(for: snapshot))")
                 .accessibilityHint("Tap to view CPAP detail")
             } else {
                 LastNightCard(
@@ -225,6 +225,19 @@ struct DashboardView: View {
                 .padding(.horizontal)
             }
         }
+    }
+
+    /// Spoken SpO₂ mixed-provenance disclosure for the Last-Night link's
+    /// accessibilityLabel (F-092). In `wrappedInLink` mode LastNightCard sets
+    /// `.accessibilityElement(children: .ignore)`, so its visual divergence
+    /// footnote isn't read by VoiceOver — this folds the same disclosure into
+    /// the link's label. Empty (no suffix) when the sources don't diverge.
+    private func spo2SourceDisclosure(for snapshot: HealthSnapshot) -> String {
+        guard snapshot.spo2SourcesDiverge,
+              let agg = snapshot.spo2AggregateBasis,
+              let burden = snapshot.spo2BurdenBasis else { return "" }
+        return " SpO2 sources differ: nadir from \(agg.label); "
+            + "time below 90 percent and desaturations from \(burden.label)."
     }
 }
 

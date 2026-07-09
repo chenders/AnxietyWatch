@@ -388,6 +388,17 @@ enum ReportGenerator {
         }
         if !spo2.isEmpty {
             parts.append("SpO₂ " + spo2.joined(separator: " · "))
+            // Disclose mixed provenance (F-092): when the nadir/avg and the
+            // T90/desats were computed from different source populations, a
+            // clinician reading the PDF must not assume they describe the same
+            // sample set. Emit as its OWN line (not appended to the SpO₂ line)
+            // so it isn't lost to drawBody's single-line clipping — the same
+            // reason SpO₂ and glucose are already split into separate parts.
+            if snap.spo2SourcesDiverge,
+               let agg = snap.spo2AggregateBasis,
+               let burden = snap.spo2BurdenBasis {
+                parts.append("SpO₂ sources — nadir: \(agg.label); T90/desats: \(burden.label)")
+            }
         }
 
         var glucose: [String] = []

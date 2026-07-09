@@ -490,9 +490,42 @@ def create_app(test_config=None):
             return "data_quality = EXCLUDED.data_quality"
         return "data_quality = COALESCE(EXCLUDED.data_quality, health_snapshots.data_quality)"
 
+    # SpO2 source-basis columns (F-092), added at syncSchemaVersion 5.
+    _SPO2_BASIS_COLUMNS = ("spo2_aggregate_source", "spo2_burden_source")
+
+    # Allowed values for the SpO2 source-basis columns — mirrors the iOS
+    # `SpO2SourceBasis` enum raw values. Anything else is coerced to NULL at
+    # ingest so a malformed value can't round-trip back to iOS and decode to
+    # nil there (which would silently suppress the mixed-provenance
+    # disclosure). Coerce rather than reject: one bad basis string shouldn't
+    # fail the whole snapshot batch, and NULL is the correct "unknown" state.
+    _ALLOWED_SPO2_BASIS = {"oximeter", "mixed"}
+
+    def _coerce_spo2_basis(value):
+        return value if value in _ALLOWED_SPO2_BASIS else None
+
+    def _spo2_basis_update_clause(schema_version):
+        """Return the SET fragment for the two SpO2 source-basis columns.
+
+        Same shape as the overnight-stats clause, version boundary 5. v >= 5
+        clients know these keys, so a missing key is an intentional clear
+        (EXCLUDED). v <= 4 clients predate the columns and never send them, so
+        preserve any previously-synced basis via COALESCE rather than nulling
+        it when such a client re-syncs the same date.
+        """
+        if schema_version >= 5:
+            return ",\n                       ".join(
+                f"{col} = EXCLUDED.{col}" for col in _SPO2_BASIS_COLUMNS
+            )
+        return ",\n                       ".join(
+            f"{col} = COALESCE(EXCLUDED.{col}, health_snapshots.{col})"
+            for col in _SPO2_BASIS_COLUMNS
+        )
+
     def _upsert_health_snapshots(cur, snapshots, schema_version=1):
         overnight_clause = _overnight_stats_update_clause(schema_version)
         data_quality_clause = _data_quality_update_clause(schema_version)
+        spo2_basis_clause = _spo2_basis_update_clause(schema_version)
         for s in snapshots:
             # `dataQuality` may arrive as a Python dict (from JSON decode) or a
             # JSON-encoded string (older Swift Codable shapes). psycopg2 needs a
@@ -520,6 +553,7 @@ def create_app(test_config=None):
                        skin_temp_deviation, skin_temp_wrist, respiratory_rate, spo2_avg,
                        spo2_nadir_overnight, spo2_nadir_opportunistic,
                        spo2_time_below_90_min, spo2_desats_count,
+                       spo2_aggregate_source, spo2_burden_source,
                        steps, active_calories, exercise_minutes,
                        environmental_sound_avg, bp_systolic, bp_diastolic, blood_glucose_avg,
                        glucose_std_dev, glucose_cv, glucose_min, glucose_max,
@@ -527,7 +561,8 @@ def create_app(test_config=None):
                        barometric_pressure_avg_kpa, barometric_pressure_change_kpa,
                        data_quality)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                           %s, %s)
                    ON CONFLICT (date) DO UPDATE SET
                        hrv_avg = EXCLUDED.hrv_avg,
                        hrv_min = EXCLUDED.hrv_min,
@@ -542,6 +577,7 @@ def create_app(test_config=None):
                        respiratory_rate = EXCLUDED.respiratory_rate,
                        spo2_avg = EXCLUDED.spo2_avg,
                        {overnight_clause},
+                       {spo2_basis_clause},
                        steps = EXCLUDED.steps,
                        active_calories = EXCLUDED.active_calories,
                        exercise_minutes = EXCLUDED.exercise_minutes,
@@ -561,6 +597,8 @@ def create_app(test_config=None):
                     s.get("skinTempDeviation"), s.get("skinTempWrist"), s.get("respiratoryRate"), s.get("spo2Avg"),
                     s.get("spo2NadirOvernight"), s.get("spo2NadirOpportunistic"),
                     s.get("spo2TimeBelow90Min"), s.get("spo2DesatsCount"),
+                    _coerce_spo2_basis(s.get("spo2AggregateSource")),
+                    _coerce_spo2_basis(s.get("spo2BurdenSource")),
                     s.get("steps"), s.get("activeCalories"), s.get("exerciseMinutes"),
                     s.get("environmentalSoundAvg"), s.get("bpSystolic"), s.get("bpDiastolic"),
                     s.get("bloodGlucoseAvg"),
