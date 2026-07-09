@@ -22,6 +22,9 @@ enum PreviewHelpers {
             HRVReading.self,
             AccelSpectrogram.self,
             DerivedBreathingRate.self,
+            // Needed by TrendsView's live-oximeter @Query and the
+            // EMAYLiveView preview's persistence context.
+            QuantityHealthSample.self,
         ])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [config])

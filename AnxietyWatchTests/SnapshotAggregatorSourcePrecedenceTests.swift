@@ -430,6 +430,83 @@ struct SnapshotAggregatorSourcePrecedenceTests {
                 "No-op aggregation must not mark snapshot dirty")
     }
 
+    // MARK: - Live-BLE exclusion (triple-provenance double-count guard)
+
+    /// Rows persisted by the live EMAY BLE stream
+    /// (`EMAYRealtimeService.liveSourceBundleID`) must not join the overnight
+    /// SpO2 partition on either side: the same night may later be covered by
+    /// a CSV import of the identical session, which would double-count on the
+    /// preferred side; on the opportunistic side, live oximeter means would
+    /// masquerade as the "Apple Watch" nadir line. The live rows here carry a
+    /// deep 0.70 low — if they leaked into either partition, nadir (0.70) or
+    /// the opportunistic field (non-nil) would move.
+    @Test("Live-BLE rows do not shift overnight SpO2 aggregates when CSV covers the night")
+    func liveRowsDoNotShiftOvernightAggregates() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        await mock.setMinimum(.oxygenSaturation, value: 0.90)
+        await mock.setAverage(.oxygenSaturation, value: 0.93)
+
+        // Clinical record of the night: CSV import at a steady 0.92.
+        seedOvernightSpO2(
+            bundle: "com.emay.SleepO2",
+            count: 30,
+            value: 0.92,
+            in: context,
+            startingAt: overnightAnchor
+        )
+        // Live-BLE per-minute rows for the SAME night, including a low that
+        // would drag the nadir if they were counted anywhere.
+        seedOvernightSpO2(
+            bundle: EMAYRealtimeService.liveSourceBundleID,
+            count: 30,
+            value: 0.70,
+            in: context,
+            startingAt: overnightAnchor.addingTimeInterval(60)
+        )
+        try context.save()
+
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        // CSV-only aggregates — unshifted by the 0.70 live rows.
+        #expect(abs((snap?.spo2NadirOvernight ?? 0) - 92.0) < 0.001)
+        #expect(abs((snap?.spo2Avg ?? 0) - 92.0) < 0.001)
+        // And the live rows must not surface as a fake "Apple Watch" line.
+        #expect(snap?.spo2NadirOpportunistic == nil)
+    }
+
+    /// Live-only coverage is not aggregation coverage: with no CSV/HK-app
+    /// rows, the HK-direct values must stay authoritative and no
+    /// opportunistic nadir may appear — identical outcome to an empty
+    /// SwiftData table.
+    @Test("Live-only rows create no preferred or opportunistic coverage")
+    func liveOnlyRowsAreInvisibleToAggregation() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        await mock.setMinimum(.oxygenSaturation, value: 0.94)
+        await mock.setAverage(.oxygenSaturation, value: 0.96)
+
+        seedOvernightSpO2(
+            bundle: EMAYRealtimeService.liveSourceBundleID,
+            count: 30,
+            value: 0.85,
+            in: context,
+            startingAt: overnightAnchor
+        )
+        try context.save()
+
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        // HK-direct values retained — the 0.85 live rows moved nothing.
+        #expect(abs((snap?.spo2NadirOvernight ?? 0) - 94.0) < 0.001)
+        #expect(abs((snap?.spo2Avg ?? 0) - 96.0) < 0.001)
+        #expect(snap?.spo2NadirOpportunistic == nil)
+    }
+
     // F-023: sparse preferred coverage must not discard the HK-direct
     // T90/desats that `aggregateDay` already computed against its own
     // sufficiency gate — the old nil-out understated hypoxic burden in the

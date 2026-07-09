@@ -22,6 +22,18 @@ struct TrendsView: View {
         sort: \SensorSession.startTime
     )
     private var allSensorSessions: [SensorSession]
+    /// Live EMAY oximeter per-minute rows for the "Oximeter (live sessions)"
+    /// card. Single-clause #Predicate on `sourceBundleID` ONLY: adding a
+    /// `timestamp >= cutoff` clause alongside this query's sort routes SQL
+    /// ORDER BY generation through the documented iOS 26
+    /// `_predicateEnforceRestrictionsOnSelector` main-thread hang (F-030 —
+    /// the same shape already fixed in HRVSessionCardView and
+    /// GlucoseDetailView). No date bound is needed: every sibling query in
+    /// this view is date-unbounded and windowed in-memory per render, and
+    /// the live bundle only accrues two rows per streamed minute (~1k
+    /// rows/night ceiling — the ~36k-rows/night EMAY CSV imports live under
+    /// a different bundle ID and never match this predicate).
+    @Query private var allLiveOximeterSamples: [QuantityHealthSample]
     @State private var timeRange: TimeRange = .week
     /// 0 = current period (ending now), -1 = previous period, etc.
     @State private var pageOffset = 0
@@ -34,6 +46,20 @@ struct TrendsView: View {
     @State private var customEnd: Date = .now
     @State private var sourceFilter: SourceFilter = .all
     @State private var tappedNight: CoalescedNightRef?
+
+    init() {
+        // Bind the typed constant to a local so the #Predicate macro can
+        // capture it (single source of truth, per the source-label-drift
+        // rule). This works because an init-based Query CAN capture locals —
+        // the same trick as HRVSessionCardView.init — unlike the
+        // property-wrapper-default HRVReading/SensorSession queries above,
+        // which have no init body to capture in and must inline the literal.
+        let liveBundle = EMAYRealtimeService.liveSourceBundleID
+        _allLiveOximeterSamples = Query(
+            filter: #Predicate<QuantityHealthSample> { $0.sourceBundleID == liveBundle },
+            sort: \QuantityHealthSample.timestamp
+        )
+    }
 
     enum SourceFilter: String, CaseIterable {
         case all = "All"
@@ -242,6 +268,13 @@ struct TrendsView: View {
             nightByID[mean.id].map(CoalescedNightRef.init(from:))
         }
 
+        // Live-oximeter minutes are per-instant data (one mean per minute),
+        // so they take the exact-instant window path — never the
+        // day-granular one reserved for midnight-normalized rows.
+        let liveOximeterWindow = allLiveOximeterSamples.filter {
+            inWindow($0.timestamp, start: ws.start, end: ws.end)
+        }
+
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
@@ -348,6 +381,7 @@ struct TrendsView: View {
                         || !sdnnWindowMeans.isEmpty
                         || !rmssdWindowMeans.isEmpty
                         || !polarHRWindowMeans.isEmpty
+                        || !liveOximeterWindow.isEmpty
 
                     if !hasAnyData {
                         ContentUnavailableView(
@@ -404,6 +438,17 @@ struct TrendsView: View {
                             entries: entries,
                             dateRange: dateRange
                         )
+                        // Rendered only when the user has ANY live-session
+                        // rows at all — users without an EMAY shouldn't
+                        // scroll past a permanently empty card.
+                        // Within that, the per-window empty state comes from
+                        // ChartCard(isEmpty:) like every sibling.
+                        if !allLiveOximeterSamples.isEmpty {
+                            OximeterLiveTrendChart(
+                                samples: liveOximeterWindow,
+                                dateRange: dateRange
+                            )
+                        }
                         GlucoseTrendChart(snapshots: snapshots, entries: entries, dateRange: dateRange)
                         BarometricTrendChart(readings: barometricReadings, entries: entries, allSnapshots: allSnapshots, dateRange: dateRange)
 

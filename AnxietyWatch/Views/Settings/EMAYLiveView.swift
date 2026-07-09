@@ -1,12 +1,15 @@
+import SwiftData
 import SwiftUI
 
-/// Live SpO₂ / pulse readout from the EMAY SleepO2 oximeter over BLE. Owns an
-/// `EMAYRealtimeService` for the view's lifetime — scans/streams on appear,
-/// stops on disappear. This is the verification surface for the real-time
-/// source the CNS-depression early-warning monitor will consume; it is NOT a
-/// medical device.
+/// Live SpO₂ / pulse readout from the EMAY SleepO2 oximeter over BLE.
+/// Consumes the app-scoped `EMAYRealtimeService` (injected in
+/// `AnxietyWatchApp` — the device supports one central connection, so the
+/// service must have exactly one owner) but keeps the session lifecycle:
+/// scans/streams on appear, stops on disappear. This is the verification
+/// surface for the real-time source the CNS-depression early-warning monitor
+/// will consume; it is NOT a medical device.
 struct EMAYLiveView: View {
-    @State private var service = EMAYRealtimeService()
+    @Environment(EMAYRealtimeService.self) private var service
 
     /// Only the genuinely-active states count as "running" for the toggle.
     /// Terminal/error states (`.idle`, `.failed`, `.bluetoothOff`, etc.) must
@@ -104,6 +107,9 @@ extension EMAYRealtimeService.Status {
 
 #if DEBUG
 #Preview {
+    let container = try! PreviewHelpers.makeFullContainer()
     NavigationStack { EMAYLiveView() }
+        .environment(EMAYRealtimeService(modelContext: ModelContext(container)))
+        .modelContainer(container)
 }
 #endif

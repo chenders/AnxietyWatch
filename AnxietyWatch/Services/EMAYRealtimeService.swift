@@ -2,9 +2,12 @@ import CoreBluetooth
 import Foundation
 import Observation
 import os
+import SwiftData
 
 /// One real-time sample from the EMAY SleepO2 oximeter.
-struct EMAYReading: Equatable, Sendable {
+/// `nonisolated`: a pure value type whose computed accessors must be
+/// callable from nonisolated contexts (`EMAYLiveDownsampler`).
+nonisolated struct EMAYReading: Equatable, Sendable {
     /// SpO₂ as an **integer percentage on a 0–100 scale** (NOT a 0–1 fraction),
     /// or nil when the sensor reports its no-reading sentinel. When persisting
     /// to HealthKit / `QuantityHealthSample` (which use `HKUnit.percent()`,
@@ -94,10 +97,133 @@ nonisolated enum EMAYProtocol {
     }
 }
 
+/// Pure per-minute downsampler for live EMAY readings. The BLE stream arrives
+/// at ~1 Hz; persisting every frame would add ~28k SwiftData rows per
+/// overnight session for data whose only persistent consumer (the Trends
+/// "Oximeter (live sessions)" card) needs minute resolution. Buffers valid
+/// readings and emits one mean-per-minute value per metric, mirroring
+/// `EMAYImporter`'s persisted shapes (SpO₂ as a 0–1 fraction, pulse in bpm).
+///
+/// Kept free of SwiftData/CoreBluetooth so the bucketing/mean/flush logic is
+/// unit-testable without a device (see `EMAYLiveDownsamplerTests`).
+nonisolated struct EMAYLiveDownsampler {
+    /// One finalized minute for one metric, ready to persist as a
+    /// `QuantityHealthSample`.
+    struct MinuteSample: Equatable, Sendable {
+        /// Start of the minute bucket the mean covers.
+        let minuteStart: Date
+        /// Raw `HKQuantityTypeIdentifier` value — always one of
+        /// `EMAYImporter.spo2MetricType` / `EMAYImporter.heartRateMetricType`
+        /// (typed constants, per the source-label-drift rule).
+        let metricType: String
+        /// SpO₂: mean as a **0–1 fraction** (`EMAYReading.spo2` integer
+        /// percents ÷ 100 — the repo's documented SpO₂ percent-vs-fraction
+        /// pitfall; matches `EMAYImporter`). Pulse: mean bpm.
+        let value: Double
+        let unitString: String
+    }
+
+    /// Minimum valid samples a metric must accumulate in a minute before its
+    /// mean is emitted. A single probe-contact artifact out of ~60 possible
+    /// 1 Hz samples must not masquerade as a full minute's mean — mirrors the
+    /// intent of `SnapshotAggregator.minSamplesForOvernightStats` at minute
+    /// scale. Applied per metric: a minute rich in pulse but with only a
+    /// couple of SpO₂ readings emits pulse alone.
+    static let minimumSamplesPerMinute = 10
+
+    private var bucketStart: Date?
+    private var spo2PercentSum = 0.0
+    private var spo2Count = 0
+    private var pulseSum = 0.0
+    private var pulseCount = 0
+
+    /// Floor to the containing minute. Epoch arithmetic is safe at minute
+    /// granularity (unlike the day-granularity pitfall in CLAUDE.md): every
+    /// real-world UTC offset is a whole number of minutes, so epoch-minute
+    /// boundaries coincide with wall-clock minute boundaries in any
+    /// timezone/DST state.
+    static func minuteStart(for date: Date) -> Date {
+        Date(timeIntervalSinceReferenceDate:
+                (date.timeIntervalSinceReferenceDate / 60).rounded(.down) * 60)
+    }
+
+    /// Feed one live reading; returns any minute completed by its arrival.
+    /// Only non-nil fields contribute — the device's "no reading" sentinels
+    /// are already nil on `EMAYReading` and are never coerced to a value. A
+    /// reading in a *different* minute than the open bucket (later, or
+    /// earlier after a device/phone clock adjustment) finalizes the open
+    /// bucket first so a mean never mixes buckets.
+    mutating func add(_ reading: EMAYReading) -> [MinuteSample] {
+        guard reading.isMeasuring else { return [] }
+        let bucket = Self.minuteStart(for: reading.timestamp)
+        var completed: [MinuteSample] = []
+        if let open = bucketStart, open != bucket {
+            completed = finalizeOpenBucket()
+        }
+        bucketStart = bucket
+        if let spo2 = reading.spo2 {
+            spo2PercentSum += Double(spo2)
+            spo2Count += 1
+        }
+        if let pulse = reading.pulseRate {
+            pulseSum += Double(pulse)
+            pulseCount += 1
+        }
+        return completed
+    }
+
+    /// Finalize the open (partial) minute — called on TERMINAL teardown
+    /// (stop, failure, Bluetooth loss, stale-stream timeout) so the tail of
+    /// a session isn't lost. Transient auto-reconnect disconnects
+    /// deliberately do NOT flush — see
+    /// `EMAYRealtimeService.resetConnectionState(flushPartialBucket:)`.
+    /// Returns nothing when no reading is buffered, so repeated teardown
+    /// paths can call it safely.
+    mutating func flush() -> [MinuteSample] {
+        finalizeOpenBucket()
+    }
+
+    /// Emission order is deterministic (SpO₂ then pulse) — dictionary-order
+    /// nondeterminism is a documented pitfall for sequential output. Each
+    /// metric is emitted only when it met `minimumSamplesPerMinute`.
+    private mutating func finalizeOpenBucket() -> [MinuteSample] {
+        guard let bucket = bucketStart else { return [] }
+        var out: [MinuteSample] = []
+        if spo2Count >= Self.minimumSamplesPerMinute {
+            out.append(MinuteSample(
+                minuteStart: bucket,
+                metricType: EMAYImporter.spo2MetricType,
+                value: (spo2PercentSum / Double(spo2Count)) / 100.0,
+                unitString: "%"
+            ))
+        }
+        if pulseCount >= Self.minimumSamplesPerMinute {
+            out.append(MinuteSample(
+                minuteStart: bucket,
+                metricType: EMAYImporter.heartRateMetricType,
+                value: pulseSum / Double(pulseCount),
+                unitString: "count/min"
+            ))
+        }
+        bucketStart = nil
+        spo2PercentSum = 0
+        spo2Count = 0
+        pulseSum = 0
+        pulseCount = 0
+        return out
+    }
+}
+
 /// Live SpO₂ / pulse from the EMAY SleepO2 over BLE. Owns a `CBCentralManager`
 /// so it outlives any view; `@Observable` for SwiftUI environment injection.
 /// The CoreBluetooth delegate callbacks are `nonisolated` (ObjC selectors) and
 /// hop back onto the main actor, matching `PolarHRMService`.
+///
+/// Persists per-minute means of the stream as `QuantityHealthSample` rows
+/// under `liveSourceBundleID` so live sessions reach the Trends tab. The
+/// service is created once at app scope (`AnxietyWatchApp`) and injected via
+/// `.environment` — the device supports a single central connection, so a
+/// second view-local owner would race the first.
 @MainActor
 @Observable
 final class EMAYRealtimeService: NSObject {
@@ -117,11 +243,20 @@ final class EMAYRealtimeService: NSObject {
     nonisolated static let notifyUUID = CBUUID(string: "FF02")
     /// The EMAY SleepO2 advertises its local name with this prefix.
     nonisolated static let namePrefix = "SleepO2"
-    /// Provenance label for live-BLE EMAY samples when they are eventually
-    /// persisted — MUST differ from `EMAYImporter`'s CSV bundle
-    /// (`com.emay.SleepO2`) so `DeviceProvenance`/arbitration can tell a live
-    /// reading apart from a CSV-imported one. (Not persisted yet.)
-    nonisolated static let sourceLabel = "emay_ble_live"
+    /// Provenance for the per-minute rows this service persists. Deliberately
+    /// distinct from BOTH bundle IDs the aggregation pipeline treats as
+    /// preferred overnight oximetry (`com.emay.SleepO2` CSV imports,
+    /// `com.emay.oximeter` HealthKit writes by the EMAY iOS app): the same
+    /// night can later be covered by a CSV import of the identical session,
+    /// and if live rows joined the preferred partition the night would
+    /// double-count. The overnight SpO₂ aggregation explicitly excludes this
+    /// bundle — see `SnapshotAggregator.excludingLiveOximeterRows(_:)`.
+    nonisolated static let liveSourceBundleID = "com.emay.SleepO2.live"
+    nonisolated static let liveSourceName = "EMAY SleepO2 (live)"
+    /// Device model stamped on persisted rows — the hardware name the device
+    /// itself advertises (same string as `namePrefix`, kept separate because
+    /// the two would drift independently if EMAY ever changes advertising).
+    nonisolated static let liveDeviceModel = "SleepO2"
     /// If no valid frame arrives within this window while nominally streaming,
     /// the stream has stalled (link up but data stopped) — ~2.5× the 1.5 s
     /// heartbeat interval.
@@ -149,8 +284,18 @@ final class EMAYRealtimeService: NSObject {
     @ObservationIgnored private var inFlightWrite: [UInt8]?
     @ObservationIgnored private var heartbeatTask: Task<Void, Never>?
     @ObservationIgnored private var wantScan = false
+    /// Persists per-minute live samples. Created from the shared container at
+    /// app init and owned for the service's (= app's) lifetime; everything
+    /// that touches it runs on the main actor.
+    @ObservationIgnored private let modelContext: ModelContext
+    /// Buffers the ~1 Hz stream into per-minute means; flushed on TERMINAL
+    /// teardown via `resetConnectionState(flushPartialBucket: true)` and on
+    /// stale-stream timeout — transient auto-reconnect disconnects keep the
+    /// open bucket alive (see `resetConnectionState`).
+    @ObservationIgnored private var downsampler = EMAYLiveDownsampler()
 
-    override init() {
+    init(modelContext: ModelContext) {
+        self.modelContext = modelContext
         super.init()
         // `queue: nil` → CoreBluetooth dispatches delegate callbacks on the
         // MAIN queue. CB requires every `central.*` call to be serialized on
@@ -222,7 +367,22 @@ final class EMAYRealtimeService: NSObject {
 
     /// Synchronously drop all per-connection references (heartbeat, write
     /// queue, peripheral/characteristics, last reading). Idempotent.
-    private func resetConnectionState() {
+    ///
+    /// Still the single funnel for every teardown path. TERMINAL paths —
+    /// stop(), fail(), Bluetooth off/unauthorized/unsupported — keep the
+    /// default `flushPartialBucket: true` so the partial final minute of a
+    /// session is persisted here, before the buffered state below is
+    /// cleared, and can't be lost. A TRANSIENT disconnect headed for
+    /// auto-reconnect passes `false`: completed minutes were already
+    /// persisted as they finalized, and keeping the open bucket alive lets
+    /// a same-minute reconnect keep accumulating into ONE bucket, so the
+    /// persisted mean stays weighted across every sample in that minute
+    /// (two flushed partials would instead persist the first and drop the
+    /// second under first-write-wins dedup).
+    private func resetConnectionState(flushPartialBucket: Bool = true) {
+        if flushPartialBucket {
+            persist(downsampler.flush())
+        }
         heartbeatTask?.cancel()
         heartbeatTask = nil
         pendingWrites = []
@@ -265,10 +425,82 @@ final class EMAYRealtimeService: NSObject {
                     if self.latestReading != nil {
                         self.latestReading = nil
                         Log.ble.notice("EMAY: stream stalled — dropping stale reading")
+                        // A stalled stream is a terminal boundary for the
+                        // open minute: persist the partial bucket now (the
+                        // min-sample gate still applies) rather than holding
+                        // the session tail against a link that may never
+                        // resume. If the stream DOES resume within the same
+                        // minute, persist-time dedup keeps first-write-wins.
+                        self.persist(self.downsampler.flush())
                     }
                 }
             }
         }
+    }
+
+    // MARK: - Persistence
+
+    /// Insert finalized per-minute samples and save. Metric shapes mirror
+    /// `EMAYImporter` exactly (SpO₂ as 0–1 fraction with "%", pulse in bpm
+    /// with "count/min") so every `QuantityHealthSample` consumer sees one
+    /// convention; only the provenance (`liveSourceBundleID`) differs.
+    private func persist(_ minutes: [EMAYLiveDownsampler.MinuteSample]) {
+        guard Self.insertLiveMinutes(minutes, into: modelContext) > 0 else { return }
+        do {
+            try modelContext.save()
+        } catch {
+            // Non-fatal: the live readout doesn't depend on persistence and
+            // streaming continues. Log so a stuck store is diagnosable.
+            Log.ble.error("EMAY: failed to save live minute samples: \(error, privacy: .public)")
+        }
+    }
+
+    /// Insert `minutes` as live-bundle rows, skipping any whose
+    /// `(timestamp, metricType)` already exists under `liveSourceBundleID`
+    /// — first-write-wins, mirroring `EMAYImporter`'s prefetch/insertIfNew
+    /// dedup. The residual duplicate path is a stop→restart within one
+    /// wall-clock minute (two honest partial means for the same minute);
+    /// the display-side same-minute merge in `OximeterLiveSeriesBuilder`
+    /// remains as defense-in-depth. Each lookup is a one-shot
+    /// `FetchDescriptor` with NO sort — the documented-safe fetch shape
+    /// (the iOS 26 compound-#Predicate hang is specific to @Query + SQL
+    /// ORDER BY generation) — served by the model's compound
+    /// `(sourceBundleID, timestamp)` index. A failed existence check falls
+    /// back to inserting (data preservation over dedup; the display merge
+    /// absorbs a rare duplicate). Returns the number of rows inserted;
+    /// caller saves. `static` so tests can exercise the dedup against an
+    /// in-memory container without spinning up CoreBluetooth.
+    static func insertLiveMinutes(
+        _ minutes: [EMAYLiveDownsampler.MinuteSample],
+        into modelContext: ModelContext
+    ) -> Int {
+        let bundleID = Self.liveSourceBundleID
+        var inserted = 0
+        for minute in minutes {
+            let timestamp = minute.minuteStart
+            let metricType = minute.metricType
+            var descriptor = FetchDescriptor<QuantityHealthSample>(
+                predicate: #Predicate {
+                    $0.sourceBundleID == bundleID
+                        && $0.timestamp == timestamp
+                        && $0.metricType == metricType
+                }
+            )
+            descriptor.fetchLimit = 1
+            let existing = (try? modelContext.fetch(descriptor)) ?? []
+            guard existing.isEmpty else { continue }
+            modelContext.insert(QuantityHealthSample(
+                timestamp: minute.minuteStart,
+                metricType: minute.metricType,
+                value: minute.value,
+                unitString: minute.unitString,
+                sourceBundleID: Self.liveSourceBundleID,
+                sourceName: Self.liveSourceName,
+                deviceModel: Self.liveDeviceModel
+            ))
+            inserted += 1
+        }
+        return inserted
     }
 }
 
@@ -357,7 +589,13 @@ extension EMAYRealtimeService: CBCentralManagerDelegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             let wasFailure: Bool = { if case .failed = self.status { return true }; return false }()
-            self.resetConnectionState()
+            // A transient drop headed for auto-reconnect keeps the open
+            // minute bucket alive (completed minutes were persisted as they
+            // finalized) so a same-minute reconnect keeps accumulating into
+            // one correctly-weighted mean; failure/stop paths are terminal
+            // and flush the partial tail.
+            let isTransientReconnect = self.wantScan && !wasFailure
+            self.resetConnectionState(flushPartialBucket: !isTransientReconnect)
             if self.wantScan {
                 self.beginScan()   // auto-reconnect
             } else if !wasFailure {
@@ -466,6 +704,10 @@ extension EMAYRealtimeService: CBPeripheralDelegate {
                 self.latestReading = reading
                 self.lastReadingAt = reading.timestamp  // any valid frame = stream alive
                 if self.status != .streaming { self.status = .streaming }
+                // Feed the per-minute downsampler; a reading that completes a
+                // minute returns that minute's means, persisted immediately so
+                // the Trends live card updates in near real time.
+                self.persist(self.downsampler.add(reading))
             }
         }
     }

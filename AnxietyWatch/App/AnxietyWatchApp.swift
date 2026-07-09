@@ -49,6 +49,13 @@ struct AnxietyWatchApp: App {
 
     @State private var coordinator: HealthDataCoordinator?
     @State private var polarService: PolarHRMService
+    /// App-scoped like `polarService`: the EMAY SleepO2 supports a single
+    /// central connection, so one owner must exist for the app's lifetime —
+    /// a second view-local instance would race it for the peripheral. It
+    /// also persists per-minute live samples, so it needs a ModelContext
+    /// from the shared container. NOT auto-started here: `EMAYLiveView`
+    /// starts it on appear and stops it on disappear.
+    @State private var emayService: EMAYRealtimeService
     /// Shared sheet-presentation state for the in-progress recording UI.
     /// Lives on the App so the in-app pill (rendered at ContentView root)
     /// and entry-point views (Dashboard card, Settings polar section) all
@@ -90,6 +97,8 @@ struct AnxietyWatchApp: App {
         _polarService = State(initialValue: polar)
         _liveActivityCoordinator = State(initialValue: LiveActivityCoordinator(polarService: polar))
 
+        _emayService = State(initialValue: EMAYRealtimeService(modelContext: ModelContext(sharedModelContainer)))
+
         // Set notification delegate so notifications show in foreground
         // and taps trigger the pending check-in/follow-up flow.
         UNUserNotificationCenter.current().delegate = notificationDelegate
@@ -99,6 +108,7 @@ struct AnxietyWatchApp: App {
         WindowGroup {
             ContentView()
                 .environment(polarService)
+                .environment(emayService)
                 .environment(recordingPresentation)
                 .overlay {
                     // Coordinator's @Observable properties (isBackfilling,

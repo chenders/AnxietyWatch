@@ -80,6 +80,14 @@ enum ChartPalette {
     /// authoritative" without implying alarm.
     static let appleWatchSpO2 = Color.orange
 
+    /// EMAY oximeter pulse rate (live-session per-minute series). A
+    /// heart-family hue deliberately distinct from `hkHeartRate` red and
+    /// `polarHeartRate` blue so a live pulse trace can't be misread as
+    /// either of those sources; pink also pairs with the same-card
+    /// `oximeterSpO2` green without colliding with `glucose` (a deeper,
+    /// redder magenta on a different card).
+    static let oximeterPulse = Color.pink
+
     // MARK: - Other physiological series
 
     /// CPAP nightly usage hours bar. Despite living in the file named

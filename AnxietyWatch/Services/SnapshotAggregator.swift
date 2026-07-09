@@ -471,11 +471,18 @@ struct SnapshotAggregator {
         // their own sub-window, replacing three overlapping fetches (heart
         // metrics + data-quality day + data-quality overnight-SpO2, the last a
         // subset of the first) with one materialization (F-055).
-        let sampleUnion = try modelContext.fetch(
+        // Live EMAY BLE rows are excluded from the union before it feeds
+        // heart-metric precedence and data quality: their bundle ID is
+        // deliberately outside every DeviceProvenance tier, so counting them
+        // would (a) leave HR/SpO₂ aggregates open to double-counting once the
+        // same night's CSV import lands and (b) dilute the reliability
+        // classifiers' recognized-source share with rows they can't classify.
+        // See `excludingLiveOximeterRows`.
+        let sampleUnion = Self.excludingLiveOximeterRows(try modelContext.fetch(
             FetchDescriptor<QuantityHealthSample>(
                 predicate: #Predicate { $0.timestamp >= overnightStart && $0.timestamp < end }
             )
-        )
+        ))
 
         try applyDailyHeartMetricsPrecedence(
             on: snapshot, samples: sampleUnion, start: overnightStart, end: overnightEnd
@@ -628,6 +635,28 @@ struct SnapshotAggregator {
 
     // MARK: - Source-precedence overrides
 
+    /// Drop rows persisted by the live EMAY BLE stream
+    /// (`EMAYRealtimeService.liveSourceBundleID`) before any aggregation.
+    ///
+    /// Triple-provenance double-count risk: the same physical overnight
+    /// session can reach `QuantityHealthSample` via up to three routes — the
+    /// live BLE stream (per-minute means persisted while the night happens),
+    /// a CSV export imported afterwards (`com.emay.SleepO2`, 1 Hz), and the
+    /// EMAY iOS app writing to HealthKit (`com.emay.oximeter`, mirrored in).
+    /// The CSV/HK routes are the clinical-grade records and already partition
+    /// as preferred overnight oximetry. Letting live rows join the overnight
+    /// SpO₂ avg/nadir/T90 partition on EITHER side would be dishonest: on the
+    /// preferred side the night double-counts once the CSV lands; on the
+    /// opportunistic side per-minute oximeter means masquerade as the "Apple
+    /// Watch" nadir line. Live rows are display-only provenance for the
+    /// Trends "Oximeter (live sessions)" card — they contribute to no
+    /// snapshot aggregate, heart-metric precedence, or data-quality tier.
+    nonisolated static func excludingLiveOximeterRows(
+        _ rows: [QuantityHealthSample]
+    ) -> [QuantityHealthSample] {
+        rows.filter { $0.sourceBundleID != EMAYRealtimeService.liveSourceBundleID }
+    }
+
     /// Provenance-tagged sample value used for SpO2 partitioning. Decoupled
     /// from `QuantityHealthSample` so the precedence path can also consume
     /// `SourcedQuantitySample` values pulled live from HealthKit when the
@@ -673,7 +702,11 @@ struct SnapshotAggregator {
             }
         )
         let windowRows = try modelContext.fetch(descriptor)
-        let swiftDataRows = windowRows.filter { $0.metricType == spo2Type }
+        // Live-BLE rows never join the overnight partition — see
+        // `excludingLiveOximeterRows` for the triple-provenance
+        // double-count rationale.
+        let swiftDataRows = Self.excludingLiveOximeterRows(windowRows)
+            .filter { $0.metricType == spo2Type }
 
         // 2) HealthKit live samples with source provenance, but only when
         // SwiftData LACKS HK-mirrored coverage for this window. The mirror
