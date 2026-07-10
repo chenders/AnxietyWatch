@@ -204,6 +204,10 @@ class TestFullMigrationChain:
             "derived_breathing_rates.session_id must stay FK-free (Watch "
             "session IDs have no server-side parent)"
         )
+        # 0010 — CPAP by-session fields (all nullable; NULL = "not reported")
+        cpap_cols = _column_names("cpap_sessions")
+        assert {"rdi_events", "rera_events", "spo2_avg", "spo2_min",
+                "pulse_avg", "pressure_95th", "leak_avg", "leak_max"}.issubset(cpap_cols)
 
     def test_round_trip(self):
         """Upgrade to head, downgrade to base, upgrade again."""
@@ -221,6 +225,11 @@ class TestFullMigrationChain:
         assert "hrv_readings" not in tables
         assert "accel_spectrograms" not in tables
         assert "derived_breathing_rates" not in tables
+        # 0010 downgrade removes the by-session columns (schema.sql created
+        # them eagerly on the 0001 upgrade — same ownership rule as 0009).
+        cpap_cols = _column_names("cpap_sessions")
+        assert "rdi_events" not in cpap_cols
+        assert "leak_max" not in cpap_cols
         command.downgrade(cfg, "base")
         tables = _table_names()
         user_tables = tables - {"alembic_version"}

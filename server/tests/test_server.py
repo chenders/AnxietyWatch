@@ -2666,3 +2666,73 @@ def test_sync_cpap_measured_ahi_still_stored(client, app):
         cur.execute("SELECT ahi FROM cpap_sessions WHERE date = '2025-03-21'")
         # A measured 0.0 is a real clinical value and must round-trip as 0.0.
         assert cur.fetchone()[0] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# CPAP by-session fields (migration 0010)
+# ---------------------------------------------------------------------------
+
+# Fictional by-session values keyed by (payload key, column name).
+_BY_SESSION_FIELDS = {
+    ("rdiEvents", "rdi_events"): 2.1,
+    ("reraEvents", "rera_events"): 4,
+    ("spo2Avg", "spo2_avg"): 93.5,
+    ("spo2Min", "spo2_min"): 87.0,
+    ("pulseAvg", "pulse_avg"): 62.0,
+    ("pressure95th", "pressure_95th"): 9.9,
+    ("leakAvg", "leak_avg"): 2.4,
+    ("leakMax", "leak_max"): 28.0,
+}
+
+
+def test_sync_cpap_by_session_fields_round_trip(client, app):
+    """All eight by-session fields store and export via /api/data."""
+    overrides = {key: value for (key, _), value in _BY_SESSION_FIELDS.items()}
+    payload = {"cpapSessions": [_cpap_payload(**overrides)]}
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+
+    resp = client.get("/api/data/cpapSessions", headers=auth_header())
+    sessions = resp.get_json()["cpapSessions"]
+    assert len(sessions) == 1
+    for (key, column), value in _BY_SESSION_FIELDS.items():
+        assert sessions[0][column] == value, f"{column} did not round-trip"
+
+
+def test_sync_cpap_by_session_fields_null_when_omitted(client, app):
+    """A payload without the by-session keys (daily-format import, older
+    client) stores NULL for all eight — never a fabricated 0."""
+    resp = client.post(
+        "/api/sync", json={"cpapSessions": [_cpap_payload()]}, headers=auth_header()
+    )
+    assert resp.status_code == 200
+    with app.app_context():
+        cur = app.get_db().cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM cpap_sessions WHERE date = '2025-03-21'")
+        row = cur.fetchone()
+    for (_, column), _ in _BY_SESSION_FIELDS.items():
+        assert row[column] is None, f"{column} should default to NULL"
+
+
+def test_sync_cpap_null_by_session_fields_do_not_clobber(client, app):
+    """COALESCE semantics (same contract as ahi): a later sync that omits the
+    by-session fields — a daily-format re-import of the same date — must not
+    wipe previously-synced by-session values."""
+    overrides = {key: value for (key, _), value in _BY_SESSION_FIELDS.items()}
+    resp = client.post(
+        "/api/sync", json={"cpapSessions": [_cpap_payload(**overrides)]}, headers=auth_header()
+    )
+    assert resp.status_code == 200
+
+    # Same date, no by-session keys.
+    resp = client.post(
+        "/api/sync", json={"cpapSessions": [_cpap_payload()]}, headers=auth_header()
+    )
+    assert resp.status_code == 200
+
+    with app.app_context():
+        cur = app.get_db().cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM cpap_sessions WHERE date = '2025-03-21'")
+        row = cur.fetchone()
+    for (_, column), value in _BY_SESSION_FIELDS.items():
+        assert row[column] == value, f"{column} was clobbered by a null re-sync"

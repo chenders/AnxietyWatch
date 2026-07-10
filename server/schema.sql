@@ -50,7 +50,20 @@ CREATE TABLE IF NOT EXISTS cpap_sessions (
     obstructive_events  INTEGER NOT NULL DEFAULT 0,
     central_events      INTEGER NOT NULL DEFAULT 0,
     hypopnea_events     INTEGER NOT NULL DEFAULT 0,
-    import_source       TEXT NOT NULL DEFAULT 'sd_card'
+    import_source       TEXT NOT NULL DEFAULT 'sd_card',
+    -- By-session import fields (migration 0010). All nullable: NULL means
+    -- "the source didn't report this" (e.g. no machine-attached oximeter) —
+    -- never a fabricated 0. Units: rdi_events events/hour (a rate, like ahi);
+    -- rera_events count; spo2_avg/spo2_min %; pulse_avg bpm;
+    -- pressure_95th cmH2O; leak_avg/leak_max L/min.
+    rdi_events          DOUBLE PRECISION,
+    rera_events         INTEGER,
+    spo2_avg            DOUBLE PRECISION,
+    spo2_min            DOUBLE PRECISION,
+    pulse_avg           DOUBLE PRECISION,
+    pressure_95th       DOUBLE PRECISION,
+    leak_avg            DOUBLE PRECISION,
+    leak_max            DOUBLE PRECISION
 );
 
 CREATE TABLE IF NOT EXISTS health_snapshots (

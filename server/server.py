@@ -423,8 +423,11 @@ def create_app(test_config=None):
             cur.execute(
                 """INSERT INTO cpap_sessions (date, ahi, total_usage_minutes, leak_rate_95th,
                        pressure_min, pressure_max, pressure_mean,
-                       obstructive_events, central_events, hypopnea_events, import_source)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       obstructive_events, central_events, hypopnea_events, import_source,
+                       rdi_events, rera_events, spo2_avg, spo2_min, pulse_avg,
+                       pressure_95th, leak_avg, leak_max)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                           %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (date) DO UPDATE SET
                        ahi = COALESCE(EXCLUDED.ahi, cpap_sessions.ahi),
                        total_usage_minutes = EXCLUDED.total_usage_minutes,
@@ -435,7 +438,15 @@ def create_app(test_config=None):
                        obstructive_events = EXCLUDED.obstructive_events,
                        central_events = EXCLUDED.central_events,
                        hypopnea_events = EXCLUDED.hypopnea_events,
-                       import_source = EXCLUDED.import_source""",
+                       import_source = EXCLUDED.import_source,
+                       rdi_events = COALESCE(EXCLUDED.rdi_events, cpap_sessions.rdi_events),
+                       rera_events = COALESCE(EXCLUDED.rera_events, cpap_sessions.rera_events),
+                       spo2_avg = COALESCE(EXCLUDED.spo2_avg, cpap_sessions.spo2_avg),
+                       spo2_min = COALESCE(EXCLUDED.spo2_min, cpap_sessions.spo2_min),
+                       pulse_avg = COALESCE(EXCLUDED.pulse_avg, cpap_sessions.pulse_avg),
+                       pressure_95th = COALESCE(EXCLUDED.pressure_95th, cpap_sessions.pressure_95th),
+                       leak_avg = COALESCE(EXCLUDED.leak_avg, cpap_sessions.leak_avg),
+                       leak_max = COALESCE(EXCLUDED.leak_max, cpap_sessions.leak_max)""",
                 (
                     # ahi is nullable (migration 0007): NULL means "not
                     # measured" (EDF-only import). COALESCE above ensures a
@@ -444,6 +455,17 @@ def create_app(test_config=None):
                     s["pressureMin"], s["pressureMax"], s["pressureMean"],
                     s.get("obstructiveEvents", 0), s.get("centralEvents", 0),
                     s.get("hypopneaEvents", 0), s.get("importSource", "sd_card"),
+                    # By-session fields (migration 0010) get the same
+                    # COALESCE-preserve semantics as ahi/leak_rate_95th: only
+                    # the by-session import reports them, so a later daily-
+                    # format sync of the same date (all nulls) must not wipe
+                    # previously-synced by-session values. Trade-off, matching
+                    # the ahi precedent: an intentional nil "clear" never
+                    # propagates — acceptable because these fields have no
+                    # client-side clear path.
+                    s.get("rdiEvents"), s.get("reraEvents"),
+                    s.get("spo2Avg"), s.get("spo2Min"), s.get("pulseAvg"),
+                    s.get("pressure95th"), s.get("leakAvg"), s.get("leakMax"),
                 ),
             )
         return len(sessions)

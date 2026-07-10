@@ -83,11 +83,14 @@ nonisolated enum DataExporter {
         files.append(("medication_doses.csv", Data(csv.utf8)))
 
         // CPAP sessions
-        csv = "date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea,source\n"
+        csv = "date,ahi,usage_minutes,leak_95th,p_min,p_max,p_mean,obstructive,central,hypopnea,source,"
+        csv += "rdi,rera,spo2_avg,spo2_min,pulse_avg,p_95,leak_avg,leak_max\n"
         for s in bundle.cpapSessions {
             csv += "\(s.date),\(opt(s.ahi)),\(s.totalUsageMinutes),\(opt(s.leakRate95th)),"
             csv += "\(s.pressureMin),\(s.pressureMax),\(s.pressureMean),"
-            csv += "\(s.obstructiveEvents),\(s.centralEvents),\(s.hypopneaEvents),\(s.importSource)\n"
+            csv += "\(s.obstructiveEvents),\(s.centralEvents),\(s.hypopneaEvents),\(s.importSource),"
+            csv += "\(opt(s.rdiEvents)),\(opt(s.reraEvents)),\(opt(s.spo2Avg)),\(opt(s.spo2Min)),"
+            csv += "\(opt(s.pulseAvg)),\(opt(s.pressure95th)),\(opt(s.leakAvg)),\(opt(s.leakMax))\n"
         }
         files.append(("cpap_sessions.csv", Data(csv.utf8)))
 
@@ -266,7 +269,10 @@ nonisolated enum DataExporter {
                                pressureMin: s.pressureMin, pressureMax: s.pressureMax,
                                pressureMean: s.pressureMean, obstructiveEvents: s.obstructiveEvents,
                                centralEvents: s.centralEvents, hypopneaEvents: s.hypopneaEvents,
-                               importSource: s.importSource)
+                               importSource: s.importSource,
+                               rdiEvents: s.rdiEvents, reraEvents: s.reraEvents,
+                               spo2Avg: s.spo2Avg, spo2Min: s.spo2Min, pulseAvg: s.pulseAvg,
+                               pressure95th: s.pressure95th, leakAvg: s.leakAvg, leakMax: s.leakMax)
             },
             healthSnapshots: snapshots.filter { inRange($0.date) }.map { h in
                 HealthSnapshotDTO(date: isoFormatter.string(from: h.date), hrvAvg: h.hrvAvg,
@@ -386,6 +392,11 @@ nonisolated enum DataExporter {
         let pressureMin: Double; let pressureMax: Double; let pressureMean: Double
         let obstructiveEvents: Int; let centralEvents: Int; let hypopneaEvents: Int
         let importSource: String
+        // By-session import fields (nil = source didn't report them; the
+        // server preserves existing values via COALESCE when nil).
+        let rdiEvents: Double?; let reraEvents: Int?
+        let spo2Avg: Double?; let spo2Min: Double?; let pulseAvg: Double?
+        let pressure95th: Double?; let leakAvg: Double?; let leakMax: Double?
     }
     struct HealthSnapshotDTO: Codable {
         let date: String; let hrvAvg: Double?; let hrvMin: Double?; let restingHR: Double?

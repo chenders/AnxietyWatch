@@ -45,7 +45,8 @@ nonisolated enum CSVImportRouter {
         var errorDescription: String? {
             switch self {
             case .unrecognizedFormat:
-                return "Unrecognized CSV format. Expected a CPAP CSV (simple or OSCAR Summary export) or an EMAY pulse oximeter CSV."
+                return "Unrecognized CSV format. Expected a CPAP CSV (simple, OSCAR Summary, "
+                    + "or OSCAR by-session export) or an EMAY pulse oximeter CSV."
             case .readError(let underlying):
                 return "Could not read file: \(underlying.localizedDescription)"
             case .cpapImport(let underlying):

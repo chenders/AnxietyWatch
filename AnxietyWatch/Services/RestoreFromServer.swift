@@ -604,7 +604,17 @@ extension SyncService {
                 obstructiveEvents: (row["obstructive_events"] as? Int) ?? 0,
                 centralEvents: (row["central_events"] as? Int) ?? 0,
                 hypopneaEvents: (row["hypopnea_events"] as? Int) ?? 0,
-                importSource: (row["import_source"] as? String) ?? "oscar"
+                importSource: (row["import_source"] as? String) ?? "oscar",
+                // By-session fields (migration 0010): NULL means "source
+                // didn't report" — carry through as nil, never coerce to 0.
+                rdiEvents: row["rdi_events"] as? Double,
+                reraEvents: row["rera_events"] as? Int,
+                spo2Avg: row["spo2_avg"] as? Double,
+                spo2Min: row["spo2_min"] as? Double,
+                pulseAvg: row["pulse_avg"] as? Double,
+                pressure95th: row["pressure_95th"] as? Double,
+                leakAvg: row["leak_avg"] as? Double,
+                leakMax: row["leak_max"] as? Double
             )
             ctx.insert(session)
             n += 1

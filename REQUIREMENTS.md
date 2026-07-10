@@ -98,16 +98,26 @@ MedicationDefinition
 CPAPSession
   - id: UUID
   - date: Date
-  - ahi: Double
+  - ahi: Double? (events/hour; nil = not scored, distinct from a measured 0)
   - totalUsageMinutes: Int
-  - leakRate95th: Double (L/min)
+  - leakRate95th: Double? (L/min)
   - pressureMin: Double
   - pressureMax: Double
   - pressureMean: Double
-  - obstructiveEvents: Int
+  - obstructiveEvents: Int (includes unclassified apneas — UA folds in)
   - centralEvents: Int
   - hypopneaEvents: Int
   - importSource: String ("sd_card" or "resmed_cloud")
+  // By-session import fields — nil means "source didn't report this"
+  // (e.g. no machine-attached oximeter); never coerced to 0
+  - rdiEvents: Double? (events/hour — a rate, like AHI)
+  - reraEvents: Int? (count)
+  - spo2Avg: Double? (%)
+  - spo2Min: Double? (%)
+  - pulseAvg: Double? (bpm)
+  - pressure95th: Double? (cmH2O)
+  - leakAvg: Double? (L/min)
+  - leakMax: Double? (L/min)
 
 BarometricReading
   - id: UUID
