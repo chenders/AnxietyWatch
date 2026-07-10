@@ -10,6 +10,7 @@ struct SyncSettingsView: View {
     @State private var autoSync: Bool = false
     @State private var restoreResult: String?
     @State private var isRestoring: Bool = false
+    @State private var showRestoreConfirmation: Bool = false
 
     var body: some View {
         Form {
@@ -51,24 +52,16 @@ struct SyncSettingsView: View {
                 .disabled(!sync.isConfigured || sync.isSyncing)
             }
 
-            #if DEBUG && targetEnvironment(simulator)
-            Section("Debug — Restore from Server") {
-                Text("Pulls /api/data and bulk-inserts into local SwiftData. For populating a fresh simulator. Does not affect server data.")
+            Section("Restore from Server") {
+                Text("Downloads your complete history from the sync server "
+                    + "into this device. For rebuilding after a fresh install — "
+                    + "only runs while the local store is empty. Does not "
+                    + "affect server data.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Button {
-                    Task {
-                        isRestoring = true
-                        restoreResult = nil
-                        do {
-                            let report = try await sync.restoreFromServer(modelContext: modelContext)
-                            restoreResult = report
-                        } catch {
-                            restoreResult = "Failed: \(error.localizedDescription)"
-                        }
-                        isRestoring = false
-                    }
+                    showRestoreConfirmation = true
                 } label: {
                     HStack {
                         Label("Restore from Server", systemImage: "arrow.down.circle")
@@ -79,6 +72,17 @@ struct SyncSettingsView: View {
                     }
                 }
                 .disabled(!sync.isConfigured || isRestoring)
+                .confirmationDialog(
+                    "Restore all data from the server?",
+                    isPresented: $showRestoreConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Restore") { runRestore() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Downloads your complete history into this device's "
+                        + "empty local store. Server data is not modified.")
+                }
 
                 if let result = restoreResult {
                     Text(result)
@@ -86,7 +90,6 @@ struct SyncSettingsView: View {
                         .foregroundStyle(result.hasPrefix("Failed") ? .red : .secondary)
                 }
             }
-            #endif
 
             Section("Status") {
                 if let date = sync.lastSyncDate {
@@ -119,6 +122,23 @@ struct SyncSettingsView: View {
             serverURL = sync.serverURL
             apiKey = sync.apiKey
             autoSync = sync.autoSyncEnabled
+        }
+    }
+
+    /// Production restore: truthful timestamps (no demo date shift). The
+    /// empty-store guard inside `restoreFromServer` surfaces as a "Failed:"
+    /// message when the store already has data.
+    private func runRestore() {
+        Task {
+            isRestoring = true
+            restoreResult = nil
+            do {
+                let report = try await sync.restoreFromServer(modelContext: modelContext)
+                restoreResult = report
+            } catch {
+                restoreResult = "Failed: \(error.localizedDescription)"
+            }
+            isRestoring = false
         }
     }
 }

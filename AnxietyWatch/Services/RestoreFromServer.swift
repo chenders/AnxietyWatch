@@ -1,14 +1,78 @@
-#if DEBUG && targetEnvironment(simulator)
 import Foundation
 import SwiftData
 
 /// Single source of truth for the `-autoRestoreFromServer` launch argument —
 /// referenced by AnxietyWatchApp, SnapshotAggregator, and HRVSessionCardView
-/// so the literal can't drift between call sites.
+/// so the literal can't drift between call sites. The launch-argument flow
+/// (and its date-shifted demo data) is simulator-debug-only; the type itself
+/// compiles everywhere so gated call sites don't need their own literal.
 enum RestoreDemoMode {
     static let launchArgument = "-autoRestoreFromServer"
     /// Evaluated once — launch arguments can't change mid-process.
     static let isActive = ProcessInfo.processInfo.arguments.contains(launchArgument)
+}
+
+/// First-launch migration gate: decides whether the app should defer
+/// HealthKit setup (`HealthDataCoordinator.setupIfNeeded()`) and offer the
+/// user a "Restore from Server vs Start Fresh" choice before any local
+/// writes can trip the restore empty-store guard.
+///
+/// Why this exists: on a genuinely fresh install (the bundle-ID-rename
+/// migration case), `setupIfNeeded()` would otherwise insert a HealthSnapshot
+/// (backfill runs whenever `hasBackfilledSnapshots_v3` is unset) and start
+/// barometer persistence (BarometricReading rows) within seconds of first
+/// launch — long before a human can enter the server URL and tap Restore —
+/// so `restoreGuardTablesAreEmpty` would ALWAYS refuse the restore this flow
+/// exists to serve. The debug demo flow was protected by
+/// `RestoreDemoMode.isActive` inside `aggregateDay` (DEBUG+simulator only);
+/// this gate is that protection, productionized as an explicit decision.
+enum RestoreMigrationGate {
+    /// Set once the restore-vs-fresh decision is final: immediately on
+    /// "Start Fresh", on the first successful `restoreFromServer()`, or
+    /// automatically when the store is already non-empty at launch
+    /// (existing users, who must never see the prompt or a deferred setup).
+    static let decisionResolvedKey = "restoreDecisionResolved_v1"
+
+    /// Pure decision core (extracted for testability): defer setup only
+    /// while the decision is unresolved AND the store still looks fresh.
+    static func shouldDeferSetup(storeIsEmpty: Bool, decisionResolved: Bool) -> Bool {
+        !decisionResolved && storeIsEmpty
+    }
+
+    /// Launch-time evaluation. Returns true when the app should defer
+    /// `setupIfNeeded()` and present the decision UI. A non-fresh store
+    /// resolves the flag permanently as a side effect, so existing installs
+    /// (including upgrades that predate the gate) never defer and never
+    /// prompt. Reads the SwiftData store but never writes to it — the
+    /// deferral check must not itself trip the guard it protects.
+    @MainActor
+    static func evaluateAtLaunch(context: ModelContext, defaults: UserDefaults = .standard) -> Bool {
+        let resolved = defaults.bool(forKey: decisionResolvedKey)
+        let storeIsEmpty = SyncService.restoreGuardTablesAreEmpty(context)
+        guard shouldDeferSetup(storeIsEmpty: storeIsEmpty, decisionResolved: resolved) else {
+            if !resolved {
+                defaults.set(true, forKey: decisionResolvedKey)
+            }
+            return false
+        }
+        return true
+    }
+
+    static func resolve(defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: decisionResolvedKey)
+    }
+
+    static func isResolved(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: decisionResolvedKey)
+    }
+}
+
+extension Notification.Name {
+    /// Posted after `restoreFromServer()` fully succeeds (rows saved, sync
+    /// cursor advanced, migration gate resolved). `AnxietyWatchApp` listens
+    /// so it can kick off the launch setup the `RestoreMigrationGate`
+    /// deferred — restore first, backfill layered on top.
+    static let serverRestoreCompleted = Notification.Name("serverRestoreCompleted")
 }
 
 enum RestoreError: Error, LocalizedError {
@@ -20,23 +84,48 @@ enum RestoreError: Error, LocalizedError {
         case .invalidJSON:
             return "Server response was not valid JSON"
         case .storeNotEmpty:
-            return "Local store already contains data — restore is only for a fresh simulator. "
-                + "Erase the simulator (Device → Erase All Content and Settings) and retry."
+            return "Local store already contains data — restore only runs into an empty "
+                + "store so it can't duplicate rows. On a fresh install, restore before "
+                + "logging or importing anything."
         }
     }
 }
 
 extension SyncService {
+    /// Pulls the server's full dataset (`GET /api/data`) and rebuilds the
+    /// local SwiftData store from it. This is the production data-migration
+    /// path for a fresh install (e.g. after a bundle-ID change wipes the
+    /// container): the empty-store guard plus the #Unique-id merge semantics
+    /// of the raw-sensor importers make the operation idempotent.
+    ///
+    /// - Parameter demoDateShift: Simulator-debug-only. When true (and the
+    ///   build is DEBUG + simulator), all restored timestamps are shifted
+    ///   forward so the most recent row aligns with today — purely a demo
+    ///   convenience so a fresh simulator looks "current". Real migrations
+    ///   MUST keep truthful timestamps: shifting medical data would corrupt
+    ///   every day-keyed aggregate, baseline, and correlation downstream, and
+    ///   a later second restore would re-shift rows by a different offset.
+    ///   Release/device builds always restore with shift = 0 regardless of
+    ///   this flag.
+    /// - Parameter now: clock for the post-restore sync-cursor upper bound.
+    ///   Injectable so tests can assert the cursor lands on the captured
+    ///   bound. Defaults to `Date.now`.
+    /// - Parameter performRequest: network transport for the /api/data GET.
+    ///   Injectable so tests can run the full restore orchestration without
+    ///   a live URLSession (mirrors `sync()`). Defaults to
+    ///   `URLSession.shared.data(for:)`.
+    /// - Parameter defaults: UserDefaults for the `RestoreMigrationGate`
+    ///   resolution on success. Injectable for test isolation.
     @MainActor
-    func restoreFromServer(modelContext: ModelContext) async throws -> String {
+    func restoreFromServer(
+        modelContext: ModelContext,
+        demoDateShift: Bool = false,
+        now: @MainActor () -> Date = { Date.now },
+        performRequest: (@MainActor (URLRequest) async throws -> (Data, URLResponse))? = nil,
+        defaults: UserDefaults = .standard
+    ) async throws -> String {
         guard isConfigured else { throw SyncError.notConfigured }
-        // One-shot guard: the importers below do not dedupe most entity
-        // types, so a second run would silently duplicate journal entries,
-        // doses, sessions, and readings. Refuse unless the store is empty.
-        let entryCount = (try? modelContext.fetchCount(FetchDescriptor<AnxietyEntry>())) ?? 0
-        let snapshotCount = (try? modelContext.fetchCount(FetchDescriptor<HealthSnapshot>())) ?? 0
-        let sessionCount = (try? modelContext.fetchCount(FetchDescriptor<SensorSession>())) ?? 0
-        guard entryCount == 0, snapshotCount == 0, sessionCount == 0 else {
+        guard Self.restoreGuardTablesAreEmpty(modelContext) else {
             throw RestoreError.storeNotEmpty
         }
         guard var components = URLComponents(string: serverURL) else { throw SyncError.invalidURL }
@@ -47,7 +136,21 @@ extension SyncService {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 180
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // Pin the sync cursor's upper bound BEFORE the download starts, per
+        // the documented incremental-sync cursor rule (see CLAUDE.md and
+        // `sync()`'s cursorUpperBound): records the user creates DURING the
+        // round trip get timestamps greater than this bound, so the next
+        // incremental sync still picks them up. Setting `.now` after the
+        // trip would skip them forever. The cursor is assigned only after
+        // the restore fully succeeds (see below).
+        let restoreCursorUpperBound = now()
+
+        let (data, response): (Data, URLResponse)
+        if let performRequest {
+            (data, response) = try await performRequest(request)
+        } else {
+            (data, response) = try await URLSession.shared.data(for: request)
+        }
         guard let http = response as? HTTPURLResponse else { throw SyncError.noConnection }
         guard (200...299).contains(http.statusCode) else {
             throw SyncError.serverError(http.statusCode, String(data: data, encoding: .utf8))
@@ -57,13 +160,21 @@ extension SyncService {
             throw RestoreError.invalidJSON
         }
 
-        // Shift all imported dates forward so the most-recent row aligns with
-        // today. This makes a fresh sim look "current" with respect to the
-        // dropoff in real-world logging activity, instead of every Dashboard
-        // card reading "13 nights ago". Known tradeoff: the shift is a fixed
+        // Demo-only date shift: align the most-recent row with today so a
+        // fresh sim looks "current" instead of every Dashboard card reading
+        // "13 nights ago". Known tradeoff: the shift is a fixed
         // absolute-seconds offset, so rows on the far side of a DST
-        // transition land ±1h off wall-clock — acceptable for demo data.
-        let shift = Self.computeDateShift(json: json)
+        // transition land ±1h off wall-clock — acceptable for demo data,
+        // NEVER acceptable for a real migration. Production restores are
+        // hard-wired to shift = 0 (truthful timestamps), which also keeps
+        // restore idempotent — a blocked-then-retried restore on a later
+        // day must not re-shift rows by a different offset.
+        #if DEBUG && targetEnvironment(simulator)
+        let demoShiftActive = demoDateShift
+        #else
+        let demoShiftActive = false
+        #endif
+        let shift = demoShiftActive ? Self.computeDateShift(json: json) : 0
 
         var report: [String: Int] = ["shiftDays": Int(shift / 86_400)]
 
@@ -82,11 +193,18 @@ extension SyncService {
         if let rows = json["cpapSessions"] as? [[String: Any]] {
             report["cpapSessions"] = Self.importCPAPSessions(rows, shift: shift, into: modelContext)
         }
+        if let rows = json["barometricReadings"] as? [[String: Any]] {
+            report["barometricReadings"] = Self.importBarometricReadings(rows, shift: shift, into: modelContext)
+        }
         if let rows = json["pharmacies"] as? [[String: Any]] {
             report["pharmacies"] = Self.importPharmacies(rows, into: modelContext)
         }
         if let rows = json["prescriptions"] as? [[String: Any]] {
             report["prescriptions"] = (try? PrescriptionImporter.importRecords(rows, into: modelContext)) ?? 0
+        }
+        // After pharmacies so the `pharmacy` relationship can re-link by name.
+        if let rows = json["pharmacyCallLogs"] as? [[String: Any]] {
+            report["pharmacyCallLogs"] = Self.importPharmacyCallLogs(rows, shift: shift, into: modelContext)
         }
 
         var sessionIdMap: [String: UUID] = [:]
@@ -118,20 +236,136 @@ extension SyncService {
             report["songOccurrences"] = Self.importSongOccurrences(rows, shift: shift, songMap: songServerIDMap, into: modelContext)
         }
         if let rows = json["sleepStageEvents"] as? [[String: Any]] {
-            // Sleep events lag snapshots in prod (auto-sync vs. manual import).
-            // Use a per-entity shift so the most recent sleep night lands on
-            // today regardless of the gap — otherwise the LastNight card
-            // can't find events for the latest snapshot.
-            let sleepShift = Self.computeMaxAlignedShift(rows: rows, dateKey: "start_time")
+            // Demo mode only: sleep events lag snapshots in prod (auto-sync
+            // vs. manual import), so use a per-entity shift to land the most
+            // recent sleep night on today — otherwise the LastNight card
+            // can't find events for the latest snapshot. Production restores
+            // keep truthful timestamps (shift 0), like every other entity.
+            let sleepShift = demoShiftActive
+                ? Self.computeMaxAlignedShift(rows: rows, dateKey: "start_time")
+                : 0
             report["sleepStageEvents"] = Self.importSleepStageEvents(rows, shift: sleepShift, into: modelContext)
         }
 
         try modelContext.save()
 
+        // Post-restore re-aggregation: restored AccelSpectrogram /
+        // DerivedBreathingRate rows never feed HealthSnapshot's
+        // sensor-derived aggregates on their own — SnapshotAggregator runs
+        // for today (and backfill gap-fill is capped and may run before the
+        // restore), so historical days would show restored raw rows but nil
+        // tremor/breathing/fidget averages forever. Re-run just the
+        // sensor-derived block per affected day. Deliberately NOT a full
+        // aggregateDay: HealthKit is typically empty right after a fresh
+        // install, and a full re-aggregation would blank restored
+        // HealthKit-derived fields with nils.
+        report["sensorAggregatedDays"] = try Self.reaggregateSensorDerivedSnapshots(in: modelContext)
+        try modelContext.save()
+
+        // Everything imported and saved — finalize:
+        // 1. Advance the sync cursor to the pre-download bound so the first
+        //    sync after a restore is incremental. Without this, since == nil
+        //    would take DataExporter's date-range path (which bypasses the
+        //    per-row dirty flags) and re-POST the entire just-restored
+        //    history back at the server.
+        // 2. Resolve the restore-vs-fresh migration gate so the deferred
+        //    HealthKit setup (backfill, observers, barometer) can begin.
+        lastSyncDate = restoreCursorUpperBound
+        RestoreMigrationGate.resolve(defaults: defaults)
+        NotificationCenter.default.post(name: .serverRestoreCompleted, object: nil)
+
         return report
             .map { "\($0.key): \($0.value)" }
             .sorted()
             .joined(separator: "\n")
+    }
+
+    // MARK: - Empty-store guard
+
+    /// One-shot guard: several importers (entries, doses, snapshots, CPAP,
+    /// sensor sessions, songs) do not dedupe, so a restore into a non-empty
+    /// store would silently duplicate rows. The proxy set must cover EVERY
+    /// major table the restore writes — a store holding ONLY raw sensor rows
+    /// (e.g. from a prior partial restore) is NOT empty, which is also what
+    /// makes a second restore a hard no-op instead of a duplicate-and-reshift
+    /// hazard. Name-deduped tables (medication definitions, pharmacies,
+    /// prescriptions) are deliberately excluded: a fresh install may hold
+    /// user-entered rows there, and their importers merge safely.
+    /// PharmacyCallLog IS counted even though its importer dedupes: a call
+    /// log implies real prior use of the device, exactly the "not actually
+    /// fresh" signal this guard exists to detect (same reasoning as
+    /// BarometricReading, whose importer also dedupes).
+    /// `internal` so RestoreFromServerTests can exercise the guard directly.
+    static func restoreGuardTablesAreEmpty(_ ctx: ModelContext) -> Bool {
+        // A fetch error counts as NON-empty (fail closed): proceeding on an
+        // unreadable store risks the duplication this guard exists to stop.
+        func isEmpty<T: PersistentModel>(_ type: T.Type) -> Bool {
+            ((try? ctx.fetchCount(FetchDescriptor<T>())) ?? Int.max) == 0
+        }
+        return isEmpty(AnxietyEntry.self)
+            && isEmpty(HealthSnapshot.self)
+            && isEmpty(SensorSession.self)
+            && isEmpty(HRVReading.self)
+            && isEmpty(BarometricReading.self)
+            && isEmpty(AccelSpectrogram.self)
+            && isEmpty(DerivedBreathingRate.self)
+            && isEmpty(MedicationDose.self)
+            && isEmpty(CPAPSession.self)
+            && isEmpty(SleepStageEvent.self)
+            && isEmpty(Song.self)
+            && isEmpty(SongOccurrence.self)
+            && isEmpty(PharmacyCallLog.self)
+    }
+
+    // MARK: - Post-restore re-aggregation
+
+    /// Recompute `HealthSnapshot`'s sensor-derived aggregates
+    /// (tremorBandPowerAvg / fidgetIndexAvg / breathingRateAvg) for every
+    /// calendar day that holds AccelSpectrogram or DerivedBreathingRate rows,
+    /// creating the day's snapshot when none exists. Runs after a restore,
+    /// where the guard guarantees every such row was just imported. Touches
+    /// ONLY the three sensor-derived fields (via
+    /// `SnapshotAggregator.applySensorDerivedMetrics`) — restored
+    /// HealthKit-derived fields are left exactly as the server sent them.
+    /// Deliberately does NOT flip `syncedToServer` on the snapshots it
+    /// touches: the three sensor-derived averages have no columns in the
+    /// server schema (see `health_snapshots` in server/schema.sql) and are
+    /// never synced, so recomputing them cannot make a snapshot dirty —
+    /// marking it dirty would only cause a pointless full-row re-upload.
+    /// Returns the number of days recomputed. `internal` for test access.
+    @MainActor
+    static func reaggregateSensorDerivedSnapshots(in ctx: ModelContext) throws -> Int {
+        let calendar = Calendar.current
+        var days = Set<Date>()
+        for spectrogram in try ctx.fetch(FetchDescriptor<AccelSpectrogram>()) {
+            days.insert(calendar.startOfDay(for: spectrogram.timestamp))
+        }
+        for rate in try ctx.fetch(FetchDescriptor<DerivedBreathingRate>()) {
+            days.insert(calendar.startOfDay(for: rate.timestamp))
+        }
+        // Set iteration order is arbitrary — sort for deterministic writes.
+        for day in days.sorted() {
+            guard let end = calendar.date(byAdding: .day, value: 1, to: day) else { continue }
+            let existing = try ctx.fetch(
+                FetchDescriptor<HealthSnapshot>(predicate: #Predicate { $0.date == day })
+            )
+            // Synthesizing a snapshot for a day the restore didn't bring one
+            // is safe only because GET /api/data is UNPAGINATED: the response
+            // carries the server's complete health_snapshots set, so a day
+            // missing locally right after import is guaranteed missing
+            // server-side too. If the endpoint ever paginates or windows its
+            // export, this must re-check the server before creating rows —
+            // otherwise a synthesized sensor-only snapshot would shadow the
+            // server's real one (unique-date constraint) on a later restore.
+            let snapshot = existing.first ?? HealthSnapshot(date: day)
+            if existing.isEmpty {
+                ctx.insert(snapshot)
+            }
+            try SnapshotAggregator.applySensorDerivedMetrics(
+                to: snapshot, dayStart: day, dayEnd: end, context: ctx
+            )
+        }
+        return days.count
     }
 
     // MARK: - Per-entity importers
@@ -378,9 +612,39 @@ extension SyncService {
         return n
     }
 
+    /// Barometric readings are the one restored table with NO other source of
+    /// truth — they come from this app's own `CMAltimeter` capture and are not
+    /// re-derivable from HealthKit, CPAP, or anything else. Losing them in a
+    /// migration is permanent, which is why the restore path must carry them.
+    /// The server PK is `timestamp` (see `barometric_readings` in schema.sql)
+    /// and `BarometricReading` has no #Unique column, so dedupe by shifted
+    /// timestamp to keep the importer idempotent like its #Unique-id siblings.
+    /// `internal` (not private) for RestoreFromServerTests.
+    static func importBarometricReadings(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> Int {
+        var seenTimestamps = Set(
+            ((try? ctx.fetch(FetchDescriptor<BarometricReading>())) ?? []).map(\.timestamp)
+        )
+        var n = 0
+        for row in rows {
+            guard let ts = parseDate(row["timestamp"]),
+                  let pressure = row["pressure_kpa"] as? Double,
+                  let altitude = row["relative_altitude_m"] as? Double else { continue }
+            let shifted = ts.addingTimeInterval(shift)
+            guard seenTimestamps.insert(shifted).inserted else { continue }
+            ctx.insert(BarometricReading(
+                timestamp: shifted,
+                pressureKPa: pressure,
+                relativeAltitudeM: altitude
+            ))
+            n += 1
+        }
+        return n
+    }
+
     /// Returns (imported count, map of original server UUID string -> new local SensorSession UUID).
     /// HRVReading rows reference sensor_sessions.id; the map lets us re-link them after import.
-    private static func importSensorSessions(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> (Int, [String: UUID]) {
+    /// `internal` (not private) for RestoreFromServerTests.
+    static func importSensorSessions(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> (Int, [String: UUID]) {
         var n = 0
         var map: [String: UUID] = [:]
         for row in rows {
@@ -416,7 +680,8 @@ extension SyncService {
         return (n, map)
     }
 
-    private static func importHRVReadings(_ rows: [[String: Any]], shift: TimeInterval, sessionMap: [String: UUID], into ctx: ModelContext) -> Int {
+    /// `internal` (not private) for RestoreFromServerTests.
+    static func importHRVReadings(_ rows: [[String: Any]], shift: TimeInterval, sessionMap: [String: UUID], into ctx: ModelContext) -> Int {
         var n = 0
         for row in rows {
             guard let ts = parseDate(row["timestamp"]),
@@ -448,7 +713,8 @@ extension SyncService {
         return n
     }
 
-    private static func importAccelSpectrograms(
+    /// `internal` (not private) for RestoreFromServerTests.
+    static func importAccelSpectrograms(
         _ rows: [[String: Any]], shift: TimeInterval, sessionMap: [String: UUID], into ctx: ModelContext
     ) -> Int {
         var n = 0
@@ -482,7 +748,8 @@ extension SyncService {
         return n
     }
 
-    private static func importDerivedBreathingRates(
+    /// `internal` (not private) for RestoreFromServerTests.
+    static func importDerivedBreathingRates(
         _ rows: [[String: Any]], shift: TimeInterval, sessionMap: [String: UUID], into ctx: ModelContext
     ) -> Int {
         var n = 0
@@ -601,5 +868,44 @@ extension SyncService {
         }
         return n
     }
+
+    /// The server's upsert key is `(timestamp, pharmacy_name)` — the PK of
+    /// `pharmacy_call_logs` in server/schema.sql — and `PharmacyCallLog` has
+    /// no #Unique column, so dedupe on that same pair (with the shifted
+    /// timestamp) to keep the importer idempotent like its siblings. Must run
+    /// AFTER `importPharmacies` so the `pharmacy` relationship can re-link by
+    /// name; a log whose pharmacy no longer exists re-links to nil — the
+    /// model denormalizes `pharmacyName` precisely so logs survive pharmacy
+    /// deletion. `internal` (not private) for RestoreFromServerTests.
+    static func importPharmacyCallLogs(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> Int {
+        // Sorted fetch: Pharmacy has no #Unique on name, so two same-named
+        // rows are possible; an unsorted fetch would make the "first wins"
+        // collapse below nondeterministic (CLAUDE.md deterministic-ordering
+        // pitfall). Sorting by id makes the tie-break stable across runs.
+        let pharmacies = (try? ctx.fetch(FetchDescriptor<Pharmacy>(
+            sortBy: [SortDescriptor(\.id)]
+        ))) ?? []
+        let pharmaciesByName = Dictionary(pharmacies.map { ($0.name, $0) }) { first, _ in first }
+        var seen: [String: Set<Date>] = [:]
+        for log in (try? ctx.fetch(FetchDescriptor<PharmacyCallLog>())) ?? [] {
+            seen[log.pharmacyName, default: []].insert(log.timestamp)
+        }
+        var n = 0
+        for row in rows {
+            guard let ts = parseDate(row["timestamp"]),
+                  let name = row["pharmacy_name"] as? String, !name.isEmpty else { continue }
+            let shifted = ts.addingTimeInterval(shift)
+            guard seen[name, default: []].insert(shifted).inserted else { continue }
+            ctx.insert(PharmacyCallLog(
+                timestamp: shifted,
+                direction: (row["direction"] as? String) ?? "attempted",
+                pharmacyName: name,
+                notes: (row["notes"] as? String) ?? "",
+                durationSeconds: row["duration_seconds"] as? Int,
+                pharmacy: pharmaciesByName[name]
+            ))
+            n += 1
+        }
+        return n
+    }
 }
-#endif

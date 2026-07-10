@@ -71,6 +71,14 @@ struct AnxietyWatchApp: App {
     @State private var followUpDose: MedicationDose?
     @State private var followUpMedication: MedicationDefinition?
     @State private var showingRandomCheckIn = false
+    /// First-launch restore-vs-fresh decision alert (see `RestoreMigrationGate`).
+    @State private var showMigrationDecision = false
+    /// Presents Settings → Server Sync directly when the user picks
+    /// "Restore from Server" in the migration decision alert.
+    @State private var showRestoreSettingsSheet = false
+    /// True while `setupIfNeeded()` is intentionally held back pending the
+    /// restore-vs-fresh decision. Cleared by `beginDeferredSetup()`.
+    @State private var setupDeferredForMigration = false
     @State private var importAlert: ImportAlert?
     @State private var pendingImports: [URL] = []
     @State private var importDebounceTask: Task<Void, Never>?
@@ -129,7 +137,12 @@ struct AnxietyWatchApp: App {
                     if RestoreDemoMode.isActive {
                         let context = ModelContext(sharedModelContainer)
                         do {
-                            let report = try await SyncService.shared.restoreFromServer(modelContext: context)
+                            // Demo flow only: shift timestamps so the sim
+                            // looks current. Production restores (Settings →
+                            // Server Sync) keep truthful timestamps.
+                            let report = try await SyncService.shared.restoreFromServer(
+                                modelContext: context, demoDateShift: true
+                            )
                             Log.sync.info("[autoRestore] \(report, privacy: .public)")
                         } catch {
                             Log.sync.error("[autoRestore] failed: \(error, privacy: .public)")
@@ -170,12 +183,28 @@ struct AnxietyWatchApp: App {
                         }
                     }
 
-                    // Don't await — let gap fill and observer setup run in background
-                    // while the dashboard renders immediately with cached data.
-                    // @Query properties react to SwiftData changes automatically.
                     guard let coord = coordinator else { return }
-                    Task { await coord.setupIfNeeded() }
-                    coord.scheduleBackgroundRefresh()
+                    // First-launch migration gate: setupIfNeeded() inserts a
+                    // HealthSnapshot (backfill) and starts barometer
+                    // persistence within seconds of first launch — tripping
+                    // restoreFromServer's empty-store guard long before a
+                    // human could configure the server and tap Restore. On a
+                    // fresh store with the restore-vs-fresh decision
+                    // unresolved, defer setup (and the BG-refresh schedule,
+                    // whose handler also aggregates a snapshot) until the
+                    // user chooses. Existing installs auto-resolve inside
+                    // evaluateAtLaunch and never defer or see the prompt.
+                    if RestoreMigrationGate.evaluateAtLaunch(context: ModelContext(sharedModelContainer)) {
+                        setupDeferredForMigration = true
+                        showMigrationDecision = true
+                    } else {
+                        // Don't await — let gap fill and observer setup run
+                        // in background while the dashboard renders
+                        // immediately with cached data. @Query properties
+                        // react to SwiftData changes automatically.
+                        Task { await coord.setupIfNeeded() }
+                        coord.scheduleBackgroundRefresh()
+                    }
 
                     // Schedule random check-in if enabled and none pending
                     if RandomCheckInManager.isEnabled && RandomCheckInManager.loadPending() == nil {
@@ -211,6 +240,55 @@ struct AnxietyWatchApp: App {
                 .onOpenURL { url in
                     handleIncomingFile(url)
                 }
+                // Restore-vs-fresh migration decision. Exactly two explicit
+                // choices, no cancel: an abandoned decision would leave setup
+                // deferred with no visible reason. If the app dies with the
+                // decision unresolved (e.g. user backgrounds mid-alert), the
+                // next launch re-evaluates the gate and prompts again.
+                .alert("Set Up This Device", isPresented: $showMigrationDecision) {
+                    Button("Restore from Server") {
+                        // Decision intentionally stays UNRESOLVED: setup
+                        // remains deferred so the store stays empty for the
+                        // restore, and an abandoned restore re-prompts on the
+                        // next launch instead of silently starting fresh.
+                        showRestoreSettingsSheet = true
+                    }
+                    Button("Start Fresh") {
+                        RestoreMigrationGate.resolve()
+                        beginDeferredSetup()
+                    }
+                } message: {
+                    Text("This looks like a fresh install. You can restore your "
+                        + "history from your sync server, or start fresh. Health "
+                        + "history import waits until you choose, so a restore "
+                        + "can run into an empty store.")
+                }
+                .sheet(isPresented: $showRestoreSettingsSheet) {
+                    NavigationStack { SyncSettingsView() }
+                }
+                .onChange(of: showRestoreSettingsSheet) { _, isPresented in
+                    // Abandoned-restore escape hatch: the sheet is swipe-
+                    // dismissible, and without this the app would sit with
+                    // setup deferred (blank dashboard, no backfill, no
+                    // explanation) until the process actually dies — the
+                    // alert's "next launch re-evaluates" promise only covers
+                    // real relaunches, and iOS can keep a suspended process
+                    // alive for days. If the sheet closes while the decision
+                    // is still unresolved, re-present the decision alert.
+                    if !isPresented && setupDeferredForMigration && !RestoreMigrationGate.isResolved() {
+                        showMigrationDecision = true
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .serverRestoreCompleted)) { _ in
+                    // Restore succeeded (the gate was resolved inside
+                    // restoreFromServer): start the setup that launch
+                    // deferred. Restore-then-backfill ordering is safe — the
+                    // restored raw sensor rows are already saved, so
+                    // backfill's aggregateDay recomputes recent days on top
+                    // of them. The sheet stays up so the user can read the
+                    // per-table restore report.
+                    beginDeferredSetup()
+                }
                 .alert(item: $importAlert) { alert in
                     Alert(
                         title: Text(alert.title),
@@ -220,6 +298,18 @@ struct AnxietyWatchApp: App {
                 }
         }
         .modelContainer(sharedModelContainer)
+    }
+
+    /// Runs the launch setup the migration gate deferred. No-op unless a
+    /// deferral is actually pending, so a `.serverRestoreCompleted` posted
+    /// when nothing was deferred (e.g. the simulator demo-restore path)
+    /// can't double-run setup alongside the normal launch path.
+    @MainActor
+    private func beginDeferredSetup() {
+        guard setupDeferredForMigration, let coord = coordinator else { return }
+        setupDeferredForMigration = false
+        Task { await coord.setupIfNeeded() }
+        coord.scheduleBackgroundRefresh()
     }
 
     /// Buffers an incoming CSV URL and (re)arms the debounce timer. iOS

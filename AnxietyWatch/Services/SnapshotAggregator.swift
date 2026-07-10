@@ -384,30 +384,9 @@ struct SnapshotAggregator {
         }
 
         // Stitch sensor-derived metrics (from watch sensor capture session)
-        let spectrogramDescriptor = FetchDescriptor<AccelSpectrogram>(
-            predicate: #Predicate { $0.timestamp >= start && $0.timestamp < end }
+        try Self.applySensorDerivedMetrics(
+            to: snapshot, dayStart: start, dayEnd: end, context: modelContext
         )
-        let spectrograms = try modelContext.fetch(spectrogramDescriptor)
-        if !spectrograms.isEmpty {
-            let tremorValues = spectrograms.map(\.tremorBandPower)
-            snapshot.tremorBandPowerAvg = tremorValues.reduce(0, +) / Double(tremorValues.count)
-            let fidgetValues = spectrograms.map(\.fidgetBandPower)
-            snapshot.fidgetIndexAvg = fidgetValues.reduce(0, +) / Double(fidgetValues.count)
-        } else {
-            snapshot.tremorBandPowerAvg = nil
-            snapshot.fidgetIndexAvg = nil
-        }
-
-        let breathingDescriptor = FetchDescriptor<DerivedBreathingRate>(
-            predicate: #Predicate { $0.timestamp >= start && $0.timestamp < end }
-        )
-        let breathingRates = try modelContext.fetch(breathingDescriptor)
-        if !breathingRates.isEmpty {
-            let values = breathingRates.map(\.breathsPerMinute)
-            snapshot.breathingRateAvg = values.reduce(0, +) / Double(values.count)
-        } else {
-            snapshot.breathingRateAvg = nil
-        }
 
         // Nocturnal HR dip: midnight–6am HR vs 9am–9pm HR
         if let sixAM = calendar.date(byAdding: .hour, value: 6, to: start),
@@ -518,6 +497,59 @@ struct SnapshotAggregator {
         }
 
         try modelContext.save()
+    }
+
+    // MARK: - Sensor-derived aggregates
+
+    /// Recompute the snapshot's sensor-derived aggregates —
+    /// `tremorBandPowerAvg` / `fidgetIndexAvg` from the day's
+    /// `AccelSpectrogram` rows and `breathingRateAvg` from the day's
+    /// `DerivedBreathingRate` rows — setting each to nil when the day has no
+    /// backing rows. Touches nothing else on the snapshot — in particular it
+    /// never flips `syncedToServer`: these three averages have no columns in
+    /// the server schema and are never synced, so recomputing them must not
+    /// mark the snapshot dirty (that would only re-upload the unchanged
+    /// synced fields).
+    ///
+    /// Extracted from `aggregateDay` so the post-restore path
+    /// (`SyncService.reaggregateSensorDerivedSnapshots`) can re-run exactly
+    /// this block for historical days without a full `aggregateDay` — which
+    /// would blank restored HealthKit-derived fields against an empty
+    /// post-reinstall HealthKit store.
+    ///
+    /// `dayStart`/`dayEnd` must be calendar-day bounds
+    /// (`Calendar.current.startOfDay` and +1 day) — these are day-attributed
+    /// metrics, unlike the overnight noon-to-noon window used for sleep/SpO2.
+    static func applySensorDerivedMetrics(
+        to snapshot: HealthSnapshot,
+        dayStart start: Date,
+        dayEnd end: Date,
+        context: ModelContext
+    ) throws {
+        let spectrogramDescriptor = FetchDescriptor<AccelSpectrogram>(
+            predicate: #Predicate { $0.timestamp >= start && $0.timestamp < end }
+        )
+        let spectrograms = try context.fetch(spectrogramDescriptor)
+        if !spectrograms.isEmpty {
+            let tremorValues = spectrograms.map(\.tremorBandPower)
+            snapshot.tremorBandPowerAvg = tremorValues.reduce(0, +) / Double(tremorValues.count)
+            let fidgetValues = spectrograms.map(\.fidgetBandPower)
+            snapshot.fidgetIndexAvg = fidgetValues.reduce(0, +) / Double(fidgetValues.count)
+        } else {
+            snapshot.tremorBandPowerAvg = nil
+            snapshot.fidgetIndexAvg = nil
+        }
+
+        let breathingDescriptor = FetchDescriptor<DerivedBreathingRate>(
+            predicate: #Predicate { $0.timestamp >= start && $0.timestamp < end }
+        )
+        let breathingRates = try context.fetch(breathingDescriptor)
+        if !breathingRates.isEmpty {
+            let values = breathingRates.map(\.breathsPerMinute)
+            snapshot.breathingRateAvg = values.reduce(0, +) / Double(values.count)
+        } else {
+            snapshot.breathingRateAvg = nil
+        }
     }
 
     // MARK: - Dirty-flag fingerprinting
