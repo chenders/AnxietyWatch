@@ -60,6 +60,11 @@ def downgrade():
     # leave a clean slate.
     op.execute("DROP TABLE IF EXISTS hrv_readings CASCADE")
     op.execute("DROP TABLE IF EXISTS sensor_sessions CASCADE")
+    # 0009 — Watch accelerometer accel_spectrograms + derived_breathing_rates.
+    # Same rationale as the 0005 pair above: schema.sql creates them eagerly
+    # on the 0001 upgrade, so the 0001 downgrade must drop them too.
+    op.execute("DROP TABLE IF EXISTS derived_breathing_rates CASCADE")
+    op.execute("DROP TABLE IF EXISTS accel_spectrograms CASCADE")
     op.execute("DROP TABLE IF EXISTS sleep_stage_events CASCADE")
     op.execute("DROP TABLE IF EXISTS quantity_health_samples CASCADE")
     op.execute("DROP TABLE IF EXISTS barometric_readings CASCADE")

@@ -88,6 +88,7 @@ def _clean_tables(app):
             "pharmacies, prescriptions, pharmacy_call_logs, "
             "quantity_health_samples, sleep_stage_events, "
             "sensor_sessions, hrv_readings, "
+            "accel_spectrograms, derived_breathing_rates, "
             "songs, song_occurrences "
             "RESTART IDENTITY CASCADE"
         )
@@ -1214,14 +1215,21 @@ def test_get_data_since_filter(client):
 
 def test_get_data_exports_restore_entities(client):
     """The entities added for the restore-from-server flow (sensorSessions,
-    hrvReadings, songs, songOccurrences, sleepStageEvents) must round-trip
-    through GET /api/data."""
+    hrvReadings, accelSpectrograms, derivedBreathingRates, songs,
+    songOccurrences, sleepStageEvents) must round-trip through GET
+    /api/data."""
     session_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     reading_id = "cccccccc-cccc-cccc-cccc-cccccccccccc"
     payload = {
-        "syncSchemaVersion": 3,
+        "syncSchemaVersion": 6,
         "sensorSessions": [_polar_session_payload(session_id)],
         "hrvReadings": [_hrv_reading_payload(reading_id, session_id)],
+        "accelSpectrograms": [_accel_spectrogram_payload(
+            "acce1a05-aaaa-4aaa-8aaa-feedfacecaf5"
+        )],
+        "derivedBreathingRates": [_breathing_rate_payload(
+            "b4ea7ea4-bbbb-4bbb-8bbb-feedfacecaf4"
+        )],
         "songs": [{"title": "Test Song", "artist": "Test Artist"}],
         "sleepStageEvents": [{
             "id": "abcdefab-cdef-abcd-efab-cdefabcdef99",
@@ -1238,6 +1246,8 @@ def test_get_data_exports_restore_entities(client):
     for entity, expected_count in [
         ("sensorSessions", 1),
         ("hrvReadings", 1),
+        ("accelSpectrograms", 1),
+        ("derivedBreathingRates", 1),
         ("songs", 1),
         ("sleepStageEvents", 1),
     ]:
@@ -2224,6 +2234,197 @@ def test_hrv_reading_cascade_deletes_with_session(client, app):
         db.commit()
         cur.execute("SELECT COUNT(*) FROM hrv_readings WHERE id = %s", (reading_id,))
         assert cur.fetchone()[0] == 0
+
+
+# ---------------------------------------------------------------------------
+# Watch accelerometer accel_spectrograms + derived_breathing_rates sync
+# (migration 0009, syncSchemaVersion 6)
+# ---------------------------------------------------------------------------
+
+
+def _accel_spectrogram_payload(spectrogram_id, session_id=None, **overrides):
+    base = {
+        "id": spectrogram_id,
+        "timestamp": "2026-05-11T03:02:00Z",
+        "tremorBandPower": 0.42,
+        "breathingBandPower": 0.08,
+        "fidgetBandPower": 0.15,
+        "activityLevel": 0.031,
+    }
+    if session_id is not None:
+        base["sessionId"] = session_id
+    base.update(overrides)
+    return base
+
+
+def _breathing_rate_payload(rate_id, session_id=None, **overrides):
+    base = {
+        "id": rate_id,
+        "timestamp": "2026-05-11T03:03:00Z",
+        "breathsPerMinute": 14.5,
+        "confidence": 0.87,
+        "source": "accelerometer",
+    }
+    if session_id is not None:
+        base["sessionId"] = session_id
+    base.update(overrides)
+    return base
+
+
+def test_sync_accel_spectrogram_inserts_row(client, app):
+    spectrogram_id = "acce1a01-aaaa-4aaa-8aaa-feedfacecaf1"
+    resp = client.post(
+        "/api/sync",
+        json={"accelSpectrograms": [_accel_spectrogram_payload(spectrogram_id)]},
+        headers=auth_header(),
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["counts"]["accel_spectrograms"] == 1
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute(
+            "SELECT session_id, tremor_band_power, breathing_band_power, "
+            "fidget_band_power, activity_level "
+            "FROM accel_spectrograms WHERE id = %s",
+            (spectrogram_id,),
+        )
+        row = cur.fetchone()
+        assert row is not None
+        # session_id is nullable (and not an FK) — Watch-local capture
+        # sessions never materialize as sensor_sessions rows.
+        assert row[0] is None
+        assert row[1] == pytest.approx(0.42)
+        assert row[2] == pytest.approx(0.08)
+        assert row[3] == pytest.approx(0.15)
+        assert row[4] == pytest.approx(0.031)
+
+
+def test_sync_accel_spectrogram_is_idempotent(client, app):
+    """Replaying the same id must update in place (ON CONFLICT DO UPDATE),
+    not insert a duplicate — mirroring the hrv_readings contract."""
+    spectrogram_id = "acce1a02-aaaa-4aaa-8aaa-feedfacecaf2"
+    payload = _accel_spectrogram_payload(spectrogram_id)
+    client.post("/api/sync", json={"accelSpectrograms": [payload]}, headers=auth_header())
+    payload["tremorBandPower"] = 0.55
+    resp = client.post("/api/sync", json={"accelSpectrograms": [payload]}, headers=auth_header())
+    assert resp.status_code == 200
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute(
+            "SELECT COUNT(*), MAX(tremor_band_power) FROM accel_spectrograms WHERE id = %s",
+            (spectrogram_id,),
+        )
+        count, tremor = cur.fetchone()
+        assert count == 1
+        assert tremor == pytest.approx(0.55)
+
+
+def test_sync_accel_spectrogram_accepts_unknown_session_id(client, app):
+    """A sessionId that never synced as a sensor_sessions row must still
+    land — the column is deliberately not a foreign key because Watch-side
+    capture-session IDs have no server-side parent."""
+    spectrogram_id = "acce1a03-aaaa-4aaa-8aaa-feedfacecaf3"
+    orphan_session = "deadbeef-aaaa-4aaa-8aaa-feedfacecafe"
+    resp = client.post(
+        "/api/sync",
+        json={"accelSpectrograms": [
+            _accel_spectrogram_payload(spectrogram_id, session_id=orphan_session)
+        ]},
+        headers=auth_header(),
+    )
+    assert resp.status_code == 200
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute(
+            "SELECT session_id FROM accel_spectrograms WHERE id = %s",
+            (spectrogram_id,),
+        )
+        assert str(cur.fetchone()[0]) == orphan_session
+
+
+def test_sync_derived_breathing_rate_inserts_row(client, app):
+    rate_id = "b4ea7ea1-bbbb-4bbb-8bbb-feedfacecaf1"
+    resp = client.post(
+        "/api/sync",
+        json={"derivedBreathingRates": [_breathing_rate_payload(rate_id)]},
+        headers=auth_header(),
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["counts"]["derived_breathing_rates"] == 1
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute(
+            "SELECT session_id, breaths_per_minute, confidence, source "
+            "FROM derived_breathing_rates WHERE id = %s",
+            (rate_id,),
+        )
+        row = cur.fetchone()
+        assert row is not None
+        assert row[0] is None
+        assert row[1] == pytest.approx(14.5)
+        assert row[2] == pytest.approx(0.87)
+        assert row[3] == "accelerometer"
+
+
+def test_sync_derived_breathing_rate_is_idempotent(client, app):
+    rate_id = "b4ea7ea2-bbbb-4bbb-8bbb-feedfacecaf2"
+    payload = _breathing_rate_payload(rate_id)
+    client.post("/api/sync", json={"derivedBreathingRates": [payload]}, headers=auth_header())
+    payload["breathsPerMinute"] = 16.0
+    payload["source"] = "healthkit_sleep"
+    resp = client.post("/api/sync", json={"derivedBreathingRates": [payload]}, headers=auth_header())
+    assert resp.status_code == 200
+
+    with app.app_context():
+        cur = app.get_db().cursor()
+        cur.execute(
+            "SELECT COUNT(*), MAX(breaths_per_minute), MAX(source) "
+            "FROM derived_breathing_rates WHERE id = %s",
+            (rate_id,),
+        )
+        count, bpm, source = cur.fetchone()
+        assert count == 1
+        assert bpm == pytest.approx(16.0)
+        assert source == "healthkit_sleep"
+
+
+def test_get_data_exports_accel_and_breathing_entities(client):
+    """Both new tables must round-trip through GET /api/data — the whole
+    point of syncing them is that a device migration can restore them."""
+    spectrogram_id = "acce1a04-aaaa-4aaa-8aaa-feedfacecaf4"
+    rate_id = "b4ea7ea3-bbbb-4bbb-8bbb-feedfacecaf3"
+    resp = client.post(
+        "/api/sync",
+        json={
+            "syncSchemaVersion": 6,
+            "accelSpectrograms": [_accel_spectrogram_payload(spectrogram_id)],
+            "derivedBreathingRates": [_breathing_rate_payload(rate_id)],
+        },
+        headers=auth_header(),
+    )
+    assert resp.status_code == 200
+
+    # Per-entity endpoint.
+    for entity, row_id in [
+        ("accelSpectrograms", spectrogram_id),
+        ("derivedBreathingRates", rate_id),
+    ]:
+        resp = client.get(f"/api/data/{entity}", headers=auth_header())
+        assert resp.status_code == 200, entity
+        rows = resp.get_json()[entity]
+        assert len(rows) == 1, entity
+        assert rows[0]["id"] == row_id, entity
+
+    # Full /api/data export includes both keys.
+    resp = client.get("/api/data", headers=auth_header())
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert len(data["accelSpectrograms"]) == 1
+    assert len(data["derivedBreathingRates"]) == 1
 
 
 def test_rr_archive_upload_attaches_bytes_to_session(client, app):

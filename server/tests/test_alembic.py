@@ -183,6 +183,27 @@ class TestFullMigrationChain:
             and on_delete == "CASCADE"
             for col, ref_table, ref_col, on_delete in fks
         ), f"Expected CASCADE FK hrv_readings.session_id -> sensor_sessions.id; got {fks}"
+        # 0009 — Watch accelerometer accel_spectrograms + derived_breathing_rates
+        assert "accel_spectrograms" in tables
+        assert "derived_breathing_rates" in tables
+        accel_cols = _column_names("accel_spectrograms")
+        assert {"session_id", "tremor_band_power", "breathing_band_power",
+                "fidget_band_power", "activity_level"}.issubset(accel_cols)
+        rate_cols = _column_names("derived_breathing_rates")
+        assert {"session_id", "breaths_per_minute", "confidence", "source"}.issubset(rate_cols)
+        # session_id on both tables is deliberately NOT a foreign key:
+        # Watch-side capture-session IDs never materialize as
+        # sensor_sessions rows, so a constraint would 500 every
+        # Watch-origin /api/sync batch. Pin the absence so a future
+        # migration doesn't "helpfully" add one.
+        assert not _foreign_keys("accel_spectrograms"), (
+            "accel_spectrograms.session_id must stay FK-free (Watch session "
+            "IDs have no server-side parent)"
+        )
+        assert not _foreign_keys("derived_breathing_rates"), (
+            "derived_breathing_rates.session_id must stay FK-free (Watch "
+            "session IDs have no server-side parent)"
+        )
 
     def test_round_trip(self):
         """Upgrade to head, downgrade to base, upgrade again."""
@@ -198,6 +219,8 @@ class TestFullMigrationChain:
         assert "data_quality" not in _column_names("health_snapshots")
         assert "sensor_sessions" not in tables
         assert "hrv_readings" not in tables
+        assert "accel_spectrograms" not in tables
+        assert "derived_breathing_rates" not in tables
         command.downgrade(cfg, "base")
         tables = _table_names()
         user_tables = tables - {"alembic_version"}

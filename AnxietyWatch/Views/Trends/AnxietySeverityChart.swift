@@ -7,7 +7,13 @@ struct AnxietySeverityChart: View {
 
     var body: some View {
         ChartCard(title: "Anxiety Severity", isEmpty: entries.isEmpty) {
-            Chart(entries) { entry in
+            // Explicit `id:` (not the Identifiable overload): AnxietyEntry's
+            // Identifiable conformance comes from @Model/PersistentModel and
+            // is main-actor-inferred under InferIsolatedConformances on
+            // newer toolchains, which fails Chart's nonisolated
+            // `Data.Element: Identifiable` requirement. Keying on `\.id`
+            // sidesteps the conformance lookup with identical behavior.
+            Chart(entries, id: \.id) { entry in
                 PointMark(
                     x: .value("Date", entry.timestamp, unit: .hour),
                     y: .value("Severity", entry.severity)

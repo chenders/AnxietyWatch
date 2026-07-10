@@ -131,7 +131,8 @@ final class SyncService {
 
         // Drain loop. Each iteration ships up to `sampleBatchLimit` rows of
         // each bulk type (quantitySamples, sleepStageEvents, sensorSessions,
-        // hrvReadings). When an iteration hits that cap on any type, there
+        // hrvReadings, accelSpectrograms, derivedBreathingRates). When an
+        // iteration hits that cap on any type, there
         // might be more behind it — loop until the queue drains, a round
         // trip fails, or `markSamplesSynced` fails (which would otherwise
         // cause us to re-upload the same 1000 rows forever).
@@ -145,7 +146,7 @@ final class SyncService {
         // explicitly breaks on below.
         //
         // The hard cap of `maxRoundTrips` matches `sampleBatchLimit` as a
-        // safety belt: 1000 rows × 4 bulk types × 1000 trips = 4M rows per
+        // safety belt: 1000 rows × 6 bulk types × 1000 trips = 6M rows per
         // `sync()` invocation, well beyond any realistic backlog.
         let maxRoundTrips = Self.sampleBatchLimit
         var roundTrips = 0
@@ -644,7 +645,9 @@ final class SyncService {
             json["since"] = ISO8601DateFormatter().string(from: since)
         }
         json["clientVersion"] = "1.0"
-        // syncSchemaVersion 5 adds the two SpO₂ source-basis columns
+        // syncSchemaVersion 6 adds the `accelSpectrograms` +
+        // `derivedBreathingRates` raw sensor arrays (Watch accelerometer
+        // pipeline). v5 adds the two SpO₂ source-basis columns
         // (spo2AggregateSource / spo2BurdenSource, F-092) under the same
         // clear-on-conflict semantics as the groups below. v4 adds top-level
         // `sensorSessions` + `hrvReadings` arrays from the Polar H10 BLE
@@ -655,7 +658,7 @@ final class SyncService {
         // older. v2 added the seven overnight clinical stats fields
         // (spo2NadirOvernight, spo2TimeBelow90Min, spo2DesatsCount,
         // glucoseStdDev/CV/Min/Max) under the same clear-on-conflict semantics.
-        json["syncSchemaVersion"] = 5
+        json["syncSchemaVersion"] = 6
         json["deviceName"] = "iOS \(UIDevice.current.systemVersion)"
         if let demographics {
             json["demographics"] = demographics
@@ -669,6 +672,10 @@ final class SyncService {
         // intent to receive them on the next round-trip.
         json["sensorSessions"] = try fetchUnsyncedSensorSessions(from: context)
         json["hrvReadings"] = try fetchUnsyncedHRVReadings(from: context)
+        // v6: Watch accelerometer spectral windows + derived breathing
+        // rate. Same dirty-flag bulk contract as hrvReadings.
+        json["accelSpectrograms"] = try fetchUnsyncedAccelSpectrograms(from: context)
+        json["derivedBreathingRates"] = try fetchUnsyncedDerivedBreathingRates(from: context)
         // Overwrite `healthSnapshots` with the capped `!syncedToServer`
         // selection ONLY on incremental syncs. DataExporter has supplied
         // a date-range-filtered copy intended for file exports; for
@@ -741,6 +748,26 @@ final class SyncService {
                 ids: ids, expectedVersions: uploaded.bulkRowVersions, in: modelContext
             ) { batch in
                 FetchDescriptor<HRVReading>(
+                    predicate: #Predicate { batch.contains($0.id) }
+                )
+            }
+        }
+        if !uploaded.accelSpectrograms.isEmpty {
+            let ids = Set(uploaded.accelSpectrograms)
+            try Self.flagSyncedInChunks(
+                ids: ids, expectedVersions: uploaded.bulkRowVersions, in: modelContext
+            ) { batch in
+                FetchDescriptor<AccelSpectrogram>(
+                    predicate: #Predicate { batch.contains($0.id) }
+                )
+            }
+        }
+        if !uploaded.derivedBreathingRates.isEmpty {
+            let ids = Set(uploaded.derivedBreathingRates)
+            try Self.flagSyncedInChunks(
+                ids: ids, expectedVersions: uploaded.bulkRowVersions, in: modelContext
+            ) { batch in
+                FetchDescriptor<DerivedBreathingRate>(
                     predicate: #Predicate { batch.contains($0.id) }
                 )
             }
@@ -1124,6 +1151,8 @@ final class SyncService {
             sleepStageEvents: ids(forKey: "sleepStageEvents"),
             sensorSessions: ids(forKey: "sensorSessions"),
             hrvReadings: ids(forKey: "hrvReadings"),
+            accelSpectrograms: ids(forKey: "accelSpectrograms"),
+            derivedBreathingRates: ids(forKey: "derivedBreathingRates"),
             healthSnapshotDates: snapshotDates,
             healthSnapshotVersions: snapshotVersions,
             bulkRowVersions: versions
@@ -1270,6 +1299,66 @@ final class SyncService {
         }
     }
 
+    @MainActor
+    private func fetchUnsyncedAccelSpectrograms(from context: ModelContext) throws -> [[String: Any]] {
+        var descriptor = FetchDescriptor<AccelSpectrogram>(
+            predicate: #Predicate { !$0.syncedToServer },
+            sortBy: [SortDescriptor(\.timestamp)]
+        )
+        descriptor.fetchLimit = Self.sampleBatchLimit
+        let rows = try context.fetch(descriptor)
+        return rows.map { row in
+            var dict: [String: Any] = [
+                "id": row.id.uuidString,
+                "timestamp": Self.isoFormatter.string(from: row.timestamp),
+                "tremorBandPower": row.tremorBandPower,
+                "breathingBandPower": row.breathingBandPower,
+                "fidgetBandPower": row.fidgetBandPower,
+                "activityLevel": row.activityLevel,
+            ]
+            // Server key is `sessionId` (matches the column name
+            // `accel_spectrograms.session_id`), mirroring hrvReadings.
+            // Nullable server-side and NOT an FK: Watch-captured rows
+            // reference watch-local session IDs that never materialize as
+            // sensor_sessions rows, so a constraint would 500 the batch.
+            if let sessionID = row.sensorSessionID {
+                dict["sessionId"] = sessionID.uuidString
+            }
+            // Client-internal staleness token; see fetchUnsyncedQuantitySamples.
+            dict["_pendingSyncVersion"] = row.pendingSyncVersion
+            return dict
+        }
+    }
+
+    @MainActor
+    private func fetchUnsyncedDerivedBreathingRates(from context: ModelContext) throws -> [[String: Any]] {
+        var descriptor = FetchDescriptor<DerivedBreathingRate>(
+            predicate: #Predicate { !$0.syncedToServer },
+            sortBy: [SortDescriptor(\.timestamp)]
+        )
+        descriptor.fetchLimit = Self.sampleBatchLimit
+        let rows = try context.fetch(descriptor)
+        return rows.map { row in
+            var dict: [String: Any] = [
+                "id": row.id.uuidString,
+                "timestamp": Self.isoFormatter.string(from: row.timestamp),
+                "breathsPerMinute": row.breathsPerMinute,
+                "confidence": row.confidence,
+                // Non-optional on the model ("accelerometer" or
+                // "healthkit_sleep") — no "unknown" sentinel needed.
+                "source": row.source,
+            ]
+            // Same nullable, non-FK `sessionId` contract as
+            // fetchUnsyncedAccelSpectrograms above.
+            if let sessionID = row.sensorSessionID {
+                dict["sessionId"] = sessionID.uuidString
+            }
+            // Client-internal staleness token; see fetchUnsyncedQuantitySamples.
+            dict["_pendingSyncVersion"] = row.pendingSyncVersion
+            return dict
+        }
+    }
+
     // MARK: - RR-archive upload (Phase 3b)
 
     /// For each session that just landed on the server via /api/sync, push
@@ -1391,6 +1480,8 @@ extension QuantityHealthSample: SyncableSample {}
 extension SleepStageEvent: SyncableSample {}
 extension SensorSession: SyncableSample {}
 extension HRVReading: SyncableSample {}
+extension AccelSpectrogram: SyncableSample {}
+extension DerivedBreathingRate: SyncableSample {}
 
 /// Bundle of ids the sync payload uploaded, captured before the POST so
 /// `markSamplesSynced` flips the local flag for exactly what made it onto
@@ -1404,6 +1495,8 @@ struct UploadedSyncedIDs: Equatable {
     var sleepStageEvents: [UUID] = []
     var sensorSessions: [UUID] = []
     var hrvReadings: [UUID] = []
+    var accelSpectrograms: [UUID] = []
+    var derivedBreathingRates: [UUID] = []
     /// `HealthSnapshot` uses `date` as its server-side primary key (not a UUID),
     /// so post-upload flag-flipping for snapshots happens by date rather than ID.
     /// Carried separately so the existing UUID-keyed path stays untouched.
@@ -1424,7 +1517,8 @@ struct UploadedSyncedIDs: Equatable {
 
     /// Per-row `pendingSyncVersion` captured at payload-build time for every
     /// UUID-keyed bulk row (quantity samples, sleep stage events, sensor
-    /// sessions, HRV readings). One map for all four types — UUIDs don't
+    /// sessions, HRV readings, accel spectrograms, derived breathing rates).
+    /// One map for all six types — UUIDs don't
     /// collide across tables, and `flagSyncedInChunks` looks rows up by id
     /// anyway. Same role as `healthSnapshotVersions` plays for the date-keyed
     /// snapshot path: the post-upload flip skips any row whose current
@@ -1444,6 +1538,8 @@ struct UploadedSyncedIDs: Equatable {
             || sleepStageEvents.count >= cap
             || sensorSessions.count >= cap
             || hrvReadings.count >= cap
+            || accelSpectrograms.count >= cap
+            || derivedBreathingRates.count >= cap
             || healthSnapshotDates.count >= cap
     }
 }

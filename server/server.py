@@ -222,6 +222,14 @@ def create_app(test_config=None):
             counts["hrv_readings"] = _upsert_hrv_readings(
                 cur, data.get("hrvReadings", []),
             )
+            # Watch accelerometer pipeline (syncSchemaVersion 6): 10-second
+            # FFT spectral windows + per-minute derived breathing rate.
+            counts["accel_spectrograms"] = _upsert_accel_spectrograms(
+                cur, data.get("accelSpectrograms", []),
+            )
+            counts["derived_breathing_rates"] = _upsert_derived_breathing_rates(
+                cur, data.get("derivedBreathingRates", []),
+            )
             counts["barometric_readings"] = _upsert_barometric_readings(cur, data.get("barometricReadings", []))
             counts["pharmacies"] = _upsert_pharmacies(cur, data.get("pharmacies", []))
             counts["prescriptions"] = _upsert_prescriptions(cur, data.get("prescriptions", []))
@@ -815,6 +823,77 @@ def create_app(test_config=None):
         )
         return len(readings)
 
+    def _upsert_accel_spectrograms(cur, spectrograms):
+        """Upsert 10-second Watch accelerometer FFT windows.
+
+        ``id`` is the iOS UUID so replays are idempotent (same
+        ``ON CONFLICT (id) DO UPDATE`` contract as hrv_readings).
+        ``sessionId`` is optional and maps to a nullable, non-FK
+        ``session_id`` column: these rows reference watch-local capture
+        sessions that never materialize as sensor_sessions rows, so a
+        foreign key would reject every Watch-origin batch.
+        """
+        if not spectrograms:
+            return 0
+        rows = [
+            (
+                s["id"], s.get("sessionId"), s["timestamp"],
+                s["tremorBandPower"], s["breathingBandPower"],
+                s["fidgetBandPower"], s["activityLevel"],
+            )
+            for s in spectrograms
+        ]
+        psycopg2.extras.execute_values(
+            cur,
+            """INSERT INTO accel_spectrograms (
+                   id, session_id, timestamp,
+                   tremor_band_power, breathing_band_power,
+                   fidget_band_power, activity_level)
+               VALUES %s
+               ON CONFLICT (id) DO UPDATE SET
+                   session_id = EXCLUDED.session_id,
+                   timestamp = EXCLUDED.timestamp,
+                   tremor_band_power = EXCLUDED.tremor_band_power,
+                   breathing_band_power = EXCLUDED.breathing_band_power,
+                   fidget_band_power = EXCLUDED.fidget_band_power,
+                   activity_level = EXCLUDED.activity_level""",
+            rows,
+        )
+        return len(spectrograms)
+
+    def _upsert_derived_breathing_rates(cur, rates):
+        """Upsert per-minute breathing rates derived from Watch wrist motion.
+
+        Same idempotent-replay and nullable non-FK ``session_id`` contract
+        as ``_upsert_accel_spectrograms`` above. ``source`` is required
+        ("accelerometer" or "healthkit_sleep") — the iOS model field is
+        non-optional, so no "unknown" sentinel path exists here.
+        """
+        if not rates:
+            return 0
+        rows = [
+            (
+                r["id"], r.get("sessionId"), r["timestamp"],
+                r["breathsPerMinute"], r["confidence"], r["source"],
+            )
+            for r in rates
+        ]
+        psycopg2.extras.execute_values(
+            cur,
+            """INSERT INTO derived_breathing_rates (
+                   id, session_id, timestamp,
+                   breaths_per_minute, confidence, source)
+               VALUES %s
+               ON CONFLICT (id) DO UPDATE SET
+                   session_id = EXCLUDED.session_id,
+                   timestamp = EXCLUDED.timestamp,
+                   breaths_per_minute = EXCLUDED.breaths_per_minute,
+                   confidence = EXCLUDED.confidence,
+                   source = EXCLUDED.source""",
+            rows,
+        )
+        return len(rates)
+
     def _upsert_barometric_readings(cur, readings):
         # Batched via execute_values (one round trip) to match its unbounded
         # time-series siblings (quantity samples, sensor sessions, HRV readings,
@@ -1097,6 +1176,8 @@ def create_app(test_config=None):
         "pharmacyCallLogs": ("pharmacy_call_logs", "timestamp", "timestamp"),
         "sensorSessions": ("sensor_sessions", "start_time", "start_time"),
         "hrvReadings": ("hrv_readings", "timestamp", "timestamp"),
+        "accelSpectrograms": ("accel_spectrograms", "timestamp", "timestamp"),
+        "derivedBreathingRates": ("derived_breathing_rates", "timestamp", "timestamp"),
         "songs": ("songs", None, "id"),
         "songOccurrences": ("song_occurrences", "timestamp", "timestamp"),
         "sleepStageEvents": ("sleep_stage_events", "start_time", "start_time"),

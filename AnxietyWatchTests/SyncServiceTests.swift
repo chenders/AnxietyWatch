@@ -484,6 +484,8 @@ struct SyncServiceTests {
         #expect(bulkJSON?["sleepStageEvents"] != nil)
         #expect(bulkJSON?["sensorSessions"] != nil)
         #expect(bulkJSON?["hrvReadings"] != nil)
+        #expect(bulkJSON?["accelSpectrograms"] != nil)
+        #expect(bulkJSON?["derivedBreathingRates"] != nil)
     }
 
     // MARK: - sync() cursor-advance orchestration (F-012)
@@ -621,7 +623,7 @@ struct SyncServiceTests {
         #expect(!ids.contains(notSynced.id), "an un-synced session must not be scanned (its server row doesn't exist yet)")
     }
 
-    @Test("buildPayload includes syncSchemaVersion=5 in the wrapper metadata")
+    @Test("buildPayload includes syncSchemaVersion=6 in the wrapper metadata")
     @MainActor
     func payloadIncludesSchemaVersion() throws {
         let restore = saveSyncDefaults()
@@ -637,14 +639,16 @@ struct SyncServiceTests {
         let data = try SyncService().buildPayload(from: context)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         #expect(json != nil)
-        // v5 adds the two SpO₂ source-basis columns (spo2AggregateSource /
+        // v6 adds the accelSpectrograms + derivedBreathingRates raw sensor
+        // arrays (Watch accelerometer pipeline). v5 adds the two SpO₂
+        // source-basis columns (spo2AggregateSource /
         // spo2BurdenSource, F-092). v4 adds top-level sensorSessions +
         // hrvReadings (Polar H10 BLE). v3 added raw quantitySamples +
         // sleepStageEvents arrays plus the dataQuality JSONB on each snapshot.
         // The server uses the version flag to decide whether a missing key is
         // "clear-on-conflict" (client knows the field) or "preserve via
         // COALESCE" (older client that predates it).
-        #expect((json?["syncSchemaVersion"] as? Int) == 5)
+        #expect((json?["syncSchemaVersion"] as? Int) == 6)
     }
 
     @Test("buildPayload includes unsynced QuantityHealthSample rows")
@@ -1194,6 +1198,10 @@ struct SyncServiceTests {
         #expect(UploadedSyncedIDs(sensorSessions: ids).hitBulkLimit(1000))
         // hrvReadings at cap
         #expect(UploadedSyncedIDs(hrvReadings: ids).hitBulkLimit(1000))
+        // accelSpectrograms at cap
+        #expect(UploadedSyncedIDs(accelSpectrograms: ids).hitBulkLimit(1000))
+        // derivedBreathingRates at cap
+        #expect(UploadedSyncedIDs(derivedBreathingRates: ids).hitBulkLimit(1000))
     }
 
     @Test("hitBulkLimit returns false when all bulk arrays are below the cap")
@@ -1203,9 +1211,11 @@ struct SyncServiceTests {
             quantitySamples: ids,
             sleepStageEvents: ids,
             sensorSessions: ids,
-            hrvReadings: ids
+            hrvReadings: ids,
+            accelSpectrograms: ids,
+            derivedBreathingRates: ids
         )
-        // Even with 999 × 4 types, none hit the 1000 cap → no more rounds needed.
+        // Even with 999 × 6 types, none hit the 1000 cap → no more rounds needed.
         #expect(!uploaded.hitBulkLimit(1000))
     }
 
@@ -1703,6 +1713,301 @@ struct SyncServiceTests {
 
         #expect(r1.syncedToServer == true)
         #expect(r2.syncedToServer == true)
+    }
+
+    // MARK: - v6: AccelSpectrogram + DerivedBreathingRate payload shape
+
+    @Test("buildPayload includes unsynced AccelSpectrogram rows")
+    @MainActor
+    func payloadIncludesAccelSpectrograms() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let sessionID = UUID()
+        let spectrogram = AccelSpectrogram(
+            timestamp: Date(timeIntervalSince1970: 1_711_300_000),
+            tremorBandPower: 0.42,
+            breathingBandPower: 0.08,
+            fidgetBandPower: 0.15,
+            activityLevel: 0.031,
+            sensorSessionID: sessionID
+        )
+        context.insert(spectrogram)
+        try context.save()
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let array = json?["accelSpectrograms"] as? [[String: Any]]
+        #expect(array?.count == 1)
+
+        let row = array?.first
+        #expect(row?["id"] as? String == spectrogram.id.uuidString)
+        #expect(abs(((row?["tremorBandPower"] as? Double) ?? 0) - 0.42) < 0.001)
+        #expect(abs(((row?["breathingBandPower"] as? Double) ?? 0) - 0.08) < 0.001)
+        #expect(abs(((row?["fidgetBandPower"] as? Double) ?? 0) - 0.15) < 0.001)
+        #expect(abs(((row?["activityLevel"] as? Double) ?? 0) - 0.031) < 0.001)
+        // Wire key is `sessionId` (matches server column
+        // `accel_spectrograms.session_id`), mirroring hrvReadings.
+        #expect(row?["sessionId"] as? String == sessionID.uuidString)
+        #expect((row?["timestamp"] as? String)?.contains("T") == true)
+    }
+
+    @Test("buildPayload omits sessionId when AccelSpectrogram has no session")
+    @MainActor
+    func payloadAccelSpectrogramOmitsNilSessionId() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        // session_id is nullable server-side (and not an FK), so a nil
+        // sensorSessionID simply omits the key rather than sending a
+        // sentinel.
+        let spectrogram = AccelSpectrogram(
+            timestamp: Date(timeIntervalSince1970: 1_711_300_000),
+            tremorBandPower: 0.1, breathingBandPower: 0.2,
+            fidgetBandPower: 0.3, activityLevel: 0.04
+        )
+        context.insert(spectrogram)
+        try context.save()
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let row = (json?["accelSpectrograms"] as? [[String: Any]])?.first
+        #expect(row != nil)
+        #expect(row?["sessionId"] == nil)
+    }
+
+    @Test("buildPayload includes unsynced DerivedBreathingRate rows")
+    @MainActor
+    func payloadIncludesDerivedBreathingRates() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let sessionID = UUID()
+        let rate = DerivedBreathingRate(
+            timestamp: Date(timeIntervalSince1970: 1_711_300_000),
+            breathsPerMinute: 14.5,
+            confidence: 0.87,
+            source: "accelerometer",
+            sensorSessionID: sessionID
+        )
+        context.insert(rate)
+        try context.save()
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let array = json?["derivedBreathingRates"] as? [[String: Any]]
+        #expect(array?.count == 1)
+
+        let row = array?.first
+        #expect(row?["id"] as? String == rate.id.uuidString)
+        #expect(abs(((row?["breathsPerMinute"] as? Double) ?? 0) - 14.5) < 0.001)
+        #expect(abs(((row?["confidence"] as? Double) ?? 0) - 0.87) < 0.001)
+        #expect(row?["source"] as? String == "accelerometer")
+        #expect(row?["sessionId"] as? String == sessionID.uuidString)
+        #expect((row?["timestamp"] as? String)?.contains("T") == true)
+    }
+
+    @Test("buildPayload omits already-synced AccelSpectrogram rows")
+    @MainActor
+    func payloadOmitsAlreadySyncedAccelSpectrograms() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let baseDate = Date(timeIntervalSince1970: 1_711_300_000)
+        for i in 0..<5 {
+            let spectrogram = AccelSpectrogram(
+                timestamp: baseDate.addingTimeInterval(TimeInterval(i * 10)),
+                tremorBandPower: 0.1 + Double(i) * 0.01,
+                breathingBandPower: 0.2,
+                fidgetBandPower: 0.3,
+                activityLevel: 0.05
+            )
+            spectrogram.syncedToServer = i < 2  // first 2 already synced
+            context.insert(spectrogram)
+        }
+        try context.save()
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let array = json?["accelSpectrograms"] as? [[String: Any]]
+        #expect(array?.count == 3)
+    }
+
+    @Test("buildPayload omits already-synced DerivedBreathingRate rows")
+    @MainActor
+    func payloadOmitsAlreadySyncedDerivedBreathingRates() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let baseDate = Date(timeIntervalSince1970: 1_711_300_000)
+        for i in 0..<5 {
+            let rate = DerivedBreathingRate(
+                timestamp: baseDate.addingTimeInterval(TimeInterval(i * 60)),
+                breathsPerMinute: 12 + Double(i),
+                confidence: 0.8,
+                source: "accelerometer"
+            )
+            rate.syncedToServer = i < 3  // first 3 already synced
+            context.insert(rate)
+        }
+        try context.save()
+
+        let data = try SyncService().buildPayload(from: context)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let array = json?["derivedBreathingRates"] as? [[String: Any]]
+        #expect(array?.count == 2)
+    }
+
+    @Test("markSamplesSynced flips syncedToServer on AccelSpectrogram rows")
+    @MainActor
+    func markSyncedFlipsAccelSpectrograms() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let baseDate = Date(timeIntervalSince1970: 1_711_300_000)
+        let s1 = AccelSpectrogram(
+            timestamp: baseDate,
+            tremorBandPower: 0.1, breathingBandPower: 0.2,
+            fidgetBandPower: 0.3, activityLevel: 0.04
+        )
+        let s2 = AccelSpectrogram(
+            timestamp: baseDate.addingTimeInterval(10),
+            tremorBandPower: 0.11, breathingBandPower: 0.21,
+            fidgetBandPower: 0.31, activityLevel: 0.05
+        )
+        context.insert(s1)
+        context.insert(s2)
+        try context.save()
+
+        try SyncService().markSamplesSynced(
+            UploadedSyncedIDs(accelSpectrograms: [s1.id, s2.id]),
+            modelContext: context
+        )
+
+        #expect(s1.syncedToServer == true)
+        #expect(s2.syncedToServer == true)
+    }
+
+    @Test("markSamplesSynced flips syncedToServer on DerivedBreathingRate rows")
+    @MainActor
+    func markSyncedFlipsDerivedBreathingRates() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let baseDate = Date(timeIntervalSince1970: 1_711_300_000)
+        let r1 = DerivedBreathingRate(
+            timestamp: baseDate,
+            breathsPerMinute: 13.5, confidence: 0.9, source: "accelerometer"
+        )
+        let r2 = DerivedBreathingRate(
+            timestamp: baseDate.addingTimeInterval(60),
+            breathsPerMinute: 14.0, confidence: 0.85, source: "healthkit_sleep"
+        )
+        context.insert(r1)
+        context.insert(r2)
+        try context.save()
+
+        try SyncService().markSamplesSynced(
+            UploadedSyncedIDs(derivedBreathingRates: [r1.id, r2.id]),
+            modelContext: context
+        )
+
+        #expect(r1.syncedToServer == true)
+        #expect(r2.syncedToServer == true)
+    }
+
+    @Test("extractUploadedSyncedIDs picks up accelSpectrograms and derivedBreathingRates ids")
+    @MainActor
+    func extractUploadedIDsIncludesNewBulkTypes() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let baseDate = Date(timeIntervalSince1970: 1_711_300_000)
+        let spectrogram = AccelSpectrogram(
+            timestamp: baseDate,
+            tremorBandPower: 0.1, breathingBandPower: 0.2,
+            fidgetBandPower: 0.3, activityLevel: 0.04
+        )
+        let rate = DerivedBreathingRate(
+            timestamp: baseDate,
+            breathsPerMinute: 14.5, confidence: 0.87, source: "accelerometer"
+        )
+        context.insert(spectrogram)
+        context.insert(rate)
+        try context.save()
+
+        let service = SyncService()
+        let payload = try service.buildPayload(from: context)
+        let uploaded = service.extractUploadedSyncedIDs(from: payload)
+
+        // The extraction must faithfully mirror the payload so the
+        // post-200-OK flag flip covers exactly what was uploaded.
+        #expect(uploaded.accelSpectrograms == [spectrogram.id])
+        #expect(uploaded.derivedBreathingRates == [rate.id])
+    }
+
+    @Test("bulk-only drain triggered by accelSpectrograms cap does not advance the cursor")
+    @MainActor
+    func syncAccelSpectrogramCapDoesNotAdvanceCursor() async throws {
+        // Same cursor-invariant as syncBulkOnlyIterationDoesNotAdvanceCursor,
+        // but with the drain triggered by the NEW bulk type: 1000
+        // AccelSpectrograms hit the cap on iteration 0, forcing a second
+        // (bulkOnly) iteration that must NOT re-advance lastSyncDate.
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.set("http://127.0.0.1:1", forKey: "syncServerURL")
+        UserDefaults.standard.set("test-key", forKey: "syncApiKey")
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        for i in 0..<1000 {
+            context.insert(AccelSpectrogram(
+                timestamp: base.addingTimeInterval(Double(i) * 10),
+                tremorBandPower: 0.1, breathingBandPower: 0.2,
+                fidgetBandPower: 0.3, activityLevel: 0.04
+            ))
+        }
+        try context.save()
+
+        var iterations = 0
+        let service = SyncService()
+        await service.sync(
+            modelContext: context,
+            now: incrementingClock(from: base),
+            performRequest: { _ in
+                iterations += 1
+                return (Data("{}".utf8), self.okResponse())
+            }
+        )
+
+        #expect(iterations >= 2, "expected a multi-iteration drain triggered by the accelSpectrograms cap")
+        #expect(service.lastSyncDate == base)
     }
 
     // MARK: - Phase 3b: RR-archive upload

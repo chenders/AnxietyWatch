@@ -98,6 +98,16 @@ extension SyncService {
         if let rows = json["hrvReadings"] as? [[String: Any]] {
             report["hrvReadings"] = Self.importHRVReadings(rows, shift: shift, sessionMap: sessionIdMap, into: modelContext)
         }
+        if let rows = json["accelSpectrograms"] as? [[String: Any]] {
+            report["accelSpectrograms"] = Self.importAccelSpectrograms(
+                rows, shift: shift, sessionMap: sessionIdMap, into: modelContext
+            )
+        }
+        if let rows = json["derivedBreathingRates"] as? [[String: Any]] {
+            report["derivedBreathingRates"] = Self.importDerivedBreathingRates(
+                rows, shift: shift, sessionMap: sessionIdMap, into: modelContext
+            )
+        }
         var songServerIDMap: [Int: Song] = [:]
         if let rows = json["songs"] as? [[String: Any]] {
             let (n, map) = Self.importSongs(rows, into: modelContext)
@@ -433,6 +443,69 @@ extension SyncService {
             )
             reading.syncedToServer = true
             ctx.insert(reading)
+            n += 1
+        }
+        return n
+    }
+
+    private static func importAccelSpectrograms(
+        _ rows: [[String: Any]], shift: TimeInterval, sessionMap: [String: UUID], into ctx: ModelContext
+    ) -> Int {
+        var n = 0
+        for row in rows {
+            guard let ts = parseDate(row["timestamp"]),
+                  let tremor = row["tremor_band_power"] as? Double,
+                  let breathing = row["breathing_band_power"] as? Double,
+                  let fidget = row["fidget_band_power"] as? Double,
+                  let activity = row["activity_level"] as? Double else { continue }
+            // session_id is nullable server-side; Watch-local session IDs
+            // that never synced as sensor_sessions rows won't be in the map
+            // and re-link to nil — matching importHRVReadings.
+            let serverSessionID = row["session_id"] as? String
+            let mappedSessionID = serverSessionID.flatMap { sessionMap[$0] }
+            // Preserve the server UUID — AccelSpectrogram declares #Unique
+            // on id, keeping the documented idempotency invariant.
+            let serverID = (row["id"] as? String).flatMap(UUID.init(uuidString:)) ?? UUID()
+            let spectrogram = AccelSpectrogram(
+                id: serverID,
+                timestamp: ts.addingTimeInterval(shift),
+                tremorBandPower: tremor,
+                breathingBandPower: breathing,
+                fidgetBandPower: fidget,
+                activityLevel: activity,
+                sensorSessionID: mappedSessionID
+            )
+            spectrogram.syncedToServer = true
+            ctx.insert(spectrogram)
+            n += 1
+        }
+        return n
+    }
+
+    private static func importDerivedBreathingRates(
+        _ rows: [[String: Any]], shift: TimeInterval, sessionMap: [String: UUID], into ctx: ModelContext
+    ) -> Int {
+        var n = 0
+        for row in rows {
+            guard let ts = parseDate(row["timestamp"]),
+                  let bpm = row["breaths_per_minute"] as? Double,
+                  let confidence = row["confidence"] as? Double,
+                  let source = row["source"] as? String else { continue }
+            let serverSessionID = row["session_id"] as? String
+            let mappedSessionID = serverSessionID.flatMap { sessionMap[$0] }
+            // Preserve the server UUID — DerivedBreathingRate declares
+            // #Unique on id, keeping the documented idempotency invariant.
+            let serverID = (row["id"] as? String).flatMap(UUID.init(uuidString:)) ?? UUID()
+            let rate = DerivedBreathingRate(
+                id: serverID,
+                timestamp: ts.addingTimeInterval(shift),
+                breathsPerMinute: bpm,
+                confidence: confidence,
+                source: source,
+                sensorSessionID: mappedSessionID
+            )
+            rate.syncedToServer = true
+            ctx.insert(rate)
             n += 1
         }
         return n

@@ -404,3 +404,43 @@ CREATE INDEX IF NOT EXISTS idx_hrv_readings_session
 CREATE INDEX IF NOT EXISTS idx_hrv_readings_timestamp
     ON hrv_readings (timestamp DESC);
 
+-- 10-second accelerometer FFT spectral windows captured on the Watch
+-- (tremor / breathing / fidget band power + overall RMS activity).
+-- session_id is nullable and deliberately NOT a foreign key: Watch-side
+-- capture sessions never materialize as sensor_sessions rows, so a
+-- constraint would reject every Watch-origin batch. Mirrors the
+-- hrv_readings indexes.
+CREATE TABLE IF NOT EXISTS accel_spectrograms (
+    id                    UUID PRIMARY KEY,
+    session_id            UUID,
+    timestamp             TIMESTAMPTZ NOT NULL,
+    tremor_band_power     DOUBLE PRECISION NOT NULL,
+    breathing_band_power  DOUBLE PRECISION NOT NULL,
+    fidget_band_power     DOUBLE PRECISION NOT NULL,
+    activity_level        DOUBLE PRECISION NOT NULL,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_accel_spectrograms_session
+    ON accel_spectrograms (session_id);
+CREATE INDEX IF NOT EXISTS idx_accel_spectrograms_timestamp
+    ON accel_spectrograms (timestamp DESC);
+
+-- Per-minute breathing rate derived from Watch accelerometer wrist
+-- motion. source is "accelerometer" or "healthkit_sleep". Same nullable
+-- non-FK session_id contract as accel_spectrograms above.
+CREATE TABLE IF NOT EXISTS derived_breathing_rates (
+    id                  UUID PRIMARY KEY,
+    session_id          UUID,
+    timestamp           TIMESTAMPTZ NOT NULL,
+    breaths_per_minute  DOUBLE PRECISION NOT NULL,
+    confidence          DOUBLE PRECISION NOT NULL,
+    source              TEXT NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_derived_breathing_rates_session
+    ON derived_breathing_rates (session_id);
+CREATE INDEX IF NOT EXISTS idx_derived_breathing_rates_timestamp
+    ON derived_breathing_rates (timestamp DESC);
+
