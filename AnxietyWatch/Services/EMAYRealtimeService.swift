@@ -129,6 +129,16 @@ nonisolated struct EMAYLiveDownsampler {
     /// intent of `SnapshotAggregator.minSamplesForOvernightStats` at minute
     /// scale. Applied per metric: a minute rich in pulse but with only a
     /// couple of SpO₂ readings emits pulse alone.
+    ///
+    /// Known representativeness limit (decision record, continuous mode): a
+    /// minute that clears this floor is persisted as an ordinary mean whether
+    /// it covers the full ~60 samples or only a tail (e.g. the ≥10 samples
+    /// captured after a mid-minute jetsam relaunch reconnects). Nothing
+    /// downstream can tell the two apart — `MinuteSample` carries no coverage
+    /// count. Continuous mode makes tail-only minutes a nightly occurrence
+    /// rather than a rarity; if the CNS Klaxon ever needs coverage-weighted
+    /// confidence, persist the per-minute sample count alongside the mean
+    /// rather than lowering/raising this floor.
     static let minimumSamplesPerMinute = 10
 
     private var bucketStart: Date?
@@ -230,12 +240,29 @@ final class EMAYRealtimeService: NSObject {
     enum Status: Equatable {
         case idle
         case scanning
+        /// A pending `connect()` to a remembered peripheral is armed and will
+        /// complete whenever the oximeter comes in range — distinct from
+        /// `.scanning` (no known device, actively discovering) and
+        /// `.connecting` (device found, link/handshake in progress) so the
+        /// status line can honestly say "waiting" instead of implying an
+        /// active search or an imminent connection.
+        case waitingForDevice
         case connecting
         case streaming
         case failed(String)
         case bluetoothOff
         case bluetoothUnauthorized
         case bluetoothUnsupported
+
+        /// True for the states where monitoring is underway and a Stop (not
+        /// Start) action applies. Shared by `EMAYLiveView.isRunning` and the
+        /// re-entrancy guard in `start()` so the two can't drift.
+        var isActiveSession: Bool {
+            switch self {
+            case .scanning, .waitingForDevice, .connecting, .streaming: return true
+            case .idle, .failed, .bluetoothOff, .bluetoothUnauthorized, .bluetoothUnsupported: return false
+            }
+        }
     }
 
     nonisolated static let serviceUUID = CBUUID(string: "FF12")
@@ -261,8 +288,28 @@ final class EMAYRealtimeService: NSObject {
     /// the stream has stalled (link up but data stopped) — ~2.5× the 1.5 s
     /// heartbeat interval.
     nonisolated static let staleTimeout: TimeInterval = 4.0
+    /// Stable identifier so iOS can relaunch the app and call
+    /// `centralManager(_:willRestoreState:)` for in-flight/pending
+    /// peripherals after a background termination (jetsam). MUST stay
+    /// constant across launches or restoration breaks (same rule as
+    /// `PolarHRMService.restoreIdentifier`).
+    nonisolated static let restoreIdentifier = "com.anxietywatch.emay-sleepo2"
+    /// UserDefaults key for the user-facing "continuous streaming" toggle.
+    /// When true, monitoring auto-starts at app launch and survives leaving
+    /// `EMAYLiveView`.
+    nonisolated static let continuousModeKey = "emay.continuousStreaming"
+    /// UserDefaults key remembering the oximeter's `CBPeripheral.identifier`
+    /// once discovered. The identifier is a local, per-device random UUID
+    /// assigned by iOS (not a hardware address), so persisting it is not
+    /// identifying. Lets reconnects use a pending `connect()` instead of a
+    /// background-throttled scan.
+    nonisolated static let knownPeripheralUUIDKey = "emay.peripheralUUID"
 
     private(set) var status: Status = .idle
+    /// Mirrors the `continuousModeKey` default as a stored property so
+    /// `@Observable` change tracking drives the Settings toggle; kept in
+    /// sync exclusively via `setContinuousMode(_:)`.
+    private(set) var continuousModeEnabled: Bool
     private(set) var latestReading: EMAYReading?
     /// When the last valid frame (measuring OR no-finger) arrived — used to
     /// detect a stalled stream. A consumer can also read
@@ -296,6 +343,7 @@ final class EMAYRealtimeService: NSObject {
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
+        self.continuousModeEnabled = Self.isContinuousModeEnabled(defaults: .standard)
         super.init()
         // `queue: nil` → CoreBluetooth dispatches delegate callbacks on the
         // MAIN queue. CB requires every `central.*` call to be serialized on
@@ -303,25 +351,128 @@ final class EMAYRealtimeService: NSObject {
         // @MainActor methods (start/stop/beginScan/fail), the manager MUST be
         // bound to the main queue too — a dedicated background queue here is a
         // runtime race (the same lesson PolarHRMService documents).
-        central = CBCentralManager(delegate: self, queue: nil)
+        //
+        // The restore identifier opts into CoreBluetooth state restoration:
+        // if iOS terminates the app in the background while a connection or
+        // pending connect is outstanding, the system keeps acting on our
+        // behalf and relaunches the app (calling willRestoreState) when the
+        // peripheral produces an event — the mechanism that makes overnight
+        // continuous streaming survive a jetsam.
+        central = CBCentralManager(
+            delegate: self,
+            queue: nil,
+            options: [CBCentralManagerOptionRestoreIdentifierKey: Self.restoreIdentifier]
+        )
+    }
+
+    // MARK: - Pure decision helpers (unit-tested without CoreBluetooth hardware)
+
+    /// Whether the user has opted into continuous streaming. `defaults` is
+    /// injected so tests can use an isolated suite.
+    nonisolated static func isContinuousModeEnabled(defaults: UserDefaults) -> Bool {
+        defaults.bool(forKey: continuousModeKey)
+    }
+
+    /// The remembered oximeter identifier, or nil when none has been
+    /// discovered yet (or the stored value is corrupt).
+    nonisolated static func knownPeripheralUUID(defaults: UserDefaults) -> UUID? {
+        defaults.string(forKey: knownPeripheralUUIDKey).flatMap(UUID.init(uuidString:))
+    }
+
+    /// Decision table for `start()`: the status to surface for a Bluetooth
+    /// state that can't begin monitoring yet, or nil when the central is
+    /// powered on and monitoring should actually begin. `.resetting` /
+    /// `.unknown` report `.scanning` — monitoring auto-begins when the next
+    /// state callback lands on `.poweredOn`.
+    nonisolated static func startupStatus(for state: CBManagerState) -> Status? {
+        switch state {
+        case .poweredOn: return nil
+        case .poweredOff: return .bluetoothOff
+        case .unauthorized: return .bluetoothUnauthorized
+        case .unsupported: return .bluetoothUnsupported
+        case .resetting, .unknown: return .scanning
+        @unknown default: return .scanning
+        }
+    }
+
+    /// How to (re)acquire the oximeter when monitoring begins or resumes.
+    nonisolated enum ReconnectApproach: Equatable {
+        /// Issue `central.connect(_:)` against the remembered peripheral.
+        /// Pending connects never time out, survive app suspension, and —
+        /// combined with state restoration — relaunch the app when the
+        /// device comes back in range, unlike background scans, which iOS
+        /// throttles heavily.
+        case pendingConnect(UUID)
+        /// No remembered device: fall back to a service-UUID scan.
+        case scan
+    }
+
+    nonisolated static func reconnectApproach(knownPeripheralUUID: UUID?) -> ReconnectApproach {
+        knownPeripheralUUID.map { .pendingConnect($0) } ?? .scan
+    }
+
+    /// Which restored peripheral (by array index) to adopt in
+    /// `willRestoreState`: the remembered one when present; otherwise the
+    /// first — anything iOS restored for this central is a peripheral WE
+    /// connected to through the FF12-filtered pipeline, so a stale/missing
+    /// remembered UUID shouldn't orphan a live connection. nil when the
+    /// restore dictionary held no peripherals.
+    ///
+    /// Deliberately more permissive than `PolarHRMService.willRestoreState`'s
+    /// strict-match-or-drop: the EMAY frame parser's length+checksum
+    /// validation drops any wrong-device data outright, so adopting an
+    /// unexpected restored peripheral risks a dead connection, not a bad
+    /// reading.
+    nonisolated static func restoredPeripheralIndex(identifiers: [UUID], knownUUID: UUID?) -> Int? {
+        if let knownUUID, let idx = identifiers.firstIndex(of: knownUUID) { return idx }
+        return identifiers.isEmpty ? nil : 0
     }
 
     // MARK: - Public control
 
-    /// Begin scanning for the oximeter and stream once connected. Safe to call
-    /// before Bluetooth is powered on; the scan starts when it becomes ready.
-    /// Reflects the real Bluetooth state rather than always reporting
+    /// Begin monitoring for the oximeter and stream once connected. Safe to
+    /// call before Bluetooth is powered on; monitoring starts when it becomes
+    /// ready. Reflects the real Bluetooth state rather than always reporting
     /// `.scanning`, so the UI can show an actionable message when BT is
     /// off/unauthorized/unsupported.
+    ///
+    /// No-op while a session is already active: `EMAYLiveView` calls this on
+    /// every appear, and in continuous mode a live background session must
+    /// not be knocked back to `.scanning` (dropping the connection) just
+    /// because the user opened the screen.
     func start() {
+        guard !status.isActiveSession else { return }
         wantScan = true
-        switch central.state {
-        case .poweredOn: beginScan()
-        case .poweredOff: status = .bluetoothOff
-        case .unauthorized: status = .bluetoothUnauthorized
-        case .unsupported: status = .bluetoothUnsupported
-        case .resetting, .unknown: status = .scanning  // will scan when ready
-        @unknown default: status = .scanning
+        if let notReady = Self.startupStatus(for: central.state) {
+            status = notReady  // monitoring begins on the .poweredOn callback
+        } else {
+            beginMonitoring()
+        }
+    }
+
+    /// App-launch entry point: arms monitoring if (and only if) the user
+    /// enabled the continuous-streaming toggle. Called unconditionally from
+    /// `AnxietyWatchApp`'s startup task so the decision logic lives here, not
+    /// in the app file. Idempotent with state restoration: if
+    /// `willRestoreState` already re-armed monitoring, `start()`'s
+    /// active-session guard makes this a no-op.
+    func startIfContinuousModeEnabled() {
+        guard continuousModeEnabled else { return }
+        start()
+    }
+
+    /// Flip the continuous-streaming toggle. Turning it ON starts monitoring
+    /// immediately; turning it OFF is an explicit user stop — it ends any
+    /// active session AND disarms auto-start at future launches. (A manual
+    /// Stop with the toggle left on stops only the current session; the
+    /// toggle re-arms monitoring at the next launch.)
+    func setContinuousMode(_ enabled: Bool) {
+        continuousModeEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.continuousModeKey)
+        if enabled {
+            start()
+        } else {
+            stop()
         }
     }
 
@@ -335,14 +486,68 @@ final class EMAYRealtimeService: NSObject {
         }
         if central.state == .poweredOn {
             central.stopScan()
-            if let peripheral { central.cancelPeripheralConnection(peripheral) }
         }
+        // Cancel UNCONDITIONALLY on peripheral presence, not central.state:
+        // during the state-restoration window `willRestoreState` can hand us
+        // a live/pending system connection while `central.state` is still
+        // `.unknown`. Gating the cancel on `.poweredOn` here would skip it,
+        // then resetConnectionState() drops our only reference — the system
+        // keeps (re)connecting behind an "Idle" UI. cancelPeripheralConnection
+        // is safe to call pre-poweredOn (CoreBluetooth queues/ignores it as
+        // appropriate); this matches PolarHRMService.tearDownResources().
+        if let peripheral { central.cancelPeripheralConnection(peripheral) }
         // Clear per-connection state SYNCHRONOUSLY so a notification still in
         // flight can't revive `.streaming` (see the `.idle` guard in
         // didUpdateValueFor) and a fast stop→start isn't blocked by a stale
         // peripheral reference.
         resetConnectionState()
         status = .idle
+    }
+
+    /// Acquire (or re-acquire) the oximeter. Must only run with the central
+    /// `.poweredOn` (`retrievePeripherals`/`connect` are invalid earlier).
+    /// Preference order:
+    /// 1. A peripheral we already hold (state restoration re-adopted it).
+    /// 2. A pending `connect()` to the remembered identifier — reliable in
+    ///    the background, where scans are heavily throttled.
+    /// 3. A service-UUID scan (first-ever connection, or iOS no longer
+    ///    recognizes the remembered identifier).
+    private func beginMonitoring() {
+        if let held = peripheral {
+            adoptAndConnect(held)
+            return
+        }
+        if case .pendingConnect(let uuid) =
+            Self.reconnectApproach(knownPeripheralUUID: Self.knownPeripheralUUID(defaults: .standard)),
+           let known = central.retrievePeripherals(withIdentifiers: [uuid]).first {
+            adoptAndConnect(known)
+            return
+        }
+        beginScan()
+    }
+
+    /// Take ownership of `p` and drive it toward streaming based on its
+    /// current CB state. `.connected` (a restoration handoff) skips straight
+    /// to service discovery; anything else arms a pending connect. A
+    /// peripheral already `.connecting` (restored mid-attempt) just waits —
+    /// its `didConnect` will fire without a second `connect()` call.
+    private func adoptAndConnect(_ p: CBPeripheral) {
+        peripheral = p
+        p.delegate = self
+        switch p.state {
+        case .connected:
+            status = .connecting  // link is up; protocol handshake still pending
+            p.discoverServices([Self.serviceUUID])
+        case .connecting:
+            // The system is actively establishing the link (restored
+            // mid-attempt) — report .connecting per the Status contract;
+            // .waitingForDevice is only for an armed-but-idle pending connect.
+            status = .connecting
+        default:
+            status = .waitingForDevice
+            central.connect(p)  // pending connect — persists until cancelled
+            Log.ble.info("EMAY: pending connect armed for remembered oximeter")
+        }
     }
 
     private func beginScan() {
@@ -397,8 +602,9 @@ final class EMAYRealtimeService: NSObject {
 
     /// Single funnel for connection/discovery failures: surface an actionable
     /// message and tear down. Disconnecting lets `didDisconnectPeripheral`
-    /// resume scanning if the caller still wants monitoring (transient-hiccup
-    /// retry); when there's nothing to disconnect, reset directly.
+    /// resume monitoring (pending connect or scan) if the caller still wants
+    /// it (transient-hiccup retry); when there's nothing to disconnect, reset
+    /// directly.
     private func fail(_ message: String) {
         Log.ble.error("EMAY: \(message, privacy: .public)")
         status = .failed(message)
@@ -507,12 +713,60 @@ final class EMAYRealtimeService: NSObject {
 // MARK: - CBCentralManagerDelegate
 
 extension EMAYRealtimeService: CBCentralManagerDelegate {
+    /// Called when iOS relaunches (or resumes) the app for a BLE event after
+    /// a background termination. Adopt the peripheral the system was
+    /// tracking on our behalf — set the delegate and hold the reference —
+    /// but defer every CB command (connect / discoverServices / cancel) to
+    /// `centralManagerDidUpdateState`: the central is typically still
+    /// `.unknown` here and CB forbids issuing commands before `.poweredOn`.
+    ///
+    /// The downsampler starts empty after a relaunch, so the minutes lost
+    /// while the app was dead stay lost — a gap is a gap; continuity is
+    /// never fabricated across it (CNS asymmetry invariant).
+    nonisolated func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
+        let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
+        Task { @MainActor [weak self] in
+            // If a peripheral is already held (re-entrant restoration, or a
+            // start() raced ahead), keep it — adopting a second reference
+            // would fork the delegate chain.
+            guard let self, self.peripheral == nil, !restored.isEmpty else { return }
+            let known = Self.knownPeripheralUUID(defaults: .standard)
+            guard let idx = Self.restoredPeripheralIndex(
+                identifiers: restored.map(\.identifier), knownUUID: known
+            ) else { return }
+            let p = restored[idx]
+            p.delegate = self
+            self.peripheral = p
+            // Persist the adopted identifier: when the fallback branch of
+            // restoredPeripheralIndex fired (remembered UUID stale/missing),
+            // the next COLD launch would otherwise pending-connect against
+            // the stale UUID and burn a scan round-trip re-learning this one.
+            UserDefaults.standard.set(p.identifier.uuidString, forKey: Self.knownPeripheralUUIDKey)
+            // Re-arm ongoing monitoring only when the user opted into
+            // continuous streaming. A view-scoped session that died with the
+            // app shouldn't resurrect itself in the background; its adopted
+            // peripheral is released in didUpdateState once the central is
+            // powered on (the only point cancel is legal).
+            self.wantScan = Self.isContinuousModeEnabled(defaults: .standard)
+            self.status = self.wantScan ? .waitingForDevice : .idle
+            Log.ble.info("EMAY: state restoration adopted peripheral (continuous=\(self.wantScan, privacy: .public))")
+        }
+    }
+
     nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             switch central.state {
             case .poweredOn:
-                if self.wantScan { self.beginScan() }
+                if self.wantScan {
+                    self.beginMonitoring()
+                } else if let orphan = self.peripheral {
+                    // State restoration adopted a peripheral but monitoring
+                    // isn't wanted (continuous mode off) — release the
+                    // system-held connection now that cancel is legal.
+                    central.cancelPeripheralConnection(orphan)
+                    self.resetConnectionState()
+                }
             case .poweredOff:
                 self.resetConnectionState()
                 self.status = .bluetoothOff
@@ -550,6 +804,10 @@ extension EMAYRealtimeService: CBCentralManagerDelegate {
             peripheral.delegate = self
             self.status = .connecting
             central.connect(peripheral)
+            // Remember the identifier so future launches and mid-session
+            // reconnects can use a pending connect() instead of a
+            // background-throttled scan (see `beginMonitoring`).
+            UserDefaults.standard.set(peripheral.identifier.uuidString, forKey: Self.knownPeripheralUUIDKey)
             // Log the name as private: BLE local names can contain
             // user-supplied personal text (e.g. a person's name).
             Log.ble.info("EMAY: connecting to \(name.isEmpty ? "device" : name, privacy: .private)")
@@ -559,6 +817,11 @@ extension EMAYRealtimeService: CBCentralManagerDelegate {
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         Task { @MainActor [weak self] in
             guard let self, peripheral.identifier == self.peripheral?.identifier else { return }
+            // A pending-connect/restoration path arrives here from
+            // `.waitingForDevice`; the device is now found, so advance to
+            // `.connecting` (link/handshake in progress) per the Status
+            // doc-comment contract. Scan-path connects set it earlier.
+            if self.status == .waitingForDevice { self.status = .connecting }
             peripheral.discoverServices([Self.serviceUUID])
         }
     }
@@ -574,7 +837,10 @@ extension EMAYRealtimeService: CBCentralManagerDelegate {
             Log.ble.error("EMAY: \(msg, privacy: .public)")
             self.resetConnectionState()
             if self.wantScan {
-                self.beginScan()   // retry
+                // Retry through beginMonitoring so a known peripheral gets
+                // another pending connect (background-safe) instead of
+                // falling back to a throttled scan.
+                self.beginMonitoring()
             } else {
                 self.status = .failed(msg)
             }
@@ -597,7 +863,14 @@ extension EMAYRealtimeService: CBCentralManagerDelegate {
             let isTransientReconnect = self.wantScan && !wasFailure
             self.resetConnectionState(flushPartialBucket: !isTransientReconnect)
             if self.wantScan {
-                self.beginScan()   // auto-reconnect
+                // Auto-reconnect. The identifier persisted at discovery makes
+                // this a pending connect() (background-safe) rather than a
+                // rescan. Bucket semantics are unchanged: a same-minute
+                // reconnect keeps accumulating into the ONE open bucket kept
+                // alive above; a reconnect in a later minute finalizes that
+                // partial bucket on the first new reading — the dead air in
+                // between is never interpolated.
+                self.beginMonitoring()
             } else if !wasFailure {
                 // Preserve a failure message set by fail(); otherwise idle.
                 self.status = .idle

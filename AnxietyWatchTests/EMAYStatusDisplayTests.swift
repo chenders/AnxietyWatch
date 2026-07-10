@@ -12,6 +12,7 @@ struct EMAYStatusDisplayTests {
     func displayText() {
         #expect(EMAYRealtimeService.Status.idle.displayText == "Idle")
         #expect(EMAYRealtimeService.Status.scanning.displayText == "Scanning…")
+        #expect(EMAYRealtimeService.Status.waitingForDevice.displayText == "Waiting for oximeter…")
         #expect(EMAYRealtimeService.Status.connecting.displayText == "Connecting…")
         #expect(EMAYRealtimeService.Status.streaming.displayText == "Streaming")
         #expect(EMAYRealtimeService.Status.bluetoothOff.displayText == "Bluetooth is off")
@@ -29,6 +30,7 @@ struct EMAYStatusDisplayTests {
         #expect(EMAYRealtimeService.Status.streaming.displayColor == .green)
         // In-progress states are orange, matching HRVSessionLiveView.statusBadge.
         #expect(EMAYRealtimeService.Status.scanning.displayColor == .orange)
+        #expect(EMAYRealtimeService.Status.waitingForDevice.displayColor == .orange)
         #expect(EMAYRealtimeService.Status.connecting.displayColor == .orange)
         // Bluetooth action-required states and hard failures are red.
         #expect(EMAYRealtimeService.Status.bluetoothOff.displayColor == .red)

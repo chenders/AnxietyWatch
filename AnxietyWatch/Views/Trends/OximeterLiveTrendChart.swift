@@ -108,6 +108,14 @@ nonisolated enum OximeterLiveSeriesBuilder {
     /// (the service auto-reconnects) without bridging genuinely distinct
     /// sessions hours apart. Scaled up for wider aggregation buckets via
     /// `connectedGap(forBucketDuration:)`.
+    ///
+    /// Since continuous streaming shipped, this tolerance also absorbs
+    /// jetsam-recovery gaps: an overnight app kill + state-restoration
+    /// reconnect inside 5 minutes draws as one segment even though the
+    /// process died in between. That's a straight line between two genuine
+    /// means (no fabricated points — the dead minutes simply have no data),
+    /// but a reader inferring "no interruption" from an unbroken segment
+    /// would be wrong at minute granularity.
     static let maxConnectedGap: TimeInterval = 5 * 60
 
     // MARK: - Window-adaptive bucketing

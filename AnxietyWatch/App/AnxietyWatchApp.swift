@@ -53,8 +53,9 @@ struct AnxietyWatchApp: App {
     /// central connection, so one owner must exist for the app's lifetime —
     /// a second view-local instance would race it for the peripheral. It
     /// also persists per-minute live samples, so it needs a ModelContext
-    /// from the shared container. NOT auto-started here: `EMAYLiveView`
-    /// starts it on appear and stops it on disappear.
+    /// from the shared container. The only launch-time hook is the
+    /// unconditional `startIfContinuousModeEnabled()` call in `.task` —
+    /// all auto-start/restoration logic lives inside the service.
     @State private var emayService: EMAYRealtimeService
     /// Shared sheet-presentation state for the in-progress recording UI.
     /// Lives on the App so the in-app pill (rendered at ContentView root)
@@ -159,6 +160,10 @@ struct AnxietyWatchApp: App {
                     // attaches the recorder to it; if not (cold launch,
                     // peripheral gone), this finalizes stale rows.
                     polarService.recoverInFlightSessionIfNeeded()
+
+                    // Re-arm EMAY continuous streaming (no-op unless the user
+                    // enabled the toggle; the decision lives in the service).
+                    emayService.startIfContinuousModeEnabled()
 
                     // Link any prescriptions missing a MedicationDefinition
                     let context = ModelContext(sharedModelContainer)
