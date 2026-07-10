@@ -23,14 +23,14 @@ The result is not a wall of numbers. It is your own data, interpreted through yo
 > **This project is under active development.** The data collection layer is thorough — 25+ HealthKit data types with multi-source provenance, medication tracking with efficacy measurement, OSCAR CSV import with server-side EDF leak parsing, EMAY overnight pulse-oximeter import, Polar H10 chest-strap HRV at beat-to-beat fidelity, pharmacy benefit (CapRx) integration, clinical reports, an Alembic-migrated sync server, and a growing test suite. The first piece of the intelligence layer is live: a physiological correlation engine that identifies which health metrics most influence your anxiety, plus an opt-in server-side path that can call Claude against a chosen date range from an admin page on your own sync server. Compound triggers, proactive insights, and morning briefings are where the project is headed next.
 
 <div align="center">
-  <img src="docs/screenshots/dashboard.png" width="200" alt="Dashboard showing HRV baseline alert, anxiety rating, health metrics with sparklines" />
+  <img src="docs/screenshots/future-dashboard.png" width="200" alt="Dashboard mockup with Today's Summary card, Log button, breathing pacer, and grouped metric sections" />
   &nbsp;&nbsp;
-  <img src="docs/screenshots/trends.png" width="200" alt="HRV trend chart with personal baseline band, anxiety severity scatter plot, and sleep stages" />
+  <img src="docs/screenshots/future-insights.png" width="200" alt="Insights mockup showing sleep-anxiety correlation, compound triggers, exercise effect, and medication efficacy" />
   &nbsp;&nbsp;
-  <img src="docs/screenshots/report.png" width="165" alt="Clinical PDF report with anxiety summary, medication adherence, sleep quality, HRV, and CPAP data" />
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/watch.png" width="105" alt="watchOS Quick Log — color-coded tappable severity circles designed for use during panic" />
+  <img src="docs/screenshots/future-trends.png" width="200" alt="Trends mockup with weekly summary stats, HRV chart with medication dose markers, and dose-response visualization" />
 </div>
+
+<div align="center"><sub><em>Design mockups of the intelligence layer the project is building toward — illustrative data, not real health records.</em></sub></div>
 
 ---
 
@@ -110,15 +110,7 @@ Every piece of data is exportable — JSON, CSV, or clinical PDF — from day on
 
 The data collection layer is solid, and the first piece of the intelligence layer is live — a physiological correlation engine that identifies which health metrics most influence your anxiety, with per-metric breakdowns and scatter plots. Random check-ins capture mood at unprompted moments, filling gaps that voluntary journaling misses. Next: compound trigger identification (when bad sleep *plus* high barometric pressure shift predicts a bad day), medication efficacy trend detection, and proactive morning briefings that demystify bad days before they spiral.
 
-<div align="center">
-  <img src="docs/screenshots/future-dashboard.png" width="200" alt="Future dashboard with Today's Summary card, Log button, breathing pacer, and grouped metric sections" />
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/future-insights.png" width="200" alt="Future Insights tab showing sleep-anxiety correlation, compound triggers, exercise effect, and medication efficacy trends" />
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/future-trends.png" width="200" alt="Future trends with weekly summary stats, HRV chart with medication dose markers, and anxiety dose-response visualization showing tolerance" />
-</div>
-
-*Design mockups — a dashboard that tells stories instead of dumping numbers, an intelligence layer that surfaces personal patterns, and trend charts with medication dose markers that make tolerance visible.*
+The mockups above show where this is headed — a dashboard that tells stories instead of dumping numbers, an intelligence layer that surfaces personal patterns, and trend charts with medication dose markers that make tolerance visible.
 
 See [PROJECT_FUTURE_PLAN.md](PROJECT_FUTURE_PLAN.md) for the full phased roadmap, North Star vision, and current status by phase.
 
