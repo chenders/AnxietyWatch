@@ -1361,7 +1361,7 @@ def app_settings():
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     if request.method == "POST":
-        timezone = request.form.get("timezone", "US/Pacific").strip() or "US/Pacific"
+        timezone = request.form.get("timezone", "America/Los_Angeles").strip() or "America/Los_Angeles"
         cur.execute(
             "INSERT INTO settings (key, value, updated_at) VALUES ('timezone', %s, NOW()) "
             "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
@@ -1373,7 +1373,7 @@ def app_settings():
 
     cur.execute("SELECT value FROM settings WHERE key = 'timezone'")
     row = cur.fetchone()
-    timezone = row["value"] if row else "US/Pacific"
+    timezone = row["value"] if row else "America/Los_Angeles"
     return render_template("app_settings.html", timezone=timezone)
 
 

@@ -25,7 +25,25 @@ MODEL_PRICING = {m[0]: {"input": m[2], "output": m[3]} for m in MODEL_CHOICES}
 
 # Default timezone for analysis day-bucketing. Matches the `settings` table
 # default read by _create_pending_analysis and the prompt's timezone note.
-DEFAULT_ANALYSIS_TIMEZONE = "US/Pacific"
+# Canonical IANA name (not the legacy "US/Pacific" alias, which the slim
+# container image's tzdata omits — see _resolve_timezone).
+DEFAULT_ANALYSIS_TIMEZONE = "America/Los_Angeles"
+
+# Legacy tz aliases → canonical IANA names. The deployment image ships the
+# primary IANA zones but not the backward-compatibility "US/*" aliases, so
+# ZoneInfo("US/Pacific") raises even though the name is perfectly valid. These
+# are known-good equivalents, not typos, so we resolve them silently rather
+# than emitting the "unknown timezone" warning. A stored settings value of
+# "US/Pacific" (the pre-canonicalization default) therefore resolves cleanly.
+_LEGACY_TZ_ALIASES = {
+    "US/Pacific": "America/Los_Angeles",
+    "US/Eastern": "America/New_York",
+    "US/Central": "America/Chicago",
+    "US/Mountain": "America/Denver",
+    "US/Arizona": "America/Phoenix",
+    "US/Alaska": "America/Anchorage",
+    "US/Hawaii": "Pacific/Honolulu",
+}
 
 
 def _resolve_timezone(tz_name: str) -> ZoneInfo:
@@ -33,10 +51,15 @@ def _resolve_timezone(tz_name: str) -> ZoneInfo:
 
     The name comes from the user-editable `settings` table; a typo there must
     not crash analysis, so fall back to the user's actual timezone (Pacific).
+    Known legacy "US/*" aliases resolve silently to their canonical IANA
+    equivalent; only a genuinely-unresolvable name warns and falls back.
     """
     try:
         return ZoneInfo(tz_name)
     except (KeyError, ValueError, TypeError):
+        canonical = _LEGACY_TZ_ALIASES.get(tz_name)
+        if canonical is not None:
+            return ZoneInfo(canonical)
         logging.warning("Unknown timezone %r — falling back to America/Los_Angeles", tz_name)
         return ZoneInfo("America/Los_Angeles")
 
@@ -379,7 +402,7 @@ def build_prompt(
     detailed_output: bool = False,
     outlier_warnings: list[str] | None = None,
     therapy_sessions: list[dict] | None = None,
-    timezone: str = "US/Pacific",
+    timezone: str = DEFAULT_ANALYSIS_TIMEZONE,
     patient_context: dict | None = None,
 ) -> tuple[str, str]:
     """Build system prompt and user message for Claude analysis.
@@ -868,8 +891,8 @@ def _create_pending_analysis(db, date_from: date, date_to: date, dose_tracking_i
                              include_conflict: bool = True):
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    # Read timezone setting (default US/Pacific) BEFORE gathering: the
-    # timestamp-range windows and serialized timestamps are bucketed by
+    # Read timezone setting (default America/Los_Angeles) BEFORE gathering:
+    # the timestamp-range windows and serialized timestamps are bucketed by
     # local day in this timezone.
     cur.execute("SELECT value FROM settings WHERE key = 'timezone'")
     tz_row = cur.fetchone()

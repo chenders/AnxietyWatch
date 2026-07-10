@@ -283,7 +283,7 @@ def test_backfilled_snapshot_marks_correlations_stale(client, app):
 
 def _insert_evening_paired_data(app, days=20, start=datetime(2026, 1, 1)):
     """Snapshots on day D with anxiety entries at 04:00 UTC on D+1 — which is
-    20:00 (or 21:00 in PDT) on day D in the default US/Pacific analysis
+    20:00 (or 21:00 in PDT) on day D in the default America/Los_Angeles analysis
     timezone. severity is a perfect linear function of the SAME day's hrv, so
     only correct local-day pairing yields r == -1."""
     with app.app_context():

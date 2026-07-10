@@ -150,7 +150,7 @@ def test_gather_analysis_data_empty_range(app):
 # ---------------------------------------------------------------------------
 # Pacific-day window boundary tests (F-029 regression)
 #
-# The timestamp-range filters must bucket rows by US/Pacific calendar days,
+# The timestamp-range filters must bucket rows by America/Los_Angeles calendar days,
 # not UTC days. An entry logged 9 PM Pacific on the final day of the range is
 # stored ~04:00 UTC the NEXT day; the old UTC-midnight window silently
 # dropped it while the date-keyed tables (health_snapshots, cpap_sessions)
@@ -327,7 +327,7 @@ def test_build_prompt_default_includes_medication_goal(app):
     # Data Quality Notes is always present (CPAP assumption + timezone at minimum)
     assert "Data Quality Notes" in system
     assert "CPAP" in system
-    assert "US/Pacific" in system
+    assert "America/Los_Angeles" in system
 
 
 def test_build_prompt_dose_caveat_removes_medication_goal(app):
@@ -1690,7 +1690,7 @@ def test_wiring_reads_therapy_sessions(app):
 
 
 def test_wiring_default_timezone_when_unset(app):
-    """_create_pending_analysis defaults to US/Pacific when no timezone setting exists."""
+    """_create_pending_analysis defaults to America/Los_Angeles when no timezone setting exists."""
     with app.app_context():
         db = app.get_db()
 
@@ -1699,7 +1699,47 @@ def test_wiring_default_timezone_when_unset(app):
             db, date(2026, 1, 1), date(2026, 1, 7),
         )
 
-    assert "US/Pacific" in system_prompt
+    assert "America/Los_Angeles" in system_prompt
+
+
+def test_legacy_us_pacific_alias_resolves_without_warning(app, caplog, monkeypatch):
+    """A stored 'US/Pacific' setting (the pre-canonicalization default) must
+    resolve to America/Los_Angeles WITHOUT the 'unknown timezone' warning —
+    the deployment image omits the legacy US/* tzdata aliases, but they're
+    valid equivalents, not typos.
+
+    The local test env may HAVE the legacy aliases (macOS ships full tzdata),
+    so force the ZoneInfo lookup to raise for 'US/Pacific' to deterministically
+    exercise the alias-map path that runs in the slim container image."""
+    import logging as _logging
+    from zoneinfo import ZoneInfoNotFoundError
+    import analysis
+
+    real_zoneinfo = analysis.ZoneInfo
+
+    def fake_zoneinfo(name):
+        if name == "US/Pacific":
+            raise ZoneInfoNotFoundError("No time zone found with key US/Pacific")
+        return real_zoneinfo(name)
+
+    monkeypatch.setattr(analysis, "ZoneInfo", fake_zoneinfo)
+    with caplog.at_level(_logging.WARNING):
+        tz = analysis._resolve_timezone("US/Pacific")
+
+    assert str(tz) == "America/Los_Angeles"
+    assert "Unknown timezone" not in caplog.text
+
+
+def test_genuinely_unknown_timezone_still_warns_and_falls_back(app, caplog):
+    """A real typo (not a known legacy alias) still warns and falls back."""
+    import logging as _logging
+    from analysis import _resolve_timezone
+
+    with caplog.at_level(_logging.WARNING):
+        tz = _resolve_timezone("Not/AZone")
+
+    assert str(tz) == "America/Los_Angeles"
+    assert "Unknown timezone" in caplog.text
 
 
 def test_analysis_run_custom_model_persisted(admin_client, app, monkeypatch):
