@@ -92,17 +92,15 @@ struct SyncSettingsView: View {
             }
 
             Section("Status") {
-                if let date = sync.lastSyncDate {
-                    LabeledContent("Last sync", value: date.formatted(.dateTime))
-                } else {
-                    LabeledContent("Last sync", value: "Never")
-                }
+                lastSuccessRow
 
-                if let result = sync.lastSyncResult {
-                    Text(result)
+                if let line = SyncStatusPresentation.statusLine(
+                    lastResult: sync.lastSyncResult,
+                    outcome: sync.lastRunOutcome
+                ) {
+                    Text(line.text)
                         .font(.caption)
-                        .foregroundStyle(result.contains("failed") || result.contains("error")
-                            ? .red : .secondary)
+                        .foregroundStyle(foregroundStyle(for: line.style))
                 }
             }
 
@@ -122,6 +120,42 @@ struct SyncSettingsView: View {
             serverURL = sync.serverURL
             apiKey = sync.apiKey
             autoSync = sync.autoSyncEnabled
+        }
+    }
+
+    /// "Last successful sync" row — sourced from `lastKnownSuccessDate`
+    /// (the success timestamp, falling back to the incremental cursor for
+    /// installs that synced before the timestamp existed), NOT the raw
+    /// cursor: `fullSync()` nils the cursor mid-run and bulk-only drain
+    /// iterations never advance it, so the cursor alone can't honestly
+    /// answer "when did data last reach the server". Warns (orange +
+    /// triangle) when auto-sync is on, the sync is configured (no orange
+    /// "Never" while the user is still typing a server URL), and the
+    /// server hasn't received data in over 7 days — the silent-outage
+    /// signal this screen existed without for a month.
+    private var lastSuccessRow: some View {
+        let staleness = SyncStatusPresentation.stalenessLine(
+            lastSuccess: sync.lastKnownSuccessDate,
+            autoSyncEnabled: sync.autoSyncEnabled,
+            isConfigured: sync.isConfigured,
+            now: .now
+        )
+        return LabeledContent("Last successful sync") {
+            if staleness.isWarning {
+                Label(staleness.text, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            } else {
+                Text(staleness.text)
+            }
+        }
+    }
+
+    private func foregroundStyle(for style: SyncStatusPresentation.StatusLine.Style) -> AnyShapeStyle {
+        switch style {
+        case .info: AnyShapeStyle(.secondary)
+        case .success: AnyShapeStyle(.green)
+        case .warning: AnyShapeStyle(.orange)
+        case .error: AnyShapeStyle(.red)
         }
     }
 

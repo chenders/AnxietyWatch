@@ -25,8 +25,7 @@ enum DoseFollowUpManager {
     /// Request notification permission if not already granted.
     /// Call this the first time a prompted dose is logged.
     static func ensureAuthorization() {
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        LocalNotifications.ensureAuthorization()
     }
 
     // MARK: - Schedule / Cancel

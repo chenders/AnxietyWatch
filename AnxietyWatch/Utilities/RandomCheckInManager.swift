@@ -63,8 +63,7 @@ enum RandomCheckInManager {
     // MARK: - Notification Authorization
 
     static func ensureAuthorization() {
-        UNUserNotificationCenter.current()
-            .requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        LocalNotifications.ensureAuthorization()
     }
 
     // MARK: - Scheduling

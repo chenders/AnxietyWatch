@@ -7,7 +7,9 @@ import Testing
 @Suite(.serialized)
 struct SyncServiceTests {
 
-    private static let syncKeys = ["syncServerURL", "syncApiKey", "syncAutoEnabled", "lastSyncDate"]
+    private static let syncKeys = [
+        "syncServerURL", "syncApiKey", "syncAutoEnabled", "lastSyncDate", "lastSyncSuccessDate",
+    ]
 
     /// Save current UserDefaults values and return a restore closure.
     private func saveSyncDefaults() -> (() -> Void) {

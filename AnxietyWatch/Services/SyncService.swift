@@ -8,10 +8,30 @@ import UIKit
 /// the server is a mirror for viewing on larger displays and Claude analysis.
 @Observable
 final class SyncService {
-    static let shared = SyncService()
+    /// Production instance. The failure-notifier side effect is wired here —
+    /// not in `init` — so plain `SyncService()` instances (unit tests) never
+    /// touch `UNUserNotificationCenter` or the shared throttle state.
+    static let shared: SyncService = {
+        let service = SyncService()
+        service.outcomeHandler = { SyncFailureNotifier.handle(outcome: $0) }
+        return service
+    }()
 
     var isSyncing = false
     var lastSyncResult: String?
+
+    /// Typed outcome of the most recent *completed* run (not set by the
+    /// not-configured / already-in-progress early returns). The settings UI
+    /// styles its status line from this instead of string-matching
+    /// `lastSyncResult`.
+    var lastRunOutcome: SyncRunOutcome?
+
+    /// Side-effect hook invoked once per completed run — success, partial,
+    /// or failure. `SyncService.shared` wires it to `SyncFailureNotifier`;
+    /// it defaults to nil so tests observe outcomes without notification
+    /// side effects. `@ObservationIgnored` because swapping the hook is
+    /// wiring, not view-relevant state.
+    @ObservationIgnored var outcomeHandler: (@MainActor (SyncRunOutcome) -> Void)?
 
     // MARK: - Configuration (stored properties, persisted to UserDefaults via didSet)
     //
@@ -42,6 +62,34 @@ final class SyncService {
                 UserDefaults.standard.removeObject(forKey: "lastSyncDate")
             }
         }
+    }
+
+    /// Timestamp of the last run whose data verifiably reached the server
+    /// (success or partial). Distinct from `lastSyncDate`, which is the
+    /// incremental-sync *cursor*: `fullSync()` nils the cursor before
+    /// running, and the cursor deliberately never advances on bulk-only
+    /// drain iterations, so the cursor alone can't honestly answer "when
+    /// did the server last receive data".
+    var lastSyncSuccessDate: Date? = {
+        let ts = UserDefaults.standard.double(forKey: "lastSyncSuccessDate")
+        return ts > 0 ? Date(timeIntervalSince1970: ts) : nil
+    }() {
+        didSet {
+            if let date = lastSyncSuccessDate {
+                UserDefaults.standard.set(date.timeIntervalSince1970, forKey: "lastSyncSuccessDate")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "lastSyncSuccessDate")
+            }
+        }
+    }
+
+    /// Best available "last time data reached the server" for display.
+    /// Falls back to the cursor for installs that synced before
+    /// `lastSyncSuccessDate` existed — the cursor only ever advances on a
+    /// successful round trip, so it's an honest *lower bound* on the last
+    /// success (it can under-report, never over-report).
+    var lastKnownSuccessDate: Date? {
+        lastSyncSuccessDate ?? lastSyncDate
     }
 
     var isConfigured: Bool {
@@ -89,10 +137,15 @@ final class SyncService {
     ///   - performRequest: network transport for the /api/sync POST. Injectable
     ///     so the same test can run the real orchestration without a live
     ///     URLSession. Defaults to `URLSession.shared.data(for:)`.
+    ///   - markSamples: forwarded to `applyPostUploadResponse` so the
+    ///     `.partial`-outcome regression tests can drive a LIVE `sync()`
+    ///     with a failing flag flip (not just the post-upload helper in
+    ///     isolation). Defaults to nil → the real `markSamplesSynced`.
     func sync(
         modelContext: ModelContext,
         now: @MainActor () -> Date = { Date.now },
-        performRequest: (@MainActor (URLRequest) async throws -> (Data, URLResponse))? = nil
+        performRequest: (@MainActor (URLRequest) async throws -> (Data, URLResponse))? = nil,
+        markSamples: ((_ ids: UploadedSyncedIDs, _ ctx: ModelContext) throws -> Void)? = nil
     ) async {
         guard isConfigured else {
             lastSyncResult = "Not configured"
@@ -122,7 +175,16 @@ final class SyncService {
             }
             url = resolved
         } catch {
-            lastSyncResult = error.localizedDescription
+            let detail = error.localizedDescription
+            lastSyncResult = detail
+            // A broken URL on an auto-syncing install is exactly the quiet
+            // failure the outcome plumbing exists to surface — classify and
+            // notify like any other run failure.
+            let outcome = SyncRunOutcome.failure(
+                kind: .classify(error), detail: detail, madeProgress: false, finishedAt: now()
+            )
+            lastRunOutcome = outcome
+            outcomeHandler?(outcome)
             isSyncing = false
             return
         }
@@ -151,7 +213,15 @@ final class SyncService {
         let maxRoundTrips = Self.sampleBatchLimit
         var roundTrips = 0
         var totalBytes = 0
+        // Bulk-type rows shipped so far (samples, sessions, readings,
+        // snapshots) — cheap progress metric; the small-volume tables ride
+        // along uncounted.
+        var totalRecords = 0
         var lastTripOutcome: PostUploadOutcome?
+        // Typed outcome of this run; nil only on the guarded early returns
+        // above, never once the drain loop has started (the first iteration
+        // either throws into the catch or sets `lastTripOutcome`).
+        var runOutcome: SyncRunOutcome?
 
         do {
             while roundTrips < maxRoundTrips {
@@ -220,12 +290,14 @@ final class SyncService {
                     responseData: responseData,
                     payloadByteCount: payload.count,
                     uploadedIDs: uploadedIDs,
-                    modelContext: modelContext
+                    modelContext: modelContext,
+                    markSamples: markSamples
                 )
                 lastTripOutcome = outcome
 
                 roundTrips += 1
                 totalBytes += payload.count
+                totalRecords += uploadedIDs.totalRowCount
 
                 // If flagging failed, the SAME rows would be fetched and
                 // POSTed on the next iteration — silent perpetual re-upload
@@ -244,39 +316,64 @@ final class SyncService {
                 // Long-running drain — surface progress so users don't think
                 // the app is hung. `roundTrips` was just incremented, so this
                 // reads as "N batches sent" referring to completed work.
-                let bytesFmt = ByteCountFormatter.string(fromByteCount: Int64(totalBytes), countStyle: .file)
-                lastSyncResult = "Syncing… \(roundTrips) batch\(roundTrips == 1 ? "" : "es") sent (\(bytesFmt))"
+                lastSyncResult = SyncRunSummary.progressLine(
+                    batchesSent: roundTrips, recordsSent: totalRecords, bytesSent: totalBytes
+                )
             }
 
             // Final status. Flag-failure paths preserve the detailed
-            // single-trip message (which includes the underlying error).
-            // Multi-batch successes get a rolled-up summary; single-batch
-            // successes keep the per-trip message verbatim.
+            // single-trip message (which includes the underlying error) and
+            // count as `partial` — data reached the server, but the affected
+            // rows re-send next sync. Full successes get a uniform rolled-up
+            // summary (batches, records, bytes, timestamp).
+            let finishedAt = now()
             if let outcome = lastTripOutcome, !outcome.flaggingSucceeded {
                 lastSyncResult = outcome.message
-            } else if roundTrips > 1 {
-                let bytesFmt = ByteCountFormatter.string(fromByteCount: Int64(totalBytes), countStyle: .file)
-                let time = Date.now.formatted(.dateTime.hour().minute())
-                lastSyncResult = "Synced \(roundTrips) batches (\(bytesFmt)) at \(time)"
-            } else if let outcome = lastTripOutcome {
-                lastSyncResult = outcome.message
-            }
-        } catch is URLError {
-            // Network failure. If earlier iterations committed, surface that
-            // partial progress rather than erasing it in the status line.
-            if roundTrips > 0 {
-                lastSyncResult = "Synced \(roundTrips) batch\(roundTrips == 1 ? "" : "es"), then connection failed — will retry"
-            } else {
-                lastSyncResult = "Connection failed — check server URL"
+                runOutcome = .partial(summary: outcome.message, finishedAt: finishedAt)
+            } else if lastTripOutcome != nil {
+                let summary = SyncRunSummary.successSummary(
+                    batches: roundTrips, records: totalRecords,
+                    bytes: totalBytes, finishedAt: finishedAt
+                )
+                lastSyncResult = summary
+                runOutcome = .success(summary: summary, finishedAt: finishedAt)
             }
         } catch {
-            if roundTrips > 0 {
-                lastSyncResult = "Synced \(roundTrips) batch\(roundTrips == 1 ? "" : "es"), then failed: \(error.localizedDescription)"
+            // Classify once for the failure notification (network unreachable
+            // vs HTTP status vs auth), keep the detailed human message for
+            // the status line. If earlier iterations committed, surface that
+            // partial progress rather than erasing it.
+            let kind = SyncFailureKind.classify(error)
+            let batches = "\(roundTrips) batch\(roundTrips == 1 ? "" : "es")"
+            let detail: String
+            if kind == .networkUnreachable {
+                detail = roundTrips > 0
+                    ? "Synced \(batches), then connection failed — will retry"
+                    : "Connection failed — check server URL"
+            } else if roundTrips > 0 {
+                detail = "Synced \(batches), then failed: \(error.localizedDescription)"
             } else {
-                lastSyncResult = error.localizedDescription
+                detail = error.localizedDescription
             }
+            lastSyncResult = detail
+            // `madeProgress` lets the notification body admit that earlier
+            // batches committed — "data stays on this phone" would overclaim
+            // for a mid-drain failure.
+            runOutcome = .failure(
+                kind: kind, detail: detail, madeProgress: roundTrips > 0, finishedAt: now()
+            )
         }
 
+        if let runOutcome {
+            lastRunOutcome = runOutcome
+            if runOutcome.reachedServer {
+                // Staleness display anchor. Advances on `partial` too — the
+                // server verifiably received the payload; only the local
+                // flag flip failed.
+                lastSyncSuccessDate = runOutcome.finishedAt
+            }
+            outcomeHandler?(runOutcome)
+        }
         isSyncing = false
     }
 
@@ -1541,5 +1638,19 @@ struct UploadedSyncedIDs: Equatable {
             || accelSpectrograms.count >= cap
             || derivedBreathingRates.count >= cap
             || healthSnapshotDates.count >= cap
+    }
+
+    /// Total rows this payload carried across every flag-tracked type —
+    /// the cheap progress metric behind the drain loop's "N records"
+    /// status line. Small-volume tables (anxiety entries, med doses, …)
+    /// aren't ID-extracted, so they are deliberately not counted here.
+    var totalRowCount: Int {
+        quantitySamples.count
+            + sleepStageEvents.count
+            + sensorSessions.count
+            + hrvReadings.count
+            + accelSpectrograms.count
+            + derivedBreathingRates.count
+            + healthSnapshotDates.count
     }
 }
