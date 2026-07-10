@@ -301,6 +301,32 @@ def test_sync_barometric_readings_batched_and_idempotent(client, app):
     assert updated[0]["relative_altitude_m"] == 1.5
 
 
+def test_sync_barometric_readings_duplicate_timestamps_in_batch(client, app):
+    """Regression: two readings sharing a timestamp in one payload must not
+    500 with CardinalityViolation (ON CONFLICT can't touch a row twice per
+    statement). Surfaced by a full re-sync exporting the whole history at
+    once. Within-batch dupes collapse last-wins."""
+    payload = {
+        "barometricReadings": [
+            {"timestamp": "2025-03-20T10:30:00Z", "pressureKPa": 101.3, "relativeAltitudeM": 0.5},
+            {"timestamp": "2025-03-20T10:30:00Z", "pressureKPa": 99.9, "relativeAltitudeM": 1.5},
+            {"timestamp": "2025-03-20T10:31:00Z", "pressureKPa": 101.2, "relativeAltitudeM": 0.7},
+        ],
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+    # Two distinct timestamps survive; the count reflects rows written.
+    assert resp.get_json()["counts"]["barometric_readings"] == 2
+
+    rows = client.get("/api/data/barometricReadings", headers=auth_header()).get_json()["barometricReadings"]
+    assert len(rows) == 2
+    collided = [r for r in rows if r["timestamp"].startswith("2025-03-20T10:30:00")]
+    assert len(collided) == 1
+    # Last occurrence in the batch wins.
+    assert collided[0]["pressure_kpa"] == 99.9
+    assert collided[0]["relative_altitude_m"] == 1.5
+
+
 def test_sync_health_snapshot_cpap_barometric_fields(client, app):
     """CPAP and barometric fields round-trip through sync and read back."""
     payload = {

@@ -923,10 +923,19 @@ def create_app(test_config=None):
         # worth of readings meant one round trip per row (F-060).
         if not readings:
             return 0
-        rows = [
-            (r["timestamp"], r["pressureKPa"], r["relativeAltitudeM"])
+        # Collapse within-batch duplicate timestamps (last wins) BEFORE the
+        # upsert: `ON CONFLICT (timestamp) DO UPDATE` cannot touch the same
+        # row twice in one statement (CardinalityViolation → the whole sync
+        # 500s). Two barometric captures can legitimately share a timestamp,
+        # and a full re-sync exports the entire history in one batch, so the
+        # collision surfaces there even when incremental windows dodged it.
+        # A dict keyed by timestamp preserves last-write-wins, matching the
+        # DO UPDATE semantics for the cross-batch case.
+        deduped = {
+            r["timestamp"]: (r["timestamp"], r["pressureKPa"], r["relativeAltitudeM"])
             for r in readings
-        ]
+        }
+        rows = list(deduped.values())
         psycopg2.extras.execute_values(
             cur,
             """INSERT INTO barometric_readings (timestamp, pressure_kpa, relative_altitude_m)
@@ -936,7 +945,7 @@ def create_app(test_config=None):
                    relative_altitude_m = EXCLUDED.relative_altitude_m""",
             rows,
         )
-        return len(readings)
+        return len(rows)
 
     def _upsert_pharmacies(cur, pharmacies):
         for p in pharmacies:
