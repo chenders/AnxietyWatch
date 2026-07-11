@@ -674,6 +674,16 @@ extension SyncService {
     ///
     /// Tolerates a server that predates the endpoint (404) by returning what it
     /// has, so an app update can't hard-fail a restore against an older server.
+    ///
+    /// `@MainActor` is load-bearing, not decoration. This is the only `async`
+    /// step in the restore, and `SyncService` is a plain class (isolation is
+    /// per-member, not type-wide), so without it a call from the `@MainActor`
+    /// `restoreFromServer` would hop OFF the main actor — and the continuation
+    /// after `await` then mutates the `ModelContext` (`importQuantityHealthSamples`
+    /// + `save()`) off-main, which is a SwiftData thread violation. The other
+    /// importers get away with being nonisolated only because they're
+    /// synchronous and inherit the caller's context.
+    @MainActor
     static func restorePagedQuantitySamples(
         serverURL: String,
         apiKey: String,
