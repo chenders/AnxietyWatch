@@ -56,9 +56,13 @@ struct QuickLogView: View {
                 .background(Circle().fill(severityColor(level)))
                 .overlay {
                     // Selection is shown with a ring, not an opacity change, so
-                    // the number keeps its full contrast in every state.
+                    // the number keeps its full contrast in every state. The
+                    // ring reuses the number's contrast color rather than a
+                    // fixed white — a white stroke on the light fills (yellow
+                    // especially) is nearly invisible, which would make the
+                    // selected state unreadable exactly where it matters.
                     if selectedSeverity == level {
-                        Circle().strokeBorder(.white, lineWidth: 3)
+                        Circle().strokeBorder(severityTextColor(level), lineWidth: 3)
                     }
                 }
         }
