@@ -2762,3 +2762,156 @@ def test_sync_cpap_null_by_session_fields_do_not_clobber(client, app):
         row = cur.fetchone()
     for (_, column), value in _BY_SESSION_FIELDS.items():
         assert row[column] == value, f"{column} was clobbered by a null re-sync"
+
+
+# ---------------------------------------------------------------------------
+# Quantity health samples: paged restore
+#
+# This table used to sync UP but had no way back DOWN — it was absent from
+# ENTITY_QUERIES entirely. A fresh install therefore silently lost every EMAY
+# oximetry sample, which (unlike Apple/Polar/Dexcom rows) the app cannot
+# re-derive, because the app never writes to HealthKit. These tests pin the
+# restore path shut.
+# ---------------------------------------------------------------------------
+
+def _quantity_sample(i, timestamp="2025-03-20T10:00:00Z"):
+    return {
+        "id": f"00000000-0000-0000-0000-{i:012d}",
+        "timestamp": timestamp,
+        "metricType": "HKQuantityTypeIdentifierOxygenSaturation",
+        "value": 0.95,
+        "unitString": "%",
+        "sourceBundleID": "com.emay.SleepO2",
+        "sourceName": "EMAY SleepO2",
+    }
+
+
+def _sync_samples(client, samples):
+    resp = client.post(
+        "/api/sync",
+        json={"syncType": "full", "exportDate": "2025-03-20T12:00:00Z", "quantitySamples": samples},
+        headers=auth_header(),
+    )
+    # Assert the seed actually landed. Without this, a broken /api/sync would
+    # surface as a confusing failure in whatever assertion runs next (or, worse,
+    # as a test that trivially passes against an empty table).
+    assert resp.status_code == 200, f"seeding failed: {resp.status_code} {resp.get_data(as_text=True)}"
+    return resp
+
+
+def test_quantity_samples_excluded_from_bulk_payload(client):
+    """The bulk /api/data must NOT inline quantity samples (~79 MB in the real
+    dataset) — it advertises them as a paged entity instead."""
+    _sync_samples(client, [_quantity_sample(1)])
+
+    body = client.get("/api/data", headers=auth_header()).get_json()
+
+    assert "quantityHealthSamples" not in body
+    # Membership, not equality: BULK_EXCLUDED_ENTITIES is explicitly designed to
+    # grow, and pinning the exact list would make this test fail on an unrelated
+    # future addition rather than on a real regression.
+    assert "quantityHealthSamples" in body["pagedEntities"]
+
+
+def test_quantity_samples_paged_endpoint_returns_rows_and_total(client):
+    _sync_samples(client, [_quantity_sample(i) for i in range(1, 6)])
+
+    body = client.get(
+        "/api/data/quantityHealthSamples?limit=2&offset=0", headers=auth_header()
+    ).get_json()
+
+    assert body["total"] == 5
+    assert body["limit"] == 2
+    assert body["offset"] == 0
+    assert len(body["quantityHealthSamples"]) == 2
+
+
+def test_quantity_samples_paging_is_exact_with_duplicate_timestamps(client):
+    """The real dataset is per-second oximetry, so timestamps collide constantly.
+    LIMIT/OFFSET over a non-unique sort key has no stable row order, so without
+    a tiebreaker the pages would silently skip some rows and repeat others.
+    Page through rows that ALL share one timestamp and assert we get each id
+    exactly once."""
+    n = 25
+    _sync_samples(client, [_quantity_sample(i) for i in range(1, n + 1)])
+
+    seen = []
+    offset, limit = 0, 10
+    while True:
+        body = client.get(
+            f"/api/data/quantityHealthSamples?limit={limit}&offset={offset}",
+            headers=auth_header(),
+        ).get_json()
+        rows = body["quantityHealthSamples"]
+        seen.extend(r["id"] for r in rows)
+        offset += len(rows)
+        if len(rows) < limit:
+            break
+
+    assert len(seen) == n, "paging dropped or duplicated rows"
+    assert len(set(seen)) == n, "paging returned the same row on more than one page"
+
+
+def test_quantity_samples_limit_is_clamped(client):
+    """An absurd limit must not let a client pull the whole table in one shot."""
+    _sync_samples(client, [_quantity_sample(1)])
+
+    body = client.get(
+        "/api/data/quantityHealthSamples?limit=999999999", headers=auth_header()
+    ).get_json()
+
+    assert body["limit"] == 10000  # MAX_PAGE_LIMIT
+
+
+def test_quantity_samples_unpaged_request_still_works(client):
+    """Omitting ?limit returns the whole entity (used by ad-hoc tooling)."""
+    _sync_samples(client, [_quantity_sample(i) for i in range(1, 4)])
+
+    body = client.get("/api/data/quantityHealthSamples", headers=auth_header()).get_json()
+
+    assert len(body["quantityHealthSamples"]) == 3
+    assert "total" not in body
+
+
+def test_quantity_samples_malformed_limit_is_rejected_not_unpaged(client):
+    """A malformed limit must 400, NOT silently fall back to an unpaged query.
+
+    Falling back would return the entire table (~79 MB for this entity),
+    bypassing MAX_PAGE_LIMIT and turning a typo into an authenticated DoS.
+    """
+    _sync_samples(client, [_quantity_sample(i) for i in range(1, 4)])
+
+    for bad in ("?limit=abc", "?limit=1&offset=xyz"):
+        resp = client.get(f"/api/data/quantityHealthSamples{bad}", headers=auth_header())
+        assert resp.status_code == 400, f"{bad} should be rejected, not served unpaged"
+        assert "quantityHealthSamples" not in resp.get_json()
+
+
+def test_paging_unsupported_entity_is_rejected_not_500(client):
+    """Most tables have NO `id` column (they key on natural keys), so appending a
+    tiebreaker unconditionally would make the query 500. Paging them is refused
+    rather than served with an unstable order (which would skip/repeat rows)."""
+    resp = client.get("/api/data/cpapSessions?limit=10", headers=auth_header())
+
+    assert resp.status_code == 400, "must 400, not 500 on a missing id column"
+    assert "does not support paging" in resp.get_json()["error"]
+
+    # …but the same entity is still fine unpaged.
+    assert client.get("/api/data/cpapSessions", headers=auth_header()).status_code == 200
+
+
+def test_paged_total_is_returned_only_on_the_first_page(client):
+    """count(*) is a full scan. The client needs the total once; running it on all
+    ~50 pages of a 250k-row restore is ~49 scans for an answer that can't change."""
+    _sync_samples(client, [_quantity_sample(i) for i in range(1, 6)])
+
+    first = client.get(
+        "/api/data/quantityHealthSamples?limit=2&offset=0", headers=auth_header()
+    ).get_json()
+    later = client.get(
+        "/api/data/quantityHealthSamples?limit=2&offset=2", headers=auth_header()
+    ).get_json()
+
+    assert first["total"] == 5
+    assert "total" not in later, "total must not be recomputed on every page"
+    assert len(later["quantityHealthSamples"]) == 2

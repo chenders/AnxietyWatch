@@ -43,6 +43,14 @@ Pair the generalist `swift-pre-pr-reviewer` with these narrower agents on PRs to
 
 CI runs `semgrep --config .semgrep/ --error` on PRs touching Swift. Rules at `.semgrep/swift-pitfalls.yml` cover hardcoded source labels, magic-number duplication, raw-second date arithmetic, ChartPalette violations, and the incremental-sync `lastSyncDate = .now` race (severity ERROR — blocks merge).
 
+## Sync/restore round-trip rule
+
+**A table that syncs UP must have a way back DOWN.** Every table added to the sync payload must also appear in the server's `ENTITY_QUERIES` **and** get an importer in `RestoreFromServer` — otherwise it backs up to the server but a fresh install (bundle-ID change, new phone, reinstall) restores zero rows of it. `QuantityHealthSample` was in neither for months; it looked harmless because HealthKit-sourced rows are re-derived by the next backfill, but the ~224k app-only EMAY oximetry rows (the app never writes to HealthKit) had no other source and would simply have been lost.
+
+For every synced table, ask: **"if this device died right now, what brings this row back?"** If the answer is neither HealthKit nor the restore path, it isn't backed up.
+
+Restore importers must preserve the server's `id` (the HealthKit mirror does update-or-insert on `hkUUID`; fresh UUIDs duplicate every row on the next backfill), set `syncedToServer = true` (bulk types export on `syncedToServer == false`; the default re-uploads the whole restored history), and be added to `restoreGuardTablesAreEmpty`. Tables over ~10k rows must be paged, not inlined in `/api/data`.
+
 ## Keeping Phase Plan Docs Updated
 
 **Mandatory:** When shipping work that has a corresponding plan doc in `docs/plans/`, update the doc with shipped/pending status markers, PR links, and any scope-deltas (decisions made during execution, splits, additions, deferrals) in the same commit as the merge — or as an immediate follow-up PR. The original plan stays preserved verbatim as a historical record; new notes go under an `## Implementation notes (post-merge)` section at the end of the doc. A plan doc that doesn't reflect what actually shipped is a defect: the next contributor can't pick up where the work left off without re-doing the archaeology.
