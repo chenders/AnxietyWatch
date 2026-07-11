@@ -11,6 +11,23 @@ struct SyncSettingsView: View {
     @State private var restoreResult: String?
     @State private var isRestoring: Bool = false
     @State private var showRestoreConfirmation: Bool = false
+    @State private var reconcileResult: String?
+    @State private var isReconciling: Bool = false
+    @State private var showReconcileConfirmation: Bool = false
+
+    /// True while ANY sync-family operation is in flight.
+    ///
+    /// Before reconcile existed, overlap didn't matter: `restoreFromServer` could
+    /// only run against an empty store, so a concurrent `sync()` had nothing to
+    /// collide with. Reconcile is specifically designed to run against a populated,
+    /// actively-syncing store — so a background auto-sync firing while the user taps
+    /// "Repair" is now a realistic interleaving, and both mutate the same
+    /// `modelContext` across `await` suspension points (network round trips) where
+    /// the other can run. Gate all four buttons on one flag rather than each on its
+    /// own (the state-machine-completeness pitfall in CLAUDE.md).
+    private var syncFamilyBusy: Bool {
+        sync.isSyncing || isRestoring || isReconciling
+    }
 
     var body: some View {
         Form {
@@ -42,14 +59,14 @@ struct SyncSettingsView: View {
                         }
                     }
                 }
-                .disabled(!sync.isConfigured || sync.isSyncing)
+                .disabled(!sync.isConfigured || syncFamilyBusy)
 
                 Button {
                     Task { await sync.fullSync(modelContext: modelContext) }
                 } label: {
                     Label("Full Re-sync", systemImage: "arrow.clockwise.circle")
                 }
-                .disabled(!sync.isConfigured || sync.isSyncing)
+                .disabled(!sync.isConfigured || syncFamilyBusy)
             }
 
             Section("Restore from Server") {
@@ -71,7 +88,7 @@ struct SyncSettingsView: View {
                         }
                     }
                 }
-                .disabled(!sync.isConfigured || isRestoring)
+                .disabled(!sync.isConfigured || syncFamilyBusy)
                 .confirmationDialog(
                     "Restore all data from the server?",
                     isPresented: $showRestoreConfirmation,
@@ -85,6 +102,47 @@ struct SyncSettingsView: View {
                 }
 
                 if let result = restoreResult {
+                    Text(result)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(result.hasPrefix("Failed") ? .red : .secondary)
+                }
+            }
+
+            Section("Repair from Server") {
+                Text("Downloads anything the server has that this device is "
+                    + "missing. Rows you already have are skipped, never "
+                    + "overwritten — if a row differs, your device's copy wins. "
+                    + "Unlike Restore, this works on a device that already has "
+                    + "data. Nothing is deleted, on the device or the server.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    showReconcileConfirmation = true
+                } label: {
+                    HStack {
+                        Label("Repair Missing Data", systemImage: "arrow.triangle.merge")
+                        if isReconciling {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(!sync.isConfigured || syncFamilyBusy)
+                .confirmationDialog(
+                    "Download missing data from the server?",
+                    isPresented: $showReconcileConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Repair") { runReconcile() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Adds only the rows this device is missing. Existing rows "
+                        + "are skipped, not overwritten, and nothing is deleted. "
+                        + "This may take a few minutes on a large history.")
+                }
+
+                if let result = reconcileResult {
                     Text(result)
                         .font(.caption.monospaced())
                         .foregroundStyle(result.hasPrefix("Failed") ? .red : .secondary)
@@ -173,6 +231,26 @@ struct SyncSettingsView: View {
                 restoreResult = "Failed: \(error.localizedDescription)"
             }
             isRestoring = false
+        }
+    }
+
+    /// Heal a populated store: pull down only what's missing. Unlike `runRestore`
+    /// there is no empty-store precondition, and the sync cursor is deliberately
+    /// left alone — see `RestoreMode.reconcile`.
+    private func runReconcile() {
+        Task {
+            isReconciling = true
+            reconcileResult = nil
+            do {
+                let report = try await sync.reconcileFromServer(modelContext: modelContext)
+                // The report counts rows ADDED, not rows seen — every importer
+                // skips what's already present. An all-zero report is the good
+                // outcome: nothing was missing.
+                reconcileResult = report
+            } catch {
+                reconcileResult = "Failed: \(error.localizedDescription)"
+            }
+            isReconciling = false
         }
     }
 }
