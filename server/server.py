@@ -1200,22 +1200,32 @@ def create_app(test_config=None):
         except (TypeError, ValueError):
             return jsonify({"error": "limit and offset must be integers"}), 400
 
+        if limit is not None and entity not in ENTITY_PAGE_TIEBREAK:
+            # Serving this unpaged would silently ignore the client's limit;
+            # serving it paged would order by a non-unique key and skip/repeat
+            # rows. Refuse instead of doing either quietly.
+            return jsonify({"error": f"Entity does not support paging: {entity}"}), 400
+
         rows = _query_entity(cur, entity, since, limit=limit, offset=offset)
         payload = {entity: rows, "exportDate": datetime.now(timezone.utc).isoformat()}
 
-        # When paging, report the total so the client can drive a progress bar
-        # and, more importantly, verify it received every row rather than
-        # inferring completion from a short page.
         if limit is not None:
-            table, time_col, _ = ENTITY_QUERIES[entity]
-            if since and time_col:
-                cur.execute(f"SELECT count(*) AS n FROM {table} WHERE {time_col} >= %s", (since,))
-            else:
-                cur.execute(f"SELECT count(*) AS n FROM {table}")
-            count_row = cur.fetchone()
-            payload["total"] = count_row["n"] if count_row else 0
             payload["limit"] = limit
             payload["offset"] = offset or 0
+            # Count only on the first page. The client needs the total once (to
+            # verify it received every row rather than inferring completion from
+            # a short page); running count(*) on all ~50 pages of a 250k-row
+            # restore is ~49 full scans for an answer that cannot change.
+            if not payload["offset"]:
+                table, time_col, _ = ENTITY_QUERIES[entity]
+                if since and time_col:
+                    cur.execute(
+                        f"SELECT count(*) AS n FROM {table} WHERE {time_col} >= %s", (since,)
+                    )
+                else:
+                    cur.execute(f"SELECT count(*) AS n FROM {table}")
+                count_row = cur.fetchone()
+                payload["total"] = count_row["n"] if count_row else 0
 
         return jsonify(payload)
 
@@ -1253,6 +1263,25 @@ def create_app(test_config=None):
     # HealthKit-backed, so nothing else could re-derive them).
     BULK_EXCLUDED_ENTITIES = {"quantityHealthSamples"}
 
+    # Entities that can be paged, and the UNIQUE column used to break ties in the
+    # ORDER BY. Offset paging is only exact if the sort key is total; the sort
+    # columns above (timestamp/date/name) are not unique, so a tiebreaker is
+    # required or pages silently skip and repeat rows.
+    #
+    # Only these tables have an `id` column — the rest key on natural keys
+    # (timestamp, date, name) and have no unique surrogate to order by. Paging
+    # any other entity is rejected rather than served with an unstable order.
+    ENTITY_PAGE_TIEBREAK = {
+        "quantityHealthSamples": "id",
+        "hrvReadings": "id",
+        "sleepStageEvents": "id",
+        "sensorSessions": "id",
+        "accelSpectrograms": "id",
+        "derivedBreathingRates": "id",
+        "songs": "id",
+        "songOccurrences": "id",
+    }
+
     # Explicit column lists for entities where `SELECT *` would detoast a large
     # column the response never uses. sensor_sessions.rr_archive is an ~80-120KB
     # gzip BYTEA per overnight session that `_serialize_row` immediately nulls
@@ -1269,12 +1298,19 @@ def create_app(test_config=None):
         table, time_col, order_col = ENTITY_QUERIES[entity]
         cols = ENTITY_SELECT_COLS.get(entity, "*")
 
-        # `id` is appended as a tiebreaker whenever we page. LIMIT/OFFSET over a
+        # A unique tiebreaker is appended whenever we page. LIMIT/OFFSET over a
         # non-unique sort key (timestamp collides constantly in per-second
         # oximetry) has no stable row order between requests, so pages would
-        # silently skip some rows and repeat others. Ordering by (order_col, id)
-        # is total, which makes offset paging exact.
-        order = f"{order_col} DESC" if limit is None else f"{order_col} DESC, id"
+        # silently skip some rows and repeat others. Ordering by
+        # (order_col, tiebreak) is total, which makes offset paging exact.
+        #
+        # Only the entities in ENTITY_PAGE_TIEBREAK can be paged — most tables
+        # here have NO `id` column (they use natural keys), so appending one
+        # unconditionally would just make the query 500. get_entity_data rejects
+        # a paging request for anything not listed.
+        order = f"{order_col} DESC"
+        if limit is not None:
+            order += f", {ENTITY_PAGE_TIEBREAK[entity]}"
 
         params = []
         sql = f"SELECT {cols} FROM {table}"

@@ -2877,3 +2877,33 @@ def test_quantity_samples_malformed_limit_is_rejected_not_unpaged(client):
         resp = client.get(f"/api/data/quantityHealthSamples{bad}", headers=auth_header())
         assert resp.status_code == 400, f"{bad} should be rejected, not served unpaged"
         assert "quantityHealthSamples" not in resp.get_json()
+
+
+def test_paging_unsupported_entity_is_rejected_not_500(client):
+    """Most tables have NO `id` column (they key on natural keys), so appending a
+    tiebreaker unconditionally would make the query 500. Paging them is refused
+    rather than served with an unstable order (which would skip/repeat rows)."""
+    resp = client.get("/api/data/cpapSessions?limit=10", headers=auth_header())
+
+    assert resp.status_code == 400, "must 400, not 500 on a missing id column"
+    assert "does not support paging" in resp.get_json()["error"]
+
+    # …but the same entity is still fine unpaged.
+    assert client.get("/api/data/cpapSessions", headers=auth_header()).status_code == 200
+
+
+def test_paged_total_is_returned_only_on_the_first_page(client):
+    """count(*) is a full scan. The client needs the total once; running it on all
+    ~50 pages of a 250k-row restore is ~49 scans for an answer that can't change."""
+    _sync_samples(client, [_quantity_sample(i) for i in range(1, 6)])
+
+    first = client.get(
+        "/api/data/quantityHealthSamples?limit=2&offset=0", headers=auth_header()
+    ).get_json()
+    later = client.get(
+        "/api/data/quantityHealthSamples?limit=2&offset=2", headers=auth_header()
+    ).get_json()
+
+    assert first["total"] == 5
+    assert "total" not in later, "total must not be recomputed on every page"
+    assert len(later["quantityHealthSamples"]) == 2
