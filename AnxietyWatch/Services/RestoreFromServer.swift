@@ -12,6 +12,16 @@ enum RestoreDemoMode {
     static let isActive = ProcessInfo.processInfo.arguments.contains(launchArgument)
 }
 
+/// Single source of truth for the `-seedDemoData` launch argument — seeds
+/// synthetic, obviously-fictional data for README/marketing screenshots (see
+/// `DemoSeeder`, DEBUG+simulator only). Kept alongside `RestoreDemoMode` so
+/// `SnapshotAggregator`'s aggregation-skip guard can reference the literal
+/// without a DEBUG-only symbol. Harmless in production (the arg is never set).
+enum SeedDemoMode {
+    static let launchArgument = "-seedDemoData"
+    static let isActive = ProcessInfo.processInfo.arguments.contains(launchArgument)
+}
+
 /// First-launch migration gate: decides whether the app should defer
 /// HealthKit setup (`HealthDataCoordinator.setupIfNeeded()`) and offer the
 /// user a "Restore from Server vs Start Fresh" choice before any local

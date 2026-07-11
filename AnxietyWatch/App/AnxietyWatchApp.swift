@@ -149,6 +149,16 @@ struct AnxietyWatchApp: App {
                             Log.sync.error("[autoRestore] failed: \(error, privacy: .public)")
                         }
                     }
+                    // Synthetic fictional data for README/marketing screenshots
+                    // (no personal data). Idempotent; only seeds an empty store.
+                    if SeedDemoMode.isActive {
+                        DemoSeeder.seedIfNeeded(container: sharedModelContainer)
+                        // Show a synthetic live EMAY readout for screenshots —
+                        // the simulator has no BLE device. Setting .streaming
+                        // here makes the later startIfContinuousModeEnabled()
+                        // a no-op via start()'s active-session guard.
+                        emayService.applyDemoStreamingState()
+                    }
                     #endif
                     PhoneConnectivityManager.shared.modelContainer = sharedModelContainer
                     PhoneConnectivityManager.shared.activate()

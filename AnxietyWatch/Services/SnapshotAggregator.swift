@@ -90,7 +90,7 @@ struct SnapshotAggregator {
         // server-restored snapshot fields with nils derived from the
         // (empty) on-simulator HealthKit store, producing the
         // "data appears then disappears" flicker.
-        if RestoreDemoMode.isActive {
+        if RestoreDemoMode.isActive || SeedDemoMode.isActive {
             return
         }
         #endif

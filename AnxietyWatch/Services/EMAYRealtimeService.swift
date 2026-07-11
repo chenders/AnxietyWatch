@@ -341,6 +341,15 @@ final class EMAYRealtimeService: NSObject {
     /// open bucket alive (see `resetConnectionState`).
     @ObservationIgnored private var downsampler = EMAYLiveDownsampler()
 
+#if DEBUG
+    /// Latched by `applyDemoStreamingState()`. While set, CoreBluetooth state
+    /// callbacks are ignored so the synthetic screenshot readout survives the
+    /// simulator reporting Bluetooth as `.unsupported` (which would otherwise
+    /// reset `status` to `.bluetoothUnsupported`). DEBUG-only; only ever set
+    /// via the `-seedDemoData` launch path.
+    @ObservationIgnored private var isDemoStreaming = false
+#endif
+
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
         self.continuousModeEnabled = Self.isContinuousModeEnabled(defaults: .standard)
@@ -503,6 +512,25 @@ final class EMAYRealtimeService: NSObject {
         resetConnectionState()
         status = .idle
     }
+
+#if DEBUG
+    /// Drive the service into a synthetic `.streaming` state for simulator
+    /// screenshots and SwiftUI previews, where no CoreBluetooth device exists.
+    /// The values are obviously-fictional demo readings — NEVER real device
+    /// data — and this method is compiled out of release builds entirely.
+    /// Reached only via the `-seedDemoData` launch argument (`SeedDemoMode`);
+    /// it deliberately bypasses the BLE handshake and persists nothing.
+    func applyDemoStreamingState(spo2: Int = 97, pulseRate: Int = 62) {
+        isDemoStreaming = true
+        // Set the stored property directly rather than via setContinuousMode(_:)
+        // — this deliberately does NOT persist to UserDefaults, so a demo/
+        // screenshot run never leaves the real continuous-streaming toggle
+        // flipped on for a later non-demo launch.
+        continuousModeEnabled = true
+        status = .streaming
+        latestReading = EMAYReading(spo2: spo2, pulseRate: pulseRate, timestamp: Date())
+    }
+#endif
 
     /// Acquire (or re-acquire) the oximeter. Must only run with the central
     /// `.poweredOn` (`retrievePeripherals`/`connect` are invalid earlier).
@@ -756,6 +784,11 @@ extension EMAYRealtimeService: CBCentralManagerDelegate {
     nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
         Task { @MainActor [weak self] in
             guard let self else { return }
+#if DEBUG
+            // Demo screenshot mode owns `status`; don't let the simulator's
+            // Bluetooth state clobber the synthetic streaming readout.
+            if self.isDemoStreaming { return }
+#endif
             switch central.state {
             case .poweredOn:
                 if self.wantScan {

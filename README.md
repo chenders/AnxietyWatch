@@ -23,14 +23,22 @@ The result is not a wall of numbers. It is your own data, interpreted through yo
 > **This project is under active development.** The data collection layer is thorough — 25+ HealthKit data types with multi-source provenance, medication tracking with efficacy measurement, OSCAR CSV import with server-side EDF leak parsing, EMAY overnight pulse-oximeter import, Polar H10 chest-strap HRV at beat-to-beat fidelity, pharmacy benefit (CapRx) integration, clinical reports, an Alembic-migrated sync server, and a growing test suite. The first piece of the intelligence layer is live: a physiological correlation engine that identifies which health metrics most influence your anxiety, plus an opt-in server-side path that can call Claude against a chosen date range from an admin page on your own sync server. Compound triggers, proactive insights, and morning briefings are where the project is headed next.
 
 <div align="center">
-  <img src="docs/screenshots/future-dashboard.png" width="200" alt="Dashboard mockup with Today's Summary card, Log button, breathing pacer, and grouped metric sections" />
+  <img src="docs/screenshots/app-dashboard.png" width="200" alt="Dashboard: HRV-below-baseline alert, 'what changed today' summary, last-night sleep/CPAP/SpO2 card, and heart-rate sparkline" />
   &nbsp;&nbsp;
-  <img src="docs/screenshots/future-insights.png" width="200" alt="Insights mockup showing sleep-anxiety correlation, compound triggers, exercise effect, and medication efficacy" />
+  <img src="docs/screenshots/app-trends.png" width="200" alt="Trends: anxiety-severity chart over time and an HRV chart with a personal baseline band flagging a recent dip" />
   &nbsp;&nbsp;
-  <img src="docs/screenshots/future-trends.png" width="200" alt="Trends mockup with weekly summary stats, HRV chart with medication dose markers, and dose-response visualization" />
+  <img src="docs/screenshots/app-report.png" width="200" alt="Export & Reports: date-range JSON/CSV export and a clinical PDF report to share with a clinician" />
 </div>
 
-<div align="center"><sub><em>Design mockups of the intelligence layer the project is building toward — illustrative data, not real health records.</em></sub></div>
+<div align="center">
+  <img src="docs/screenshots/app-sources.png" width="200" alt="Settings: connected data sources — Apple Health, Health Records, CPAP, Polar H10, and the live EMAY oximeter" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/app-emay.png" width="200" alt="EMAY oximeter streaming live SpO2 and pulse over Bluetooth, with continuous background streaming enabled" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/app-watch.png" width="150" alt="watchOS Quick Log: a color-graded 1-to-10 severity grid for logging anxiety in seconds during a panic moment" />
+</div>
+
+<div align="center"><sub><em>The app today — captured from the iOS and watchOS simulators with synthetic demo data, not real health records.</em></sub></div>
 
 ---
 
@@ -110,7 +118,15 @@ Every piece of data is exportable — JSON, CSV, or clinical PDF — from day on
 
 The data collection layer is solid, and the first piece of the intelligence layer is live — a physiological correlation engine that identifies which health metrics most influence your anxiety, with per-metric breakdowns and scatter plots. Random check-ins capture mood at unprompted moments, filling gaps that voluntary journaling misses. Next: compound trigger identification (when bad sleep *plus* high barometric pressure shift predicts a bad day), medication efficacy trend detection, and proactive morning briefings that demystify bad days before they spiral.
 
-The mockups above show where this is headed — a dashboard that tells stories instead of dumping numbers, an intelligence layer that surfaces personal patterns, and trend charts with medication dose markers that make tolerance visible.
+<div align="center">
+  <img src="docs/screenshots/future-dashboard.png" width="200" alt="Dashboard mockup with Today's Summary card, Log button, breathing pacer, and grouped metric sections" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/future-insights.png" width="200" alt="Insights mockup showing sleep-anxiety correlation, compound triggers, exercise effect, and medication efficacy" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/future-trends.png" width="200" alt="Trends mockup with weekly summary stats, HRV chart with medication dose markers, and dose-response visualization" />
+</div>
+
+<div align="center"><sub><em>Design mockups (not the current UI) — a dashboard that tells stories instead of dumping numbers, an intelligence layer that surfaces personal patterns, and trend charts with medication dose markers that make tolerance visible.</em></sub></div>
 
 See [PROJECT_FUTURE_PLAN.md](PROJECT_FUTURE_PLAN.md) for the full phased roadmap, North Star vision, and current status by phase.
 
