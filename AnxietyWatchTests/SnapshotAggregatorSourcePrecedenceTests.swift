@@ -27,7 +27,7 @@ struct SnapshotAggregatorSourcePrecedenceTests {
     }()
 
     private func makeAggregator(mock: MockHealthKitDataSource, context: ModelContext) -> SnapshotAggregator {
-        SnapshotAggregator(healthKit: mock, modelContext: context)
+        SnapshotAggregator(healthKit: mock, modelContext: context, defaults: TestHelpers.gateResolvedDefaults())
     }
 
     /// Seed a run of overnight SpO2 samples spaced 1s apart, all from the

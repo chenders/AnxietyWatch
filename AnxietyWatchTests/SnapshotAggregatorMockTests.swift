@@ -14,7 +14,7 @@ struct SnapshotAggregatorMockTests {
     }()
 
     private func makeAggregator(mock: MockHealthKitDataSource, context: ModelContext) -> SnapshotAggregator {
-        SnapshotAggregator(healthKit: mock, modelContext: context)
+        SnapshotAggregator(healthKit: mock, modelContext: context, defaults: TestHelpers.gateResolvedDefaults())
     }
 
     @Test("HRV average maps to snapshot.hrvAvg")

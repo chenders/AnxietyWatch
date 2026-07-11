@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftData
 
 /// Single source of truth for the `-autoRestoreFromServer` launch argument —
@@ -87,16 +88,22 @@ extension Notification.Name {
 
 enum RestoreError: Error, LocalizedError {
     case invalidJSON
-    case storeNotEmpty
+    /// Carries the specific blockers (`"AnxietyEntry=3"`, or
+    /// `"HRVReading=<fetch failed: …>"`). Without them this error is
+    /// undiagnosable: the guard fails closed, so a *failed fetch* is
+    /// indistinguishable from actual rows, and the user just sees "already
+    /// contains data" on a demonstrably empty store with no way to tell which.
+    case storeNotEmpty([String])
 
     var errorDescription: String? {
         switch self {
         case .invalidJSON:
             return "Server response was not valid JSON"
-        case .storeNotEmpty:
+        case .storeNotEmpty(let blockers):
             return "Local store already contains data — restore only runs into an empty "
                 + "store so it can't duplicate rows. On a fresh install, restore before "
-                + "logging or importing anything."
+                + "logging or importing anything.\nBlocked by: "
+                + (blockers.isEmpty ? "<unknown>" : blockers.joined(separator: ", "))
         }
     }
 }
@@ -135,8 +142,10 @@ extension SyncService {
         defaults: UserDefaults = .standard
     ) async throws -> String {
         guard isConfigured else { throw SyncError.notConfigured }
-        guard Self.restoreGuardTablesAreEmpty(modelContext) else {
-            throw RestoreError.storeNotEmpty
+        let blockers = Self.restoreGuardBlockers(modelContext)
+        guard blockers.isEmpty else {
+            Log.sync.error("[restore] blocked by: \(blockers.joined(separator: ", "), privacy: .public)")
+            throw RestoreError.storeNotEmpty(blockers)
         }
         guard var components = URLComponents(string: serverURL) else { throw SyncError.invalidURL }
         components.path = "/api/data"
@@ -179,12 +188,18 @@ extension SyncService {
         // hard-wired to shift = 0 (truthful timestamps), which also keeps
         // restore idempotent — a blocked-then-retried restore on a later
         // day must not re-shift rows by a different offset.
+        // `demoShiftActive` is a compile-time `false` on device/release builds, so
+        // spelling the demo branches as `demoShiftActive ? compute(...) : 0` makes
+        // the true-branch provably dead there and emits "will never be executed"
+        // — which CI (SWIFT_TREAT_WARNINGS_AS_ERRORS) would fail on if it ever
+        // built for a non-simulator destination. Compute the demo shifts inside
+        // the #if instead: production keeps truthful timestamps (shift 0) and the
+        // demo-only code isn't compiled at all rather than compiled-and-unreachable.
         #if DEBUG && targetEnvironment(simulator)
-        let demoShiftActive = demoDateShift
+        let shift: TimeInterval = demoDateShift ? Self.computeDateShift(json: json) : 0
         #else
-        let demoShiftActive = false
+        let shift: TimeInterval = 0
         #endif
-        let shift = demoShiftActive ? Self.computeDateShift(json: json) : 0
 
         var report: [String: Int] = ["shiftDays": Int(shift / 86_400)]
 
@@ -251,9 +266,13 @@ extension SyncService {
             // recent sleep night on today — otherwise the LastNight card
             // can't find events for the latest snapshot. Production restores
             // keep truthful timestamps (shift 0), like every other entity.
-            let sleepShift = demoShiftActive
+            #if DEBUG && targetEnvironment(simulator)
+            let sleepShift: TimeInterval = demoDateShift
                 ? Self.computeMaxAlignedShift(rows: rows, dateKey: "start_time")
                 : 0
+            #else
+            let sleepShift: TimeInterval = 0
+            #endif
             report["sleepStageEvents"] = Self.importSleepStageEvents(rows, shift: sleepShift, into: modelContext)
         }
 
@@ -324,32 +343,53 @@ extension SyncService {
     /// BarometricReading, whose importer also dedupes).
     /// `internal` so RestoreFromServerTests can exercise the guard directly.
     static func restoreGuardTablesAreEmpty(_ ctx: ModelContext) -> Bool {
-        // A fetch error counts as NON-empty (fail closed): proceeding on an
-        // unreadable store risks the duplication this guard exists to stop.
-        func isEmpty<T: PersistentModel>(_ type: T.Type) -> Bool {
-            ((try? ctx.fetchCount(FetchDescriptor<T>())) ?? Int.max) == 0
+        restoreGuardBlockers(ctx).isEmpty
+    }
+
+    /// The specific reasons a restore is blocked — each either `"Type=<count>"`
+    /// (real rows) or `"Type=<fetch failed: …>"` (unreadable).
+    ///
+    /// A fetch error counts as blocking (fail closed): proceeding on an
+    /// unreadable store risks the duplication this guard exists to stop. But
+    /// failing closed *silently* made this guard undiagnosable — a thrown fetch
+    /// was coerced to `Int.max` and surfaced as "store already contains data" on
+    /// a store that was demonstrably empty, with no way to tell which of the 14
+    /// types was at fault or whether it even had rows. Naming the blocker is the
+    /// difference between a five-minute fix and an hour of guessing.
+    static func restoreGuardBlockers(_ ctx: ModelContext) -> [String] {
+        var blockers: [String] = []
+
+        func check<T: PersistentModel>(_ type: T.Type, _ name: String) {
+            do {
+                let count = try ctx.fetchCount(FetchDescriptor<T>())
+                if count > 0 { blockers.append("\(name)=\(count)") }
+            } catch {
+                blockers.append("\(name)=<fetch failed: \(error.localizedDescription)>")
+            }
         }
-        return isEmpty(AnxietyEntry.self)
-            && isEmpty(HealthSnapshot.self)
-            && isEmpty(SensorSession.self)
-            && isEmpty(HRVReading.self)
-            && isEmpty(BarometricReading.self)
-            && isEmpty(AccelSpectrogram.self)
-            && isEmpty(DerivedBreathingRate.self)
-            && isEmpty(MedicationDose.self)
-            && isEmpty(CPAPSession.self)
-            && isEmpty(SleepStageEvent.self)
-            && isEmpty(Song.self)
-            && isEmpty(SongOccurrence.self)
-            && isEmpty(PharmacyCallLog.self)
-            // The restore now writes QuantityHealthSample too, so it belongs in
-            // the proxy set. It is also the one table a partially-completed
-            // restore is most likely to leave behind on its own: it is paged, so
-            // an interrupted restore can save several pages of samples and
-            // nothing else. Without this, that half-restored store would still
-            // look "empty" and a retry would re-page a quarter-million rows on
-            // top of the ones already there.
-            && isEmpty(QuantityHealthSample.self)
+
+        check(AnxietyEntry.self, "AnxietyEntry")
+        check(HealthSnapshot.self, "HealthSnapshot")
+        check(SensorSession.self, "SensorSession")
+        check(HRVReading.self, "HRVReading")
+        check(BarometricReading.self, "BarometricReading")
+        check(AccelSpectrogram.self, "AccelSpectrogram")
+        check(DerivedBreathingRate.self, "DerivedBreathingRate")
+        check(MedicationDose.self, "MedicationDose")
+        check(CPAPSession.self, "CPAPSession")
+        check(SleepStageEvent.self, "SleepStageEvent")
+        check(Song.self, "Song")
+        check(SongOccurrence.self, "SongOccurrence")
+        check(PharmacyCallLog.self, "PharmacyCallLog")
+        // The restore writes QuantityHealthSample too, so it belongs in the proxy
+        // set. It is also the table a partially-completed restore is most likely
+        // to leave behind on its own: it is paged, so an interrupted restore can
+        // save several pages of samples and nothing else. Without this, that
+        // half-restored store would still look "empty" and a retry would re-page
+        // a quarter-million rows on top of the ones already there.
+        check(QuantityHealthSample.self, "QuantityHealthSample")
+
+        return blockers
     }
 
     // MARK: - Post-restore re-aggregation

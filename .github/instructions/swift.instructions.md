@@ -61,8 +61,14 @@ Check every Swift diff for these specific patterns, even when not obviously brok
 - Use fixed reference dates for deterministic assertions.
 - Extract pure logic into testable helpers rather than burying it in views or private methods.
 
+## HealthKit authorization
+
+- **Never put an `HKCorrelationType` in the read-authorization set.** HealthKit disallows read authorization for correlation types and raises `NSInvalidArgumentException` ("Authorization to read the following types is disallowed: HKCorrelationTypeIdentifierBloodPressure"). It is an ObjC exception, so Swift `try` cannot catch it — the app aborts on signal 6 with no Swift error and no recovery. Read access to a correlation comes from its **constituent quantity types**: request `.bloodPressureSystolic` + `.bloodPressureDiastolic`, never `HKCorrelationType(.bloodPressure)`. `HKCorrelationQuery` reads through those grants, so querying the correlation still works. This crashed on the *first* authorization prompt only, making it invisible to every already-authorized install for months.
+- Because the exception is uncatchable, there is no error path to test. Assert on the **shape of the read set** instead (`HealthKitManagerReadTypesTests` pins "no correlation types" plus the positive "BP quantity types are still requested"). Flag any diff that adds a type to `allReadTypes` without a corresponding shape assertion.
+
 ## Swift-specific Don'ts
 
 - Don't use Core Data — this project uses SwiftData exclusively.
 - Don't query HealthKit from views — always go through `HealthKitManager`.
 - Don't expose completion handlers in app code — use async/await, wrapping callback-based system APIs with continuations.
+- Don't write to a table that a guard requires to be empty, without checking the gate. `SnapshotAggregator.aggregateDay` wrote a `HealthSnapshot` during the fresh-install pre-decision window; `HealthSnapshot` is one of the tables `restoreGuardTablesAreEmpty` checks, so one row permanently blocked "Restore from Server" with no way out but deleting the app. Deferring the *caller* that normally does the writing was not enough — observer and refresh paths called the aggregator anyway. Gate the **write**, not just the caller you know about.

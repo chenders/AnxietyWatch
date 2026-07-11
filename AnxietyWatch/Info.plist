@@ -4,6 +4,19 @@
 <dict>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<!-- The sync server is SELF-HOSTED and its address is entered by the user
+		     at runtime (Settings → Server Sync). The app therefore cannot know the
+		     host at build time, which makes a domain-scoped NSExceptionDomains
+		     entry impossible in principle.
+
+		     NSAllowsLocalNetworking alone is NOT sufficient: it did not exempt a
+		     plain-http:// connection to a private IP (192.168.x.x), which failed
+		     with "App Transport Security policy requires the use of a secure
+		     connection" and blocked the restore on a fresh install. Kept below
+		     because it is still what grants the local-network exemption for
+		     .local/unqualified hosts. -->
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>

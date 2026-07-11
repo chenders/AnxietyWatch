@@ -102,7 +102,7 @@ struct SnapshotAggregatorReliabilityTests {
                              sourceBundleID: "com.dexcom.stelo", sourceName: "Stelo", anchor: anchor)
         try context.save()
 
-        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context)
+        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context, defaults: TestHelpers.gateResolvedDefaults())
         try await aggregator.aggregateDay(referenceDate)
 
         let snap = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
@@ -122,7 +122,7 @@ struct SnapshotAggregatorReliabilityTests {
                              sourceBundleID: "com.dexcom.stelo", sourceName: "Stelo", anchor: anchor)
         try context.save()
 
-        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context)
+        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context, defaults: TestHelpers.gateResolvedDefaults())
         try await aggregator.aggregateDay(referenceDate)
 
         let snap = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
@@ -143,7 +143,7 @@ struct SnapshotAggregatorReliabilityTests {
                              anchor: anchor)
         try context.save()
 
-        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context)
+        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context, defaults: TestHelpers.gateResolvedDefaults())
         try await aggregator.aggregateDay(referenceDate)
 
         let snap = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
@@ -167,7 +167,7 @@ struct SnapshotAggregatorReliabilityTests {
                           sourceBundleID: "com.emay.sleepo2", sourceName: "EMAY SleepO2", anchor: anchor)
         try context.save()
 
-        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context)
+        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context, defaults: TestHelpers.gateResolvedDefaults())
         try await aggregator.aggregateDay(referenceDate)
 
         let snap = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
@@ -195,7 +195,7 @@ struct SnapshotAggregatorReliabilityTests {
                           anchor: anchor.addingTimeInterval(120))
         try context.save()
 
-        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context)
+        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context, defaults: TestHelpers.gateResolvedDefaults())
         try await aggregator.aggregateDay(referenceDate)
 
         let snap = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
@@ -216,7 +216,7 @@ struct SnapshotAggregatorReliabilityTests {
                           sourceBundleID: "com.apple.health", sourceName: "Apple Watch", anchor: anchor)
         try context.save()
 
-        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context)
+        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context, defaults: TestHelpers.gateResolvedDefaults())
         try await aggregator.aggregateDay(referenceDate)
 
         let snap = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
@@ -247,7 +247,7 @@ struct SnapshotAggregatorReliabilityTests {
         }
         try context.save()
 
-        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context)
+        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context, defaults: TestHelpers.gateResolvedDefaults())
         try await aggregator.aggregateDay(referenceDate)
 
         let snap = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
@@ -264,7 +264,7 @@ struct SnapshotAggregatorReliabilityTests {
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
         let mock = MockHealthKitDataSource()
-        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context)
+        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context, defaults: TestHelpers.gateResolvedDefaults())
         try await aggregator.aggregateDay(referenceDate)
 
         let snap = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
@@ -285,7 +285,7 @@ struct SnapshotAggregatorReliabilityTests {
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
         let mock = MockHealthKitDataSource()
-        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context)
+        let aggregator = SnapshotAggregator(healthKit: mock, modelContext: context, defaults: TestHelpers.gateResolvedDefaults())
         try await aggregator.aggregateDay(referenceDate)
         let snap = try context.fetch(FetchDescriptor<HealthSnapshot>())[0]
         let json = try #require(snap.dataQuality)
