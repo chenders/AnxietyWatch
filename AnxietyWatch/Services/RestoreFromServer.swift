@@ -342,6 +342,14 @@ extension SyncService {
             && isEmpty(Song.self)
             && isEmpty(SongOccurrence.self)
             && isEmpty(PharmacyCallLog.self)
+            // The restore now writes QuantityHealthSample too, so it belongs in
+            // the proxy set. It is also the one table a partially-completed
+            // restore is most likely to leave behind on its own: it is paged, so
+            // an interrupted restore can save several pages of samples and
+            // nothing else. Without this, that half-restored store would still
+            // look "empty" and a retry would re-page a quarter-million rows on
+            // top of the ones already there.
+            && isEmpty(QuantityHealthSample.self)
     }
 
     // MARK: - Post-restore re-aggregation

@@ -1195,7 +1195,10 @@ def create_app(test_config=None):
         db = get_db()
         cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         since = request.args.get("since")
-        limit, offset = _parse_paging(request.args)
+        try:
+            limit, offset = _parse_paging(request.args)
+        except (TypeError, ValueError):
+            return jsonify({"error": "limit and offset must be integers"}), 400
 
         rows = _query_entity(cur, entity, since, limit=limit, offset=offset)
         payload = {entity: rows, "exportDate": datetime.now(timezone.utc).isoformat()}
@@ -1293,15 +1296,19 @@ def create_app(test_config=None):
     MAX_PAGE_LIMIT = 10000
 
     def _parse_paging(args):
-        """Parse and clamp ?limit=&offset=. Returns (limit, offset) or (None, None)."""
+        """Parse and clamp ?limit=&offset=. Returns (limit, offset); (None, None) when
+        no limit was requested.
+
+        Raises ValueError on a malformed limit/offset. It must NOT fall back to an
+        unpaged query: silently ignoring `?limit=abc` would return the entire table
+        — ~79 MB for quantityHealthSamples — which turns a typo into an
+        authenticated DoS and quietly bypasses MAX_PAGE_LIMIT.
+        """
         raw_limit = args.get("limit")
         if raw_limit is None:
             return None, None
-        try:
-            limit = max(1, min(int(raw_limit), MAX_PAGE_LIMIT))
-            offset = max(0, int(args.get("offset", 0)))
-        except (TypeError, ValueError):
-            return None, None
+        limit = max(1, min(int(raw_limit), MAX_PAGE_LIMIT))
+        offset = max(0, int(args.get("offset", 0)))
         return limit, offset
 
     # ---------------------------------------------------------------------------

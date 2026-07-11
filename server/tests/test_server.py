@@ -2863,3 +2863,17 @@ def test_quantity_samples_unpaged_request_still_works(client):
 
     assert len(body["quantityHealthSamples"]) == 3
     assert "total" not in body
+
+
+def test_quantity_samples_malformed_limit_is_rejected_not_unpaged(client):
+    """A malformed limit must 400, NOT silently fall back to an unpaged query.
+
+    Falling back would return the entire table (~79 MB for this entity),
+    bypassing MAX_PAGE_LIMIT and turning a typo into an authenticated DoS.
+    """
+    _sync_samples(client, [_quantity_sample(i) for i in range(1, 4)])
+
+    for bad in ("?limit=abc", "?limit=1&offset=xyz"):
+        resp = client.get(f"/api/data/quantityHealthSamples{bad}", headers=auth_header())
+        assert resp.status_code == 400, f"{bad} should be rejected, not served unpaged"
+        assert "quantityHealthSamples" not in resp.get_json()

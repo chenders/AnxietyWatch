@@ -973,6 +973,26 @@ struct RestoreFromServerOrchestrationTests {
         #expect(try context.fetchCount(FetchDescriptor<QuantityHealthSample>()) == total)
     }
 
+    @Test("a store holding only quantity samples is NOT considered empty")
+    func quantitySamplesCountTowardTheRestoreGuard() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        #expect(SyncService.restoreGuardTablesAreEmpty(context), "baseline: empty store")
+
+        _ = SyncService.importQuantityHealthSamples(
+            [Self.sampleRow(id: "0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D")], shift: 0, into: context
+        )
+        try context.save()
+
+        // Samples are paged, so an interrupted restore can leave several pages of
+        // them behind and nothing else. If the guard ignored this table, that
+        // half-restored store would still look "empty" and a retry would re-page a
+        // quarter-million rows on top of the ones already there.
+        #expect(!SyncService.restoreGuardTablesAreEmpty(context),
+                "a partially-restored store must block a second restore")
+    }
+
     @Test("a server predating the endpoint (404) doesn't fail the whole restore")
     func quantitySamplePagingTolerates404() async throws {
         let container = try TestHelpers.makeFullContainer()
