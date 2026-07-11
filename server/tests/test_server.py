@@ -2787,11 +2787,16 @@ def _quantity_sample(i, timestamp="2025-03-20T10:00:00Z"):
 
 
 def _sync_samples(client, samples):
-    client.post(
+    resp = client.post(
         "/api/sync",
         json={"syncType": "full", "exportDate": "2025-03-20T12:00:00Z", "quantitySamples": samples},
         headers=auth_header(),
     )
+    # Assert the seed actually landed. Without this, a broken /api/sync would
+    # surface as a confusing failure in whatever assertion runs next (or, worse,
+    # as a test that trivially passes against an empty table).
+    assert resp.status_code == 200, f"seeding failed: {resp.status_code} {resp.get_data(as_text=True)}"
+    return resp
 
 
 def test_quantity_samples_excluded_from_bulk_payload(client):
@@ -2802,7 +2807,10 @@ def test_quantity_samples_excluded_from_bulk_payload(client):
     body = client.get("/api/data", headers=auth_header()).get_json()
 
     assert "quantityHealthSamples" not in body
-    assert body["pagedEntities"] == ["quantityHealthSamples"]
+    # Membership, not equality: BULK_EXCLUDED_ENTITIES is explicitly designed to
+    # grow, and pinning the exact list would make this test fail on an unrelated
+    # future addition rather than on a real regression.
+    assert "quantityHealthSamples" in body["pagedEntities"]
 
 
 def test_quantity_samples_paged_endpoint_returns_rows_and_total(client):

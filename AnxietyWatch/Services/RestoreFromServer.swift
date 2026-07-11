@@ -264,7 +264,7 @@ extension SyncService {
         // both the response and the parsed [[String: Any]] held in memory.
         // It is paged down separately instead.
         //
-        // This table used to sync UP but have no way back DOWN, so a fresh
+        // This table used to sync UP but had no way back DOWN, so a fresh
         // install silently lost every EMAY oximetry sample. Those are app-only
         // (the app never writes to HealthKit), so unlike Apple/Polar/Dexcom
         // rows, nothing else can re-derive them — they were simply gone.
