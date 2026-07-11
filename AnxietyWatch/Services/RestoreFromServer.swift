@@ -293,7 +293,7 @@ extension SyncService {
             report["cpapSessions"] = try Self.importCPAPSessions(rows, shift: shift, into: modelContext)
         }
         if let rows = json["barometricReadings"] as? [[String: Any]] {
-            report["barometricReadings"] = Self.importBarometricReadings(rows, shift: shift, into: modelContext)
+            report["barometricReadings"] = try Self.importBarometricReadings(rows, shift: shift, into: modelContext)
         }
         if let rows = json["pharmacies"] as? [[String: Any]] {
             report["pharmacies"] = Self.importPharmacies(rows, into: modelContext)
@@ -315,7 +315,7 @@ extension SyncService {
         }
         // After pharmacies so the `pharmacy` relationship can re-link by name.
         if let rows = json["pharmacyCallLogs"] as? [[String: Any]] {
-            report["pharmacyCallLogs"] = Self.importPharmacyCallLogs(rows, shift: shift, into: modelContext)
+            report["pharmacyCallLogs"] = try Self.importPharmacyCallLogs(rows, shift: shift, into: modelContext)
         }
 
         var sessionIdMap: [String: UUID] = [:]
@@ -1123,10 +1123,15 @@ extension SyncService {
     /// and `BarometricReading` has no #Unique column, so dedupe by shifted
     /// timestamp to keep the importer idempotent like its #Unique-id siblings.
     /// `internal` (not private) for RestoreFromServerTests.
-    static func importBarometricReadings(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> Int {
-        var seenTimestamps = Set(
-            ((try? ctx.fetch(FetchDescriptor<BarometricReading>())) ?? []).map(\.timestamp)
-        )
+    /// Fail-closed, like every other importer's guard: an unreadable table aborts
+    /// the import rather than degrading to "nothing exists". BarometricReading has no
+    /// unique constraint, so a lost guard here duplicates rows rather than clobbering
+    /// them — less destructive than the HealthSnapshot case, but still a guard that
+    /// would silently stop guarding.
+    static func importBarometricReadings(
+        _ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext
+    ) throws -> Int {
+        var seenTimestamps = try Self.existingKeys(BarometricReading.self, in: ctx) { $0.timestamp }
         var n = 0
         for row in rows {
             guard let ts = parseDate(row["timestamp"]),
@@ -1458,17 +1463,20 @@ extension SyncService {
     /// name; a log whose pharmacy no longer exists re-links to nil — the
     /// model denormalizes `pharmacyName` precisely so logs survive pharmacy
     /// deletion. `internal` (not private) for RestoreFromServerTests.
-    static func importPharmacyCallLogs(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> Int {
+    /// Fail-closed, like every other importer's guard — see `importBarometricReadings`.
+    static func importPharmacyCallLogs(
+        _ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext
+    ) throws -> Int {
         // Sorted fetch: Pharmacy has no #Unique on name, so two same-named
         // rows are possible; an unsorted fetch would make the "first wins"
         // collapse below nondeterministic (CLAUDE.md deterministic-ordering
         // pitfall). Sorting by id makes the tie-break stable across runs.
-        let pharmacies = (try? ctx.fetch(FetchDescriptor<Pharmacy>(
+        let pharmacies = try ctx.fetch(FetchDescriptor<Pharmacy>(
             sortBy: [SortDescriptor(\.id)]
-        ))) ?? []
+        ))
         let pharmaciesByName = Dictionary(pharmacies.map { ($0.name, $0) }) { first, _ in first }
         var seen: [String: Set<Date>] = [:]
-        for log in (try? ctx.fetch(FetchDescriptor<PharmacyCallLog>())) ?? [] {
+        for log in try ctx.fetch(FetchDescriptor<PharmacyCallLog>()) {
             seen[log.pharmacyName, default: []].insert(log.timestamp)
         }
         var n = 0
