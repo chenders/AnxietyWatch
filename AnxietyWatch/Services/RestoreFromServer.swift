@@ -144,7 +144,17 @@ extension SyncService {
         guard isConfigured else { throw SyncError.notConfigured }
         let blockers = Self.restoreGuardBlockers(modelContext)
         guard blockers.isEmpty else {
-            Log.sync.error("[restore] blocked by: \(blockers.joined(separator: ", "), privacy: .public)")
+            // Log the TABLE NAMES public, the counts NOT at all. A blocker string
+            // is "HealthSnapshot=91": the table name is a schema constant (no
+            // health data), but the count is a fact about the user's records and
+            // os_log `.public` values land in Console and sysdiagnose bundles that
+            // get shared off-device. Marking the whole string `.private` would
+            // render it `<private>` and destroy the diagnostic — knowing WHICH
+            // table blocked is the entire reason this line exists (its absence
+            // once cost an hour of guessing). The names alone carry that, and the
+            // user still sees the full counts in the on-device error text.
+            let blockedTables = Self.logSafeBlockers(blockers).joined(separator: ", ")
+            Log.sync.error("[restore] blocked by: \(blockedTables, privacy: .public)")
             throw RestoreError.storeNotEmpty(blockers)
         }
         guard var components = URLComponents(string: serverURL) else { throw SyncError.invalidURL }
@@ -356,6 +366,25 @@ extension SyncService {
     /// a store that was demonstrably empty, with no way to tell which of the 14
     /// types was at fault or whether it even had rows. Naming the blocker is the
     /// difference between a five-minute fix and an hour of guessing.
+    /// Strip the row counts from `restoreGuardBlockers` output, leaving only the
+    /// table names — the projection that is safe to emit to `os_log` at
+    /// `privacy: .public`.
+    ///
+    /// `"HealthSnapshot=91"` → `"HealthSnapshot"`. The table name is a schema
+    /// constant and carries no health data; the count is a fact about the user's
+    /// records, and `.public` os_log values are captured into Console and
+    /// sysdiagnose bundles that routinely get shared off-device. Marking the whole
+    /// string `.private` instead would render it `<private>` and destroy the
+    /// diagnostic — knowing WHICH table blocked is the entire reason the log line
+    /// exists. The user still sees the full counts in the on-device error text
+    /// (`RestoreError.storeNotEmpty`), which never leaves the device.
+    ///
+    /// Also strips a `<fetch failed: …>` payload, whose message could in principle
+    /// quote row contents.
+    static func logSafeBlockers(_ blockers: [String]) -> [String] {
+        blockers.map { $0.split(separator: "=", maxSplits: 1).first.map(String.init) ?? $0 }
+    }
+
     static func restoreGuardBlockers(_ ctx: ModelContext) -> [String] {
         var blockers: [String] = []
 

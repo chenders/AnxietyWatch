@@ -169,6 +169,32 @@ struct RestoreGateSnapshotWriteTests {
         #expect(SyncService.restoreGuardBlockers(context) == ["AnxietyEntry=1"])
     }
 
+    /// The blockers go two places with different audiences, and they must carry
+    /// different amounts of information:
+    ///
+    /// - **on-device error text** (`RestoreError.storeNotEmpty`) — full detail,
+    ///   counts included. Never leaves the device.
+    /// - **os_log at `privacy: .public`** — table names ONLY. `.public` values are
+    ///   captured into Console and sysdiagnose bundles that get shared off-device,
+    ///   and "you have 91 HealthSnapshots" is a fact about the user's health
+    ///   records. Marking the whole string `.private` would render it `<private>`
+    ///   and destroy the diagnostic, so the projection is the compromise: the table
+    ///   name (a schema constant) is what makes the log actionable; the count is
+    ///   what makes it sensitive.
+    @Test("log-safe blockers keep the table name and drop the row count")
+    func logSafeBlockersDropCounts() {
+        let safe = SyncService.logSafeBlockers(["HealthSnapshot=91", "BarometricReading=1"])
+        #expect(safe == ["HealthSnapshot", "BarometricReading"])
+    }
+
+    /// A fetch-failure blocker embeds an arbitrary error message, which could in
+    /// principle quote row contents. It must be stripped too, not just counts.
+    @Test("log-safe blockers strip a fetch-failure payload, not just counts")
+    func logSafeBlockersStripFetchFailureText() {
+        let safe = SyncService.logSafeBlockers(["HRVReading=<fetch failed: some detail>"])
+        #expect(safe == ["HRVReading"])
+    }
+
     /// The error must actually surface the blockers to the user — carrying them
     /// in the associated value but dropping them from `errorDescription` would
     /// reproduce the original "undiagnosable" failure exactly.
