@@ -11,19 +11,26 @@ import Testing
 /// rows the server had could only be fixed by wiping it and restoring from
 /// scratch. Reconcile closes that gap.
 ///
-/// The two properties that make it safe, both covered here:
+/// The properties that make it safe, all covered here:
 ///
-/// 1. **Every importer is idempotent.** Each keys on the same natural key the
-///    server itself upserts on (`anxiety_entries.timestamp`,
-///    `medication_doses.(timestamp, medication_name)`, …), so re-importing a row
-///    the device already has is a no-op rather than a duplicate. This is what
-///    lets reconcile skip the empty-store guard at all.
-/// 2. **Reconcile never advances the sync cursor.** A reconcile runs against a
+/// 1. **Every importer is skip-if-present**, keyed on the same natural key the
+///    server uses as its PRIMARY KEY (`anxiety_entries.timestamp`,
+///    `medication_doses.(timestamp, medication_name)`, …). Note "skip-if-present",
+///    NOT "has a unique constraint" — SwiftData resolves a `#Unique` collision by
+///    REPLACING the whole object, so relying on the constraint would silently
+///    overwrite locally-corrected rows with the server's older copy.
+/// 2. **The local copy wins on conflict.** A row differing from the server's is far
+///    likelier to be a local correction pending upload than to be stale.
+/// 3. **Reconcile never advances the sync cursor.** A reconcile runs against a
 ///    populated store that may hold rows the server has never seen. Advancing
 ///    `lastSyncDate` past them would make the next incremental sync's `since`
 ///    filter skip them forever — they'd exist only on a device that believed
 ///    they were backed up. That is the CLAUDE.md cursor race in its most
 ///    destructive form, and it is why the finalize block is restore-only.
+/// 4. **The existence guards fail CLOSED.** An unreadable table aborts the whole
+///    reconcile rather than degrading to "nothing exists" — which would disable the
+///    skip checks and re-enable the clobber in (1). A guard that fails open is worse
+///    than no guard, because it looks like protection.
 /// `.serialized` + a private `SyncService()` instance rather than `.shared`: the
 /// config properties are stored instance vars whose `didSet` writes through to
 /// `UserDefaults.standard`. Asserting on a private instance keeps the cursor check
@@ -98,9 +105,9 @@ struct ReconcileFromServerTests {
             ["timestamp": "2026-03-01T14:30:00Z", "severity": 3, "notes": "second", "tags": []],
         ]
 
-        #expect(SyncService.importAnxietyEntries(rows, shift: 0, into: context) == 2)
+        #expect(try SyncService.importAnxietyEntries(rows, shift: 0, into: context) == 2)
         try context.save()
-        #expect(SyncService.importAnxietyEntries(rows, shift: 0, into: context) == 0,
+        #expect(try SyncService.importAnxietyEntries(rows, shift: 0, into: context) == 0,
                 "a second import of identical rows must add nothing")
         try context.save()
 
@@ -123,7 +130,7 @@ struct ReconcileFromServerTests {
             ["timestamp": "2026-03-01T10:00:00Z", "severity": 6, "notes": "first", "tags": []],
             ["timestamp": "2026-03-01T14:30:00Z", "severity": 3, "notes": "second", "tags": []],
         ]
-        #expect(SyncService.importAnxietyEntries(rows, shift: 0, into: context) == 1)
+        #expect(try SyncService.importAnxietyEntries(rows, shift: 0, into: context) == 1)
         try context.save()
 
         #expect(try context.fetchCount(FetchDescriptor<AnxietyEntry>()) == 2)
@@ -140,10 +147,10 @@ struct ReconcileFromServerTests {
             ["timestamp": "2026-03-01T08:00:00Z", "medication_name": "Propranolol 20mg Tablets", "dose_mg": 20.0],
         ]
 
-        #expect(SyncService.importMedDoses(rows, shift: 0, into: context) == 2,
+        #expect(try SyncService.importMedDoses(rows, shift: 0, into: context) == 2,
                 "same timestamp, different medication — both are distinct doses")
         try context.save()
-        #expect(SyncService.importMedDoses(rows, shift: 0, into: context) == 0)
+        #expect(try SyncService.importMedDoses(rows, shift: 0, into: context) == 0)
         try context.save()
 
         #expect(try context.fetchCount(FetchDescriptor<MedicationDose>()) == 2)
@@ -158,11 +165,11 @@ struct ReconcileFromServerTests {
              "end_time": "2026-03-02T06:00:00Z", "battery_at_start": 95, "source": "polar_h10"],
         ]
 
-        let (first, _) = SyncService.importSensorSessions(rows, shift: 0, into: context)
+        let (first, _) = try SyncService.importSensorSessions(rows, shift: 0, into: context)
         #expect(first == 1)
         try context.save()
 
-        let (second, map) = SyncService.importSensorSessions(rows, shift: 0, into: context)
+        let (second, map) = try SyncService.importSensorSessions(rows, shift: 0, into: context)
         #expect(second == 0)
         try context.save()
 
@@ -185,17 +192,17 @@ struct ReconcileFromServerTests {
         ]
 
         // First pass: session lands.
-        _ = SyncService.importSensorSessions(sessionRows, shift: 0, into: context)
+        _ = try SyncService.importSensorSessions(sessionRows, shift: 0, into: context)
         try context.save()
 
         // Reconcile pass: session is skipped, but its HRV readings are missing and
         // must still attach to it.
-        let (_, map) = SyncService.importSensorSessions(sessionRows, shift: 0, into: context)
+        let (_, map) = try SyncService.importSensorSessions(sessionRows, shift: 0, into: context)
         let hrvRows: [[String: Any]] = [
             ["id": Self.hrvUUID, "timestamp": "2026-03-01T22:05:00Z",
              "session_id": Self.sessionUUID, "sdnn": 42.0, "rmssd": 38.0, "pnn50": 12.5],
         ]
-        #expect(SyncService.importHRVReadings(hrvRows, shift: 0, sessionMap: map, into: context) == 1)
+        #expect(try SyncService.importHRVReadings(hrvRows, shift: 0, sessionMap: map, into: context) == 1)
         try context.save()
 
         let readings = try context.fetch(FetchDescriptor<HRVReading>())
@@ -232,7 +239,7 @@ struct ReconcileFromServerTests {
 
         // The server still holds the pre-correction value.
         let rows: [[String: Any]] = [["date": "2026-03-01T00:00:00Z", "hrv_avg": 31.0]]
-        #expect(SyncService.importHealthSnapshots(rows, shift: 0, into: context) == 0,
+        #expect(try SyncService.importHealthSnapshots(rows, shift: 0, into: context) == 0,
                 "the date is already present — nothing to add")
         try context.save()
 
@@ -268,7 +275,7 @@ struct ReconcileFromServerTests {
         let rows: [[String: Any]] = [
             ["date": "2026-03-01T00:00:00Z", "ahi": 9.9, "total_usage_minutes": 120],
         ]
-        #expect(SyncService.importCPAPSessions(rows, shift: 0, into: context) == 0)
+        #expect(try SyncService.importCPAPSessions(rows, shift: 0, into: context) == 0)
         try context.save()
 
         let sessions = try context.fetch(FetchDescriptor<CPAPSession>())
@@ -322,6 +329,113 @@ struct ReconcileFromServerTests {
         #expect(try context.fetchCount(FetchDescriptor<AnxietyEntry>()) == 1)
         #expect(try context.fetchCount(FetchDescriptor<HealthSnapshot>()) == 1)
         #expect(try context.fetchCount(FetchDescriptor<CPAPSession>()) == 1)
+    }
+
+    /// `PrescriptionImporter.importRecords` is an UPSERT — it *updates* on an
+    /// `rx_number` match. Correct for its own callers (re-scanning a refilled bottle
+    /// should update the record) and moot on a restore (empty store), but on a
+    /// reconcile it would revert a locally-edited prescription to the server's older
+    /// copy: the same clobber as HealthSnapshot/CPAPSession, in the one importer
+    /// this feature doesn't own. Filtering to genuinely-new rx numbers makes the
+    /// update branch unreachable from the reconcile path.
+    @Test("a locally-edited Prescription is NOT reverted by the server's copy")
+    func prescriptionLocalEditSurvives() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        context.insert(Prescription(
+            rxNumber: "7654321",
+            medicationName: "Clonazepam 1mg Tablets",
+            doseMg: 1.0,
+            doseDescription: "1 tablet",
+            quantity: 30,
+            refillsRemaining: 2,
+            dateFilled: Self.instant("2026-03-01T00:00:00Z"),
+            estimatedRunOutDate: nil,
+            pharmacyName: "Test Pharmacy #12345",
+            notes: "locally corrected",
+            dailyDoseCount: 1,
+            prescriberName: "Jane Smith MD",
+            ndcCode: "00000-0000-00"
+        ))
+        try context.save()
+
+        // Server still has the pre-edit refill count.
+        let rows: [[String: Any]] = [[
+            "rx_number": "7654321",
+            "medication_name": "Clonazepam 1mg Tablets",
+            "dose_mg": 1.0, "quantity": 30, "refills_remaining": 9,
+            "date_filled": "2026-03-01T00:00:00Z",
+            "notes": "stale server copy",
+        ]]
+
+        let newRows = try SyncService.prescriptionRowsNotAlreadyPresent(rows, in: context)
+        #expect(newRows.isEmpty, "an rx_number the store already has must not reach the upsert")
+
+        let prescriptions = try context.fetch(FetchDescriptor<Prescription>())
+        #expect(prescriptions.count == 1)
+        #expect(prescriptions[0].refillsRemaining == 2, "local edit must not be reverted")
+        #expect(prescriptions[0].notes == "locally corrected")
+    }
+
+    @Test("a prescription the device is missing IS added")
+    func missingPrescriptionIsAdded() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let rows: [[String: Any]] = [[
+            "rx_number": "7654322",
+            "medication_name": "Propranolol 20mg Tablets",
+            "dose_mg": 20.0, "quantity": 60, "refills_remaining": 1,
+            "date_filled": "2026-03-01T00:00:00Z",
+        ]]
+        let newRows = try SyncService.prescriptionRowsNotAlreadyPresent(rows, in: context)
+        #expect(newRows.count == 1, "the filter must not drop rows the store lacks")
+    }
+
+    // MARK: - Mutual exclusion with sync
+    //
+    // Gating the Settings buttons is not sufficient: auto-sync fires from
+    // AnxietyWatchApp at launch and from the background-refresh handler, neither of
+    // which consults the UI. The mutex has to live on the service.
+
+    @Test("reconcile refuses to start while a sync is in flight")
+    func reconcileRefusesWhileSyncing() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let sync = SyncService()
+
+        let restoreDefaults = Self.saveSyncDefaults()
+        defer { restoreDefaults() }
+        sync.serverURL = "http://127.0.0.1:9999"
+        sync.apiKey = "test-key"
+        sync.isSyncing = true   // a background auto-sync is mid-flight
+
+        await #expect(throws: RestoreError.self) {
+            _ = try await sync.reconcileFromServer(modelContext: context) { request in
+                Self.respond(to: request, bulk: Data("{}".utf8))
+            }
+        }
+    }
+
+    /// …and it must RELEASE the mutex, or one reconcile would wedge every subsequent
+    /// sync for the life of the process.
+    @Test("reconcile releases the sync mutex when it finishes")
+    func reconcileReleasesMutex() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let sync = SyncService()
+
+        let restoreDefaults = Self.saveSyncDefaults()
+        defer { restoreDefaults() }
+        sync.serverURL = "http://127.0.0.1:9999"
+        sync.apiKey = "test-key"
+
+        let data = try JSONSerialization.data(withJSONObject: ["anxietyEntries": []])
+        _ = try await sync.reconcileFromServer(modelContext: context) { request in
+            Self.respond(to: request, bulk: data)
+        }
+        #expect(sync.isSyncing == false)
     }
 
     // MARK: - Cursor invariant
