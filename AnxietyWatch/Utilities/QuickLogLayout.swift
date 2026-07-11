@@ -13,6 +13,10 @@ import CoreGraphics
 /// the final short row is centred.
 ///
 /// Kept free of SwiftUI/WatchKit so the sizing math is isolated and testable.
+/// Lives in the iOS app folder (rather than the watch app's) and is shared into
+/// the watch target via the project's synchronized-group membership exceptions
+/// — the same arrangement `HRVCalculator` uses — so `AnxietyWatchTests` can
+/// cover it while `QuickLogView` still consumes it on watchOS.
 struct QuickLogLayout {
     static let count = 10
     static let cols = 4
