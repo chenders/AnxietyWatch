@@ -8,39 +8,17 @@ struct QuickLogView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let rows = 2
-            let cols = 5
-            let hSpacing: CGFloat = 4
-            let vSpacing: CGFloat = 6
-            let buttonWidth = (geo.size.width - hSpacing * CGFloat(cols - 1)) / CGFloat(cols)
-            let buttonHeight = min(buttonWidth, (geo.size.height - vSpacing) / CGFloat(rows))
+            let layout = QuickLogLayout(size: geo.size)
 
-            VStack(spacing: vSpacing) {
-                ForEach(0..<rows, id: \.self) { row in
-                    HStack(spacing: hSpacing) {
-                        ForEach(0..<cols, id: \.self) { col in
-                            let level = row * cols + col + 1
-                            Button {
-                                selectedSeverity = level
-                                let source: String? = connectivity.pendingRandomCheckIn ? "random_checkin" : nil
-                                connectivity.sendAnxietyEntry(severity: level, source: source)
-                                if connectivity.pendingRandomCheckIn {
-                                    connectivity.pendingRandomCheckIn = false
-                                }
-                                WKInterfaceDevice.current().play(.success)
-                                showingConfirmation = true
-                            } label: {
-                                Text("\(level)")
-                                    .font(.title3.bold())
-                                    .frame(width: buttonWidth, height: buttonHeight)
-                                    .background(
-                                        Circle()
-                                            .fill(severityColor(level).opacity(selectedSeverity == level ? 1.0 : 0.3))
-                                    )
-                                    .foregroundStyle(selectedSeverity == level ? .white : severityColor(level))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("\(level), \(severityLabel(level))")
+            // Rows are spread with Spacers so the large circles fill the whole
+            // height; the short final row is centred by the HStack.
+            VStack(spacing: 0) {
+                let rows = QuickLogLayout.rowsOfLevels()
+                ForEach(rows.indices, id: \.self) { index in
+                    if index > 0 { Spacer(minLength: QuickLogLayout.spacing) }
+                    HStack(spacing: QuickLogLayout.spacing) {
+                        ForEach(rows[index], id: \.self) { level in
+                            severityButton(level: level, layout: layout)
                         }
                     }
                 }
@@ -53,6 +31,43 @@ struct QuickLogView: View {
             }
         }
         .navigationTitle("Log")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// One severity target: a large circle with a heavy number filling it.
+    /// Bigger circles — reachable without fine motor control — are what make
+    /// the right number easy to hit with shaky hands or impaired vision.
+    private func severityButton(level: Int, layout: QuickLogLayout) -> some View {
+        Button {
+            selectedSeverity = level
+            let source: String? = connectivity.pendingRandomCheckIn ? "random_checkin" : nil
+            connectivity.sendAnxietyEntry(severity: level, source: source)
+            if connectivity.pendingRandomCheckIn {
+                connectivity.pendingRandomCheckIn = false
+            }
+            WKInterfaceDevice.current().play(.success)
+            showingConfirmation = true
+        } label: {
+            Text("\(level)")
+                .font(.system(size: layout.fontSize, weight: .heavy, design: .rounded))
+                .minimumScaleFactor(0.5)
+                .foregroundStyle(severityTextColor(level))
+                .frame(width: layout.diameter, height: layout.diameter)
+                .background(Circle().fill(severityColor(level)))
+                .overlay {
+                    // Selection is shown with a ring, not an opacity change, so
+                    // the number keeps its full contrast in every state. The
+                    // ring reuses the number's contrast color rather than a
+                    // fixed white — a white stroke on the light fills (yellow
+                    // especially) is nearly invisible, which would make the
+                    // selected state unreadable exactly where it matters.
+                    if selectedSeverity == level {
+                        Circle().strokeBorder(severityTextColor(level), lineWidth: 3)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(level), \(severityLabel(level))")
     }
 
     // MARK: - Confirmation
@@ -89,6 +104,18 @@ struct QuickLogView: View {
         case 5...6: return .orange
         case 7...8: return .red
         default: return Color(red: 0.6, green: 0.0, blue: 0.0)
+        }
+    }
+
+    /// High-contrast text color for the number sitting on a full-opacity
+    /// severity fill. Dark text on the light fills (green/yellow/orange), light
+    /// text on the dark fills (red/dark red) — chosen so every number clears
+    /// WCAG AA for large text against its circle (the same-hue text on 9/10 was
+    /// the failing case). Matches the bands in `severityColor`.
+    private func severityTextColor(_ level: Int) -> Color {
+        switch level {
+        case 1...6: return .black
+        default: return .white
         }
     }
 

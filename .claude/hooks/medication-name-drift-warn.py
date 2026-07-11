@@ -43,6 +43,10 @@ SEED_CANONICAL_NAMES = frozenset({
     "Mirtazapine 15mg Tablets",
     "Quetiapine 25mg Tablets",
     "Zolpidem Tartrate",
+    # Generic demo-seed medications used by DemoSeeder.swift for README
+    # screenshots — deliberately NOT the maintainer's real regimen.
+    "Sertraline 50mg",
+    "Hydroxyzine 25mg",
     # 'clonazePAM' is INTENTIONALLY not in this list — it's a legacy drift
     # row, not a new canonical name we want to perpetuate.
 })

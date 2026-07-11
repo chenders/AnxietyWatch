@@ -133,6 +133,7 @@
 				Services/AccelerometerProcessor.swift,
 				Services/HRVCalculator.swift,
 				Services/SpectralAnalyzer.swift,
+				Utilities/QuickLogLayout.swift,
 			);
 			target = 8335360C2F6D0BFF00B45286 /* AnxietyWatch Watch App */;
 		};

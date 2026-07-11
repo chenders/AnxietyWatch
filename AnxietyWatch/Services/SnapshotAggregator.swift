@@ -86,11 +86,13 @@ struct SnapshotAggregator {
     func aggregateDay(_ date: Date) async throws {
         #if DEBUG && targetEnvironment(simulator)
         // Skip aggregation when the app was launched with
-        // `-autoRestoreFromServer`. The aggregator otherwise overwrites the
-        // server-restored snapshot fields with nils derived from the
-        // (empty) on-simulator HealthKit store, producing the
-        // "data appears then disappears" flicker.
-        if RestoreDemoMode.isActive {
+        // `-autoRestoreFromServer` (server-restored data) or `-seedDemoData`
+        // (synthetic demo data). In both cases the snapshots were written by
+        // something other than HealthKit, and the aggregator would otherwise
+        // overwrite those fields with nils derived from the (empty)
+        // on-simulator HealthKit store — the "data appears then disappears"
+        // flicker.
+        if RestoreDemoMode.isActive || SeedDemoMode.isActive {
             return
         }
         #endif
