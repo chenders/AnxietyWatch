@@ -634,7 +634,7 @@ struct CPAPBySessionImportTests {
                 "obstructive_events": 2, "central_events": 0, "hypopnea_events": 1
             ]
         ]
-        let count = SyncService.importCPAPSessions(rows, shift: 0, into: context)
+        let count = try SyncService.importCPAPSessions(rows, shift: 0, into: context)
         #expect(count == 2)
 
         let sessions = try context.fetch(FetchDescriptor<CPAPSession>(sortBy: [SortDescriptor(\.date)]))

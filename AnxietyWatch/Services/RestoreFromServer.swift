@@ -124,6 +124,17 @@ enum RestoreMode: Sendable {
 
 enum RestoreError: Error, LocalizedError {
     case invalidJSON
+    /// A sync (or another restore/reconcile) is already running.
+    ///
+    /// Restore and reconcile now take the same `isSyncing` mutex `sync()` does.
+    /// Gating the Settings buttons is not sufficient: auto-sync fires from
+    /// `AnxietyWatchApp` at launch and from the background-refresh handler, neither
+    /// of which consults the UI. Both operations mutate the same `ModelContext`
+    /// across `await` suspension points (network round trips), and reconcile is
+    /// *designed* to run against a populated, actively-syncing store — so the
+    /// interleaving is realistic rather than theoretical. The mutex has to live on
+    /// the service, not the screen.
+    case syncInProgress
     /// Carries the specific blockers (`"AnxietyEntry=3"`, or
     /// `"HRVReading=<fetch failed: …>"`). Without them this error is
     /// undiagnosable: the guard fails closed, so a *failed fetch* is
@@ -135,6 +146,8 @@ enum RestoreError: Error, LocalizedError {
         switch self {
         case .invalidJSON:
             return "Server response was not valid JSON"
+        case .syncInProgress:
+            return "A sync is already running — wait for it to finish and try again."
         case .storeNotEmpty(let blockers):
             return "Local store already contains data — restore only runs into an empty "
                 + "store so it can't duplicate rows. On a fresh install, restore before "
@@ -179,6 +192,15 @@ extension SyncService {
         defaults: UserDefaults = .standard
     ) async throws -> String {
         guard isConfigured else { throw SyncError.notConfigured }
+
+        // Take the same mutex `sync()` uses. Gating the Settings buttons isn't
+        // enough — auto-sync fires from AnxietyWatchApp at launch and from the
+        // background-refresh handler, neither of which consults the UI — and both
+        // paths mutate this same ModelContext across `await` suspension points.
+        guard !isSyncing else { throw RestoreError.syncInProgress }
+        isSyncing = true
+        defer { isSyncing = false }
+
         // The empty-store guard is a RESTORE precondition only — a reconcile is
         // defined as running against a populated store.
         if mode == .restore {
@@ -259,16 +281,16 @@ extension SyncService {
             report["medicationDefinitions"] = Self.importMedDefinitions(rows, into: modelContext)
         }
         if let rows = json["medicationDoses"] as? [[String: Any]] {
-            report["medicationDoses"] = Self.importMedDoses(rows, shift: shift, into: modelContext)
+            report["medicationDoses"] = try Self.importMedDoses(rows, shift: shift, into: modelContext)
         }
         if let rows = json["anxietyEntries"] as? [[String: Any]] {
-            report["anxietyEntries"] = Self.importAnxietyEntries(rows, shift: shift, into: modelContext)
+            report["anxietyEntries"] = try Self.importAnxietyEntries(rows, shift: shift, into: modelContext)
         }
         if let rows = json["healthSnapshots"] as? [[String: Any]] {
-            report["healthSnapshots"] = Self.importHealthSnapshots(rows, shift: shift, into: modelContext)
+            report["healthSnapshots"] = try Self.importHealthSnapshots(rows, shift: shift, into: modelContext)
         }
         if let rows = json["cpapSessions"] as? [[String: Any]] {
-            report["cpapSessions"] = Self.importCPAPSessions(rows, shift: shift, into: modelContext)
+            report["cpapSessions"] = try Self.importCPAPSessions(rows, shift: shift, into: modelContext)
         }
         if let rows = json["barometricReadings"] as? [[String: Any]] {
             report["barometricReadings"] = Self.importBarometricReadings(rows, shift: shift, into: modelContext)
@@ -277,7 +299,19 @@ extension SyncService {
             report["pharmacies"] = Self.importPharmacies(rows, into: modelContext)
         }
         if let rows = json["prescriptions"] as? [[String: Any]] {
-            report["prescriptions"] = (try? PrescriptionImporter.importRecords(rows, into: modelContext)) ?? 0
+            // `PrescriptionImporter.importRecords` is an UPSERT — it updates an
+            // existing row when `rx_number` matches. That's right for its own use
+            // (an OCR re-scan of a refilled bottle SHOULD update the record), and
+            // it's moot on a restore (empty store: every row is an insert). But on
+            // a reconcile it would overwrite a locally-edited prescription with the
+            // server's older copy — the same clobber `importHealthSnapshots` /
+            // `importCPAPSessions` had, in the one importer this feature doesn't own.
+            //
+            // So filter to genuinely-new rx numbers first: the upsert's update
+            // branch is then unreachable, and "existing rows are skipped, never
+            // overwritten" is true of the whole reconcile rather than most of it.
+            let newRows = try Self.prescriptionRowsNotAlreadyPresent(rows, in: modelContext)
+            report["prescriptions"] = (try? PrescriptionImporter.importRecords(newRows, into: modelContext)) ?? 0
         }
         // After pharmacies so the `pharmacy` relationship can re-link by name.
         if let rows = json["pharmacyCallLogs"] as? [[String: Any]] {
@@ -286,31 +320,31 @@ extension SyncService {
 
         var sessionIdMap: [String: UUID] = [:]
         if let rows = json["sensorSessions"] as? [[String: Any]] {
-            let (n, map) = Self.importSensorSessions(rows, shift: shift, into: modelContext)
+            let (n, map) = try Self.importSensorSessions(rows, shift: shift, into: modelContext)
             report["sensorSessions"] = n
             sessionIdMap = map
         }
         if let rows = json["hrvReadings"] as? [[String: Any]] {
-            report["hrvReadings"] = Self.importHRVReadings(rows, shift: shift, sessionMap: sessionIdMap, into: modelContext)
+            report["hrvReadings"] = try Self.importHRVReadings(rows, shift: shift, sessionMap: sessionIdMap, into: modelContext)
         }
         if let rows = json["accelSpectrograms"] as? [[String: Any]] {
-            report["accelSpectrograms"] = Self.importAccelSpectrograms(
+            report["accelSpectrograms"] = try Self.importAccelSpectrograms(
                 rows, shift: shift, sessionMap: sessionIdMap, into: modelContext
             )
         }
         if let rows = json["derivedBreathingRates"] as? [[String: Any]] {
-            report["derivedBreathingRates"] = Self.importDerivedBreathingRates(
+            report["derivedBreathingRates"] = try Self.importDerivedBreathingRates(
                 rows, shift: shift, sessionMap: sessionIdMap, into: modelContext
             )
         }
         var songServerIDMap: [Int: Song] = [:]
         if let rows = json["songs"] as? [[String: Any]] {
-            let (n, map) = Self.importSongs(rows, into: modelContext)
+            let (n, map) = try Self.importSongs(rows, into: modelContext)
             report["songs"] = n
             songServerIDMap = map
         }
         if let rows = json["songOccurrences"] as? [[String: Any]] {
-            report["songOccurrences"] = Self.importSongOccurrences(rows, shift: shift, songMap: songServerIDMap, into: modelContext)
+            report["songOccurrences"] = try Self.importSongOccurrences(rows, shift: shift, songMap: songServerIDMap, into: modelContext)
         }
         if let rows = json["sleepStageEvents"] as? [[String: Any]] {
             // Demo mode only: sleep events lag snapshots in prod (auto-sync
@@ -325,7 +359,7 @@ extension SyncService {
             #else
             let sleepShift: TimeInterval = 0
             #endif
-            report["sleepStageEvents"] = Self.importSleepStageEvents(rows, shift: sleepShift, into: modelContext)
+            report["sleepStageEvents"] = try Self.importSleepStageEvents(rows, shift: sleepShift, into: modelContext)
         }
 
         try modelContext.save()
@@ -462,10 +496,46 @@ extension SyncService {
     /// and (b) report every row on the server as "added" while doing a full
     /// rewrite of the table. Skipping known ids is what makes the reported counts
     /// mean "rows added" and keeps a repair on a healthy store nearly free.
+    ///
+    /// **Throws rather than returning an empty set on a failed fetch.** This is the
+    /// whole point: `try? … ?? []` would report "no existing rows" for an unreadable
+    /// table, which silently DISABLES the skip check and re-enables the very
+    /// replace-clobber it exists to prevent — a guard that fails open is worse than
+    /// no guard, because it looks like protection. Failing closed aborts the whole
+    /// reconcile before a single row is touched. (Same principle as
+    /// `restoreGuardBlockers`: a guard that can't evaluate must not assume it's
+    /// safe to proceed.)
     static func existingIDs<T: PersistentModel>(
         _ type: T.Type, _ id: KeyPath<T, UUID>, in ctx: ModelContext
-    ) -> Set<UUID> {
-        Set(((try? ctx.fetch(FetchDescriptor<T>())) ?? []).map { $0[keyPath: id] })
+    ) throws -> Set<UUID> {
+        Set(try ctx.fetch(FetchDescriptor<T>()).map { $0[keyPath: id] })
+    }
+
+    /// Fail-closed sibling of `existingIDs` for importers keyed on something other
+    /// than a `UUID` id (a timestamp, a start-of-day, a composite). Same rule: a
+    /// fetch that throws must abort the import, never degrade to "nothing exists".
+    static func existingKeys<T: PersistentModel, K: Hashable>(
+        _ type: T.Type, in ctx: ModelContext, key: (T) -> K
+    ) throws -> Set<K> {
+        Set(try ctx.fetch(FetchDescriptor<T>()).map(key))
+    }
+
+    /// Drop prescription rows whose `rx_number` the store already has.
+    ///
+    /// `PrescriptionImporter.importRecords` upserts (it updates on an `rx_number`
+    /// match), which is correct for its own callers — re-scanning a refilled bottle
+    /// *should* update the record — but would let a reconcile revert a locally
+    /// edited prescription to the server's older copy. Filtering first makes the
+    /// update branch unreachable from this path without changing the importer that
+    /// other callers depend on. `internal` for ReconcileFromServerTests.
+    static func prescriptionRowsNotAlreadyPresent(
+        _ rows: [[String: Any]], in ctx: ModelContext
+    ) throws -> [[String: Any]] {
+        let existing = try existingKeys(Prescription.self, in: ctx) { $0.rxNumber }
+        return rows.filter { row in
+            guard let rx = row["rx_number"] as? String, !rx.isEmpty else { return false }
+            return !existing.contains(rx)
+        }
     }
 
     /// Strip the row counts from `restoreGuardBlockers` output, leaving only the
@@ -659,16 +729,15 @@ extension SyncService {
     /// PRIMARY KEY for `medication_doses`. See `importAnxietyEntries` for why
     /// the server's key, and not a UUID, is the right identity here.
     /// `internal` (not private) for ReconcileFromServerTests.
-    static func importMedDoses(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> Int {
+    static func importMedDoses(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) throws -> Int {
         var n = 0
         let allDefs = (try? ctx.fetch(FetchDescriptor<MedicationDefinition>())) ?? []
         let defsByName = Dictionary(uniqueKeysWithValues: allDefs.map { ($0.name, $0) })
 
         struct DoseKey: Hashable { let timestamp: Date; let name: String }
-        var seen = Set(
-            ((try? ctx.fetch(FetchDescriptor<MedicationDose>())) ?? [])
-                .map { DoseKey(timestamp: $0.timestamp, name: $0.medicationName) }
-        )
+        var seen = try Self.existingKeys(MedicationDose.self, in: ctx) {
+            DoseKey(timestamp: $0.timestamp, name: $0.medicationName)
+        }
 
         for row in rows {
             guard let ts = parseDate(row["timestamp"]),
@@ -695,10 +764,8 @@ extension SyncService {
     /// blind `insert` would duplicate every row on a re-import; keying on what
     /// the server upserts on gives both directions identical identity semantics.
     /// `internal` (not private) for ReconcileFromServerTests.
-    static func importAnxietyEntries(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> Int {
-        var seen = Set(
-            ((try? ctx.fetch(FetchDescriptor<AnxietyEntry>())) ?? []).map(\.timestamp)
-        )
+    static func importAnxietyEntries(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) throws -> Int {
+        var seen = try Self.existingKeys(AnxietyEntry.self, in: ctx) { $0.timestamp }
         var n = 0
         for row in rows {
             guard let ts = parseDate(row["timestamp"]),
@@ -744,7 +811,7 @@ extension SyncService {
     }
 
     /// `internal` (not private) for ReconcileFromServerTests.
-    static func importHealthSnapshots(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> Int {
+    static func importHealthSnapshots(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) throws -> Int {
         let medians = computeMedians(rows: rows)
         func dbl(_ row: [String: Any], _ k: String) -> Double? {
             if let v = row[k] as? Double { return v }
@@ -777,9 +844,7 @@ extension SyncService {
         // normalizes its date that way (which is what makes the unique constraint work on
         // calendar days at all). Keying on the unnormalized value silently never matches —
         // the guard passes, the insert fires, and the replace happens anyway.
-        var seenDates = Set(
-            ((try? ctx.fetch(FetchDescriptor<HealthSnapshot>())) ?? []).map(\.date)
-        )
+        var seenDates = try Self.existingKeys(HealthSnapshot.self, in: ctx) { $0.date }
         var n = 0
         for row in rows {
             guard let date = parseDate(row["date"]) else { continue }
@@ -838,7 +903,7 @@ extension SyncService {
 
     /// `internal` (not private) so RestoreFromServerTests can verify a
     /// null-AHI (EDF-only) row still imports rather than being skipped (F-094).
-    static func importCPAPSessions(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> Int {
+    static func importCPAPSessions(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) throws -> Int {
         // Skip dates the store already has, for the same reason as
         // `importHealthSnapshots`: `#Unique<CPAPSession>([\.date])` resolves a
         // collision by REPLACING the object wholesale, and `CPAPSession` is
@@ -849,9 +914,7 @@ extension SyncService {
         //
         // Keyed on `startOfDay` because `CPAPSession.init` normalizes its date that way —
         // see the same note in `importHealthSnapshots`.
-        var seenDates = Set(
-            ((try? ctx.fetch(FetchDescriptor<CPAPSession>())) ?? []).map(\.date)
-        )
+        var seenDates = try Self.existingKeys(CPAPSession.self, in: ctx) { $0.date }
         var n = 0
         for row in rows {
             guard let date = parseDate(row["date"]),
@@ -935,7 +998,7 @@ extension SyncService {
         // rebuilding it inside the loop would mean ~52 full-table fetches instead
         // of one. Each page's newly-inserted ids are added to it as they land, so
         // duplicates *within* the payload are also skipped.
-        var existing = Self.existingIDs(QuantityHealthSample.self, \.id, in: modelContext)
+        var existing = try Self.existingIDs(QuantityHealthSample.self, \.id, in: modelContext)
 
         while true {
             guard var components = URLComponents(string: serverURL) else { throw SyncError.invalidURL }
@@ -1002,8 +1065,8 @@ extension SyncService {
     /// (potentially ~250k-element) set is built once rather than per page.
     static func importQuantityHealthSamples(
         _ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext
-    ) -> Int {
-        var existing = Self.existingIDs(QuantityHealthSample.self, \.id, in: ctx)
+    ) throws -> Int {
+        var existing = try Self.existingIDs(QuantityHealthSample.self, \.id, in: ctx)
         return importQuantityHealthSamples(rows, shift: shift, existing: &existing, into: ctx)
     }
 
@@ -1092,12 +1155,10 @@ extension SyncService {
     /// Sessions that already exist are skipped for insertion but **still added to
     /// the returned map** — `importHRVReadings` looks sessions up through it, so
     /// omitting them would orphan the HRV readings of every pre-existing session.
-    static func importSensorSessions(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> (Int, [String: UUID]) {
+    static func importSensorSessions(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) throws -> (Int, [String: UUID]) {
         var n = 0
         var map: [String: UUID] = [:]
-        let existing = Set(
-            ((try? ctx.fetch(FetchDescriptor<SensorSession>())) ?? []).map(\.id)
-        )
+        let existing = try Self.existingIDs(SensorSession.self, \.id, in: ctx)
         for row in rows {
             guard let serverIDString = row["id"] as? String,
                   let startStr = row["start_time"] as? String,
@@ -1138,13 +1199,13 @@ extension SyncService {
     }
 
     /// `internal` (not private) for RestoreFromServerTests.
-    static func importHRVReadings(_ rows: [[String: Any]], shift: TimeInterval, sessionMap: [String: UUID], into ctx: ModelContext) -> Int {
+    static func importHRVReadings(_ rows: [[String: Any]], shift: TimeInterval, sessionMap: [String: UUID], into ctx: ModelContext) throws -> Int {
         // Skip ids the store already has. These tables are append-only in
         // practice, so a blind re-insert wouldn't corrupt them the way it would
         // HealthSnapshot/CPAPSession — but a `#Unique` collision REPLACES the
         // row rather than skipping it, so without this every reconcile would
         // rewrite the entire remote history and report all of it as "added".
-        var existing = Self.existingIDs(HRVReading.self, \.id, in: ctx)
+        var existing = try Self.existingIDs(HRVReading.self, \.id, in: ctx)
         var n = 0
         for row in rows {
             guard let ts = parseDate(row["timestamp"]),
@@ -1180,13 +1241,13 @@ extension SyncService {
     /// `internal` (not private) for RestoreFromServerTests.
     static func importAccelSpectrograms(
         _ rows: [[String: Any]], shift: TimeInterval, sessionMap: [String: UUID], into ctx: ModelContext
-    ) -> Int {
+    ) throws -> Int {
         // Skip ids the store already has. These tables are append-only in
         // practice, so a blind re-insert wouldn't corrupt them the way it would
         // HealthSnapshot/CPAPSession — but a `#Unique` collision REPLACES the
         // row rather than skipping it, so without this every reconcile would
         // rewrite the entire remote history and report all of it as "added".
-        var existing = Self.existingIDs(AccelSpectrogram.self, \.id, in: ctx)
+        var existing = try Self.existingIDs(AccelSpectrogram.self, \.id, in: ctx)
         var n = 0
         for row in rows {
             guard let ts = parseDate(row["timestamp"]),
@@ -1222,13 +1283,13 @@ extension SyncService {
     /// `internal` (not private) for RestoreFromServerTests.
     static func importDerivedBreathingRates(
         _ rows: [[String: Any]], shift: TimeInterval, sessionMap: [String: UUID], into ctx: ModelContext
-    ) -> Int {
+    ) throws -> Int {
         // Skip ids the store already has. These tables are append-only in
         // practice, so a blind re-insert wouldn't corrupt them the way it would
         // HealthSnapshot/CPAPSession — but a `#Unique` collision REPLACES the
         // row rather than skipping it, so without this every reconcile would
         // rewrite the entire remote history and report all of it as "added".
-        var existing = Self.existingIDs(DerivedBreathingRate.self, \.id, in: ctx)
+        var existing = try Self.existingIDs(DerivedBreathingRate.self, \.id, in: ctx)
         var n = 0
         for row in rows {
             guard let ts = parseDate(row["timestamp"]),
@@ -1265,12 +1326,12 @@ extension SyncService {
     /// returned map**, which `importSongOccurrences` resolves `song_id` through —
     /// omitting them would leave every occurrence of a pre-existing song with a
     /// nil `song` relationship.
-    private static func importSongs(_ rows: [[String: Any]], into ctx: ModelContext) -> (Int, [Int: Song]) {
+    private static func importSongs(_ rows: [[String: Any]], into ctx: ModelContext) throws -> (Int, [Int: Song]) {
         var n = 0
         var map: [Int: Song] = [:]
         // Sorted for a deterministic tie-break if two rows somehow share a
         // serverId (CLAUDE.md deterministic-ordering pitfall).
-        let existing = (try? ctx.fetch(FetchDescriptor<Song>(sortBy: [SortDescriptor(\.id)]))) ?? []
+        let existing = try ctx.fetch(FetchDescriptor<Song>(sortBy: [SortDescriptor(\.id)]))
         var existingByServerID: [Int: Song] = [:]
         for song in existing {
             guard let sid = song.serverId else { continue }
@@ -1306,19 +1367,17 @@ extension SyncService {
     /// `song_occurrences_natural_key_unique` constraint. Keyed on the song's
     /// *serverId* rather than its local object so the key survives a re-import
     /// that resolved `songMap` to a pre-existing `Song`.
-    private static func importSongOccurrences(_ rows: [[String: Any]], shift: TimeInterval, songMap: [Int: Song], into ctx: ModelContext) -> Int {
+    private static func importSongOccurrences(
+        _ rows: [[String: Any]], shift: TimeInterval, songMap: [Int: Song], into ctx: ModelContext
+    ) throws -> Int {
         struct OccurrenceKey: Hashable {
             let songServerID: Int?
             let timestamp: Date
             let source: String?
         }
-        var seen = Set(
-            ((try? ctx.fetch(FetchDescriptor<SongOccurrence>())) ?? []).map {
-                OccurrenceKey(
-                    songServerID: $0.song?.serverId, timestamp: $0.timestamp, source: $0.source
-                )
-            }
-        )
+        var seen = try Self.existingKeys(SongOccurrence.self, in: ctx) {
+            OccurrenceKey(songServerID: $0.song?.serverId, timestamp: $0.timestamp, source: $0.source)
+        }
         var n = 0
         for row in rows {
             guard let ts = parseDate(row["timestamp"]),
@@ -1336,13 +1395,13 @@ extension SyncService {
         return n
     }
 
-    private static func importSleepStageEvents(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) -> Int {
+    private static func importSleepStageEvents(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) throws -> Int {
         // Skip ids the store already has. These tables are append-only in
         // practice, so a blind re-insert wouldn't corrupt them the way it would
         // HealthSnapshot/CPAPSession — but a `#Unique` collision REPLACES the
         // row rather than skipping it, so without this every reconcile would
         // rewrite the entire remote history and report all of it as "added".
-        var existing = Self.existingIDs(SleepStageEvent.self, \.id, in: ctx)
+        var existing = try Self.existingIDs(SleepStageEvent.self, \.id, in: ctx)
         var n = 0
         for row in rows {
             guard let startStr = row["start_time"] as? String,

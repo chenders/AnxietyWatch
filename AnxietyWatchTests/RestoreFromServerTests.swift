@@ -50,7 +50,7 @@ struct RestoreFromServerTests {
              "import_source": "oscar"],
         ]
 
-        let n = SyncService.importCPAPSessions(rows, shift: 0, into: context)
+        let n = try SyncService.importCPAPSessions(rows, shift: 0, into: context)
         #expect(n == 2, "both rows must import — the null-AHI row is no longer skipped")
 
         let sessions = try context.fetch(
@@ -73,7 +73,7 @@ struct RestoreFromServerTests {
         let context = ModelContext(container)
         // No total_usage_minutes → not a usable session; skip (unchanged).
         let rows: [[String: Any]] = [["date": "2024-03-01", "ahi": NSNull()]]
-        let n = SyncService.importCPAPSessions(rows, shift: 0, into: context)
+        let n = try SyncService.importCPAPSessions(rows, shift: 0, into: context)
         #expect(n == 0)
     }
 
@@ -103,7 +103,7 @@ struct RestoreFromServerTests {
              "summary_json": NSNull()],
         ]
 
-        let (n, map) = SyncService.importSensorSessions(rows, shift: 0, into: context)
+        let (n, map) = try SyncService.importSensorSessions(rows, shift: 0, into: context)
         #expect(n == 2)
         #expect(map.count == 2)
         #expect(map[serverID] == UUID(uuidString: serverID),
@@ -140,7 +140,7 @@ struct RestoreFromServerTests {
             ["id": serverSessionID, "source": "polar_h10",
              "start_time": "2024-03-01T21:30:00+00:00"],
         ]
-        let (_, sessionMap) = SyncService.importSensorSessions(sessionRows, shift: 0, into: context)
+        let (_, sessionMap) = try SyncService.importSensorSessions(sessionRows, shift: 0, into: context)
 
         let readingID = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
         let rows: [[String: Any]] = [
@@ -160,7 +160,7 @@ struct RestoreFromServerTests {
              "source": "polar_h10"],
         ]
 
-        let n = SyncService.importHRVReadings(rows, shift: 0, sessionMap: sessionMap, into: context)
+        let n = try SyncService.importHRVReadings(rows, shift: 0, sessionMap: sessionMap, into: context)
         #expect(n == 2)
 
         let readings = try context.fetch(
@@ -191,7 +191,7 @@ struct RestoreFromServerTests {
         let context = ModelContext(container)
 
         let serverSessionID = "ABABABAB-CDCD-EFEF-ABAB-CDCDCDCDCDCD"
-        let (_, sessionMap) = SyncService.importSensorSessions(
+        let (_, sessionMap) = try SyncService.importSensorSessions(
             [["id": serverSessionID, "source": "polar_h10",
               "start_time": "2024-03-01T21:30:00+00:00"]],
             shift: 0, into: context
@@ -212,7 +212,7 @@ struct RestoreFromServerTests {
              "fidget_band_power": 0.09, "activity_level": 0.4],
         ]
 
-        let n = SyncService.importAccelSpectrograms(rows, shift: 0, sessionMap: sessionMap, into: context)
+        let n = try SyncService.importAccelSpectrograms(rows, shift: 0, sessionMap: sessionMap, into: context)
         #expect(n == 2)
 
         let spectrograms = try context.fetch(
@@ -240,7 +240,7 @@ struct RestoreFromServerTests {
         let context = ModelContext(container)
 
         let serverSessionID = "ABABABAB-CDCD-EFEF-ABAB-CDCDCDCDCDCD"
-        let (_, sessionMap) = SyncService.importSensorSessions(
+        let (_, sessionMap) = try SyncService.importSensorSessions(
             [["id": serverSessionID, "source": "polar_h10",
               "start_time": "2024-03-01T21:30:00+00:00"]],
             shift: 0, into: context
@@ -258,7 +258,7 @@ struct RestoreFromServerTests {
              "breaths_per_minute": 15.0, "confidence": 0.6, "source": "healthkit_sleep"],
         ]
 
-        let n = SyncService.importDerivedBreathingRates(rows, shift: 0, sessionMap: sessionMap, into: context)
+        let n = try SyncService.importDerivedBreathingRates(rows, shift: 0, sessionMap: sessionMap, into: context)
         #expect(n == 2)
 
         let rates = try context.fetch(
@@ -293,7 +293,7 @@ struct RestoreFromServerTests {
             ["timestamp": "2024-03-01T08:30:00+00:00", "relative_altitude_m": 1.0],
         ]
 
-        let n = SyncService.importBarometricReadings(rows, shift: 0, into: context)
+        let n = try SyncService.importBarometricReadings(rows, shift: 0, into: context)
         #expect(n == 2)
 
         let readings = try context.fetch(
@@ -318,7 +318,7 @@ struct RestoreFromServerTests {
 
         // Server emits fractional seconds when the stored value has them.
         let ts = "2024-03-01T08:00:00.500+00:00"
-        _ = SyncService.importHRVReadings(
+        _ = try SyncService.importHRVReadings(
             [["id": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE", "timestamp": ts,
               "rmssd": 38.5, "sdnn": 52.1, "pnn50": 12.4]],
             shift: 0, sessionMap: [:], into: context
@@ -360,10 +360,10 @@ struct RestoreFromServerTests {
         ]
 
         for _ in 0..<2 {
-            _ = SyncService.importHRVReadings(hrvRows, shift: 0, sessionMap: [:], into: context)
-            _ = SyncService.importAccelSpectrograms(accelRows, shift: 0, sessionMap: [:], into: context)
-            _ = SyncService.importDerivedBreathingRates(breathingRows, shift: 0, sessionMap: [:], into: context)
-            _ = SyncService.importBarometricReadings(barometricRows, shift: 0, into: context)
+            _ = try SyncService.importHRVReadings(hrvRows, shift: 0, sessionMap: [:], into: context)
+            _ = try SyncService.importAccelSpectrograms(accelRows, shift: 0, sessionMap: [:], into: context)
+            _ = try SyncService.importDerivedBreathingRates(breathingRows, shift: 0, sessionMap: [:], into: context)
+            _ = try SyncService.importBarometricReadings(barometricRows, shift: 0, into: context)
             try context.save()
         }
 
@@ -400,7 +400,7 @@ struct RestoreFromServerTests {
             ["timestamp": "2024-03-03T09:30:00+00:00"],
         ]
 
-        let n = SyncService.importPharmacyCallLogs(rows, shift: 0, into: context)
+        let n = try SyncService.importPharmacyCallLogs(rows, shift: 0, into: context)
         #expect(n == 2)
         try context.save()
 
@@ -423,7 +423,7 @@ struct RestoreFromServerTests {
 
         // Idempotency: re-import dedupes on the server upsert key
         // (timestamp, pharmacy_name).
-        let again = SyncService.importPharmacyCallLogs(rows, shift: 0, into: context)
+        let again = try SyncService.importPharmacyCallLogs(rows, shift: 0, into: context)
         #expect(again == 0)
         try context.save()
         #expect(try context.fetchCount(FetchDescriptor<PharmacyCallLog>()) == 2)
@@ -439,7 +439,7 @@ struct RestoreFromServerTests {
             ["timestamp": "2024-03-01T10:00:00+00:00", "pharmacy_name": "Other Test Pharmacy",
              "direction": "attempted", "notes": ""],
         ]
-        let n = SyncService.importPharmacyCallLogs(rows, shift: 0, into: context)
+        let n = try SyncService.importPharmacyCallLogs(rows, shift: 0, into: context)
         #expect(n == 2, "matching timestamps alone must not collapse distinct pharmacies' logs")
     }
 
@@ -882,7 +882,7 @@ struct RestoreFromServerOrchestrationTests {
         let context = ModelContext(container)
         let id = "0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D"
 
-        let n = SyncService.importQuantityHealthSamples(
+        let n = try SyncService.importQuantityHealthSamples(
             [Self.sampleRow(id: id)], shift: 0, into: context
         )
 
@@ -900,7 +900,7 @@ struct RestoreFromServerOrchestrationTests {
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
-        _ = SyncService.importQuantityHealthSamples(
+        _ = try SyncService.importQuantityHealthSamples(
             [Self.sampleRow(id: "0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D")], shift: 0, into: context
         )
 
@@ -921,7 +921,7 @@ struct RestoreFromServerOrchestrationTests {
             ["id": "not-a-uuid", "timestamp": "2024-03-01T10:00:00+00:00"],
             ["timestamp": "2024-03-01T10:00:00+00:00"],
         ]
-        let n = SyncService.importQuantityHealthSamples(rows, shift: 0, into: context)
+        let n = try SyncService.importQuantityHealthSamples(rows, shift: 0, into: context)
 
         #expect(n == 1, "malformed rows are skipped, not imported as junk")
         let row = try #require(try context.fetch(FetchDescriptor<QuantityHealthSample>()).first)
@@ -980,7 +980,7 @@ struct RestoreFromServerOrchestrationTests {
 
         #expect(SyncService.restoreGuardTablesAreEmpty(context), "baseline: empty store")
 
-        _ = SyncService.importQuantityHealthSamples(
+        _ = try SyncService.importQuantityHealthSamples(
             [Self.sampleRow(id: "0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D")], shift: 0, into: context
         )
         try context.save()
