@@ -259,6 +259,23 @@ extension SyncService {
 
         try modelContext.save()
 
+        // QuantityHealthSample is deliberately NOT in the bulk /api/data
+        // payload — it is ~250k rows / ~79 MB of JSON, which would blow up
+        // both the response and the parsed [[String: Any]] held in memory.
+        // It is paged down separately instead.
+        //
+        // This table used to sync UP but have no way back DOWN, so a fresh
+        // install silently lost every EMAY oximetry sample. Those are app-only
+        // (the app never writes to HealthKit), so unlike Apple/Polar/Dexcom
+        // rows, nothing else can re-derive them — they were simply gone.
+        report["quantityHealthSamples"] = try await Self.restorePagedQuantitySamples(
+            serverURL: serverURL,
+            apiKey: apiKey,
+            shift: shift,
+            modelContext: modelContext,
+            performRequest: performRequest
+        )
+
         // Post-restore re-aggregation: restored AccelSpectrogram /
         // DerivedBreathingRate rows never feed HealthSnapshot's
         // sensor-derived aggregates on their own — SnapshotAggregator runs
@@ -631,6 +648,124 @@ extension SyncService {
         }
         return n
     }
+
+    // MARK: - Quantity health samples (paged)
+
+    /// Rows per page when restoring `QuantityHealthSample`. The server clamps
+    /// to its own maximum; this is sized so a ~250k-row history restores in a
+    /// few dozen round trips while each page stays a couple of MB.
+    static let quantitySamplePageSize = 5000
+
+    /// Pull `QuantityHealthSample` down page-by-page and insert it.
+    ///
+    /// Paged rather than bulk because this is by far the largest table (~250k
+    /// rows / ~79 MB of JSON on a real device); inlining it in `/api/data`
+    /// would make the response — and the parsed dictionary the app holds in
+    /// memory — large enough to get the restore jetsammed. Each page is saved
+    /// before the next is fetched so peak memory stays bounded.
+    ///
+    /// Tolerates a server that predates the endpoint (404) by returning what it
+    /// has, so an app update can't hard-fail a restore against an older server.
+    static func restorePagedQuantitySamples(
+        serverURL: String,
+        apiKey: String,
+        shift: TimeInterval,
+        modelContext: ModelContext,
+        performRequest: (@MainActor (URLRequest) async throws -> (Data, URLResponse))?
+    ) async throws -> Int {
+        var imported = 0
+        var offset = 0
+        var total: Int?
+
+        while true {
+            guard var components = URLComponents(string: serverURL) else { throw SyncError.invalidURL }
+            components.path = "/api/data/quantityHealthSamples"
+            components.queryItems = [
+                URLQueryItem(name: "limit", value: String(quantitySamplePageSize)),
+                URLQueryItem(name: "offset", value: String(offset)),
+            ]
+            guard let url = components.url else { throw SyncError.invalidURL }
+
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            request.timeoutInterval = 180
+
+            let (data, response): (Data, URLResponse)
+            if let performRequest {
+                (data, response) = try await performRequest(request)
+            } else {
+                (data, response) = try await URLSession.shared.data(for: request)
+            }
+            guard let http = response as? HTTPURLResponse else { throw SyncError.noConnection }
+            // Older server without this entity — don't fail the whole restore.
+            if http.statusCode == 404 { return imported }
+            guard (200...299).contains(http.statusCode) else {
+                throw SyncError.serverError(http.statusCode, String(data: data, encoding: .utf8))
+            }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let rows = json["quantityHealthSamples"] as? [[String: Any]] else {
+                throw RestoreError.invalidJSON
+            }
+            if total == nil { total = json["total"] as? Int }
+
+            imported += Self.importQuantityHealthSamples(rows, shift: shift, into: modelContext)
+            // Save per page: a quarter-million unsaved inserts in one context is
+            // exactly the peak-memory shape that gets the app killed.
+            try modelContext.save()
+
+            // Advance by rows RECEIVED, not rows inserted — dedupe drops some
+            // rows, and paging off the inserted count would re-request them
+            // forever.
+            offset += rows.count
+            if rows.count < quantitySamplePageSize { break }
+            if let total, offset >= total { break }
+        }
+        return imported
+    }
+
+    /// Insert restored quantity samples.
+    ///
+    /// Two non-obvious invariants, both load-bearing:
+    /// - **The server's `id` is preserved.** `HealthDataCoordinator` mirrors
+    ///   HealthKit using `sample.hkUUID` as the row id and does update-or-insert
+    ///   on it. Minting fresh UUIDs here would make the first post-restore
+    ///   HealthKit backfill re-insert every Apple/Polar/Dexcom sample as a
+    ///   duplicate instead of matching the restored row.
+    /// - **`syncedToServer` is `true`.** These rows came FROM the server, and
+    ///   bulk types are exported on `syncedToServer == false` (not by the date
+    ///   cursor), so the default `false` would make the next sync re-upload the
+    ///   entire restored history.
+    static func importQuantityHealthSamples(
+        _ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext
+    ) -> Int {
+        var n = 0
+        for row in rows {
+            guard let idString = row["id"] as? String,
+                  let id = UUID(uuidString: idString),
+                  let ts = parseDate(row["timestamp"]),
+                  let metricType = row["metric_type"] as? String,
+                  let value = row["value"] as? Double,
+                  let unitString = row["unit_string"] as? String,
+                  let sourceBundleID = row["source_bundle_id"] as? String else { continue }
+            let groupID = (row["group_id"] as? String).flatMap(UUID.init(uuidString:))
+            ctx.insert(QuantityHealthSample(
+                id: id,
+                timestamp: ts.addingTimeInterval(shift),
+                metricType: metricType,
+                value: value,
+                unitString: unitString,
+                sourceBundleID: sourceBundleID,
+                sourceName: row["source_name"] as? String ?? "",
+                deviceModel: row["device_model"] as? String,
+                groupID: groupID,
+                syncedToServer: true
+            ))
+            n += 1
+        }
+        return n
+    }
+
+    // MARK: - Barometric readings
 
     /// Barometric readings are the one restored table with NO other source of
     /// truth — they come from this app's own `CMAltimeter` capture and are not

@@ -783,10 +783,32 @@ struct RestoreFromServerOrchestrationTests {
                 let response = try #require(HTTPURLResponse(
                     url: url, statusCode: 200, httpVersion: nil, headerFields: nil
                 ))
+                // The restore now makes a SECOND request: quantity samples are
+                // excluded from the bulk payload (~79 MB in the real dataset)
+                // and paged down separately. Route on path so the mock models
+                // the real two-endpoint flow.
+                if url.path.hasSuffix("/quantityHealthSamples") {
+                    let page: [String: Any] = [
+                        "quantityHealthSamples": [
+                            ["id": "0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D",
+                             "timestamp": "2024-03-01T10:00:00+00:00",
+                             "metric_type": "HKQuantityTypeIdentifierOxygenSaturation",
+                             "value": 0.95, "unit_string": "%",
+                             "source_bundle_id": "com.emay.SleepO2",
+                             "source_name": "EMAY SleepO2"],
+                        ],
+                        "total": 1,
+                    ]
+                    return (try JSONSerialization.data(withJSONObject: page), response)
+                }
                 return (body, response)
             },
             defaults: gateDefaults
         )
+
+        #expect(report.contains("quantityHealthSamples: 1"),
+                "paged quantity samples are restored as part of the normal flow")
+        #expect(try context.fetchCount(FetchDescriptor<QuantityHealthSample>()) == 1)
 
         #expect(service.lastSyncDate == fixedNow,
                 "first post-restore sync must be incremental from the pre-fetch bound")
@@ -830,5 +852,146 @@ struct RestoreFromServerOrchestrationTests {
                 "cursor only advances after the restore fully succeeds")
         #expect(!RestoreMigrationGate.isResolved(defaults: gateDefaults),
                 "a failed restore keeps the decision pending so the next launch re-prompts")
+    }
+
+    // MARK: - Quantity health samples (paged restore)
+    //
+    // This table synced UP but had no way back DOWN — absent from the server's
+    // ENTITY_QUERIES and never referenced by RestoreFromServer. A fresh install
+    // therefore silently lost every EMAY oximetry sample. Unlike Apple/Polar/
+    // Dexcom rows those are app-only (the app never writes to HealthKit), so
+    // nothing could re-derive them. These tests pin the path shut.
+
+    private static func sampleRow(
+        id: String, ts: String = "2024-03-01T10:00:00+00:00", source: String = "com.emay.SleepO2"
+    ) -> [String: Any] {
+        [
+            "id": id,
+            "timestamp": ts,
+            "metric_type": "HKQuantityTypeIdentifierOxygenSaturation",
+            "value": 0.95,
+            "unit_string": "%",
+            "source_bundle_id": source,
+            "source_name": "EMAY SleepO2",
+        ]
+    }
+
+    @Test("restored sample keeps the server's id — else HealthKit backfill duplicates every row")
+    func quantitySamplePreservesServerID() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let id = "0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D"
+
+        let n = SyncService.importQuantityHealthSamples(
+            [Self.sampleRow(id: id)], shift: 0, into: context
+        )
+
+        #expect(n == 1)
+        let row = try #require(try context.fetch(FetchDescriptor<QuantityHealthSample>()).first)
+        // HealthDataCoordinator mirrors HealthKit keyed on `sample.hkUUID`, doing
+        // update-or-insert on that id. Minting a fresh UUID here would make the
+        // first post-restore backfill re-insert every HealthKit-sourced sample as
+        // a duplicate instead of matching the restored row.
+        #expect(row.id == UUID(uuidString: id))
+    }
+
+    @Test("restored sample is marked synced — else the next sync re-uploads the whole history")
+    func quantitySampleIsMarkedSynced() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        _ = SyncService.importQuantityHealthSamples(
+            [Self.sampleRow(id: "0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D")], shift: 0, into: context
+        )
+
+        let row = try #require(try context.fetch(FetchDescriptor<QuantityHealthSample>()).first)
+        // Bulk types export on `syncedToServer == false` (not by the date cursor),
+        // and the model defaults it to false. Leaving the default would make the
+        // first sync after a restore re-POST every restored row.
+        #expect(row.syncedToServer, "rows that came FROM the server must not be queued to go back")
+    }
+
+    @Test("field mapping is correct and malformed rows are skipped")
+    func quantitySampleFieldMappingAndSkips() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let rows: [[String: Any]] = [
+            Self.sampleRow(id: "0A1B2C3D-4E5F-4A6B-8C7D-9E0F1A2B3C4D"),
+            ["id": "not-a-uuid", "timestamp": "2024-03-01T10:00:00+00:00"],
+            ["timestamp": "2024-03-01T10:00:00+00:00"],
+        ]
+        let n = SyncService.importQuantityHealthSamples(rows, shift: 0, into: context)
+
+        #expect(n == 1, "malformed rows are skipped, not imported as junk")
+        let row = try #require(try context.fetch(FetchDescriptor<QuantityHealthSample>()).first)
+        #expect(row.metricType == "HKQuantityTypeIdentifierOxygenSaturation")
+        #expect(abs(row.value - 0.95) < 0.0001)
+        #expect(row.unitString == "%")
+        #expect(row.sourceBundleID == "com.emay.SleepO2")
+        let expected = try #require(ISO8601DateFormatter().date(from: "2024-03-01T10:00:00Z"))
+        #expect(row.timestamp == expected)
+    }
+
+    @Test("paging walks every page, advancing by rows RECEIVED not rows inserted")
+    func quantitySamplePagingWalksAllPages() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        // Two full pages then a short one. Offsets must advance by the received
+        // count; paging off the inserted count would re-request forever.
+        let pageSize = SyncService.quantitySamplePageSize
+        let total = pageSize * 2 + 3
+        var requestedOffsets: [Int] = []
+
+        let imported = try await SyncService.restorePagedQuantitySamples(
+            serverURL: "http://sync.example.com",
+            apiKey: "test-api-key",
+            shift: 0,
+            modelContext: context,
+            performRequest: { request in
+                let url = try #require(request.url)
+                let comps = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+                let offset = Int(comps.queryItems?.first { $0.name == "offset" }?.value ?? "0") ?? 0
+                requestedOffsets.append(offset)
+
+                let count = min(pageSize, max(0, total - offset))
+                let rows = (0..<count).map { i -> [String: Any] in
+                    let hex = String(format: "%012X", offset + i)
+                    return Self.sampleRow(id: "0A1B2C3D-4E5F-4A6B-8C7D-\(hex)")
+                }
+                let page: [String: Any] = ["quantityHealthSamples": rows, "total": total]
+                let response = try #require(HTTPURLResponse(
+                    url: url, statusCode: 200, httpVersion: nil, headerFields: nil
+                ))
+                return (try JSONSerialization.data(withJSONObject: page), response)
+            }
+        )
+
+        #expect(imported == total)
+        #expect(requestedOffsets == [0, pageSize, pageSize * 2])
+        #expect(try context.fetchCount(FetchDescriptor<QuantityHealthSample>()) == total)
+    }
+
+    @Test("a server predating the endpoint (404) doesn't fail the whole restore")
+    func quantitySamplePagingTolerates404() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let imported = try await SyncService.restorePagedQuantitySamples(
+            serverURL: "http://sync.example.com",
+            apiKey: "test-api-key",
+            shift: 0,
+            modelContext: context,
+            performRequest: { request in
+                let url = try #require(request.url)
+                let response = try #require(HTTPURLResponse(
+                    url: url, statusCode: 404, httpVersion: nil, headerFields: nil
+                ))
+                return (Data(), response)
+            }
+        )
+
+        #expect(imported == 0, "an old server yields zero samples rather than a hard failure")
     }
 }

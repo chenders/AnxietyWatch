@@ -2762,3 +2762,104 @@ def test_sync_cpap_null_by_session_fields_do_not_clobber(client, app):
         row = cur.fetchone()
     for (_, column), value in _BY_SESSION_FIELDS.items():
         assert row[column] == value, f"{column} was clobbered by a null re-sync"
+
+
+# ---------------------------------------------------------------------------
+# Quantity health samples: paged restore
+#
+# This table used to sync UP but had no way back DOWN — it was absent from
+# ENTITY_QUERIES entirely. A fresh install therefore silently lost every EMAY
+# oximetry sample, which (unlike Apple/Polar/Dexcom rows) the app cannot
+# re-derive, because the app never writes to HealthKit. These tests pin the
+# restore path shut.
+# ---------------------------------------------------------------------------
+
+def _quantity_sample(i, timestamp="2025-03-20T10:00:00Z"):
+    return {
+        "id": f"00000000-0000-0000-0000-{i:012d}",
+        "timestamp": timestamp,
+        "metricType": "HKQuantityTypeIdentifierOxygenSaturation",
+        "value": 0.95,
+        "unitString": "%",
+        "sourceBundleID": "com.emay.SleepO2",
+        "sourceName": "EMAY SleepO2",
+    }
+
+
+def _sync_samples(client, samples):
+    client.post(
+        "/api/sync",
+        json={"syncType": "full", "exportDate": "2025-03-20T12:00:00Z", "quantitySamples": samples},
+        headers=auth_header(),
+    )
+
+
+def test_quantity_samples_excluded_from_bulk_payload(client):
+    """The bulk /api/data must NOT inline quantity samples (~79 MB in the real
+    dataset) — it advertises them as a paged entity instead."""
+    _sync_samples(client, [_quantity_sample(1)])
+
+    body = client.get("/api/data", headers=auth_header()).get_json()
+
+    assert "quantityHealthSamples" not in body
+    assert body["pagedEntities"] == ["quantityHealthSamples"]
+
+
+def test_quantity_samples_paged_endpoint_returns_rows_and_total(client):
+    _sync_samples(client, [_quantity_sample(i) for i in range(1, 6)])
+
+    body = client.get(
+        "/api/data/quantityHealthSamples?limit=2&offset=0", headers=auth_header()
+    ).get_json()
+
+    assert body["total"] == 5
+    assert body["limit"] == 2
+    assert body["offset"] == 0
+    assert len(body["quantityHealthSamples"]) == 2
+
+
+def test_quantity_samples_paging_is_exact_with_duplicate_timestamps(client):
+    """The real dataset is per-second oximetry, so timestamps collide constantly.
+    LIMIT/OFFSET over a non-unique sort key has no stable row order, so without
+    a tiebreaker the pages would silently skip some rows and repeat others.
+    Page through rows that ALL share one timestamp and assert we get each id
+    exactly once."""
+    n = 25
+    _sync_samples(client, [_quantity_sample(i) for i in range(1, n + 1)])
+
+    seen = []
+    offset, limit = 0, 10
+    while True:
+        body = client.get(
+            f"/api/data/quantityHealthSamples?limit={limit}&offset={offset}",
+            headers=auth_header(),
+        ).get_json()
+        rows = body["quantityHealthSamples"]
+        seen.extend(r["id"] for r in rows)
+        offset += len(rows)
+        if len(rows) < limit:
+            break
+
+    assert len(seen) == n, "paging dropped or duplicated rows"
+    assert len(set(seen)) == n, "paging returned the same row on more than one page"
+
+
+def test_quantity_samples_limit_is_clamped(client):
+    """An absurd limit must not let a client pull the whole table in one shot."""
+    _sync_samples(client, [_quantity_sample(1)])
+
+    body = client.get(
+        "/api/data/quantityHealthSamples?limit=999999999", headers=auth_header()
+    ).get_json()
+
+    assert body["limit"] == 10000  # MAX_PAGE_LIMIT
+
+
+def test_quantity_samples_unpaged_request_still_works(client):
+    """Omitting ?limit returns the whole entity (used by ad-hoc tooling)."""
+    _sync_samples(client, [_quantity_sample(i) for i in range(1, 4)])
+
+    body = client.get("/api/data/quantityHealthSamples", headers=auth_header()).get_json()
+
+    assert len(body["quantityHealthSamples"]) == 3
+    assert "total" not in body

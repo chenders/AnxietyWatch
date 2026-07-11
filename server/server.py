@@ -1176,8 +1176,13 @@ def create_app(test_config=None):
 
         result = {}
         for entity in ENTITY_QUERIES:
+            if entity in BULK_EXCLUDED_ENTITIES:
+                continue
             result[entity] = _query_entity(cur, entity, since)
 
+        # Tell the client which entities it must page in separately, rather than
+        # having it hard-code the list and silently miss one if this set grows.
+        result["pagedEntities"] = sorted(BULK_EXCLUDED_ENTITIES)
         result["exportDate"] = datetime.now(timezone.utc).isoformat()
         return jsonify(result)
 
@@ -1190,9 +1195,26 @@ def create_app(test_config=None):
         db = get_db()
         cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         since = request.args.get("since")
+        limit, offset = _parse_paging(request.args)
 
-        rows = _query_entity(cur, entity, since)
-        return jsonify({entity: rows, "exportDate": datetime.now(timezone.utc).isoformat()})
+        rows = _query_entity(cur, entity, since, limit=limit, offset=offset)
+        payload = {entity: rows, "exportDate": datetime.now(timezone.utc).isoformat()}
+
+        # When paging, report the total so the client can drive a progress bar
+        # and, more importantly, verify it received every row rather than
+        # inferring completion from a short page.
+        if limit is not None:
+            table, time_col, _ = ENTITY_QUERIES[entity]
+            if since and time_col:
+                cur.execute(f"SELECT count(*) AS n FROM {table} WHERE {time_col} >= %s", (since,))
+            else:
+                cur.execute(f"SELECT count(*) AS n FROM {table}")
+            count_row = cur.fetchone()
+            payload["total"] = count_row["n"] if count_row else 0
+            payload["limit"] = limit
+            payload["offset"] = offset or 0
+
+        return jsonify(payload)
 
     # Entity query config: {name: (table, time_column, order_column)}
     ENTITY_QUERIES = {
@@ -1212,7 +1234,21 @@ def create_app(test_config=None):
         "songs": ("songs", None, "id"),
         "songOccurrences": ("song_occurrences", "timestamp", "timestamp"),
         "sleepStageEvents": ("sleep_stage_events", "start_time", "start_time"),
+        "quantityHealthSamples": ("quantity_health_samples", "timestamp", "timestamp"),
     }
+
+    # Entities too large to inline in the bulk /api/data payload. They sync UP
+    # like everything else, but a restore must pull them DOWN page-by-page from
+    # /api/data/<entity>?limit=&offset= instead.
+    #
+    # quantity_health_samples is ~250k rows / ~79 MB of JSON on a real device.
+    # Inlining it would make /api/data a multi-tens-of-MB response that the app
+    # then has to hold in memory as a parsed [[String: Any]] — a reliable way to
+    # get the restore jetsammed. It was previously omitted from ENTITY_QUERIES
+    # entirely, which meant it could sync up but never come back down: a fresh
+    # install silently lost every EMAY oximetry sample (those are app-only, not
+    # HealthKit-backed, so nothing else could re-derive them).
+    BULK_EXCLUDED_ENTITIES = {"quantityHealthSamples"}
 
     # Explicit column lists for entities where `SELECT *` would detoast a large
     # column the response never uses. sensor_sessions.rr_archive is an ~80-120KB
@@ -1226,19 +1262,47 @@ def create_app(test_config=None):
         ),
     }
 
-    def _query_entity(cur, entity, since=None):
+    def _query_entity(cur, entity, since=None, limit=None, offset=None):
         table, time_col, order_col = ENTITY_QUERIES[entity]
         cols = ENTITY_SELECT_COLS.get(entity, "*")
+
+        # `id` is appended as a tiebreaker whenever we page. LIMIT/OFFSET over a
+        # non-unique sort key (timestamp collides constantly in per-second
+        # oximetry) has no stable row order between requests, so pages would
+        # silently skip some rows and repeat others. Ordering by (order_col, id)
+        # is total, which makes offset paging exact.
+        order = f"{order_col} DESC" if limit is None else f"{order_col} DESC, id"
+
+        params = []
+        sql = f"SELECT {cols} FROM {table}"
         if since and time_col:
-            cur.execute(
-                f"SELECT {cols} FROM {table} WHERE {time_col} >= %s ORDER BY {order_col} DESC",
-                (since,),
-            )
-        else:
-            cur.execute(f"SELECT {cols} FROM {table} ORDER BY {order_col} DESC")
+            sql += f" WHERE {time_col} >= %s"
+            params.append(since)
+        sql += f" ORDER BY {order}"
+        if limit is not None:
+            sql += " LIMIT %s OFFSET %s"
+            params.extend([limit, offset or 0])
+
+        cur.execute(sql, tuple(params))
         rows = cur.fetchall()
         # Serialize dates/datetimes to ISO strings
         return [_serialize_row(r) for r in rows]
+
+    # Upper bound on a single page. Big enough that ~250k samples restore in a
+    # few dozen round trips, small enough that neither side holds a huge payload.
+    MAX_PAGE_LIMIT = 10000
+
+    def _parse_paging(args):
+        """Parse and clamp ?limit=&offset=. Returns (limit, offset) or (None, None)."""
+        raw_limit = args.get("limit")
+        if raw_limit is None:
+            return None, None
+        try:
+            limit = max(1, min(int(raw_limit), MAX_PAGE_LIMIT))
+            offset = max(0, int(args.get("offset", 0)))
+        except (TypeError, ValueError):
+            return None, None
+        return limit, offset
 
     # ---------------------------------------------------------------------------
     # Song endpoints
