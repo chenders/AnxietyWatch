@@ -20,6 +20,16 @@ jobs:
       - run: pip install flake8
       - run: flake8 server/ --max-line-length=120 --exclude=__pycache__
 
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install uv
+      - run: uvx bandit -r server -x server/tests -ll -ii
+
   test:
     runs-on: ubuntu-latest
     services:
