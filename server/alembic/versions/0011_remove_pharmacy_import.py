@@ -1,9 +1,12 @@
-"""Remove pharmacy-import columns and stored pharmacy credentials.
+"""Remove pharmacy-import columns and all Walgreens/CapRx settings keys.
 
 Prescription IMPORT (Walgreens scrape, CapRx claims) is removed; medications
 are entered manually. Rows are kept — dropping import_source makes every
-surviving prescription an ordinary manual record. Only stored Walgreens/CapRx
-credentials are deleted from settings.
+surviving prescription an ordinary manual record. From settings, every
+`walgreens_%`/`caprx_%` key is deleted: encrypted credentials plus the
+importers' sync-state leftovers (last-sync cursors, status, session keys),
+all of which are dead once the importers are gone. No prescription rows are
+deleted.
 
 Revision ID: 0011
 Revises: 0010
