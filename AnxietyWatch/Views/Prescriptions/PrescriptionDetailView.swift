@@ -9,7 +9,6 @@ struct PrescriptionDetailView: View {
         List {
             prescriptionSection
             medicationSection
-            supplySection
             pharmacySection
             notesSection
         }
@@ -65,34 +64,6 @@ struct PrescriptionDetailView: View {
         }
     }
 
-    private var supplySection: some View {
-        Section("Supply") {
-            if isEditing {
-                EditableSupplyFields(prescription: prescription)
-            } else {
-                LabeledContent("Quantity", value: "\(prescription.quantity)")
-                LabeledContent("Refills Remaining", value: "\(prescription.refillsRemaining)")
-                LabeledContent("Daily Doses") {
-                    if let count = prescription.dailyDoseCount {
-                        Text(String(format: "%.1f", count))
-                    } else {
-                        Text("Unknown").foregroundStyle(.secondary)
-                    }
-                }
-                LabeledContent("Supply Status") {
-                    SupplyBadge(prescription: prescription)
-                }
-                LabeledContent("Run-out Date") {
-                    if let date = prescription.estimatedRunOutDate {
-                        Text(date, format: .dateTime.month().day().year())
-                    } else {
-                        Text("Unknown").foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-    }
-
     private var pharmacySection: some View {
         Section("Pharmacy") {
             if isEditing {
@@ -134,54 +105,6 @@ struct PrescriptionDetailView: View {
             return mgString
         }
         return "\(mgString) — \(prescription.doseDescription)"
-    }
-}
-
-// MARK: - Editable Supply Fields (extracted to keep parent under ~100 lines)
-
-private struct EditableSupplyFields: View {
-    @Bindable var prescription: Prescription
-    @State private var quantityText: String = ""
-    @State private var dailyDoseText: String = ""
-
-    var body: some View {
-        TextField("Quantity", text: $quantityText)
-            .keyboardType(.numberPad)
-            .onAppear {
-                quantityText = "\(prescription.quantity)"
-                if let d = prescription.dailyDoseCount {
-                    dailyDoseText = String(format: "%.1f", d)
-                }
-            }
-            .onChange(of: quantityText) { _, newValue in
-                if let q = Int(newValue) { prescription.quantity = q }
-                recomputeRunOut()
-            }
-
-        Stepper(
-            "Refills: \(prescription.refillsRemaining)",
-            value: $prescription.refillsRemaining,
-            in: 0...99
-        )
-
-        TextField("Daily Dose Count", text: $dailyDoseText)
-            .keyboardType(.decimalPad)
-            .onChange(of: dailyDoseText) { _, newValue in
-                prescription.dailyDoseCount = Double(newValue)
-                recomputeRunOut()
-            }
-    }
-
-    private func recomputeRunOut() {
-        guard let daily = prescription.dailyDoseCount, daily > 0 else {
-            prescription.estimatedRunOutDate = nil
-            return
-        }
-        prescription.estimatedRunOutDate = PrescriptionSupplyCalculator.estimateRunOutDate(
-            dateFilled: prescription.dateFilled,
-            quantity: prescription.quantity,
-            dailyDoseCount: daily
-        )
     }
 }
 

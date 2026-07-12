@@ -152,9 +152,6 @@ struct PrescriptionScannerView: View {
                 fieldRow("Rx Number", value: data.rxNumber, lowConfidence: data.isLowConfidence(.rxNumber))
                 fieldRow("Medication", value: data.medicationName, lowConfidence: data.isLowConfidence(.medicationName))
                 fieldRow("Dose", value: data.dose, lowConfidence: data.isLowConfidence(.dose))
-                fieldRow("Quantity", value: data.quantity.map(String.init), lowConfidence: data.isLowConfidence(.quantity))
-                fieldRow("Refills", value: data.refillsRemaining.map(String.init),
-                         lowConfidence: data.isLowConfidence(.refillsRemaining))
                 fieldRow("Pharmacy", value: data.pharmacyName, lowConfidence: data.isLowConfidence(.pharmacyName))
                 fieldRow("Date Filled", value: data.dateFilled.map { formattedDate($0) },
                          lowConfidence: data.isLowConfidence(.dateFilled))

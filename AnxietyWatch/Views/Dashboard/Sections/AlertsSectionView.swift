@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Computes baseline + supply alerts and renders them via `AlertsStrip`.
+/// Computes baseline alerts and renders them via `AlertsStrip`.
 /// Lives as a child View so the rolled-up alert logic reads VM properties
-/// (baselines, lowSupplyCount) without invalidating the whole Dashboard root.
+/// (baselines) without invalidating the whole Dashboard root.
 struct AlertsSectionView: View {
     let snapshots: [HealthSnapshot]
     let vm: DashboardViewModel
@@ -14,16 +14,6 @@ struct AlertsSectionView: View {
     private func buildAlerts() -> [DashboardAlert] {
         var out: [DashboardAlert] = []
 
-        if vm.lowSupplyCount > 0 {
-            out.append(.init(
-                id: "supply",
-                title: "\(vm.lowSupplyCount) Prescription\(vm.lowSupplyCount == 1 ? "" : "s") Running Low",
-                message: "Check the Medications tab for details",
-                severity: .critical,
-                category: .supply,
-                zScore: 0
-            ))
-        }
         if let baseline = vm.hrvBaseline,
            let recent = BaselineCalculator.recentAverage(from: snapshots, days: 3, keyPath: \.hrvAvg),
            recent < baseline.lowerBound, baseline.standardDeviation > 0 {

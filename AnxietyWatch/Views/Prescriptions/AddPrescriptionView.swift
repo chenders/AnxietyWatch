@@ -24,9 +24,6 @@ struct AddPrescriptionView: View {
     @State private var selectedMedID: UUID?
     @State private var doseMg: Double
     @State private var doseDescription: String
-    @State private var quantityText: String
-    @State private var refillsRemaining: Int
-    @State private var dailyDoseCountText: String
     @State private var selectedPharmacyID: UUID?
     @State private var notes: String
 
@@ -51,19 +48,12 @@ struct AddPrescriptionView: View {
         prefillRxNumber: String? = nil,
         prefillMedicationName: String? = nil,
         prefillDose: Double? = nil,
-        prefillQuantity: Int? = nil,
-        prefillRefills: Int? = nil,
         prefillDateFilled: Date? = nil
     ) {
         _rxNumber = State(initialValue: prefillRxNumber ?? "")
         _dateFilled = State(initialValue: prefillDateFilled ?? .now)
         _doseMg = State(initialValue: prefillDose ?? 0)
         _doseDescription = State(initialValue: "")
-        _quantityText = State(
-            initialValue: prefillQuantity.map(String.init) ?? ""
-        )
-        _refillsRemaining = State(initialValue: prefillRefills ?? 0)
-        _dailyDoseCountText = State(initialValue: "")
         _notes = State(initialValue: "")
         _newMedName = State(initialValue: prefillMedicationName ?? "")
 
@@ -84,7 +74,6 @@ struct AddPrescriptionView: View {
             Form {
                 prescriptionSection
                 medicationSection
-                supplySection
                 pharmacySection
                 notesSection
                 scanPlaceholderSection
@@ -195,24 +184,6 @@ struct AddPrescriptionView: View {
         }
     }
 
-    private var supplySection: some View {
-        Section("Supply") {
-            TextField("Quantity Dispensed", text: $quantityText)
-                .keyboardType(.numberPad)
-            Stepper("Refills Remaining: \(refillsRemaining)", value: $refillsRemaining, in: 0...99)
-            TextField("Daily Dose Count", text: $dailyDoseCountText)
-                .keyboardType(.decimalPad)
-                .textContentType(.none)
-                .overlay(alignment: .trailing) {
-                    if dailyDoseCountText.isEmpty {
-                        Text("e.g. 2 for twice daily")
-                            .foregroundStyle(.tertiary)
-                            .allowsHitTesting(false)
-                    }
-                }
-        }
-    }
-
     private var pharmacySection: some View {
         Section("Pharmacy") {
             Picker("Pharmacy", selection: $selectedPharmacyID) {
@@ -269,8 +240,6 @@ struct AddPrescriptionView: View {
                             }
                         }
                     }
-                    if let qty = scannedData.quantity { quantityText = String(qty) }
-                    if let refills = scannedData.refillsRemaining { refillsRemaining = refills }
                     if let date = scannedData.dateFilled { dateFilled = date }
                     lowConfidenceScannedFields = flagged
                 })
@@ -292,14 +261,10 @@ struct AddPrescriptionView: View {
     }
 
     private var canSave: Bool {
-        !medicationName.isEmpty && (Int(quantityText) ?? 0) > 0
-            && !rxNumber.trimmingCharacters(in: .whitespaces).isEmpty
+        !medicationName.isEmpty
     }
 
     private func save() {
-        let quantity = Int(quantityText) ?? 0
-        let dailyDose = Double(dailyDoseCountText)
-
         // Resolve or create MedicationDefinition
         var medDef: MedicationDefinition?
         if addingNewMed {
@@ -317,27 +282,18 @@ struct AddPrescriptionView: View {
         // Resolve pharmacy
         let pharm = pharmacies.first { $0.id == selectedPharmacyID }
 
-        // Compute run-out date
-        let runOut: Date? = dailyDose.flatMap {
-            PrescriptionSupplyCalculator.estimateRunOutDate(
-                dateFilled: dateFilled,
-                quantity: quantity,
-                dailyDoseCount: $0
-            )
-        }
-
         let rx = Prescription(
             rxNumber: rxNumber.trimmingCharacters(in: .whitespaces),
             medicationName: medicationName,
             doseMg: doseMg,
             doseDescription: doseDescription.trimmingCharacters(in: .whitespaces),
-            quantity: quantity,
-            refillsRemaining: refillsRemaining,
+            // `quantity` has no default in the model initializer (Task 2 drops
+            // the field entirely) — pass 0 since supply tracking no longer
+            // collects it from the user.
+            quantity: 0,
             dateFilled: dateFilled,
-            estimatedRunOutDate: runOut,
             pharmacyName: pharm?.name ?? "",
             notes: notes.trimmingCharacters(in: .whitespaces),
-            dailyDoseCount: dailyDose,
             medication: medDef,
             pharmacy: pharm
         )

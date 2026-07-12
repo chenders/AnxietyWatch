@@ -25,34 +25,6 @@ struct PrescriptionLabelScannerTests {
         #expect(result.rxNumber == nil)
     }
 
-    // MARK: - Quantity
-
-    @Test("Parses quantity")
-    func parseQuantity() {
-        let result = PrescriptionLabelScanner.parse(lines: ["Qty: 60"])
-        #expect(result.quantity == 60)
-    }
-
-    @Test("Parses quantity with full word")
-    func parseQuantityFull() {
-        let result = PrescriptionLabelScanner.parse(lines: ["Quantity 30"])
-        #expect(result.quantity == 30)
-    }
-
-    // MARK: - Refills
-
-    @Test("Parses refills remaining")
-    func parseRefills() {
-        let result = PrescriptionLabelScanner.parse(lines: ["Refills: 3"])
-        #expect(result.refillsRemaining == 3)
-    }
-
-    @Test("Parses singular refill")
-    func parseRefillSingular() {
-        let result = PrescriptionLabelScanner.parse(lines: ["Refill 0"])
-        #expect(result.refillsRemaining == 0)
-    }
-
     // MARK: - Dose
 
     @Test("Parses dose in mg")
@@ -123,8 +95,6 @@ struct PrescriptionLabelScannerTests {
         ]
         let result = PrescriptionLabelScanner.parse(lines: lines)
         #expect(result.rxNumber == "7654321")
-        #expect(result.quantity == 60)
-        #expect(result.refillsRemaining == 3)
         #expect(result.dateFilled != nil)
         #expect(result.pharmacyName != nil)
     }
@@ -135,8 +105,6 @@ struct PrescriptionLabelScannerTests {
     func parseEmptyLines() {
         let result = PrescriptionLabelScanner.parse(lines: [])
         #expect(result.rxNumber == nil)
-        #expect(result.quantity == nil)
-        #expect(result.refillsRemaining == nil)
         #expect(result.dose == nil)
         #expect(result.dateFilled == nil)
     }
