@@ -25,9 +25,47 @@ enum CNSMonitoringConstants {
     /// Posted when a device transitions to `.degradeDisclosed` (spec §14.2's
     /// asymmetry rule: degradation is always disclosed, never silent).
     static let degradedNotificationID = "cns.monitoring.degraded"
-    /// Posted when monitoring ends for any reason a user might not be
-    /// watching for (device loss, window expiry) — "never a silent stop."
+    /// Posted ONLY when monitoring ends because of device loss (the sole
+    /// `EndReason` that posts through this identifier) — the §7 "never a
+    /// silent stop" interim measure for the dangerous silent-gap case.
+    /// Stale-session (`.appTerminated`, fix item 5) and the dead-man's-switch
+    /// watchdog (fix item 1) post through their OWN identifiers
+    /// (`staleSessionNotificationID` / `deadMansSwitchNotificationID`
+    /// below) — not this one.
+    ///
+    /// `.windowExpired` ends post NOTHING through any identifier — that is
+    /// BY DESIGN (plan-owner decision, §14.1/§15's "Background execution
+    /// limits" note): the pharmacokinetic risk window closing is a planned,
+    /// expected end, not an incident, and a notification at 5am for a
+    /// routine window close would be hostile rather than helpful. That end
+    /// reason remains fully visible in session history
+    /// (`MonitoringSession.endReason == "windowExpired"`), just never
+    /// surfaced as a push notification.
     static let endedNotificationID = "cns.monitoring.ended"
+    /// Posted when `handleLaunch()` finds ≥1 `MonitoringSession` left
+    /// un-ended by a force-quit/crash/suspension and marks it
+    /// `.appTerminated` (fix item 5) — "Monitoring was interrupted while the
+    /// app was closed" must reach the user even though the dead-man's-switch
+    /// watchdog (fix item 1) likely already fired; reopening the app is what
+    /// confirms the interruption either way.
+    static let staleSessionNotificationID = "cns.monitoring.staleSession"
+
+    /// Dead-man's-switch watchdog (fix item 1 — CRITICAL): while monitoring,
+    /// the coordinator keeps a LOCAL notification scheduled this far out,
+    /// cancelling and rescheduling it every firing tick (persist cadence —
+    /// see `CNSMonitoringCoordinator.persistIfDue`'s doc comment for why
+    /// this rides the same 10s cadence as pruning) so it never actually
+    /// fires while the tick loop is alive. If iOS suspends or kills the app
+    /// while monitoring is active (e.g. the phone's screen locks and the OS
+    /// reclaims the background slot — Phase 2's 1 Hz `Task.sleep` loop has
+    /// no background-execution guarantee; see §15), nothing reschedules the
+    /// watchdog again, and it fires ~90s after the last successful tick —
+    /// the one notification path that does NOT depend on the tick loop
+    /// still running. Cancelled on every `endSession`/disarm. Robust
+    /// BLE-event-driven background monitoring and Critical Alerts are Phase
+    /// 3 scope (§15).
+    static let deadMansSwitchInterval: TimeInterval = 90
+    static let deadMansSwitchNotificationID = "cns.monitoring.deadMansSwitch"
 
     /// `CNSMonitoringCoordinator`'s rolling sample buffer keeps samples back to
     /// `gateWindowSeconds + bufferTrimSlackSeconds` before trimming, rather
@@ -74,4 +112,27 @@ enum CNSMonitoringConstants {
     /// (§14.1 constants) can't silently produce a synergy window shorter than
     /// 24 h.
     static let synergyWindowFloor: TimeInterval = 24 * 3600
+
+    // MARK: - Persisted dose list retention (fix item 3)
+
+    /// Horizon beyond which a persisted dose can no longer affect ANY active
+    /// or future `DoseWindowGate.activeWindow` computation — pruned from the
+    /// coordinator's persisted `[LoggedCNSDose]` list on both save and load
+    /// so it doesn't grow forever across months of real usage. Computed, not
+    /// hardcoded, from the three constants that bound how far a dose's
+    /// influence can reach:
+    /// - `methadoneOrUnknownLongActing.doseWindow` (72 h) — the longest
+    ///   individual class window (also `DoseWindowGate`'s fail-safe default
+    ///   for an unrecognized class, see `CNSDepressantClassifier`/fix 7b).
+    /// - `synergyPairingHorizon` (24 h) — the furthest a FUTURE partner dose
+    ///   could still be logged and pair with this one via the horizon leg.
+    /// - `synergyWindowExtension` (12 h) — the synergy reach added beyond
+    ///   the governing class window once paired.
+    /// Sum = 108 h. Deliberately a conservative (safe) upper bound rather
+    /// than the tightest possible per-pairing-leg bound — fail-safe
+    /// direction: erring toward keeping a dose longer than strictly
+    /// necessary costs a few bytes of `UserDefaults`, never a missed
+    /// synergy pairing.
+    static let doseRetentionHorizon: TimeInterval =
+        CNSDepressantClass.methadoneOrUnknownLongActing.doseWindow + synergyPairingHorizon + synergyWindowExtension
 }

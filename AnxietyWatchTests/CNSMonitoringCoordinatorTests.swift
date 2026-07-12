@@ -27,9 +27,32 @@ struct CNSMonitoringCoordinatorTests {
             let title: String
             let body: String
         }
+        struct Scheduled: Equatable {
+            let identifier: String
+            let title: String
+            let body: String
+            let fireDate: Date
+        }
         private(set) var posts: [Post] = []
+        /// Latest `schedule` call per identifier — mirrors production's
+        /// "replace the pending request" semantics (`UNUserNotificationCenter.add`
+        /// with a matching identifier replaces, never stacks), so a spy
+        /// consumer only ever sees the CURRENT deadline, matching what a
+        /// real pending-request inspection would show.
+        private(set) var scheduled: [String: Scheduled] = [:]
+        private(set) var cancelledIdentifiers: [String] = []
+
         func post(identifier: String, title: String, body: String) {
             posts.append(Post(identifier: identifier, title: title, body: body))
+        }
+
+        func schedule(identifier: String, title: String, body: String, at fireDate: Date) {
+            scheduled[identifier] = Scheduled(identifier: identifier, title: title, body: body, fireDate: fireDate)
+        }
+
+        func cancel(identifier: String) {
+            scheduled.removeValue(forKey: identifier)
+            cancelledIdentifiers.append(identifier)
         }
     }
 
@@ -71,6 +94,12 @@ struct CNSMonitoringCoordinatorTests {
 
     private func makeBenzoMedication(context: ModelContext) -> MedicationDefinition {
         let med = MedicationDefinition(name: "Test Benzo 1mg", defaultDoseMg: 1, category: "Benzodiazepine")
+        context.insert(med)
+        return med
+    }
+
+    private func makeMethadoneMedication(context: ModelContext) -> MedicationDefinition {
+        let med = MedicationDefinition(name: "Methadone 10mg", defaultDoseMg: 10, category: "Opioid")
         context.insert(med)
         return med
     }
@@ -422,29 +451,36 @@ struct CNSMonitoringCoordinatorTests {
 
     @Test(
         """
-        Device degrade: Polar dying mid-session posts the degraded notification exactly once per \
-        session, discloses on statusLine, and does not end monitoring
+        Device degrade: Polar dying mid-session (no more genuine packet arrivals, fix item 2) posts \
+        the degraded notification exactly once per session, discloses on statusLine, and does not \
+        end monitoring
         """
     )
     func polarDegradeDisclosesOnceWithoutEndingSession() throws {
         let context = ModelContext(try TestHelpers.makeFullContainer())
         var currentTime = t0
-        var polarHR: Int? = 62
+        // Constant value throughout — liveness now comes from genuine
+        // `noteLivePolarSample` arrivals (fix item 2), not from the raw
+        // value changing or going nil, matching how `PolarHRMService.state.currentHR`
+        // actually behaves (stays populated through the reconnect grace).
         let poster = NotificationPosterSpy()
         let coordinator = makeCoordinator(
             context: context, now: { currentTime },
             emayReading: { EMAYReading(spo2: 96, pulseRate: 62, timestamp: currentTime) },
-            polarHR: { polarHR },
+            polarHR: { 62 },
             poster: poster, defaults: makeDefaults()
         )
         coordinator.armManually(companionPresent: true)
 
         for second in 1...10 {
             currentTime = t0.addingTimeInterval(Double(second))
+            coordinator.noteLivePolarSample(at: currentTime)
             coordinator.tick(at: currentTime)
         }
 
-        polarHR = nil
+        // Device "dies": no more genuine arrivals from here on, even though
+        // `latestPolarHR()` would still return 62 in production for ~10 more
+        // minutes (the reconnect grace).
         for second in 11...(10 + 65) {
             currentTime = t0.addingTimeInterval(Double(second))
             coordinator.tick(at: currentTime)
@@ -453,6 +489,43 @@ struct CNSMonitoringCoordinatorTests {
         #expect(coordinator.isMonitoring)
         #expect(poster.posts.filter { $0.identifier == CNSMonitoringConstants.degradedNotificationID }.count == 1)
         #expect(coordinator.statusLine.contains("Polar"))
+    }
+
+    @Test(
+        """
+        Fix item 2 (IMPORTANT): a frozen cached Polar value with no new packet arrivals must not \
+        read as fresh — mirrors PolarHRMService.state.currentHR staying populated through its \
+        ~10-min reconnect grace after the strap actually dies. After >60s with no new arrivals, \
+        polarH10 leaves reportingSources; EMAY's own tick-polled liveness is unaffected.
+        """
+    )
+    func polarLivenessRequiresGenuineArrivalNotCachedValue() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        var currentTime = t0
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime },
+            emayReading: { EMAYReading(spo2: 96, pulseRate: 62, timestamp: currentTime) },
+            polarHR: { 62 },  // frozen: identical before AND long after the (simulated) death
+            poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+        coordinator.armManually(companionPresent: true)
+
+        // One genuine arrival — Polar is reporting.
+        currentTime = t0.addingTimeInterval(1)
+        coordinator.noteLivePolarSample(at: currentTime)
+        coordinator.tick(at: currentTime)
+        #expect(coordinator.reportingSources.contains(.polarH10))
+
+        // No further arrivals, ever — but `latestPolarHR()` keeps returning
+        // the SAME cached 62 the whole time, exactly like the real service's
+        // frozen post-death state. Tick well past gateWindowSeconds (60s).
+        for second in 2...65 {
+            currentTime = t0.addingTimeInterval(Double(second))
+            coordinator.tick(at: currentTime)
+        }
+
+        #expect(!coordinator.reportingSources.contains(.polarH10), "a frozen cached value must not read as fresh")
+        #expect(coordinator.reportingSources.contains(.emayOximeter), "EMAY's own tick-polled liveness must be unaffected")
     }
 
     // MARK: - Contract 7: minimum-bar status line
@@ -701,6 +774,232 @@ struct CNSMonitoringCoordinatorTests {
         coordinator.disarm()
         #expect(stopCount == 0, "continuous mode must never be fought by CNS monitoring disarm")
         #expect(!coordinator.isMonitoring)
+    }
+
+    // MARK: - Fix item 1 (CRITICAL): dead-man's-switch watchdog
+
+    @Test(
+        """
+        Dead-man's-switch: arming schedules the watchdog immediately; each persist-cadence tick \
+        (not every 1Hz tick) reschedules it forward — the spy always sees the LATEST fire date
+        """
+    )
+    func tickSchedulesAndReschedulesDeadMansSwitchOnPersistCadence() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        var currentTime = t0
+        let poster = NotificationPosterSpy()
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, poster: poster, defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        let armFireDate = try #require(
+            poster.scheduled[CNSMonitoringConstants.deadMansSwitchNotificationID]?.fireDate
+        )
+        #expect(armFireDate == t0.addingTimeInterval(CNSMonitoringConstants.deadMansSwitchInterval))
+
+        // First tick: lastPersistAt is nil, so this tick IS a cadence tick
+        // (mirrors pruneRunsOnlyOnPersistCadence's own first-tick anchor) —
+        // reschedules to a later fire date.
+        currentTime = t0.addingTimeInterval(1)
+        coordinator.tick(at: currentTime)
+        let anchorFireDate = try #require(
+            poster.scheduled[CNSMonitoringConstants.deadMansSwitchNotificationID]?.fireDate
+        )
+        #expect(anchorFireDate == currentTime.addingTimeInterval(CNSMonitoringConstants.deadMansSwitchInterval))
+
+        // A non-cadence tick must NOT reschedule.
+        currentTime = t0.addingTimeInterval(2)
+        coordinator.tick(at: currentTime)
+        #expect(poster.scheduled[CNSMonitoringConstants.deadMansSwitchNotificationID]?.fireDate == anchorFireDate)
+
+        // Crossing the cadence boundary reschedules again, further out.
+        currentTime = t0.addingTimeInterval(1 + CNSMonitoringConstants.samplePersistInterval)
+        coordinator.tick(at: currentTime)
+        let laterFireDate = try #require(
+            poster.scheduled[CNSMonitoringConstants.deadMansSwitchNotificationID]?.fireDate
+        )
+        #expect(laterFireDate > anchorFireDate, "the watchdog's fire date must advance as cadence ticks keep firing")
+        #expect(laterFireDate == currentTime.addingTimeInterval(CNSMonitoringConstants.deadMansSwitchInterval))
+    }
+
+    @Test("Dead-man's-switch: endSession (any reason) cancels the pending watchdog")
+    func endSessionCancelsDeadMansSwitch() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let currentTime = t0
+        let poster = NotificationPosterSpy()
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, poster: poster, defaults: makeDefaults()
+        )
+        coordinator.armManually(companionPresent: true)
+        #expect(poster.scheduled[CNSMonitoringConstants.deadMansSwitchNotificationID] != nil)
+
+        coordinator.disarm()
+
+        #expect(poster.scheduled[CNSMonitoringConstants.deadMansSwitchNotificationID] == nil)
+        #expect(poster.cancelledIdentifiers.contains(CNSMonitoringConstants.deadMansSwitchNotificationID))
+    }
+
+    @Test("Dead-man's-switch: never scheduled while not monitoring")
+    func noDeadMansSwitchScheduleWhenNotMonitoring() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let currentTime = t0
+        let poster = NotificationPosterSpy()
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, poster: poster, defaults: makeDefaults()
+        )
+
+        coordinator.tick(at: currentTime)
+
+        #expect(poster.scheduled.isEmpty)
+        #expect(!coordinator.isMonitoring)
+    }
+
+    // MARK: - Fix item 3 (IMPORTANT): persisted dose list retention
+
+    @Test(
+        """
+        Fix item 3: the persisted dose list is pruned beyond doseRetentionHorizon (108h) on \
+        decode-from-disk load (and, by the same shared write path, on save) — a 200h-old dose is \
+        dropped from both the live arming decision and the on-disk blob; a 50h-old methadone dose \
+        (inside the horizon, and inside its own 72h window) survives both
+        """
+    )
+    func persistedDoseListPrunesBeyondRetentionHorizon() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let defaults = makeDefaults()
+
+        let staleDoseTime = t0.addingTimeInterval(-200 * 3600)
+        let freshDoseTime = t0.addingTimeInterval(-50 * 3600)
+        // Hand-crafted PersistedCNSDose-shaped JSON (that private type isn't
+        // visible from this file) — Foundation's default Date Codable
+        // encodes as `timeIntervalSinceReferenceDate`, matching the
+        // coordinator's plain `JSONEncoder()`/`JSONDecoder()` (no custom
+        // date strategy).
+        let rawJSON = """
+        [
+          {"timestamp": \(staleDoseTime.timeIntervalSinceReferenceDate), "drugClass": "benzodiazepine"},
+          {"timestamp": \(freshDoseTime.timeIntervalSinceReferenceDate), "drugClass": "methadoneOrUnknownLongActing"}
+        ]
+        """
+        defaults.set(Data(rawJSON.utf8), forKey: CNSMonitoringCoordinator.loggedDosesKey)
+
+        let coordinator = makeCoordinator(
+            context: context, now: { t0 }, poster: NotificationPosterSpy(), defaults: defaults
+        )
+        coordinator.handleLaunch()
+
+        // Behavior: only the still-active methadone window arms monitoring
+        // — the 200h-old benzo dose (long past its own 12h window) never
+        // could have armed anything regardless of pruning.
+        #expect(coordinator.isMonitoring, "the 50h-old methadone dose is still inside its own 72h window")
+        #expect(
+            coordinator.doseWindowExpiry
+                == freshDoseTime.addingTimeInterval(CNSDepressantClass.methadoneOrUnknownLongActing.doseWindow)
+        )
+
+        // On-disk: load-time pruning rewrites the blob immediately — the
+        // 200h-old dose must not survive on disk either, even though no
+        // dose has been logged (no explicit save) since launch.
+        struct DecodedDose: Decodable {
+            let timestamp: Date
+            let drugClass: String
+        }
+        let onDisk = try #require(defaults.data(forKey: CNSMonitoringCoordinator.loggedDosesKey))
+        let decoded = try JSONDecoder().decode([DecodedDose].self, from: onDisk)
+        #expect(
+            !decoded.contains { $0.drugClass == "benzodiazepine" },
+            "the 200h-old dose must be pruned from disk on load"
+        )
+        #expect(
+            decoded.contains { $0.drugClass == "methadoneOrUnknownLongActing" },
+            "the 50h-old methadone dose must survive"
+        )
+    }
+
+    // MARK: - Fix item 5 (IMPORTANT): stale (.appTerminated) session notification
+
+    @Test("handleLaunch posts a notification when it finds ≥1 stale un-ended session")
+    func handleLaunchPostsStaleSessionNotificationWhenFound() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let staleSession = MonitoringSession(
+            startedAt: t0.addingTimeInterval(-3600), activationTriggers: ["manual"], companionPresent: true
+        )
+        context.insert(staleSession)
+        try context.save()
+
+        let poster = NotificationPosterSpy()
+        let coordinator = makeCoordinator(context: context, now: { t0 }, poster: poster, defaults: makeDefaults())
+        coordinator.handleLaunch()
+
+        #expect(poster.posts.contains { $0.identifier == CNSMonitoringConstants.staleSessionNotificationID })
+        let fetched = try #require(try context.fetch(FetchDescriptor<MonitoringSession>()).first)
+        #expect(fetched.endReason == CNSMonitoringCoordinator.EndReason.appTerminated.rawValue)
+    }
+
+    @Test("handleLaunch posts nothing when there is no stale un-ended session")
+    func handleLaunchPostsNothingWithoutStaleSession() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let poster = NotificationPosterSpy()
+        let coordinator = makeCoordinator(context: context, now: { t0 }, poster: poster, defaults: makeDefaults())
+
+        coordinator.handleLaunch()
+
+        #expect(poster.posts.isEmpty)
+    }
+
+    // MARK: - Fix item 7a (MINOR): handleLaunch re-entry guard
+
+    @Test(
+        """
+        Fix item 7a: handleLaunch() while monitoring is already active is a no-op — a re-fired \
+        launch task cannot mark the live session .appTerminated
+        """
+    )
+    func handleLaunchNoOpWhileMonitoring() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let coordinator = makeCoordinator(
+            context: context, now: { t0 }, poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+        coordinator.armManually(companionPresent: true)
+        #expect(coordinator.isMonitoring)
+
+        coordinator.handleLaunch()
+
+        #expect(coordinator.isMonitoring)
+        let session = try #require(try context.fetch(FetchDescriptor<MonitoringSession>()).first)
+        #expect(session.endedAt == nil)
+        #expect(session.endReason == nil)
+    }
+
+    // MARK: - Fix item 7b (MINOR): unknown persisted drugClass fails safe
+
+    @Test(
+        """
+        Fix item 7b: a persisted dose whose drugClass rawValue is unrecognized (e.g. a future \
+        class from a newer app version) maps to .methadoneOrUnknownLongActing and arms with its \
+        72h window, rather than being silently dropped
+        """
+    )
+    func unknownPersistedDoseClassFailsSafeToLongActingWindow() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let defaults = makeDefaults()
+        let rawJSON = """
+        [{"timestamp": \(t0.timeIntervalSinceReferenceDate), "drugClass": "future_class"}]
+        """
+        defaults.set(Data(rawJSON.utf8), forKey: CNSMonitoringCoordinator.loggedDosesKey)
+
+        let coordinator = makeCoordinator(
+            context: context, now: { t0 }, poster: NotificationPosterSpy(), defaults: defaults
+        )
+        coordinator.handleLaunch()
+
+        #expect(coordinator.isMonitoring)
+        #expect(coordinator.activeTriggers == [.doseWindow])
+        #expect(
+            coordinator.doseWindowExpiry
+                == t0.addingTimeInterval(CNSDepressantClass.methadoneOrUnknownLongActing.doseWindow)
+        )
     }
 
     // MARK: - Constants sanity (every CNSMonitoringConstants member is referenced by a test)

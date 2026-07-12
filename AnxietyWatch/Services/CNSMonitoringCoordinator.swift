@@ -8,8 +8,17 @@ import UserNotifications
 /// `UNUserNotificationCenter` (`UNUserNotificationCenterPoster`, same
 /// plumbing as `DoseFollowUpManager`); tests inject a spy so contract 6 can
 /// be asserted without touching the real notification center.
+///
+/// `schedule(identifier:title:body:at:)`/`cancel(identifier:)` (fix item 1)
+/// are the dead-man's-switch primitive: a DEFERRED local notification that
+/// fires unless cancelled or re-scheduled (same `identifier`) first —
+/// distinct from `post`, which fires immediately. Production replaces the
+/// pending request under the same identifier every time (`UNUserNotificationCenter.add`
+/// with a matching identifier replaces rather than stacks).
 protocol CNSMonitoringNotificationPosting {
     func post(identifier: String, title: String, body: String)
+    func schedule(identifier: String, title: String, body: String, at fireDate: Date)
+    func cancel(identifier: String)
 }
 
 /// Production `CNSMonitoringNotificationPosting`: an immediate local
@@ -23,6 +32,30 @@ struct UNUserNotificationCenterPoster: CNSMonitoringNotificationPosting {
         content.sound = .default
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
+    }
+
+    /// Schedules (replacing any pending request under `identifier`) a local
+    /// notification to fire at `fireDate` via `UNTimeIntervalNotificationTrigger`
+    /// — the dead-man's-switch primitive (fix item 1). `fireDate` is an
+    /// absolute time (not a raw interval) so the coordinator's injected
+    /// clock (`now`) governs when the deadline lands in tests; production
+    /// converts to the relative interval `UNTimeIntervalNotificationTrigger`
+    /// needs via `timeIntervalSinceNow` (real wall-clock time — this poster
+    /// has no injected clock of its own). Floored at 1s: `UNTimeIntervalNotificationTrigger`
+    /// requires a positive interval.
+    func schedule(identifier: String, title: String, body: String, at fireDate: Date) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let interval = max(fireDate.timeIntervalSinceNow, 1)
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    func cancel(identifier: String) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
     }
 }
 
@@ -40,8 +73,18 @@ private struct PersistedCNSDose: Codable, Equatable {
         self.drugClass = dose.drugClass.rawValue
     }
 
-    var asLoggedCNSDose: LoggedCNSDose? {
-        CNSDepressantClass(rawValue: drugClass).map { LoggedCNSDose(timestamp: timestamp, drugClass: $0) }
+    /// Fix item 7b: an unrecognized `rawValue` (a future class value written
+    /// by a newer app version, or corrupt data) maps to
+    /// `.methadoneOrUnknownLongActing` — the 72h fail-safe window — rather
+    /// than dropping the dose entirely (the previous `compactMap`-via-`nil`
+    /// behavior). Silently forgetting a logged CNS-depressant dose is the
+    /// less-monitoring direction; §14.1's own "unknown = long-acting" fail-
+    /// safe principle (used identically by `CNSDepressantClassifier` for an
+    /// unrecognized opioid formulation) applies the same way here. Always
+    /// succeeds — no longer optional.
+    var asLoggedCNSDose: LoggedCNSDose {
+        let resolvedClass = CNSDepressantClass(rawValue: drugClass) ?? .methadoneOrUnknownLongActing
+        return LoggedCNSDose(timestamp: timestamp, drugClass: resolvedClass)
     }
 }
 
@@ -146,6 +189,31 @@ final class CNSMonitoringCoordinator {
     private var degradedNotifiedSources: Set<CNSSignalSource> = []
     /// Sources currently disclosed-degraded, surfaced on `statusLine`.
     private var disclosedDegradedSources: Set<CNSSignalSource> = []
+    /// Fix item 2: the arrival time of the most recent GENUINE Polar HR
+    /// packet, as reported by `noteLivePolarSample` (production: the
+    /// `polarService.onLiveSample` tap, which fires once per real BLE
+    /// packet — never from tick-polling `latestPolarHR()`). `nil` until the
+    /// first arrival this session.
+    private var lastPolarHRArrivalTime: Date?
+    /// The arrival time already turned into a `CNSSignalSample` this
+    /// session — `collectPolarHRSample` only emits when
+    /// `lastPolarHRArrivalTime` is newer than this, so a cached-but-stale
+    /// `latestPolarHR()` value (the ~10 min post-death reconnect-grace
+    /// window `PolarHRMService` keeps `state.currentHR` populated for) is
+    /// never re-emitted as if it just arrived.
+    private var lastEmittedPolarHRArrivalTime: Date?
+    /// Fix item 2, RMSSD leg: `PolarHRMService` exposes no packet-arrival
+    /// timestamp for its per-minute RMSSD mean (only `onLiveSample` taps HR
+    /// arrivals), so the honest proxy for "a new value arrived" is "the
+    /// value itself changed" — the service only ever overwrites
+    /// `state.lastMinuteRMSSD` when its internal per-minute tick computes a
+    /// fresh mean from live RR data; a dead device leaves the cached value
+    /// byte-for-byte frozen forever. Documented tradeoff: if two
+    /// consecutive genuine per-minute means were ever exactly equal, this
+    /// would under-count one arrival — the safe (fail-open, not fail-closed)
+    /// direction, since HR's arrival-based gate above still independently
+    /// tracks the source's liveness.
+    private var lastEmittedPolarRMSSDValue: Double?
     private var tickTask: Task<Void, Never>?
     /// In-memory cache of the persisted `[LoggedCNSDose]` list, so
     /// `evaluateDoseWindowExpiry` (called every 1 Hz tick, potentially for a
@@ -158,7 +226,11 @@ final class CNSMonitoringCoordinator {
     /// instance).
     private var cachedDoses: [LoggedCNSDose]?
 
-    private static let loggedDosesKey = "cns.monitoring.loggedDoses"
+    /// `internal` (not `private`) so `CNSMonitoringCoordinatorTests` can
+    /// write a hand-crafted `PersistedCNSDose`-shaped blob directly (e.g. an
+    /// unrecognized `drugClass` rawValue, fix 7b's test) without needing
+    /// access to the file-private `PersistedCNSDose` type itself.
+    static let loggedDosesKey = "cns.monitoring.loggedDoses"
 
     // MARK: - Init
 
@@ -283,9 +355,9 @@ final class CNSMonitoringCoordinator {
         guard let drugClass = classify(dose) else { return }
         let now = self.now()
 
-        var doses = loadPersistedDoses()
+        var doses = loadPersistedDoses(at: now)
         doses.append(LoggedCNSDose(timestamp: dose.timestamp, drugClass: drugClass))
-        savePersistedDoses(doses)
+        savePersistedDoses(doses, at: now)
 
         guard refreshDoseWindowExpiry(doses: doses, at: now) != nil else { return }
         if isMonitoring {
@@ -303,17 +375,29 @@ final class CNSMonitoringCoordinator {
     /// itself be mid-session yet, so this only fixes up persisted rows), then
     /// re-evaluates the persisted dose list: if a window is still active,
     /// re-arms with `.doseWindow` — the "relaunch re-arms" half of contract 4.
+    ///
+    /// Fix item 7a: `!isMonitoring` is now the FIRST thing checked (a
+    /// no-op — not even `markStaleUnendedSessions` runs — while monitoring
+    /// is active), not just a later guard on the re-arm half. SwiftUI's
+    /// `.task` modifier can, under some view-identity churn, re-fire while
+    /// this same coordinator instance is already mid-session; without this
+    /// guard at the top, `markStaleUnendedSessions`'s "every un-ended
+    /// session" query would sweep up the CURRENTLY ACTIVE session (its
+    /// `endedAt` is nil precisely because it's still live) and stamp it
+    /// `.appTerminated` in the persisted store while the in-memory
+    /// coordinator carries on believing it's still monitoring — a silent
+    /// divergence between persisted and live state.
     func handleLaunch() {
+        guard !isMonitoring else { return }
         let now = self.now()
         markStaleUnendedSessions(at: now)
-        guard !isMonitoring else { return }
         // Invalidate the dose cache before reading: launch is the one point
         // where the UserDefaults store may have been written by a previous
         // coordinator instance (previous process; a second instance in the
         // relaunch-simulation tests), so the persisted list is authoritative
         // here.
         cachedDoses = nil
-        let doses = loadPersistedDoses()
+        let doses = loadPersistedDoses(at: now)
         guard refreshDoseWindowExpiry(doses: doses, at: now) != nil else { return }
         activeTriggers = [.doseWindow]
         startNewSession(companionPresent: false, at: now)
@@ -367,9 +451,43 @@ final class CNSMonitoringCoordinator {
         if let reading = latestEMAYReading() {
             samples.append(contentsOf: CNSSensorAdapters.samples(from: reading))
         }
-        samples.append(contentsOf: CNSSensorAdapters.samples(polarHR: latestPolarHR(), at: now))
-        samples.append(contentsOf: CNSSensorAdapters.samples(polarRMSSD: latestPolarRMSSD(), at: now))
+        samples.append(contentsOf: collectPolarHRSample())
+        samples.append(contentsOf: collectPolarRMSSDSample(at: now))
         return samples
+    }
+
+    /// Fix item 2 (IMPORTANT — Polar liveness from packet arrival, not cached
+    /// values): emits a Polar HR sample ONLY when a genuine new packet
+    /// arrival occurred since the last emission. `PolarHRMService.state.currentHR`
+    /// stays populated for its ~10-min reconnect grace after the strap dies
+    /// mid-session, so polling `latestPolarHR()` every tick and stamping the
+    /// sample `at: now` (the OLD behavior) would read a frozen cached value
+    /// as perpetually fresh — `lastSampleBySource[.polarH10]` would never go
+    /// stale, and `reportingSources`/the §7 device-state matrix would keep
+    /// lying that Polar is still reporting. `lastPolarHRArrivalTime` only
+    /// ever advances via `noteLivePolarSample`, which production wires to
+    /// `PolarHRMService.onLiveSample` — a tap that fires exactly once per
+    /// REAL BLE packet, independent of tick cadence. The emitted sample's
+    /// timestamp is the genuine arrival time, not `now`, so downstream
+    /// staleness detection (`CNSDeviceStateMatrix.state`) reflects when data
+    /// actually arrived, not when the tick loop happened to run.
+    private func collectPolarHRSample() -> [CNSSignalSample] {
+        guard let arrival = lastPolarHRArrivalTime, arrival != lastEmittedPolarHRArrivalTime,
+              let hr = latestPolarHR() else { return [] }
+        lastEmittedPolarHRArrivalTime = arrival
+        return CNSSensorAdapters.samples(polarHR: hr, at: arrival)
+    }
+
+    /// Fix item 2, RMSSD leg — see `lastEmittedPolarRMSSDValue`'s doc comment
+    /// for why "the value changed" is the honest arrival proxy here (no
+    /// packet-arrival tap exists for RMSSD). Timestamped `now` (not an
+    /// arrival time, since none is available) — consistent with the OLD
+    /// behavior for this one signal, but now gated so a frozen cached value
+    /// is emitted once, not every tick forever.
+    private func collectPolarRMSSDSample(at now: Date) -> [CNSSignalSample] {
+        guard let rmssd = latestPolarRMSSD(), rmssd != lastEmittedPolarRMSSDValue else { return [] }
+        lastEmittedPolarRMSSDValue = rmssd
+        return CNSSensorAdapters.samples(polarRMSSD: rmssd, at: now)
     }
 
     /// Contract 6: derives each source's `CNSDeviceState`; on a TRANSITION
@@ -429,14 +547,22 @@ final class CNSMonitoringCoordinator {
     }
 
     /// Keeps Polar liveness tracking responsive between ticks (see the
-    /// production convenience init's doc comment). Deliberately does NOT
-    /// touch the sample buffer/pipeline — sample collection stays uniform
-    /// and tick-polled (contract 1) via `latestPolarHR()`/`latestPolarRMSSD()`
-    /// so production never double-counts a reading.
-    private func noteLivePolarSample(at timestamp: Date) {
+    /// production convenience init's doc comment) AND (fix item 2) is now
+    /// the sole arrival signal `collectPolarHRSample` uses to decide
+    /// whether a genuine new HR sample should enter the buffer this tick —
+    /// so a dead strap whose cached `latestPolarHR()` value stays populated
+    /// for the ~10-min reconnect grace can never read as still-arriving.
+    /// `internal` (not `private`), same rationale as
+    /// `PolarHRMService.finalizeOrphan`: unit tests simulate a genuine BLE
+    /// packet arrival by calling this directly (no real CoreBluetooth
+    /// needed), since the coordinator's only OTHER Polar seam
+    /// (`latestPolarHR: () -> Int?`) carries no arrival-time information by
+    /// design.
+    func noteLivePolarSample(at timestamp: Date) {
         guard isMonitoring else { return }
         lastSampleBySource[.polarH10] = timestamp
         wasEverReportingBySource[.polarH10] = true
+        lastPolarHRArrivalTime = timestamp
     }
 
     /// Contract 2 (10s cadence) + contract 3 (immediate write on any tier
@@ -451,6 +577,15 @@ final class CNSMonitoringCoordinator {
     /// a full-table fetch every second, all night, to delete rows that only
     /// ever age past retention seconds apart. An off-cadence tier-edge write
     /// doesn't need its own prune — the next cadence boundary is ≤ 10s away.
+    ///
+    /// Fix item 1: the dead-man's-switch watchdog reschedule ALSO rides this
+    /// 10s cadence (same reasoning — no need to re-call
+    /// `notificationPoster.schedule` every single second while monitoring is
+    /// healthy). This bounds watchdog staleness to at most
+    /// `samplePersistInterval` (10s) beyond `deadMansSwitchInterval` (90s) —
+    /// still "~90s" as documented. `startNewSession` schedules the FIRST
+    /// watchdog immediately (not gated on this cadence) so a death in the
+    /// first 10s of a session is still covered.
     private func persistIfDue(
         assessment: CNSRiskAssessment, tier: CNSAlertTier, at now: Date, into session: MonitoringSession
     ) {
@@ -482,6 +617,7 @@ final class CNSMonitoringCoordinator {
                 before: now.addingTimeInterval(-CNSMonitoringConstants.sampleRetention),
                 now: now, in: modelContext
             )
+            scheduleDeadMansSwitch(at: now)
         }
         // Architecture seam for Phase 3: tier-edge is the hook point for
         // klaxon/haptic escalation and alone-mode fast-escalation UI (spec
@@ -490,9 +626,27 @@ final class CNSMonitoringCoordinator {
         previousObservedTier = tier
     }
 
+    /// Fix item 1 (CRITICAL — dead-man's-switch): (re)schedules the watchdog
+    /// notification `CNSMonitoringConstants.deadMansSwitchInterval` out from
+    /// `now`, replacing any pending one under the same identifier. If the
+    /// tick loop dies for ANY reason (iOS suspension/kill while monitoring —
+    /// see §15's "Background execution limits") nothing calls this again,
+    /// and the previously-scheduled notification fires on schedule — the
+    /// one disclosure path that does NOT depend on the tick loop staying
+    /// alive.
+    private func scheduleDeadMansSwitch(at now: Date) {
+        notificationPoster.schedule(
+            identifier: CNSMonitoringConstants.deadMansSwitchNotificationID,
+            title: "CNS monitoring may have stopped",
+            body: "Monitoring may have been interrupted (the app may have been suspended or closed). "
+                + "Reopen AnxietyWatch to check its status.",
+            at: now.addingTimeInterval(CNSMonitoringConstants.deadMansSwitchInterval)
+        )
+    }
+
     private func evaluateDoseWindowExpiry(at now: Date) {
         guard activeTriggers.contains(.doseWindow) else { return }
-        let doses = loadPersistedDoses()
+        let doses = loadPersistedDoses(at: now)
         guard refreshDoseWindowExpiry(doses: doses, at: now) == nil else { return }
         activeTriggers.remove(.doseWindow)
         if activeTriggers.isEmpty {
@@ -531,6 +685,9 @@ final class CNSMonitoringCoordinator {
         previousDeviceStateBySource = [:]
         degradedNotifiedSources = []
         disclosedDegradedSources = []
+        lastPolarHRArrivalTime = nil
+        lastEmittedPolarHRArrivalTime = nil
+        lastEmittedPolarRMSSDValue = nil
 
         let newSession = MonitoringSession(
             startedAt: now,
@@ -550,6 +707,12 @@ final class CNSMonitoringCoordinator {
         // never fight `setContinuousMode`.
         emayStartHook()
 
+        // Fix item 1: arm the dead-man's-switch immediately — don't wait for
+        // the first 10s persist-cadence boundary, or a death in the first
+        // few seconds of a session would never have had a watchdog
+        // scheduled at all.
+        scheduleDeadMansSwitch(at: now)
+
         startTickLoopIfNeeded()
         updateStatusLine()
     }
@@ -567,6 +730,11 @@ final class CNSMonitoringCoordinator {
         // coordinator stays ignorant of EMAY specifics.
         emayStopHook?()
 
+        // Fix item 1: the dead-man's-switch is only meaningful WHILE
+        // monitoring — a deliberate end (any reason) must not leave a
+        // watchdog notification pending to needlessly fire ~90s later.
+        notificationPoster.cancel(identifier: CNSMonitoringConstants.deadMansSwitchNotificationID)
+
         stopTickLoop()
         session = nil
         pipeline = nil
@@ -580,6 +748,9 @@ final class CNSMonitoringCoordinator {
         previousDeviceStateBySource = [:]
         degradedNotifiedSources = []
         disclosedDegradedSources = []
+        lastPolarHRArrivalTime = nil
+        lastEmittedPolarHRArrivalTime = nil
+        lastEmittedPolarRMSSDValue = nil
         doseWindowExpiry = nil
         updateStatusLine()
     }
@@ -596,6 +767,12 @@ final class CNSMonitoringCoordinator {
         }
     }
 
+    /// Fix item 5 (IMPORTANT — `.appTerminated` must not be silent): a
+    /// force-quit/crash/suspension that left ≥1 `MonitoringSession` un-ended
+    /// now posts a notification once this fixup runs, rather than silently
+    /// rewriting the row. (Only reachable from `handleLaunch()`, which fix
+    /// 7a moved the `!isMonitoring` guard ahead of — so this never touches
+    /// a session this SAME coordinator instance is actively running.)
     private func markStaleUnendedSessions(at now: Date) {
         let descriptor = FetchDescriptor<MonitoringSession>(predicate: #Predicate { $0.endedAt == nil })
         guard let staleSessions = try? modelContext.fetch(descriptor), !staleSessions.isEmpty else { return }
@@ -604,6 +781,11 @@ final class CNSMonitoringCoordinator {
             stale.endReason = EndReason.appTerminated.rawValue
         }
         try? modelContext.save()
+        notificationPoster.post(
+            identifier: CNSMonitoringConstants.staleSessionNotificationID,
+            title: "Monitoring interrupted",
+            body: "Monitoring was interrupted while the app was closed."
+        )
     }
 
     // MARK: - Production tick loop
@@ -658,27 +840,59 @@ final class CNSMonitoringCoordinator {
 
     /// Returns the in-memory cache when populated; decodes from
     /// `UserDefaults` only on the first read after init (or after
-    /// `handleLaunch()` invalidates the cache). `savePersistedDoses` is the
-    /// only write path and updates the cache in the same call, so cache and
-    /// store cannot diverge within one coordinator instance.
-    private func loadPersistedDoses() -> [LoggedCNSDose] {
+    /// `handleLaunch()` invalidates the cache).
+    ///
+    /// Fix item 3: prunes the decoded list before caching it, so a stale
+    /// dose can never influence a decision (arming/expiry) even before any
+    /// save happens. If pruning actually dropped something that was on
+    /// disk, the trimmed list is ALSO written straight back via
+    /// `persistDoses` — "prune on load" means the on-disk blob shrinks the
+    /// moment a stale entry is first read, not only the next time a dose
+    /// happens to be logged. A load that finds nothing stale stays
+    /// read-only (no redundant write).
+    private func loadPersistedDoses(at now: Date) -> [LoggedCNSDose] {
         if let cachedDoses { return cachedDoses }
-        let doses: [LoggedCNSDose]
+        let decodedDoses: [LoggedCNSDose]
         if let data = defaults.data(forKey: Self.loggedDosesKey),
            let decoded = try? JSONDecoder().decode([PersistedCNSDose].self, from: data) {
-            doses = decoded.compactMap(\.asLoggedCNSDose)
+            decodedDoses = decoded.map(\.asLoggedCNSDose)
         } else {
-            doses = []
+            decodedDoses = []
         }
-        cachedDoses = doses
-        return doses
+        let pruned = pruneDoses(decodedDoses, at: now)
+        if pruned.count != decodedDoses.count {
+            persistDoses(pruned)
+        } else {
+            cachedDoses = pruned
+        }
+        return pruned
     }
 
-    private func savePersistedDoses(_ doses: [LoggedCNSDose]) {
-        // Cache first: even if encoding fails (never expected for these
-        // plain Codable values), in-memory state should reflect what the
-        // caller logged — under-persisting must not become under-monitoring
-        // within the live instance.
+    private func savePersistedDoses(_ doses: [LoggedCNSDose], at now: Date) {
+        persistDoses(pruneDoses(doses, at: now))
+    }
+
+    /// Fix item 3 (IMPORTANT — prune the persisted dose list): drops doses
+    /// older than `CNSMonitoringConstants.doseRetentionHorizon` (108h — see
+    /// that constant's doc comment for the derivation) — the horizon beyond
+    /// which no individual OR synergy window this dose could ever be part
+    /// of can reach. Run on every save AND every decode-from-disk load so
+    /// the persisted list stays bounded across months of real usage instead
+    /// of growing forever (the previous `savePersistedDoses` only ever
+    /// appended).
+    private func pruneDoses(_ doses: [LoggedCNSDose], at now: Date) -> [LoggedCNSDose] {
+        let cutoff = now.addingTimeInterval(-CNSMonitoringConstants.doseRetentionHorizon)
+        return doses.filter { $0.timestamp >= cutoff }
+    }
+
+    /// Single encode+write path — `savePersistedDoses` and (when a decode
+    /// finds stale entries) `loadPersistedDoses` both funnel through this,
+    /// so the in-memory cache and the on-disk blob can never disagree about
+    /// what "pruned" produced. Cache is updated FIRST: even if encoding
+    /// fails (never expected for these plain Codable values), in-memory
+    /// state should reflect the already-pruned list — under-persisting must
+    /// not become under-monitoring within the live instance.
+    private func persistDoses(_ doses: [LoggedCNSDose]) {
         cachedDoses = doses
         guard let data = try? JSONEncoder().encode(doses.map(PersistedCNSDose.init)) else { return }
         defaults.set(data, forKey: Self.loggedDosesKey)
