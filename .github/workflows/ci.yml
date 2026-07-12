@@ -28,7 +28,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install uv
-      - run: uvx bandit -r server -x server/tests -ll -ii
+      # -l (LOW+ severity) rather than -ll so regressions in the low-severity
+      # classes this gate was added for (B105 hardcoded secrets, B404/B603
+      # subprocess) still fail CI; -ii keeps confidence at MEDIUM+.
+      - run: uvx bandit -r server -x server/tests -l -ii
 
   test:
     runs-on: ubuntu-latest

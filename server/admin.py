@@ -1331,6 +1331,9 @@ def data():
     # identifier and a direction keyword (coerced to a known-safe value) so
     # the query is composed via psycopg2.sql rather than f-string
     # interpolation.
+    # NOTE: this partition + ASC/DESC coercion assumes BROWSABLE_TABLES
+    # "order" values stay shaped like "col" or "col DESC" — a multi-column
+    # or expression order value would be silently mangled here.
     order_col, _, order_dir = BROWSABLE_TABLES[table]["order"].partition(" ")
     order_dir = order_dir if order_dir in ("ASC", "DESC") else "ASC"
     cur.execute(

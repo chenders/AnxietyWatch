@@ -50,7 +50,12 @@ def create_app(test_config=None):
         # (see test_create_app_uses_test_default_when_testing and
         # test_create_app_raises_without_secret_key below). Prod (TESTING
         # unset/false) always raises instead of silently falling back.
-        app.config["SECRET_KEY"] = "test-secret-key"  # nosec B105
+        # (Hoisted to a variable so the nosec sits on the exact node bandit
+        # flags — inline, the sibling "SECRET_KEY" subscript-key string node
+        # shares the assignment's linerange and triggers a spurious "nosec
+        # encountered but no failed test" warning.)
+        test_secret_key = "test-secret-key"  # nosec B105
+        app.config["SECRET_KEY"] = test_secret_key
     else:
         raise RuntimeError("SECRET_KEY environment variable is required")
 
@@ -592,9 +597,14 @@ def create_app(test_config=None):
             # _SPO2_BASIS_COLUMNS) and fixed literal strings selected by an
             # integer schema_version comparison, never from request-controlled
             # text (see _overnight_stats_update_clause, _spo2_basis_update_clause,
-            # _data_quality_update_clause above).
+            # _data_quality_update_clause above). Built via str.format rather
+            # than an f-string so the SQL is a single string constant and
+            # the suppression sits on the exact node bandit flags — an
+            # interpolated f-string splits into sibling constants that share
+            # the whole string's linerange and emit spurious "nosec
+            # encountered but no failed test" warnings.
             cur.execute(
-                f"""INSERT INTO health_snapshots (
+                """INSERT INTO health_snapshots (
                        date, hrv_avg, hrv_min, resting_hr,
                        sleep_duration_min, sleep_deep_min, sleep_rem_min, sleep_core_min, sleep_awake_min,
                        skin_temp_deviation, skin_temp_wrist, respiratory_rate, spo2_avg,
@@ -636,7 +646,11 @@ def create_app(test_config=None):
                        cpap_usage_minutes = EXCLUDED.cpap_usage_minutes,
                        barometric_pressure_avg_kpa = EXCLUDED.barometric_pressure_avg_kpa,
                        barometric_pressure_change_kpa = EXCLUDED.barometric_pressure_change_kpa,
-                       {data_quality_clause}""",  # nosec B608
+                       {data_quality_clause}""".format(  # nosec B608
+                    overnight_clause=overnight_clause,
+                    spo2_basis_clause=spo2_basis_clause,
+                    data_quality_clause=data_quality_clause,
+                ),
                 (
                     s["date"], s.get("hrvAvg"), s.get("hrvMin"), s.get("restingHR"),
                     s.get("sleepDurationMin"), s.get("sleepDeepMin"), s.get("sleepREMMin"),
