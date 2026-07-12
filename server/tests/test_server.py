@@ -230,7 +230,13 @@ def test_sync_all_entity_types(client):
             {"timestamp": "2025-03-20T10:00:00Z", "severity": 5, "notes": "", "tags": []},
         ],
         "medicationDefinitions": [
-            {"name": "Lorazepam", "defaultDoseMg": 0.5, "category": "benzodiazepine", "isActive": True},
+            # New-client shape: carries the explicit CNS-depressant
+            # classification (0013 column).
+            {"name": "Lorazepam", "defaultDoseMg": 0.5, "category": "benzodiazepine",
+             "isActive": True, "cnsDepressantClass": "benzodiazepine"},
+            # Old-client shape: key absent entirely — must still 200 and land
+            # as NULL via the .get default, never a KeyError.
+            {"name": "Melatonin", "defaultDoseMg": 3.0, "category": "supplement", "isActive": True},
         ],
         "medicationDoses": [
             {"timestamp": "2025-03-20T09:00:00Z", "medicationName": "Lorazepam", "doseMg": 0.5, "notes": None},
@@ -264,11 +270,22 @@ def test_sync_all_entity_types(client):
     assert resp.status_code == 200
     counts = resp.get_json()["counts"]
     assert counts["anxiety_entries"] == 1
-    assert counts["medication_definitions"] == 1
+    assert counts["medication_definitions"] == 2
     assert counts["medication_doses"] == 1
     assert counts["cpap_sessions"] == 1
     assert counts["health_snapshots"] == 1
     assert counts["barometric_readings"] == 1
+
+    # cns_depressant_class round-trips through /api/data (SELECT * — no
+    # ENTITY_SELECT_COLS override for medicationDefinitions), so a device
+    # restore gets the explicit classification back; the old-client row
+    # reads NULL, not a fabricated class.
+    defs = client.get(
+        "/api/data/medicationDefinitions", headers=auth_header()
+    ).get_json()["medicationDefinitions"]
+    by_name = {d["name"]: d for d in defs}
+    assert by_name["Lorazepam"]["cns_depressant_class"] == "benzodiazepine"
+    assert by_name["Melatonin"]["cns_depressant_class"] is None
 
 
 def test_sync_barometric_readings_batched_and_idempotent(client, app):

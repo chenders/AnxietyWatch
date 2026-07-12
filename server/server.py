@@ -409,15 +409,22 @@ def create_app(test_config=None):
         return len(entries)
 
     def _upsert_medication_definitions(cur, defs):
+        # cnsDepressantClass (0013): the app's explicit CNS-depressant picker
+        # value — source of truth for dose-window monitoring. Old clients
+        # omit the key (.get -> NULL, matching their nil-on-device state);
+        # new clients encode nil as an absent key, so NULL round-trips.
         for d in defs:
             cur.execute(
-                """INSERT INTO medication_definitions (name, default_dose_mg, category, is_active)
-                   VALUES (%s, %s, %s, %s)
+                """INSERT INTO medication_definitions
+                       (name, default_dose_mg, category, is_active, cns_depressant_class)
+                   VALUES (%s, %s, %s, %s, %s)
                    ON CONFLICT (name) DO UPDATE SET
                        default_dose_mg = EXCLUDED.default_dose_mg,
                        category = EXCLUDED.category,
-                       is_active = EXCLUDED.is_active""",
-                (d["name"], d["defaultDoseMg"], d.get("category", ""), d.get("isActive", True)),
+                       is_active = EXCLUDED.is_active,
+                       cns_depressant_class = EXCLUDED.cns_depressant_class""",
+                (d["name"], d["defaultDoseMg"], d.get("category", ""), d.get("isActive", True),
+                 d.get("cnsDepressantClass")),
             )
         return len(defs)
 

@@ -77,6 +77,54 @@ struct RestoreFromServerTests {
         #expect(n == 0)
     }
 
+    // MARK: - Medication definitions (cns_depressant_class, server migration 0013)
+
+    @Test(
+        """
+        med definitions restore cns_depressant_class (the explicit picker override, source of \
+        truth for dose-window monitoring); a locally-present name is skipped entirely, so a \
+        server NULL can never null out an explicit local classification
+        """
+    )
+    func medDefinitionsRestoreCnsClassAndNeverNullOutLocal() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        // Locally-present definition with an explicit classification — the
+        // name-keyed seen-set must skip the matching server row entirely.
+        context.insert(MedicationDefinition(
+            name: "Oxycodone ER 10mg", defaultDoseMg: 10, category: "Opioid",
+            isActive: true, cnsDepressantClass: "opioidER"
+        ))
+        try context.save()
+
+        let rows: [[String: Any]] = [
+            // Server copy of the local def with cns_depressant_class NULL
+            // (e.g. last up-synced by an old app build) — must not clobber.
+            ["name": "Oxycodone ER 10mg", "default_dose_mg": 10.0,
+             "category": "Opioid", "is_active": true, "cns_depressant_class": NSNull()],
+            // New-from-server row carrying an explicit classification.
+            ["name": "Test Benzo 1mg", "default_dose_mg": 1.0,
+             "category": "Benzodiazepine", "is_active": true,
+             "cns_depressant_class": "benzodiazepine"],
+            // Pre-0013 server shape: column/key absent entirely.
+            ["name": "Vitamin D", "default_dose_mg": 50.0,
+             "category": "Supplement", "is_active": true],
+        ]
+
+        let n = try SyncService.importMedDefinitions(rows, into: context)
+        #expect(n == 2, "the locally-present name is skipped; the two new definitions import")
+
+        let defs = try context.fetch(FetchDescriptor<MedicationDefinition>())
+        let byName = Dictionary(uniqueKeysWithValues: defs.map { ($0.name, $0) })
+        #expect(byName["Oxycodone ER 10mg"]?.cnsDepressantClass == "opioidER",
+                "a restore must never null out an explicit local classification with a server nil")
+        #expect(byName["Test Benzo 1mg"]?.cnsDepressantClass == "benzodiazepine",
+                "the restored definition carries the server's explicit classification")
+        #expect(byName["Vitamin D"]?.cnsDepressantClass == nil,
+                "a pre-0013 row restores as unclassified, never a fabricated class")
+    }
+
     // MARK: - Sensor sessions
 
     @Test("sensor sessions import with preserved server UUID, fields, and id map")

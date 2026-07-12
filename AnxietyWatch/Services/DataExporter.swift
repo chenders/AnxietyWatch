@@ -255,7 +255,8 @@ nonisolated enum DataExporter {
             },
             medicationDefinitions: defs.map { m in
                 MedicationDefinitionDTO(name: m.name, defaultDoseMg: m.defaultDoseMg,
-                                        category: m.category, isActive: m.isActive)
+                                        category: m.category, isActive: m.isActive,
+                                        cnsDepressantClass: m.cnsDepressantClass)
             },
             medicationDoses: doses.filter { inRange($0.timestamp) }.map { d in
                 MedicationDoseDTO(timestamp: isoFormatter.string(from: d.timestamp),
@@ -373,6 +374,14 @@ nonisolated enum DataExporter {
     }
     struct MedicationDefinitionDTO: Codable {
         let name: String; let defaultDoseMg: Double; let category: String; let isActive: Bool
+        /// Raw `CNSDepressantClass` — the user's explicit picker override,
+        /// source of truth for §14.1 dose-window classification. Synced so a
+        /// device restore can't silently drop an explicit classification back
+        /// to a name-guess default (the under-monitoring direction: an
+        /// explicit opioidER (24 h) re-guessed as opioidIR (8 h) or nil).
+        /// nil (encoded as an absent key) = not a CNS depressant /
+        /// unclassified; old servers ignore the extra key.
+        let cnsDepressantClass: String?
     }
     struct MedicationDoseDTO: Codable {
         let timestamp: String; let medicationName: String; let doseMg: Double; let notes: String?
