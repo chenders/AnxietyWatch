@@ -1007,7 +1007,10 @@ def _mark_analysis_failed(existing_conn, database_url, analysis_id: int, exc: Ex
                 try:
                     target.rollback()
                 except Exception:
-                    pass
+                    logging.debug(
+                        "Rollback failed while marking analysis %d as failed",
+                        analysis_id, exc_info=True,
+                    )
             cur = target.cursor()
             cur.execute(
                 "UPDATE analyses SET status = 'failed', error_message = %s, completed_at = NOW() "
@@ -1025,7 +1028,10 @@ def _mark_analysis_failed(existing_conn, database_url, analysis_id: int, exc: Ex
                 try:
                     conn.close()
                 except Exception:
-                    pass
+                    logging.debug(
+                        "Failed to close fallback DB connection for analysis %d",
+                        analysis_id, exc_info=True,
+                    )
 
 
 def _complete_analysis(db, analysis_id: int, system_prompt: str, user_message: str) -> None:

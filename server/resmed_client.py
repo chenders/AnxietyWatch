@@ -43,9 +43,11 @@ class MyAirAPIError(Exception):
 # Okta / myAir constants
 # ---------------------------------------------------------------------------
 
+# OKTA_TOKEN_URL below is a public API endpoint URL, not a credential — bandit
+# misflags it as a hardcoded password because the path contains "token".
 OKTA_AUTHN_URL = "https://resmed-ext-1.okta.com/api/v1/authn"
 OKTA_AUTHORIZE_URL = "https://resmed-ext-1.okta.com/oauth2/aus4ccsxvnidQgLmA297/v1/authorize"
-OKTA_TOKEN_URL = "https://resmed-ext-1.okta.com/oauth2/aus4ccsxvnidQgLmA297/v1/token"
+OKTA_TOKEN_URL = "https://resmed-ext-1.okta.com/oauth2/aus4ccsxvnidQgLmA297/v1/token"  # nosec B105
 OKTA_CLIENT_ID = "0oa4ccq1v413ypROi297"
 REDIRECT_URI = "https://myair.resmed.com"
 

@@ -61,6 +61,10 @@ def compute_correlations(cur, tz_name=DEFAULT_ANALYSIS_TIMEZONE):
     # check below — identical for the single-column signals, and slightly more
     # correct for sleep_quality_ratio, whose CASE returns NULL for a zero
     # sleep_duration that the old column-only WHERE let through as NaN.)
+    # select_exprs is built entirely from the hardcoded module-level SIGNALS
+    # list above (fixed SQL expression fragments defined in source, e.g.
+    # "h.hrv_avg" or the sleep_quality_ratio CASE WHEN); no request-controlled
+    # data reaches this string.
     select_exprs = ", ".join(
         f"{sql_expr} AS sig_{idx}" for idx, (_, sql_expr, _) in enumerate(SIGNALS)
     )
@@ -70,7 +74,7 @@ def compute_correlations(cur, tz_name=DEFAULT_ANALYSIS_TIMEZONE):
         JOIN anxiety_entries a ON (a.timestamp AT TIME ZONE %s)::date = h.date
         GROUP BY h.date
         ORDER BY h.date
-    """, (tz_name,))
+    """, (tz_name,))  # nosec B608
     rows = cur.fetchall()
 
     for idx, (signal_name, _sql_expr, _required_cols) in enumerate(SIGNALS):
