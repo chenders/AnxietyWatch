@@ -81,7 +81,7 @@ enum DemoSeeder {
         ctx.insert(pharmacy)
         ctx.insert(Prescription(rxNumber: "9999999-00001", medicationName: "Sertraline 50mg",
                                 doseMg: 50, quantity: 30, refillsRemaining: 3, dateFilled: day(6),
-                                pharmacyName: "Test Pharmacy #12345", prescriberName: "Jane Smith MD",
+                                pharmacyName: "Test Pharmacy #12345",
                                 medication: sert, pharmacy: pharmacy))
     }
 

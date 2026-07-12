@@ -10,10 +10,6 @@ enum PrescriptionSupplyCalculator {
     /// duration, or the default if supply can't be calculated. A 90-day fill should
     /// not expire from alerts at 60 days.
     static func alertStalenessLimitDays(for prescription: Prescription) -> Int {
-        // Prefer daysSupply from PBM over quantity-based calculation
-        if let daysSupply = prescription.daysSupply, daysSupply > 0 {
-            return max(daysSupply * 2, defaultStalenessLimitDays)
-        }
         if let daily = prescription.dailyDoseCount, daily > 0 {
             let supplyDays = Int(ceil(Double(prescription.quantity) / daily))
             return max(supplyDays * 2, defaultStalenessLimitDays)
@@ -123,7 +119,7 @@ enum PrescriptionSupplyCalculator {
         let latestPerMed = latestPrescriptionPerMedication(from: prescriptions)
 
         return latestPerMed.filter { rx in
-            let fillDate = rx.lastFillDate ?? rx.dateFilled
+            let fillDate = rx.dateFilled
             let stalenessLimit = alertStalenessLimitDays(for: rx)
             let cutoff = Calendar.current.date(byAdding: .day, value: -stalenessLimit, to: now)
             if let cutoff, fillDate < cutoff { return false }
@@ -137,10 +133,8 @@ enum PrescriptionSupplyCalculator {
     static func latestPrescriptionPerMedication(from prescriptions: [Prescription]) -> [Prescription] {
         var latest: [String: Prescription] = [:]
         for rx in prescriptions {
-            let fillDate = rx.lastFillDate ?? rx.dateFilled
             if let existing = latest[rx.medicationName] {
-                let existingDate = existing.lastFillDate ?? existing.dateFilled
-                if fillDate > existingDate {
+                if rx.dateFilled > existing.dateFilled {
                     latest[rx.medicationName] = rx
                 }
             } else {
@@ -152,18 +146,9 @@ enum PrescriptionSupplyCalculator {
 
     // MARK: - Private
 
-    /// Resolves the best available run-out date. Prefers daysSupply from PBM
-    /// (most authoritative), then stored estimatedRunOutDate, then quantity-based.
+    /// Resolves the best available run-out date: stored estimatedRunOutDate,
+    /// then quantity-based estimate.
     private static func effectiveRunOutDate(for prescription: Prescription) -> Date? {
-        // daysSupply from PBM is most authoritative — check first so stale
-        // server-computed estimatedRunOutDate values don't override it
-        if let daysSupply = prescription.daysSupply, daysSupply > 0 {
-            return Calendar.current.date(
-                byAdding: .day,
-                value: daysSupply,
-                to: prescription.dateFilled
-            )
-        }
         if let stored = prescription.estimatedRunOutDate {
             return stored
         }

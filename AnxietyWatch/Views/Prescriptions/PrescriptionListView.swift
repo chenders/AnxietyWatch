@@ -81,7 +81,7 @@ struct PrescriptionListView: View, Equatable {
                 return true
             }
             // Show recently filled even if unknown status
-            let fillDate = rx.lastFillDate ?? rx.dateFilled
+            let fillDate = rx.dateFilled
             return fillDate >= cutoff && status != .expired
         }
     }
@@ -91,7 +91,7 @@ struct PrescriptionListView: View, Equatable {
         let cutoff = Calendar.current.date(byAdding: .day, value: -30, to: .now) ?? .distantPast
         return prescriptions.filter { rx in
             let status = PrescriptionSupplyCalculator.supplyStatus(for: rx)
-            let fillDate = rx.lastFillDate ?? rx.dateFilled
+            let fillDate = rx.dateFilled
             return status == .expired && fillDate >= cutoff
         }
     }
@@ -124,7 +124,7 @@ private struct PrescriptionRow: View {
                     if prescription.quantity > 0 {
                         Text("qty \(prescription.quantity)")
                     }
-                    Text((prescription.lastFillDate ?? prescription.dateFilled).formatted(.dateTime.month().day()))
+                    Text(prescription.dateFilled.formatted(.dateTime.month().day()))
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)

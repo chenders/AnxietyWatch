@@ -354,9 +354,7 @@ struct ReconcileFromServerTests {
             estimatedRunOutDate: nil,
             pharmacyName: "Test Pharmacy #12345",
             notes: "locally corrected",
-            dailyDoseCount: 1,
-            prescriberName: "Jane Smith MD",
-            ndcCode: "00000-0000-00"
+            dailyDoseCount: 1
         ))
         try context.save()
 

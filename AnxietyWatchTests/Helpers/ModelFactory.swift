@@ -245,15 +245,8 @@ enum ModelFactory {
         refillsRemaining: Int = 3,
         dateFilled: Date = referenceDate,
         pharmacyName: String = "Test Pharmacy #12345",
-        prescriberName: String = "Jane Smith MD",
-        importSource: String = "manual",
         medication: MedicationDefinition? = nil,
-        pharmacy: Pharmacy? = nil,
-        daysSupply: Int? = nil,
-        patientPay: Double? = nil,
-        planPay: Double? = nil,
-        dosageForm: String = "",
-        drugType: String = ""
+        pharmacy: Pharmacy? = nil
     ) -> Prescription {
         Prescription(
             rxNumber: rxNumber,
@@ -263,13 +256,6 @@ enum ModelFactory {
             refillsRemaining: refillsRemaining,
             dateFilled: dateFilled,
             pharmacyName: pharmacyName,
-            prescriberName: prescriberName,
-            importSource: importSource,
-            daysSupply: daysSupply,
-            patientPay: patientPay,
-            planPay: planPay,
-            dosageForm: dosageForm,
-            drugType: drugType,
             medication: medication,
             pharmacy: pharmacy
         )
