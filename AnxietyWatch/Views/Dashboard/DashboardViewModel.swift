@@ -12,7 +12,6 @@ final class DashboardViewModel {
     // MARK: - Computed State
 
     private(set) var samplesByType: [String: [HealthSample]] = [:]
-    private(set) var lowSupplyCount = 0
     private(set) var hrvBaseline: BaselineCalculator.BaselineResult?
     private(set) var rhrBaseline: BaselineCalculator.BaselineResult?
     private(set) var sleepBaseline: BaselineCalculator.BaselineResult?
@@ -45,11 +44,6 @@ final class DashboardViewModel {
         respiratoryBaseline = BaselineCalculator.respiratoryRateBaseline(from: snapshots)
         cpapAHIBaseline = BaselineCalculator.cpapAHIBaseline(from: snapshots)
         barometricBaseline = BaselineCalculator.barometricPressureBaseline(from: snapshots)
-    }
-
-    /// Compute supply alert count.
-    func computeSupplyAlerts(from prescriptions: [Prescription]) {
-        lowSupplyCount = PrescriptionSupplyCalculator.alertPrescriptions(from: prescriptions).count
     }
 
     /// Refresh today's snapshot from HealthKit.
@@ -283,7 +277,6 @@ final class DashboardViewModel {
         snapshots: [HealthSnapshot],
         sleepEvents: [SleepStageEvent],
         lastAnxiety: AnxietyEntry?,
-        activeAlerts: Int,
         now: Date = .now
     ) -> SmartSummaryComposer.Output {
         let today = todaySnapshot(from: snapshots, now: now)
@@ -314,8 +307,7 @@ final class DashboardViewModel {
             sleepEfficiencyBaseline: efficiencyBaseline,
             ahi: today?.cpapAHI,
             ahiBaseline: cpapAHIBaseline,
-            anxietyLast24h: anxietySeverity24h,
-            activeAlerts: activeAlerts
+            anxietyLast24h: anxietySeverity24h
         )
         return SmartSummaryComposer.compose(input: input)
     }

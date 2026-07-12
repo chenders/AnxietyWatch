@@ -42,42 +42,6 @@ struct DashboardPerfTests {
         #expect(elapsed < 1.0, "Baseline calculation too slow: \(elapsed)s for 100 iterations")
     }
 
-    @Test("Supply status computation with 200 prescriptions completes quickly")
-    func supplyAlertPerformance() throws {
-        let container = try TestHelpers.makeFullContainer()
-        let context = ModelContext(container)
-        let calendar = Calendar.current
-
-        // Insert 200 prescriptions (bulk fixture)
-        for i in 0..<200 {
-            let rx = Prescription(
-                rxNumber: "CRX-\(i)",
-                medicationName: "Drug \(i % 10)",
-                doseMg: 10.0,
-                quantity: i % 3 == 0 ? 90 : 30,
-                dateFilled: calendar.date(byAdding: .day, value: -(i * 2), to: .now)!,
-                estimatedRunOutDate: calendar.date(byAdding: .day, value: -(i * 2) + 30, to: .now),
-                dailyDoseCount: i % 2 == 0 ? 1.0 : nil
-            )
-            context.insert(rx)
-        }
-        try context.save()
-
-        let prescriptions = try context.fetch(
-            FetchDescriptor<Prescription>(sortBy: [SortDescriptor(\.dateFilled, order: .reverse)])
-        )
-
-        let now = Date.now
-        let start = CFAbsoluteTimeGetCurrent()
-        for _ in 0..<100 {
-            _ = PrescriptionSupplyCalculator.alertPrescriptions(from: prescriptions, now: now).count
-        }
-        let elapsed = CFAbsoluteTimeGetCurrent() - start
-
-        // 100 iterations of supply filtering on 200 prescriptions should be under 1 second
-        #expect(elapsed < 1.0, "Supply alert computation too slow: \(elapsed)s for 100 iterations")
-    }
-
     @Test("HealthSample grouping with 5000 samples completes quickly")
     func sampleGroupingPerformance() throws {
         let container = try TestHelpers.makeFullContainer()

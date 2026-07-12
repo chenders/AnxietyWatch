@@ -969,25 +969,21 @@ def create_app(test_config=None):
         for rx in prescriptions:
             cur.execute(
                 """INSERT INTO prescriptions (rx_number, medication_name, dose_mg, dose_description,
-                       quantity, refills_remaining, date_filled, estimated_run_out_date,
-                       pharmacy_name, notes, daily_dose_count)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       date_filled, pharmacy_name, notes)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (rx_number) DO UPDATE SET
                        medication_name = EXCLUDED.medication_name,
                        dose_mg = EXCLUDED.dose_mg,
                        dose_description = EXCLUDED.dose_description,
-                       quantity = EXCLUDED.quantity,
-                       refills_remaining = EXCLUDED.refills_remaining,
                        date_filled = EXCLUDED.date_filled,
-                       estimated_run_out_date = EXCLUDED.estimated_run_out_date,
                        pharmacy_name = EXCLUDED.pharmacy_name,
-                       notes = EXCLUDED.notes,
-                       daily_dose_count = EXCLUDED.daily_dose_count""",
+                       notes = EXCLUDED.notes""",
+                # `or ""`: .get's default only covers ABSENT keys — an explicit
+                # JSON null comes through as None and would violate the TEXT
+                # NOT NULL columns, 500ing the whole sync transaction.
                 (rx["rxNumber"], rx["medicationName"], rx["doseMg"],
-                 rx.get("doseDescription", ""), rx["quantity"],
-                 rx.get("refillsRemaining", 0), rx["dateFilled"],
-                 rx.get("estimatedRunOutDate"), rx.get("pharmacyName", ""),
-                 rx.get("notes", ""), rx.get("dailyDoseCount")),
+                 rx.get("doseDescription") or "", rx["dateFilled"],
+                 rx.get("pharmacyName") or "", rx.get("notes") or ""),
             )
         return len(prescriptions)
 

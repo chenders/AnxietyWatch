@@ -140,7 +140,6 @@ AnxietyWatch/
 │   │   ├── DataExporter.swift           # JSON/CSV export
 │   │   ├── PharmacySearchService.swift  # MapKit local search for pharmacies
 │   │   ├── PharmacyCallService.swift    # CXCallObserver + tel: dial + manual logging
-│   │   ├── PrescriptionSupplyCalculator.swift # Supply estimation + status
 │   │   ├── PrescriptionLabelScanner.swift     # Vision OCR for pill bottle labels
 │   │   └── CNSRisk/                     # CNS-depression detection engine (see "CNS Detection Engine" below)
 │   ├── Views/

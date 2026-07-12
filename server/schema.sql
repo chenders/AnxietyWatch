@@ -174,13 +174,9 @@ CREATE TABLE IF NOT EXISTS prescriptions (
     medication_name         TEXT NOT NULL,
     dose_mg                 DOUBLE PRECISION NOT NULL,
     dose_description        TEXT NOT NULL DEFAULT '',
-    quantity                INTEGER NOT NULL,
-    refills_remaining       INTEGER NOT NULL DEFAULT 0,
     date_filled             TIMESTAMPTZ NOT NULL,
-    estimated_run_out_date  TIMESTAMPTZ,
     pharmacy_name           TEXT NOT NULL DEFAULT '',
-    notes                   TEXT NOT NULL DEFAULT '',
-    daily_dose_count        DOUBLE PRECISION
+    notes                   TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS pharmacy_call_logs (

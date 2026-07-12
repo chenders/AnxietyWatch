@@ -19,8 +19,6 @@ struct MedicationsHubView: View {
     // fetch in SQLite instead of materializing the whole table to truncate it
     // in memory each body (F-072).
     @Query private var recentDoses: [MedicationDose]
-    @Query(sort: \Prescription.dateFilled, order: .reverse)
-    private var prescriptions: [Prescription]
     @State private var showingAddMed = false
     @State private var promptMedication: MedicationDefinition?
 
@@ -38,7 +36,6 @@ struct MedicationsHubView: View {
         NavigationStack {
             List {
                 quickLogSection
-                supplyAlertSection
                 navigationSection
                 recentDosesSection
                 notCurrentlyTakingSection
@@ -91,22 +88,6 @@ struct MedicationsHubView: View {
                         med.isActive = false
                     }
                     .tint(.orange)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var supplyAlertSection: some View {
-        let alerts = PrescriptionSupplyCalculator.alertPrescriptions(from: prescriptions)
-        if !alerts.isEmpty {
-            Section("Supply Alerts") {
-                ForEach(alerts) { rx in
-                    NavigationLink {
-                        PrescriptionDetailView(prescription: rx)
-                    } label: {
-                        SupplyAlertRow(prescription: rx)
-                    }
                 }
             }
         }
@@ -202,43 +183,6 @@ struct MedicationsHubView: View {
         let toDelete = offsets.map { recentDoses[$0] }
         for dose in toDelete {
             modelContext.delete(dose)
-        }
-    }
-}
-
-// MARK: - Supply Alert Row
-
-private struct SupplyAlertRow: View {
-    let prescription: Prescription
-
-    var body: some View {
-        HStack {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 10, height: 10)
-            VStack(alignment: .leading) {
-                Text(prescription.medicationName).font(.subheadline)
-                if let days = PrescriptionSupplyCalculator.daysRemaining(for: prescription) {
-                    let label = days < 0 ? "Supply expired" : days == 0 ? "Runs out today" : "\(days) days remaining"
-                    Text(label)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            Text("Rx \(prescription.rxNumber)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var statusColor: Color {
-        switch PrescriptionSupplyCalculator.supplyStatus(for: prescription) {
-        case .good: .green
-        case .warning: .yellow
-        case .low: .red
-        case .expired: .gray
-        case .unknown: .secondary
         }
     }
 }

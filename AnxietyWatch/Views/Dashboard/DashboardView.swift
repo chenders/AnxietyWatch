@@ -16,8 +16,6 @@ struct DashboardView: View {
     @Query private var recentSnapshots: [HealthSnapshot]
     @Query private var recentCPAP: [CPAPSession]
     @Query private var recentLabResults: [ClinicalLabResult]
-    @Query(sort: \Prescription.dateFilled, order: .reverse)
-    private var prescriptions: [Prescription]
     @Query private var recentSleepEvents: [SleepStageEvent]
 
     @State private var vm = DashboardViewModel()
@@ -77,8 +75,7 @@ struct DashboardView: View {
                     SmartSummaryCard(summary: vm.smartSummary(
                         snapshots: recentSnapshots,
                         sleepEvents: recentSleepEvents,
-                        lastAnxiety: recentEntries.first,
-                        activeAlerts: vm.lowSupplyCount > 0 ? 1 : 0
+                        lastAnxiety: recentEntries.first
                     ))
 
                     // 3. Polar HRV start-session (always visible when paired per Q4)
@@ -119,7 +116,6 @@ struct DashboardView: View {
             .navigationTitle("Dashboard")
             .task {
                 // Compute immediately from cached @Query data — no async, no blocking
-                vm.computeSupplyAlerts(from: prescriptions)
                 vm.computeBaselines(from: recentSnapshots)
                 vm.sendStatsToWatch(
                     lastAnxiety: recentEntries.first?.severity,
@@ -141,9 +137,6 @@ struct DashboardView: View {
                     }
                 }
                 Task { await vm.autoSync(context: modelContext) }
-            }
-            .onChange(of: prescriptions.count) {
-                vm.computeSupplyAlerts(from: prescriptions)
             }
         }
     }

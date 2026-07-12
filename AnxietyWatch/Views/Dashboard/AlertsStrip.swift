@@ -83,7 +83,6 @@ struct AlertsStrip: View {
 
     private func icon(for a: DashboardAlert) -> String {
         switch a.category {
-        case .supply: "pills.fill"
         case .autonomic: "heart.fill"
         case .sleep: "bed.double.fill"
         case .environment: "barometer"

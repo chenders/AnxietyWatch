@@ -1494,11 +1494,10 @@ extension SyncService {
         var count = 0
         for row in rows {
             guard let rxNumber = row["rx_number"] as? String, !rxNumber.isEmpty else { continue }
-            // date_filled is NOT NULL server-side, so a row without a parseable
-            // value is corrupt — skip it rather than fabricate a fill date
-            // (defaulting to .now would read as a fresh fill and skew run-out
-            // and staleness math). Checked before the seen-set so a corrupt
-            // row can't claim its rx_number and block a valid duplicate.
+            // date_filled is NOT NULL server-side, so absence means a corrupt
+            // row — fabricating a date (e.g. defaulting to .now) would falsify
+            // the record's fill history. Checked before the seen-set so a
+            // corrupt row can't claim its rx_number and block a valid duplicate.
             guard let dateFilled = parseDate(row["date_filled"]) else { continue }
             guard seen.insert(rxNumber).inserted else { continue }
             let rx = Prescription(
@@ -1506,13 +1505,9 @@ extension SyncService {
                 medicationName: row["medication_name"] as? String ?? "",
                 doseMg: row["dose_mg"] as? Double ?? 0,
                 doseDescription: row["dose_description"] as? String ?? "",
-                quantity: row["quantity"] as? Int ?? 0,
-                refillsRemaining: row["refills_remaining"] as? Int ?? 0,
                 dateFilled: dateFilled,
-                estimatedRunOutDate: parseDate(row["estimated_run_out_date"]),
                 pharmacyName: row["pharmacy_name"] as? String ?? "",
-                notes: row["notes"] as? String ?? "",
-                dailyDoseCount: row["daily_dose_count"] as? Double
+                notes: row["notes"] as? String ?? ""
             )
             modelContext.insert(rx)
             rx.medication = try SyncService.findOrCreateMedication(

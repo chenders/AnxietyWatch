@@ -15,7 +15,7 @@ enum PrescriptionLabelScanner {
     /// review UI can flag a low-confidence read (e.g. a misread dose digit)
     /// rather than presenting every field with identical visual weight.
     enum Field: Hashable {
-        case rxNumber, medicationName, dose, quantity, refillsRemaining, pharmacyName, dateFilled
+        case rxNumber, medicationName, dose, pharmacyName, dateFilled
     }
 
     /// Vision's `VNRecognizedText.confidence` is normalized 0.0–1.0. For the
@@ -40,8 +40,6 @@ enum PrescriptionLabelScanner {
         var rxNumber: String?
         var medicationName: String?
         var dose: String?
-        var quantity: Int?
-        var refillsRemaining: Int?
         var pharmacyName: String?
         var dateFilled: Date?
         /// All recognized lines for user review
@@ -114,18 +112,6 @@ enum PrescriptionLabelScanner {
             if result.rxNumber == nil, let match = text.firstMatch(of: /[Rr][Xx]\s*#?\s*:?\s*(\d{5,12})/) {
                 result.rxNumber = String(match.1)
                 result.fieldConfidence[.rxNumber] = line.confidence
-            }
-
-            // Quantity: number following "Qty" or "Quantity"
-            if result.quantity == nil, let match = text.firstMatch(of: /[Qq](?:ty|uantity)\s*:?\s*#?\s*(\d+)/) {
-                result.quantity = Int(match.1)
-                result.fieldConfidence[.quantity] = line.confidence
-            }
-
-            // Refills: number following "Refill" or "Refills"
-            if result.refillsRemaining == nil, let match = text.firstMatch(of: /[Rr]efills?\s*:?\s*(\d+)/) {
-                result.refillsRemaining = Int(match.1)
-                result.fieldConfidence[.refillsRemaining] = line.confidence
             }
 
             // Dose: numeric value followed by a unit

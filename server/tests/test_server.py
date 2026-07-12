@@ -1680,7 +1680,7 @@ def test_sync_prescriptions(client):
     payload = {
         "prescriptions": [
             {"rxNumber": "9999999-00001", "medicationName": "Clonazepam 1mg",
-             "doseMg": 1.0, "quantity": 60, "dateFilled": "2025-12-31T00:00:00Z",
+             "doseMg": 1.0, "dateFilled": "2025-12-31T00:00:00Z",
              "pharmacyName": "Walgreens"},
         ]
     }
@@ -1691,11 +1691,11 @@ def test_sync_prescriptions(client):
 
 def test_sync_prescriptions_idempotent(client, app):
     rx = {"rxNumber": "9999999-00001", "medicationName": "Clonazepam 1mg",
-          "doseMg": 1.0, "quantity": 60, "dateFilled": "2025-12-31T00:00:00Z"}
+          "doseMg": 1.0, "dateFilled": "2025-12-31T00:00:00Z"}
     payload = {"prescriptions": [rx]}
     client.post("/api/sync", json=payload, headers=auth_header())
-    # Second sync with updated quantity to exercise DO UPDATE
-    rx2 = {**rx, "quantity": 90}
+    # Second sync with updated notes to exercise DO UPDATE
+    rx2 = {**rx, "notes": "Refilled early"}
     resp = client.post("/api/sync", json={"prescriptions": [rx2]}, headers=auth_header())
     assert resp.status_code == 200
     assert resp.get_json()["counts"]["prescriptions"] == 1
@@ -1703,8 +1703,31 @@ def test_sync_prescriptions_idempotent(client, app):
     with app.app_context():
         db = app.get_db()
         cur = db.cursor()
-        cur.execute("SELECT quantity FROM prescriptions WHERE rx_number = %s", (rx["rxNumber"],))
-        assert cur.fetchone()[0] == 90
+        cur.execute("SELECT notes FROM prescriptions WHERE rx_number = %s", (rx["rxNumber"],))
+        assert cur.fetchone()[0] == "Refilled early"
+
+
+def test_sync_prescriptions_null_optional_fields(client, app):
+    # An explicit JSON null is NOT covered by .get's default — it must be
+    # coerced to '' or the TEXT NOT NULL columns 500 the whole transaction.
+    payload = {
+        "prescriptions": [
+            {"rxNumber": "9999999-00002", "medicationName": "Sertraline 50mg",
+             "doseMg": 50.0, "dateFilled": "2025-12-31T00:00:00Z",
+             "doseDescription": None, "pharmacyName": None, "notes": None},
+        ]
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+    assert resp.get_json()["counts"]["prescriptions"] == 1
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "SELECT dose_description, pharmacy_name, notes FROM prescriptions WHERE rx_number = %s",
+            ("9999999-00002",),
+        )
+        assert cur.fetchone() == ("", "", "")
 
 
 def test_sync_pharmacy_call_logs(client):

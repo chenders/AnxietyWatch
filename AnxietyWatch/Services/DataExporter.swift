@@ -138,13 +138,11 @@ nonisolated enum DataExporter {
         files.append(("pharmacies.csv", Data(csv.utf8)))
 
         // Prescriptions
-        csv = "rx_number,medication_name,dose_mg,dose_description,quantity,refills_remaining,"
-        csv += "date_filled,estimated_run_out_date,pharmacy_name,notes,daily_dose_count\n"
+        csv = "rx_number,medication_name,dose_mg,dose_description,date_filled,pharmacy_name,notes\n"
         for rx in bundle.prescriptions {
             csv += "\"\(escapeCsv(rx.rxNumber))\",\"\(escapeCsv(rx.medicationName))\",\(rx.doseMg),"
-            csv += "\"\(escapeCsv(rx.doseDescription))\",\(rx.quantity),\(rx.refillsRemaining),"
-            csv += "\(rx.dateFilled),\(opt(rx.estimatedRunOutDate)),\"\(escapeCsv(rx.pharmacyName))\","
-            csv += "\"\(escapeCsv(rx.notes))\",\(opt(rx.dailyDoseCount))\n"
+            csv += "\"\(escapeCsv(rx.doseDescription))\",\(rx.dateFilled),"
+            csv += "\"\(escapeCsv(rx.pharmacyName))\",\"\(escapeCsv(rx.notes))\"\n"
         }
         files.append(("prescriptions.csv", Data(csv.utf8)))
 
@@ -321,11 +319,8 @@ nonisolated enum DataExporter {
             prescriptions: prescriptionsAll.filter { inRange($0.dateFilled) }.map { rx in
                 PrescriptionDTO(rxNumber: rx.rxNumber, medicationName: rx.medicationName,
                                 doseMg: rx.doseMg, doseDescription: rx.doseDescription,
-                                quantity: rx.quantity, refillsRemaining: rx.refillsRemaining,
                                 dateFilled: isoFormatter.string(from: rx.dateFilled),
-                                estimatedRunOutDate: rx.estimatedRunOutDate.map { isoFormatter.string(from: $0) },
-                                pharmacyName: rx.pharmacyName, notes: rx.notes,
-                                dailyDoseCount: rx.dailyDoseCount)
+                                pharmacyName: rx.pharmacyName, notes: rx.notes)
             },
             pharmacyCallLogs: callLogs.filter { inRange($0.timestamp) }.map { c in
                 PharmacyCallLogDTO(timestamp: isoFormatter.string(from: c.timestamp),
@@ -427,9 +422,8 @@ nonisolated enum DataExporter {
     }
     struct PrescriptionDTO: Codable {
         let rxNumber: String; let medicationName: String; let doseMg: Double
-        let doseDescription: String; let quantity: Int; let refillsRemaining: Int
-        let dateFilled: String; let estimatedRunOutDate: String?
-        let pharmacyName: String; let notes: String; let dailyDoseCount: Double?
+        let doseDescription: String; let dateFilled: String
+        let pharmacyName: String; let notes: String
     }
     struct PharmacyCallLogDTO: Codable {
         let timestamp: String; let direction: String; let pharmacyName: String

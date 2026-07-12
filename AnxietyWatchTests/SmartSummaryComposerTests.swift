@@ -15,8 +15,7 @@ struct SmartSummaryComposerTests {
             restingHR: .init(value: 58, baseline: baseline(mean: 60, sd: 4, lo: 52, hi: 68)),
             sleepEfficiencyPct: 90.0, sleepEfficiencyBaseline: 88,
             ahi: nil, ahiBaseline: nil,
-            anxietyLast24h: nil,
-            activeAlerts: 0
+            anxietyLast24h: nil
         )
         #expect(SmartSummaryComposer.compose(input: input).kind == .quiet)
     }
@@ -28,8 +27,7 @@ struct SmartSummaryComposerTests {
             restingHR: .init(value: 58, baseline: baseline(mean: 60, sd: 4, lo: 52, hi: 68)),
             sleepEfficiencyPct: 88, sleepEfficiencyBaseline: 88,
             ahi: nil, ahiBaseline: nil,
-            anxietyLast24h: nil,
-            activeAlerts: 0
+            anxietyLast24h: nil
         )
         let r = SmartSummaryComposer.compose(input: input)
         #expect(r.kind == .summary)
@@ -47,8 +45,7 @@ struct SmartSummaryComposerTests {
             restingHR: .init(value: nil, baseline: baseline(mean: 60, sd: 4, lo: 52, hi: 68)),
             sleepEfficiencyPct: 88, sleepEfficiencyBaseline: 88,
             ahi: nil, ahiBaseline: nil,
-            anxietyLast24h: nil,
-            activeAlerts: 0
+            anxietyLast24h: nil
         )
         let r = SmartSummaryComposer.compose(input: input)
         #expect(r.kind == .quiet)
@@ -65,26 +62,11 @@ struct SmartSummaryComposerTests {
             restingHR: .init(value: 60, baseline: baseline(mean: 60, sd: 4, lo: 52, hi: 68)),
             sleepEfficiencyPct: nil, sleepEfficiencyBaseline: 88,
             ahi: nil, ahiBaseline: nil,
-            anxietyLast24h: nil,
-            activeAlerts: 0
+            anxietyLast24h: nil
         )
         let r = SmartSummaryComposer.compose(input: input)
         #expect(r.kind == .quiet)
         #expect(!r.text.contains("Sleep efficiency"))
-    }
-
-    @Test("Active alerts override quiet — never silent on a day with alerts firing")
-    func alertsForceVoice() {
-        let input = SmartSummaryComposer.Input(
-            hrv: .init(value: 50, baseline: baseline(mean: 50, sd: 5, lo: 40, hi: 60)),
-            restingHR: .init(value: 60, baseline: baseline(mean: 60, sd: 4, lo: 52, hi: 68)),
-            sleepEfficiencyPct: 88, sleepEfficiencyBaseline: 88,
-            ahi: 3, ahiBaseline: baseline(mean: 4, sd: 1, lo: 2, hi: 6),
-            anxietyLast24h: nil,
-            activeAlerts: 1
-        )
-        let r = SmartSummaryComposer.compose(input: input)
-        #expect(r.kind == .summary)
     }
 
     @Test("High anxiety with no z-score breaches and no alerts gets a sentence about the anxiety log")
@@ -94,8 +76,7 @@ struct SmartSummaryComposerTests {
             restingHR: .init(value: 60, baseline: baseline(mean: 60, sd: 4, lo: 52, hi: 68)),
             sleepEfficiencyPct: 88, sleepEfficiencyBaseline: 88,
             ahi: nil, ahiBaseline: nil,
-            anxietyLast24h: 7,
-            activeAlerts: 0
+            anxietyLast24h: 7
         )
         let r = SmartSummaryComposer.compose(input: input)
         #expect(r.kind == .summary)
@@ -110,8 +91,7 @@ struct SmartSummaryComposerTests {
             restingHR: .init(value: 68, baseline: baseline(mean: 60, sd: 4, lo: 52, hi: 68)),
             sleepEfficiencyPct: 70, sleepEfficiencyBaseline: 88,
             ahi: nil, ahiBaseline: nil,
-            anxietyLast24h: nil,
-            activeAlerts: 0
+            anxietyLast24h: nil
         )
         let r = SmartSummaryComposer.compose(input: input)
         #expect(r.kind == .summary)

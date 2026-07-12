@@ -14,7 +14,7 @@ The foundation is substantial and well-architected:
 
 - **Medication tracking with clinical-quality follow-up** -- one-tap dose logging, a novel dose-triggered anxiety rating system with 30-minute follow-up notifications, PRN vs. scheduled distinction. The before/after anxiety measurement around medication doses produces data that most clinical trials would envy.
 
-- **Prescription and pharmacy management** -- supply calculations, refill alerts, OCR scanning for pill bottle labels, pharmacy search, call tracking. A full medication lifecycle system.
+- **Prescription and pharmacy management** -- OCR scanning for pill bottle labels, pharmacy search, call tracking. Medication and pharmacy record-keeping.
 
 - **Trend visualization** -- seven chart views using Swift Charts, with anxiety entries overlaid on physiological data, HRV baseline reference lines, and configurable time windows (7/30/90 days).
 
@@ -30,7 +30,7 @@ The foundation is substantial and well-architected:
 
 - **watchOS companion** -- Quick Log with Digital Crown severity selection and haptic feedback. The single best-designed interaction for acute anxiety moments.
 
-- **Solid test infrastructure** -- 20 test files using Swift Testing, in-memory SwiftData containers, and good coverage of core services (BaselineCalculator, PrescriptionSupplyCalculator, CPAPImporter, DataExporter, etc.).
+- **Solid test infrastructure** -- 20 test files using Swift Testing, in-memory SwiftData containers, and good coverage of core services (BaselineCalculator, PrescriptionLabelScanner, CPAPImporter, DataExporter, etc.).
 
 ### What Works Well
 
@@ -83,8 +83,7 @@ The one visible improvement: the dashboard loads noticeably faster. The fetch th
 ### Key Technical Changes
 
 **Code architecture:**
-- Extract `DashboardViewModel` from the 700-line `DashboardView`, moving all sample loading, baseline computation, supply alert filtering, trend computation, and color mapping into a testable `@Observable` class.
-- Consolidate the triplicated supply alert filtering logic (Dashboard, MedicationsHub, PrescriptionList) into a single `SupplyAlertFilter` utility.
+- Extract `DashboardViewModel` from the 700-line `DashboardView`, moving all sample loading, baseline computation, trend computation, and color mapping into a testable `@Observable` class.
 - Remove dead code (`MedicationListView` -- a near-exact duplicate of `MedicationsHubView`).
 - Extract `severityColor` and related color mappings to a shared utility (currently duplicated in 6+ files).
 - Convert raw-string enums (`PharmacyCallLog.direction`, `CPAPSession.importSource`) to proper Swift enums.
@@ -118,9 +117,6 @@ The one visible improvement: the dashboard loads noticeably faster. The fetch th
 - Add a watchOS build step to CI.
 - Replace `print()` logging with `os.Logger` for structured, filterable logs.
 - Replace `try?` silent error swallowing with `do/catch` + logging throughout `HealthDataCoordinator`.
-
-**Prescription data improvements:**
-- Fix the staleness filter to be relative to each prescription's own days supply (a 90-day fill should not expire from alerts at 60 days).
 
 ### What This Unlocks
 
@@ -195,7 +191,6 @@ If you took a medication recently, it says so: "You took lorazepam 0.5mg 22 minu
 
 **Navigation cleanup:**
 - Move Export/Reports to be accessible from the Trends tab or a more prominent location.
-- Fix `.navigationDestination` scoping in `MedicationsHubView` (currently conditional on supply alerts being visible).
 - Fix `.alert` binding anti-pattern in `ExportView` and `CPAPListView`.
 - Promote Lab Results to a more discoverable navigation path.
 
@@ -266,7 +261,6 @@ On one particularly bad day, you check your trends and the app highlights: "The 
 - Medication timeline visualization (Gantt-chart style: start dates, dose changes, stops, overlaid with anxiety trend).
 
 **Pharmacy intelligence:**
-- Refill eligibility date alongside supply run-out date (when insurance will pay vs. when pills run out).
 - DEA schedule awareness with appropriate messaging (Schedule II: "new prescription required").
 - Therapy gap detection from consecutive fill dates.
 - Cost trend tracking across fills.

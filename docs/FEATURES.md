@@ -67,10 +67,10 @@ See [POLAR_H10.md](POLAR_H10.md) for pairing, the full data flow, server schema,
 
 ## Your Medications
 
-- **Prescription management** -- supply tracking with days-remaining calculations, refill alerts, expiration monitoring
+- **Prescription management** -- manual prescription records (medication, dose, Rx number, pharmacy, fill date, notes)
 - **Pharmacy search** via MapKit with call tracking and logging
-- **OCR label scanning** -- point your camera at a pill bottle and the Vision framework extracts Rx number, medication name, dosage, quantity, and refill count
-- **Manual prescription entry** -- with OCR label-scan prefill, supply tracking, and refill alerts
+- **OCR label scanning** -- point your camera at a pill bottle and the Vision framework extracts Rx number, medication name, and dosage
+- **Manual prescription entry** -- with OCR label-scan prefill
 
 ---
 
