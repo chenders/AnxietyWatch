@@ -14,6 +14,7 @@ from datetime import date as date_type
 
 import anthropic
 import psycopg2.extras
+from psycopg2 import sql
 from flask import (
     Blueprint,
     current_app,
@@ -168,8 +169,9 @@ def dashboard():
         ("barometric_readings", "Barometric Readings"),
     ]
     counts = []
+    # `table` iterates the hardcoded `tables` list above — not request input.
     for table, label in tables:
-        cur.execute(f"SELECT COUNT(*) AS count FROM {table}")
+        cur.execute(sql.SQL("SELECT COUNT(*) AS count FROM {}").format(sql.Identifier(table)))
         counts.append({"label": label, "count": cur.fetchone()["count"]})
 
     # Last sync
@@ -351,8 +353,11 @@ def resmed_settings():
 
         if action == "sync_now":
             try:
-                import subprocess
-                result = subprocess.run(
+                # Justification for the nosecs below: fixed argv list
+                # (sys.executable + a hardcoded script name); no shell, no
+                # request-controlled input reaches argv or env.
+                import subprocess  # nosec B404
+                result = subprocess.run(  # nosec B603
                     [sys.executable, "resmed_sync.py"],
                     capture_output=True, text=True, timeout=60,
                     env={**os.environ},
@@ -443,7 +448,9 @@ def cpap_upload():
                     try:
                         _os.unlink(tmp_path)
                     except Exception:
-                        pass
+                        current_app.logger.debug(
+                            "Failed to remove temp EDF file %s", tmp_path, exc_info=True
+                        )
 
         if total_sessions > 0:
             flash(f"Total: {total_sessions} CPAP session(s) updated with leak data.", "success")
@@ -1319,8 +1326,19 @@ def data():
     db = get_db()
     cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-    order = BROWSABLE_TABLES[table]["order"]
-    cur.execute(f"SELECT * FROM {table} ORDER BY {order} LIMIT %s", (limit,))
+    # `table` is validated against the BROWSABLE_TABLES whitelist above, and
+    # "order" is a hardcoded value from that same dict — split into an
+    # identifier and a direction keyword (coerced to a known-safe value) so
+    # the query is composed via psycopg2.sql rather than f-string
+    # interpolation.
+    order_col, _, order_dir = BROWSABLE_TABLES[table]["order"].partition(" ")
+    order_dir = order_dir if order_dir in ("ASC", "DESC") else "ASC"
+    cur.execute(
+        sql.SQL("SELECT * FROM {} ORDER BY {} {} LIMIT %s").format(
+            sql.Identifier(table), sql.Identifier(order_col), sql.SQL(order_dir)
+        ),
+        (limit,),
+    )
     rows = cur.fetchall()
 
     # Get column names from cursor description
