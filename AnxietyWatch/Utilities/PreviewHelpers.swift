@@ -25,6 +25,10 @@ enum PreviewHelpers {
             // Needed by TrendsView's live-oximeter @Query and the
             // EMAYLiveView preview's persistence context.
             QuantityHealthSample.self,
+            // Needed by CNSMonitoringView's preview, which constructs a
+            // CNSMonitoringCoordinator against this container (klaxon Phase 2).
+            MonitoringSession.self,
+            CNSRiskSampleRecord.self,
         ])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [config])

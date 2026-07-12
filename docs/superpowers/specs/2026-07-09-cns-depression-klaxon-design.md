@@ -199,4 +199,29 @@ Different physiology, different alarm job: **alone** → the only rescuer is the
 
 ---
 
+## 15. Phase 2 implementation notes (2026-07-12)
+
+Phase 2 (`docs/superpowers/plans/2026-07-12-klaxon-phase2-monitoring.md`) built the monitoring layer this design depends on: drug classification, the §14.1 dose-window gate, sensor adapters, the §7 device-state matrix, `CNSMonitoringCoordinator`'s 1 Hz tick loop, and a minimal arm/status Settings surface. Condensed record of the plan's autonomous scope decisions (full rationale in the plan doc):
+
+1. **Adapters thread `perfusionIndex`/`isArtifact`, not "confidence"** — `CNSSignalSample`'s shipped shape governs over §10's wording; `CNSSeverityScorer` derives confidence downstream.
+2. **Auto-sleep detection stays OUT of Phase 2** (§14.3 forbids it as a gating condition). Default triggers shipped: manual toggle + post-dose windows.
+3. **Live sources are EMAY and Polar only.** The 1 Hz quality gate assumes continuous ~1 Hz sampling; Apple Watch SpO₂/HRV are cadence-mismatched and feed `CNSBaselines` only (spo2Nadir/restingHR/hrvMean/respRateMean from `HealthSnapshot`), never the gate directly. A cadence-aware sparse-source gate is deferred to Phase 3/2b.
+4. **Drug classification is a stored, conservatively-defaulted model field** (`MedicationDefinition.cnsDepressantClass`), classifier-derived once from category/name, user-editable in `AddMedicationView`, never auto-downgraded from an explicit value.
+5. **Minimum-bar guardrail:** monitoring can arm on any source, but reports "can't assess" unless EMAY (the only primary-capable continuous SpO₂ source) is present-and-reporting — disclosed on `statusLine`, not just internally gated.
+6. **Per-device fallback: detect + persist config now, loud-alert in Phase 3.** `CNSDeviceFallbackConfig` persists the klaxon/gentle-alarm/notify-only choice per device; the interim measure is a standard local notification regardless of the configured action — never a silent stop.
+7. **Companion re-mark is state-preserving.** `CNSDetectionPipeline.setCompanionPresent(_:)` threads the flag to the tier machine without rebuilding the pipeline, so mid-sustain escalation state survives a mid-session re-mark.
+8. **Session/sample persistence is local-only** (`MonitoringSession`, `CNSRiskSampleRecord` — the `HealthSample` precedent): registered in both SwiftData `Schema` lists, never touched by `DataExporter`/`SyncService`/`RestoreFromServer`.
+9. **EMAY service promotion was already done** on `main` before Phase 2 started (app-scoped `@State` + `.environment` injection) — verified, no task needed.
+10. **Minimal arm/disarm surface ships now** (Settings → "CNS Monitoring"): arm/disarm toggle, ad-hoc "Monitor me now", companion toggle + the §6 re-mark warning, live status line (statusLine, tier, reporting sources, active triggers, dose-window expiry). No klaxon, no haptics, no dashboard changes — Phase 3 redesigns this screen entirely.
+11. **Alone-mode fast escalation stays deferred to Phase 3** (with the confirmation tier, per the Phase 1 note above); Phase 2 only wires `companionPresent` → the existing `aloneModeThresholdDelta`.
+12. **Synergy detection is the UNION of two rules** (amended mid-execution, 2026-07-12): a 24h dose-pairing horizon OR §14.1 monitoring-window overlap. The horizon-only variant missed a benzo dosed 20+h before an opioid (the window is deliberately shorter than the half-life); the overlap-only variant missed a benzo dosed 50h into a methadone window (methadone's 72h window vs. the pairing formula's t0+134h). Constants: `CNSMonitoringConstants.synergyPairingHorizon`/`synergyWindowExtension`/`synergyWindowFloor`.
+
+**Pending clinical review** (design calls made by the implementing agent, not a clinician):
+- The synergy union rule above (decision 12) — the 24h pairing horizon and the "later dose + max(class windows) + 12h, 24h floor" formula.
+- The buprenorphine → 24h (opioidER-class) window assignment from Task 1's classifier — buprenorphine's partial-agonist ceiling effect may warrant a different window than full-agonist ER opioids; assigned conservatively (same window as other ER opioids) pending review.
+
+**Open question, not resolved by Phase 2:** `RestoreFromServer.importMedDoses` (`RestoreFromServer.swift:752`) inserts restored `MedicationDose` rows directly against the model context — it does not go through either UI dose-log call site (`MedicationsHubView`/`DoseAnxietyPromptView`), so restored doses never call `CNSMonitoringCoordinator.doseLogged(_:)`. A server restore that brings in a benzo/opioid dose still inside its §14.1 window will NOT auto-arm monitoring for it — `handleLaunch()`'s re-arm path only replays the app's own persisted `[LoggedCNSDose]` list, which restore doesn't populate. Left open for Phase 3 (or a dedicated fix) to decide whether restore should also feed the dose-window gate.
+
+---
+
 *Related: `reference-emay-realtime-ble` (protocol), `EMAYRealtimeService.swift` (built), `PolarHRMService.swift` (pattern), `BaselineCalculator` (personal baselines).*

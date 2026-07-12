@@ -88,6 +88,15 @@ final class CNSMonitoringCoordinator {
     private(set) var canAssess: Bool = false
     private(set) var reportingSources: Set<CNSSignalSource> = []
     private(set) var statusLine: String = "Not monitoring"
+    /// §14.1 dose-window expiry while `.doseWindow` is an active trigger —
+    /// Task 7's UI countdown reads this. `nil` whenever `.doseWindow` is not
+    /// currently in `activeTriggers` (not monitoring at all, or monitoring
+    /// for another reason only). Escalation note: Task 6 exposed no expiry
+    /// accessor, so this is the minimal seam Task 7 added rather than
+    /// reworking Task 6 — recomputed every tick (and immediately on
+    /// `doseLogged`/`handleLaunch`) alongside `evaluateDoseWindowExpiry` so
+    /// it reflects a later dose's extension without waiting on the UI.
+    private(set) var doseWindowExpiry: Date?
 
     // MARK: - Injected dependencies
 
@@ -101,6 +110,15 @@ final class CNSMonitoringCoordinator {
     /// `false` in tests: suppresses the real `Task`-based tick loop so tests
     /// drive `tick(at:)` manually with zero wall-clock dependency.
     private let enableTickLoop: Bool
+    /// Fired once per new session (every trigger kind — EMAY is the only
+    /// primary-capable source regardless of what armed monitoring) so the
+    /// EMAY oximeter session is already starting by the time the tick loop
+    /// first polls `latestEMAYReading`. Production wires
+    /// `emayService.start()`, which is idempotent/no-op while a session is
+    /// already active and never touches the user's continuous-mode toggle
+    /// (`setContinuousMode`/`stop()` are separate, explicit calls) — so this
+    /// hook can never fight that setting. Tests default to a no-op.
+    private let emayStartHook: () -> Void
 
     // MARK: - Session-scoped state (reset in `startNewSession`/`endSession`)
 
@@ -146,7 +164,8 @@ final class CNSMonitoringCoordinator {
         latestPolarRMSSD: @escaping () -> Double?,
         notificationPoster: CNSMonitoringNotificationPosting,
         defaults: UserDefaults = .standard,
-        enableTickLoop: Bool = true
+        enableTickLoop: Bool = true,
+        emayStartHook: @escaping () -> Void = {}
     ) {
         self.modelContext = modelContext
         self.now = now
@@ -156,6 +175,7 @@ final class CNSMonitoringCoordinator {
         self.notificationPoster = notificationPoster
         self.defaults = defaults
         self.enableTickLoop = enableTickLoop
+        self.emayStartHook = emayStartHook
     }
 
     /// Production convenience init: wires the real `EMAYRealtimeService` /
@@ -183,7 +203,8 @@ final class CNSMonitoringCoordinator {
             latestEMAYReading: { [weak emayService] in emayService?.latestReading },
             latestPolarHR: { [weak polarService] in polarService?.state.currentHR },
             latestPolarRMSSD: { [weak polarService] in polarService?.state.lastMinuteRMSSD },
-            notificationPoster: UNUserNotificationCenterPoster()
+            notificationPoster: UNUserNotificationCenterPoster(),
+            emayStartHook: { [weak emayService] in emayService?.start() }
         )
         polarService.onLiveSample = { [weak self] _, timestamp in
             self?.noteLivePolarSample(at: timestamp)
@@ -246,7 +267,7 @@ final class CNSMonitoringCoordinator {
         doses.append(LoggedCNSDose(timestamp: dose.timestamp, drugClass: drugClass))
         savePersistedDoses(doses)
 
-        guard DoseWindowGate.activeWindow(doses: doses, at: now) != nil else { return }
+        guard refreshDoseWindowExpiry(doses: doses, at: now) != nil else { return }
         if isMonitoring {
             activeTriggers.insert(.doseWindow)
         } else {
@@ -273,7 +294,7 @@ final class CNSMonitoringCoordinator {
         // here.
         cachedDoses = nil
         let doses = loadPersistedDoses()
-        guard DoseWindowGate.activeWindow(doses: doses, at: now) != nil else { return }
+        guard refreshDoseWindowExpiry(doses: doses, at: now) != nil else { return }
         activeTriggers = [.doseWindow]
         startNewSession(companionPresent: false, at: now)
     }
@@ -452,11 +473,24 @@ final class CNSMonitoringCoordinator {
     private func evaluateDoseWindowExpiry(at now: Date) {
         guard activeTriggers.contains(.doseWindow) else { return }
         let doses = loadPersistedDoses()
-        guard DoseWindowGate.activeWindow(doses: doses, at: now) == nil else { return }
+        guard refreshDoseWindowExpiry(doses: doses, at: now) == nil else { return }
         activeTriggers.remove(.doseWindow)
         if activeTriggers.isEmpty {
             endSession(reason: .windowExpired, at: now)
         }
+    }
+
+    /// Recomputes the active dose window over the full persisted-dose list
+    /// and mirrors its expiry onto `doseWindowExpiry` (nil when no window is
+    /// active) — the one place `doseLogged`, `handleLaunch`, and
+    /// `evaluateDoseWindowExpiry` all update the UI-facing countdown, so the
+    /// three call sites can't drift from each other or from the gate's own
+    /// verdict.
+    @discardableResult
+    private func refreshDoseWindowExpiry(doses: [LoggedCNSDose], at now: Date) -> DoseWindowGate.Window? {
+        let window = DoseWindowGate.activeWindow(doses: doses, at: now)
+        doseWindowExpiry = window?.expiry
+        return window
     }
 
     // MARK: - Session lifecycle
@@ -487,6 +521,15 @@ final class CNSMonitoringCoordinator {
         try? modelContext.save()
         session = newSession
 
+        // EMAY is the only primary-capable (continuous SpO2) source
+        // regardless of which trigger armed monitoring — start it
+        // alongside every new session, not just manual arms, so the tick
+        // loop's first poll has a session to read from. Idempotent/no-op
+        // if a session (incl. the user's own continuous-mode session) is
+        // already active; see the property's doc comment for why this can
+        // never fight `setContinuousMode`.
+        emayStartHook()
+
         startTickLoopIfNeeded()
         updateStatusLine()
     }
@@ -509,6 +552,7 @@ final class CNSMonitoringCoordinator {
         previousDeviceStateBySource = [:]
         degradedNotifiedSources = []
         disclosedDegradedSources = []
+        doseWindowExpiry = nil
         updateStatusLine()
     }
 

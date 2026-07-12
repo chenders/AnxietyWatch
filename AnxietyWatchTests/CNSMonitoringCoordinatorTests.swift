@@ -51,7 +51,8 @@ struct CNSMonitoringCoordinatorTests {
         polarHR: @escaping () -> Int? = { nil },
         polarRMSSD: @escaping () -> Double? = { nil },
         poster: CNSMonitoringNotificationPosting,
-        defaults: UserDefaults
+        defaults: UserDefaults,
+        emayStartHook: @escaping () -> Void = {}
     ) -> CNSMonitoringCoordinator {
         CNSMonitoringCoordinator(
             modelContext: context,
@@ -61,7 +62,8 @@ struct CNSMonitoringCoordinatorTests {
             latestPolarRMSSD: polarRMSSD,
             notificationPoster: poster,
             defaults: defaults,
-            enableTickLoop: false
+            enableTickLoop: false,
+            emayStartHook: emayStartHook
         )
     }
 
@@ -541,5 +543,118 @@ struct CNSMonitoringCoordinatorTests {
         #expect(coordinator.activeTriggers.isEmpty)
         let session = try #require(try context.fetch(FetchDescriptor<MonitoringSession>()).first)
         #expect(session.endReason == CNSMonitoringCoordinator.EndReason.manual.rawValue)
+    }
+
+    // MARK: - doseWindowExpiry (Task 7 UI seam)
+
+    @Test(
+        """
+        doseWindowExpiry mirrors DoseWindowGate's active window while .doseWindow is an active \
+        trigger, refreshes every tick, and clears to nil once the window expires
+        """
+    )
+    func doseWindowExpiryTracksActiveWindowAndClearsOnExpiry() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let med = makeBenzoMedication(context: context)
+        var currentTime = t0
+        let dose = MedicationDose(timestamp: t0, medicationName: med.name, doseMg: 1, medication: med)
+        context.insert(dose)
+        try context.save()
+
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+        #expect(coordinator.doseWindowExpiry == nil)
+
+        coordinator.doseLogged(dose)
+        #expect(coordinator.doseWindowExpiry == t0.addingTimeInterval(12 * 3600))
+
+        // A tick recomputes it too, not just doseLogged.
+        currentTime = t0.addingTimeInterval(3600)
+        coordinator.tick(at: currentTime)
+        #expect(coordinator.doseWindowExpiry == t0.addingTimeInterval(12 * 3600))
+
+        currentTime = t0.addingTimeInterval(12 * 3600 + 1)
+        coordinator.tick(at: currentTime)
+        #expect(!coordinator.isMonitoring)
+        #expect(coordinator.doseWindowExpiry == nil)
+    }
+
+    @Test("doseWindowExpiry is nil when monitoring is armed for a reason other than a dose window")
+    func doseWindowExpiryNilWithoutDoseWindowTrigger() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let currentTime = t0
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+        coordinator.armManually(companionPresent: true)
+        #expect(coordinator.doseWindowExpiry == nil)
+    }
+
+    @Test("doseWindowExpiry clears to nil when the doseWindow trigger drops even if monitoring continues via another trigger")
+    func doseWindowExpiryClearsWhenTriggerDropsButSessionSurvives() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let med = makeBenzoMedication(context: context)
+        var currentTime = t0
+        let dose = MedicationDose(timestamp: t0, medicationName: med.name, doseMg: 1, medication: med)
+        context.insert(dose)
+        try context.save()
+
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+        coordinator.armManually(companionPresent: true)
+        coordinator.doseLogged(dose)
+        #expect(coordinator.doseWindowExpiry != nil)
+
+        currentTime = t0.addingTimeInterval(12 * 3600 + 1)
+        coordinator.tick(at: currentTime)
+
+        #expect(coordinator.isMonitoring)
+        #expect(coordinator.activeTriggers == [.manual])
+        #expect(coordinator.doseWindowExpiry == nil)
+    }
+
+    // MARK: - emayStartHook (EMAY auto-start interplay)
+
+    @Test(
+        """
+        Arming (any trigger kind) fires emayStartHook exactly once per NEW session; adding a \
+        trigger to an already-active session does not re-fire it
+        """
+    )
+    func armingFiresEMAYStartHookOncePerSession() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let currentTime = t0
+        var startCount = 0
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, poster: NotificationPosterSpy(), defaults: makeDefaults(),
+            emayStartHook: { startCount += 1 }
+        )
+
+        coordinator.armManually(companionPresent: true)
+        #expect(startCount == 1)
+
+        // Stacking a second trigger onto the SAME active session must not
+        // re-fire the hook — the EMAY session is already (or already trying
+        // to be) up.
+        coordinator.armAdHoc()
+        #expect(startCount == 1)
+
+        coordinator.disarm()
+        coordinator.armAdHoc()
+        #expect(startCount == 2)
+    }
+
+    // MARK: - Constants sanity (every CNSMonitoringConstants member is referenced by a test)
+
+    @Test("tickInterval is the coordinator's 1 Hz real-timer tick cadence")
+    func tickIntervalValue() {
+        #expect(abs(CNSMonitoringConstants.tickInterval - 1) < 0.001)
+    }
+
+    @Test("bufferTrimSlackSeconds pads gateWindowSeconds as the rolling sample buffer's own trim boundary")
+    func bufferTrimSlackSecondsValue() {
+        #expect(abs(CNSMonitoringConstants.bufferTrimSlackSeconds - 10) < 0.001)
     }
 }
