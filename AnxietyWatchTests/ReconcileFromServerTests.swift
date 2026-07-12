@@ -348,21 +348,17 @@ struct ReconcileFromServerTests {
             medicationName: "Clonazepam 1mg Tablets",
             doseMg: 1.0,
             doseDescription: "1 tablet",
-            quantity: 30,
-            refillsRemaining: 2,
             dateFilled: Self.instant("2026-03-01T00:00:00Z"),
-            estimatedRunOutDate: nil,
             pharmacyName: "Test Pharmacy #12345",
-            notes: "locally corrected",
-            dailyDoseCount: 1
+            notes: "locally corrected"
         ))
         try context.save()
 
-        // Server still has the pre-edit refill count.
+        // Server still has the pre-edit copy.
         let rows: [[String: Any]] = [[
             "rx_number": "7654321",
             "medication_name": "Clonazepam 1mg Tablets",
-            "dose_mg": 1.0, "quantity": 30, "refills_remaining": 9,
+            "dose_mg": 1.0,
             "date_filled": "2026-03-01T00:00:00Z",
             "notes": "stale server copy",
         ]]
@@ -372,8 +368,7 @@ struct ReconcileFromServerTests {
 
         let prescriptions = try context.fetch(FetchDescriptor<Prescription>())
         #expect(prescriptions.count == 1)
-        #expect(prescriptions[0].refillsRemaining == 2, "local edit must not be reverted")
-        #expect(prescriptions[0].notes == "locally corrected")
+        #expect(prescriptions[0].notes == "locally corrected", "local edit must not be reverted")
     }
 
     @Test("a prescription the device is missing IS added")
@@ -384,7 +379,7 @@ struct ReconcileFromServerTests {
         let rows: [[String: Any]] = [[
             "rx_number": "7654322",
             "medication_name": "Propranolol 20mg Tablets",
-            "dose_mg": 20.0, "quantity": 60, "refills_remaining": 1,
+            "dose_mg": 20.0,
             "date_filled": "2026-03-01T00:00:00Z",
         ]]
         let newRows = try SyncService.prescriptionRowsNotAlreadyPresent(rows, in: context)
@@ -426,9 +421,9 @@ struct ReconcileFromServerTests {
 
         let rows: [[String: Any]] = [
             ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
-             "dose_mg": 1.0, "quantity": 30, "date_filled": "2026-01-15T00:00:00Z"],
+             "dose_mg": 1.0, "date_filled": "2026-01-15T00:00:00Z"],
             ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
-             "dose_mg": 1.0, "quantity": 30, "date_filled": "2026-01-15T00:00:00Z"],
+             "dose_mg": 1.0, "date_filled": "2026-01-15T00:00:00Z"],
         ]
         let n = try SyncService.importPrescriptions(rows, into: context)
         try context.save()
@@ -450,9 +445,9 @@ struct ReconcileFromServerTests {
 
         let rows: [[String: Any]] = [
             ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
-             "dose_mg": 1.0, "quantity": 30],
+             "dose_mg": 1.0],
             ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
-             "dose_mg": 1.0, "quantity": 30, "date_filled": "2026-01-15T00:00:00Z"],
+             "dose_mg": 1.0, "date_filled": "2026-01-15T00:00:00Z"],
         ]
         let n = try SyncService.importPrescriptions(rows, into: context)
         try context.save()
@@ -466,28 +461,23 @@ struct ReconcileFromServerTests {
     /// Every other test touching `importPrescriptions` asserts counts only — a
     /// key typo in the mapping (e.g. `"date_filled"` misspelled) would silently
     /// default every field but `rxNumber` on every restore, with this whole
-    /// suite staying green. Populate all 11 mapped JSON keys with distinct,
+    /// suite staying green. Populate all 7 mapped JSON keys with distinct,
     /// non-default values and assert each field round-trips, so a mapping typo
     /// actually fails a test.
-    @Test("importPrescriptions maps all 11 JSON keys onto the right Prescription fields")
+    @Test("importPrescriptions maps all 7 JSON keys onto the right Prescription fields")
     func prescriptionFieldsRoundTrip() throws {
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
 
         let dateFilled = Self.instant("2026-01-15T00:00:00Z")
-        let runOutDate = Self.instant("2026-04-15T00:00:00Z")
         let rows: [[String: Any]] = [[
             "rx_number": "9999999-00001",
             "medication_name": "Sertraline 50mg Tablets",
             "dose_mg": 50.0,
             "dose_description": "1 tablet twice daily",
-            "quantity": 60,
-            "refills_remaining": 3,
             "date_filled": "2026-01-15T00:00:00Z",
-            "estimated_run_out_date": "2026-04-15T00:00:00Z",
             "pharmacy_name": "Test Pharmacy #67890",
             "notes": "field-mapping fixture",
-            "daily_dose_count": 2.0,
         ]]
 
         let n = try SyncService.importPrescriptions(rows, into: context)
@@ -500,13 +490,9 @@ struct ReconcileFromServerTests {
         #expect(rx.medicationName == "Sertraline 50mg Tablets")
         #expect(rx.doseMg == 50.0)
         #expect(rx.doseDescription == "1 tablet twice daily")
-        #expect(rx.quantity == 60)
-        #expect(rx.refillsRemaining == 3)
         #expect(rx.dateFilled == dateFilled)
-        #expect(rx.estimatedRunOutDate == runOutDate)
         #expect(rx.pharmacyName == "Test Pharmacy #67890")
         #expect(rx.notes == "field-mapping fixture")
-        #expect(rx.dailyDoseCount == 2.0)
         #expect(rx.medication?.name == "Sertraline 50mg Tablets",
                 "findOrCreateMedication must have linked a MedicationDefinition")
     }

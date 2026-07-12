@@ -108,8 +108,6 @@ enum PreviewHelpers {
             rxNumber: "9999999-00001",
             medicationName: "Test Medication 50mg",
             doseMg: 50.0,
-            quantity: 30,
-            refillsRemaining: 3,
             dateFilled: base,
             pharmacyName: "Test Pharmacy #12345",
             medication: med,

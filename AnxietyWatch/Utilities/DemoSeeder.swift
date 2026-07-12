@@ -80,7 +80,7 @@ enum DemoSeeder {
                                 address: "100 Example Blvd, Anytown, ST 00000", phoneNumber: "555-0100")
         ctx.insert(pharmacy)
         ctx.insert(Prescription(rxNumber: "9999999-00001", medicationName: "Sertraline 50mg",
-                                doseMg: 50, quantity: 30, refillsRemaining: 3, dateFilled: day(6),
+                                doseMg: 50, dateFilled: day(6),
                                 pharmacyName: "Test Pharmacy #12345",
                                 medication: sert, pharmacy: pharmacy))
     }

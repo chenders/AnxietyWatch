@@ -1506,13 +1506,9 @@ extension SyncService {
                 medicationName: row["medication_name"] as? String ?? "",
                 doseMg: row["dose_mg"] as? Double ?? 0,
                 doseDescription: row["dose_description"] as? String ?? "",
-                quantity: row["quantity"] as? Int ?? 0,
-                refillsRemaining: row["refills_remaining"] as? Int ?? 0,
                 dateFilled: dateFilled,
-                estimatedRunOutDate: parseDate(row["estimated_run_out_date"]),
                 pharmacyName: row["pharmacy_name"] as? String ?? "",
-                notes: row["notes"] as? String ?? "",
-                dailyDoseCount: row["daily_dose_count"] as? Double
+                notes: row["notes"] as? String ?? ""
             )
             modelContext.insert(rx)
             rx.medication = try SyncService.findOrCreateMedication(

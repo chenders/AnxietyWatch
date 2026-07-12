@@ -287,10 +287,6 @@ struct AddPrescriptionView: View {
             medicationName: medicationName,
             doseMg: doseMg,
             doseDescription: doseDescription.trimmingCharacters(in: .whitespaces),
-            // `quantity` has no default in the model initializer (Task 2 drops
-            // the field entirely) — pass 0 since supply tracking no longer
-            // collects it from the user.
-            quantity: 0,
             dateFilled: dateFilled,
             pharmacyName: pharm?.name ?? "",
             notes: notes.trimmingCharacters(in: .whitespaces),

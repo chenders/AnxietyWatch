@@ -29,14 +29,4 @@ struct AlertsDeduperTests {
         #expect(r[0].id == "hrv")
         #expect(r[0].relatedCount == 1)
     }
-
-    @Test("Supply-low stays distinct from autonomic alerts")
-    func supplyDistinct() {
-        let hrv = DashboardAlert(id: "hrv", title: "", message: "",
-                                 severity: .warn, category: .autonomic, zScore: -2)
-        let supply = DashboardAlert(id: "supply", title: "", message: "",
-                                    severity: .critical, category: .supply, zScore: 0)
-        let r = AlertsDeduper.collapse(alerts: [hrv, supply])
-        #expect(r.count == 2)
-    }
 }
