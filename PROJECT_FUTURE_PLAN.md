@@ -12,7 +12,7 @@ The foundation is substantial and well-architected:
 
 - **A full anxiety journal** -- timestamped entries with 1-10 severity, free-text notes, and tags. Journal entries are the subjective anchor that gives all the objective data its meaning.
 
-- **Medication tracking with clinical-quality follow-up** -- one-tap dose logging, a novel dose-triggered anxiety rating system with 30-minute follow-up notifications, PRN vs. scheduled distinction, and integration with pharmacy prescription data via CapRx. The before/after anxiety measurement around medication doses produces data that most clinical trials would envy.
+- **Medication tracking with clinical-quality follow-up** -- one-tap dose logging, a novel dose-triggered anxiety rating system with 30-minute follow-up notifications, PRN vs. scheduled distinction. The before/after anxiety measurement around medication doses produces data that most clinical trials would envy.
 
 - **Prescription and pharmacy management** -- supply calculations, refill alerts, OCR scanning for pill bottle labels, pharmacy search, call tracking. A full medication lifecycle system.
 
@@ -26,7 +26,7 @@ The foundation is substantial and well-architected:
 
 - **Data export pipeline** -- JSON and CSV export for external analysis, with a documented Claude analysis workflow.
 
-- **Server sync** -- a Flask/PostgreSQL sync server with prescription import from CapRx, providing a web-accessible data mirror.
+- **Server sync** -- a Flask/PostgreSQL sync server providing a web-accessible data mirror.
 
 - **watchOS companion** -- Quick Log with Digital Crown severity selection and haptic feedback. The single best-designed interaction for acute anxiety moments.
 
@@ -85,7 +85,6 @@ The one visible improvement: the dashboard loads noticeably faster. The fetch th
 **Code architecture:**
 - Extract `DashboardViewModel` from the 700-line `DashboardView`, moving all sample loading, baseline computation, supply alert filtering, trend computation, and color mapping into a testable `@Observable` class.
 - Consolidate the triplicated supply alert filtering logic (Dashboard, MedicationsHub, PrescriptionList) into a single `SupplyAlertFilter` utility.
-- Extract `PrescriptionImporter` from `SyncService` to isolate the JSON-to-model mapping for testing.
 - Remove dead code (`MedicationListView` -- a near-exact duplicate of `MedicationsHubView`).
 - Extract `severityColor` and related color mappings to a shared utility (currently duplicated in 6+ files).
 - Convert raw-string enums (`PharmacyCallLog.direction`, `CPAPSession.importSource`) to proper Swift enums.
@@ -121,11 +120,7 @@ The one visible improvement: the dashboard loads noticeably faster. The fetch th
 - Replace `try?` silent error swallowing with `do/catch` + logging throughout `HealthDataCoordinator`.
 
 **Prescription data improvements:**
-- Store `daysSupply` on the Prescription model and use it as primary input for run-out calculations.
-- Store `patientPay`, `planPay`, `dosageForm`, and `drugType` from CapRx claims (currently extracted and discarded).
 - Fix the staleness filter to be relative to each prescription's own days supply (a 90-day fill should not expire from alerts at 60 days).
-- Show "Unknown" for refills on claims-sourced records rather than misleading "0".
-- Filter out reversed/rejected claims in the server import pipeline.
 
 ### What This Unlocks
 

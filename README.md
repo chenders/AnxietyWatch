@@ -20,7 +20,7 @@ The result is not a wall of numbers. It is your own data, interpreted through yo
 
 > **Your data never leaves your devices unless you tell it to.** There is no cloud service, no account to create, no telemetry, no analytics. Health data stays in HealthKit on your iPhone. App data stays in local SwiftData storage. The only times data goes anywhere are when *you* explicitly choose to: export a report, sync to *your own* self-hosted server, share a clinical PDF with *your* doctor, or trigger the opt-in Claude analysis on your own sync server (which forwards the selected date range to Anthropic; disabled unless you set `ANTHROPIC_API_KEY` on the server). You are in complete control.
 
-> **This project is under active development.** The data collection layer is thorough — 25+ HealthKit data types with multi-source provenance, medication tracking with efficacy measurement, OSCAR CSV import with server-side EDF leak parsing, EMAY overnight pulse-oximeter import, Polar H10 chest-strap HRV at beat-to-beat fidelity, pharmacy benefit (CapRx) integration, clinical reports, an Alembic-migrated sync server, and a growing test suite. The first piece of the intelligence layer is live: a physiological correlation engine that identifies which health metrics most influence your anxiety, plus an opt-in server-side path that can call Claude against a chosen date range from an admin page on your own sync server. Compound triggers, proactive insights, and morning briefings are where the project is headed next.
+> **This project is under active development.** The data collection layer is thorough — 25+ HealthKit data types with multi-source provenance, medication tracking with efficacy measurement, OSCAR CSV import with server-side EDF leak parsing, EMAY overnight pulse-oximeter import, Polar H10 chest-strap HRV at beat-to-beat fidelity, clinical reports, an Alembic-migrated sync server, and a growing test suite. The first piece of the intelligence layer is live: a physiological correlation engine that identifies which health metrics most influence your anxiety, plus an opt-in server-side path that can call Claude against a chosen date range from an admin page on your own sync server. Compound triggers, proactive insights, and morning briefings are where the project is headed next.
 
 <div align="center">
   <img src="docs/screenshots/app-dashboard.png" width="200" alt="Dashboard: HRV-below-baseline alert, 'what changed today' summary, last-night sleep/CPAP/SpO2 card, and heart-rate sparkline" />
@@ -73,14 +73,14 @@ For some people, tracking health data can increase anxiety rather than reduce it
 | **Overnight pulse oximetry** | Share an [EMAY SleepO2](https://emayinc.com/) CSV into the app from the iOS share sheet — per-second SpO2 + pulse rate land as `QuantityHealthSample` rows that dedupe against HealthKit samples written under the matching bundle ID (one EMAY app-version case-sensitivity caveat documented in the per-feature doc). See [docs/EMAY_OXIMETER.md](docs/EMAY_OXIMETER.md) |
 | **CNS-depression early-warning detection (in progress)** | An internal engine that scores SpO2, respiratory rate, heart rate, and HRV against your own rolling baselines to flag a trend toward dangerous CNS depression (opioid/benzodiazepine over-sedation). Phase 1 — baseline-relative severity scoring, cross-sensor fusion, and a hysteretic alert-tier state machine — is merged and unit-tested; there is no user-facing alarm yet (no klaxon, no dashboard indicator). It is designed as an **early-warning aid only** — never an overdose rescue or a medical device — runs entirely on-device, and will never place an automated emergency call |
 | **Earworm capture** | Tag a journal entry with the song stuck in your head; the sync server proxies Genius and Musixmatch for lyrics and album art |
-| **Prescription management** | Supply tracking, refill alerts, OCR label scanning, pharmacy search with call logging, CapRx pharmacy benefit claim import |
+| **Prescription management** | Manual entry with supply tracking, refill alerts, OCR label scanning, pharmacy search with call logging |
 | **Clinical reports** | PDF summaries structured for psychiatric appointments — anxiety, meds, sleep, HRV, CPAP, labs |
 | **Data export** | JSON/CSV across 10+ entity types, plus self-hosted Flask + PostgreSQL sync server (Alembic migrations, manual schema-verification workflow) |
 | **Optional server-side AI** | Admin-only page on *your own* sync server can call Claude against a chosen date range for plain-language summaries, data-quality flags, and conflict analysis. Opt-in per request; requires your own Anthropic API key set in your server's environment |
 
 All health data stays on your device. No cloud service, no third-party SDKs, no analytics, no telemetry. See [docs/FEATURES.md](docs/FEATURES.md) for the full breakdown of every data source, the HealthKit data types table, and how personal baselines work.
 
-> **Verification needs hardware.** Several pieces of this stack can't be tested end-to-end in the iOS Simulator: Polar H10 pairing needs a real BLE peripheral (CoreBluetooth doesn't simulate), CPAP import needs an actual AirSense 11 SD card, EMAY import needs a SleepO2 device's CSV export, watch-side sensor capture needs a real Apple Watch that supports `CMBatchedSensorManager.isAccelerometerSupported` (tested on Ultra 3; not gated on that model specifically), and CapRx pharmacy-benefit sync needs a Walgreens account plus the headless-browser scrape path on the server. The simulator covers everything else.
+> **Verification needs hardware.** Several pieces of this stack can't be tested end-to-end in the iOS Simulator: Polar H10 pairing needs a real BLE peripheral (CoreBluetooth doesn't simulate), CPAP import needs an actual AirSense 11 SD card, EMAY import needs a SleepO2 device's CSV export, watch-side sensor capture needs a real Apple Watch that supports `CMBatchedSensorManager.isAccelerometerSupported` (tested on Ultra 3; not gated on that model specifically). The simulator covers everything else.
 
 ---
 
@@ -162,8 +162,8 @@ See [PROJECT_FUTURE_PLAN.md](PROJECT_FUTURE_PLAN.md) for the full phased roadmap
 │   (barometer)       │   Background BLE, state restore │
 ├─────────────────────┴────────────────────────────────┤
 │        Flask + PostgreSQL (self-hosted sync)          │
-│   Alembic migrations · EDF leak parser · CapRx /      │
-│   ResMed myAir clients · optional Claude analysis     │
+│   Alembic migrations · EDF leak parser · ResMed       │
+│   myAir client · optional Claude analysis             │
 └──────────────────────────────────────────────────────┘
     + watchOS companion (WatchConnectivity)
     + WidgetKit (lock screen: HRV, anxiety, RHR)
@@ -189,7 +189,7 @@ If you're browsing this codebase to learn from it, here are the parts worth stud
 - **Personal baseline statistics** — `BaselineCalculator` computes rolling mean/stddev per metric with configurable windows, outlier trimming, and deviation detection. Minimum 14 samples, sample variance (N-1). Design principle: flag when *you* deviate from *your own* normal.
 - **Extracted view model pattern** — `DashboardViewModel` shows how to pull business logic out of SwiftUI views into testable `@Observable` classes, with a thorough test suite covering sample loading, baseline computation, supply alerts, and trend calculation.
 - **SwiftData across a non-trivial schema** — many related `@Model` classes covering journal entries, medications, prescriptions, CPAP, songs, per-sample HealthKit mirrors, sensor sessions, and per-minute HRV readings. Relationships, cascade deletes, query-driven views, compound-predicate gotchas (see `CLAUDE.md`'s iOS 26 SwiftData notes), and a per-record sync surface. Good reference for SwiftData beyond the single-model tutorials.
-- **Full-stack sync** — `SyncService` (Swift actor) pushes to a Flask/PostgreSQL backend with API key auth, upsert logic across 10+ entity types, the Polar H10 RR-archive upload path, Alembic-managed schema migrations, and CapRx/Walgreens/ResMed myAir import pipelines.
+- **Full-stack sync** — `SyncService` (Swift actor) pushes to a Flask/PostgreSQL backend with API key auth, upsert logic across 10+ entity types, the Polar H10 RR-archive upload path, Alembic-managed schema migrations, and the ResMed myAir import pipeline.
 - **Physiological correlation engine** — `PhysiologicalCorrelation` pairs daily health snapshots with anxiety entries to compute per-metric correlations, p-values, and "anxiety on abnormal vs. normal days" comparisons. A good example of turning health data into actionable insight without ML.
 - **Test suite** — Swift Testing (`@Test`, `#expect`) with in-memory SwiftData containers, fixed reference dates, a model factory, and a `MockHealthKitDataSource` for deterministic HealthKit testing. Good reference for testing SwiftData services and HealthKit-dependent logic without mocking frameworks.
 
