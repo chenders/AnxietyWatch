@@ -147,9 +147,11 @@ struct CNSMonitoringView: View {
             Text("If a device stops reporting")
         } footer: {
             Text(
-                "Phase 2 always sends a notification regardless of this choice — a device "
-                    + "loss or degradation is never silent. Phase 3's alerting engine is what "
-                    + "actually sounds the klaxon or gentle alarm."
+                "While the app is running, a notification is sent immediately for device loss "
+                    + "or degradation, regardless of this choice — never silent. If monitoring is "
+                    + "interrupted in the background (the app is suspended or closed), a watchdog "
+                    + "notification fires within about 90 seconds so you know to reopen the app. "
+                    + "Phase 3's alerting engine is what actually sounds the klaxon or gentle alarm."
             )
         }
         .onChange(of: fallbackConfig) { _, newValue in
