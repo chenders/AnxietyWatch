@@ -115,7 +115,23 @@ struct DoseWindowGateTests {
         let now = t0.addingTimeInterval(laterDoseOffset + 60)
         let window = DoseWindowGate.activeWindow(doses: doses, at: now)
         let laterDose = t0.addingTimeInterval(laterDoseOffset)
-        #expect(window?.expiry == laterDose.addingTimeInterval(hours(24)))
+        #expect(window?.expiry == laterDose.addingTimeInterval(CNSMonitoringConstants.synergyWindowFloor))
+        #expect(window?.synergyActive == true)
+    }
+
+    /// Inclusive boundary of the horizon leg: a gap of EXACTLY
+    /// `synergyPairingHorizon` still pairs. Guards the `<=` against a future
+    /// `<` regression.
+    @Test("A gap of exactly the pairing horizon still forms a synergy pair (inclusive boundary)")
+    func exactHorizonGapIsSynergistic() {
+        let doses = [
+            dose(.benzodiazepine, at: 0),
+            dose(.opioidIR, at: CNSMonitoringConstants.synergyPairingHorizon),
+        ]
+        let laterDose = t0.addingTimeInterval(CNSMonitoringConstants.synergyPairingHorizon)
+        let window = DoseWindowGate.activeWindow(doses: doses, at: laterDose.addingTimeInterval(hours(1)))
+        // Raw formula max(12h, 8h) + 12h exactly equals the 24h floor.
+        #expect(window?.expiry == laterDose.addingTimeInterval(CNSMonitoringConstants.synergyWindowFloor))
         #expect(window?.synergyActive == true)
     }
 
@@ -137,7 +153,7 @@ struct DoseWindowGateTests {
         let doses = [dose(.opioidIR, at: 0), dose(.benzodiazepine, at: hours(23))]
         let window = DoseWindowGate.activeWindow(doses: doses, at: t0.addingTimeInterval(hours(24)))
         // later (benzo, t0+23h) + max(12h, 8h) + 12h = t0+47h; floor equal.
-        #expect(window?.expiry == t0.addingTimeInterval(hours(47)))
+        #expect(window?.expiry == t0.addingTimeInterval(hours(23) + CNSMonitoringConstants.synergyWindowFloor))
         #expect(window?.synergyActive == true)
     }
 
@@ -149,7 +165,9 @@ struct DoseWindowGateTests {
         let laterDose = t0.addingTimeInterval(hours(11))
         // max(12h, 72h) + 12h = 84h, which already exceeds the 24h floor —
         // the floor is not binding here; the raw formula governs.
-        #expect(window?.expiry == laterDose.addingTimeInterval(hours(84)))
+        let reach = CNSDepressantClass.methadoneOrUnknownLongActing.doseWindow
+            + CNSMonitoringConstants.synergyWindowExtension
+        #expect(window?.expiry == laterDose.addingTimeInterval(reach))
         #expect(window?.synergyActive == true)
     }
 
@@ -166,7 +184,28 @@ struct DoseWindowGateTests {
     func benzoInsideMethadoneWindowPairsViaOverlapLeg() {
         let doses = [dose(.methadoneOrUnknownLongActing, at: 0), dose(.benzodiazepine, at: hours(50))]
         let window = DoseWindowGate.activeWindow(doses: doses, at: t0.addingTimeInterval(hours(51)))
-        #expect(window?.expiry == t0.addingTimeInterval(hours(134)))
+        let reach = CNSDepressantClass.methadoneOrUnknownLongActing.doseWindow
+            + CNSMonitoringConstants.synergyWindowExtension
+        #expect(window?.expiry == t0.addingTimeInterval(hours(50) + reach))  // t0+134h
+        #expect(window?.synergyActive == true)
+    }
+
+    /// Inclusive boundary of the overlap leg, with the horizon leg far
+    /// excluded (72h gap): the benzo dose lands at the EXACT final instant
+    /// of the methadone monitoring window. The single-instant touch alone
+    /// must pair them. Guards the `<=` against a future `<` regression.
+    @Test("A single-instant window touch, far beyond the horizon, still pairs via the overlap leg")
+    func singleInstantWindowTouchPairsViaOverlapLeg() {
+        let methadoneWindow = CNSDepressantClass.methadoneOrUnknownLongActing.doseWindow
+        let doses = [
+            dose(.methadoneOrUnknownLongActing, at: 0),
+            dose(.benzodiazepine, at: methadoneWindow),
+        ]
+        let laterDose = t0.addingTimeInterval(methadoneWindow)
+        let window = DoseWindowGate.activeWindow(doses: doses, at: laterDose.addingTimeInterval(hours(1)))
+        // later + max(12h, 72h) + 12h = later + 84h = t0+156h.
+        let reach = methadoneWindow + CNSMonitoringConstants.synergyWindowExtension
+        #expect(window?.expiry == laterDose.addingTimeInterval(reach))
         #expect(window?.synergyActive == true)
     }
 
@@ -185,6 +224,26 @@ struct DoseWindowGateTests {
         // Methadone's own 72h window is the max; the 9h IR window never
         // pulls it earlier (stacking never shortens) and never contributes synergy.
         #expect(window?.expiry == t0.addingTimeInterval(hours(72)))
+        #expect(window?.synergyActive == false)
+    }
+
+    /// `synergyActive` reports the synergy window's OWN liveness, not the
+    /// governing window's provenance: once the benzo+IR synergy window
+    /// (t0+26h) lapses, it is false even though a later methadone dose's
+    /// individual window still governs the overall expiry.
+    @Test("synergyActive is false after the synergy window lapses, while a later individual window governs")
+    func lapsedSynergyWithLaterIndividualWindowGoverning() {
+        let doses = [
+            dose(.benzodiazepine, at: 0),
+            dose(.opioidIR, at: hours(2)),                       // synergy window ends t0+26h
+            dose(.methadoneOrUnknownLongActing, at: hours(30)),  // individual window to t0+102h
+        ]
+        let window = DoseWindowGate.activeWindow(doses: doses, at: t0.addingTimeInterval(hours(50)))
+        // The methadone dose pairs with the benzo under NEITHER leg (30h
+        // gap, beyond the horizon; the benzo window ended at t0+12h, before
+        // the methadone dose), and methadone+IR is opioid+opioid. Only the
+        // methadone individual window remains live at t0+50h.
+        #expect(window?.expiry == t0.addingTimeInterval(hours(102)))
         #expect(window?.synergyActive == false)
     }
 
@@ -218,6 +277,16 @@ struct DoseWindowGateTests {
         let doses = [dose(.benzodiazepine, at: 0), dose(.opioidIR, at: hours(30))]
         let window = DoseWindowGate.activeWindow(doses: doses, at: t0.addingTimeInterval(hours(40)))
         #expect(window == nil)
+    }
+
+    /// Exact expiry boundary: the brief's contract is "nil when max <= now",
+    /// so a window is active only while its expiry is STRICTLY after `now`.
+    /// Guards the `>` in `activeWindow` against a future `>=` regression.
+    @Test("Expiry exactly equal to now -> no active window")
+    func expiryExactlyAtNowReturnsNil() {
+        let doses = [dose(.benzodiazepine, at: 0)]
+        let now = t0.addingTimeInterval(CNSDepressantClass.benzodiazepine.doseWindow)
+        #expect(DoseWindowGate.activeWindow(doses: doses, at: now) == nil)
     }
 
     @Test("A benzo+opioid pair within the horizon whose synergy window has itself expired -> nil")
