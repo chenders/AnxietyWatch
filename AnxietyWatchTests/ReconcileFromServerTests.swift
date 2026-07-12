@@ -416,6 +416,28 @@ struct ReconcileFromServerTests {
         #expect(map[42] != nil, "and it must still be reachable for occurrence re-linking")
     }
 
+    /// Same class as `songsDedupeWithinPayload`, in the importer I fixed *second*
+    /// after only noticing the first. `SensorSession` has no unique constraint on
+    /// `id`, so a payload carrying the same session twice would insert two rows —
+    /// and duplicate sessions make HRV re-linking ambiguous downstream.
+    @Test("importSensorSessions skips a session id repeated within the same payload")
+    func sensorSessionsDedupeWithinPayload() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let rows: [[String: Any]] = [
+            ["id": Self.sessionUUID, "start_time": "2026-03-01T22:00:00Z", "battery_at_start": 95],
+            ["id": Self.sessionUUID, "start_time": "2026-03-01T22:00:00Z", "battery_at_start": 95],
+        ]
+        let (n, map) = try SyncService.importSensorSessions(rows, shift: 0, into: context)
+        try context.save()
+
+        #expect(n == 1, "the same session id twice in one payload is one session")
+        #expect(try context.fetchCount(FetchDescriptor<SensorSession>()) == 1)
+        #expect(map[Self.sessionUUID] == UUID(uuidString: Self.sessionUUID),
+                "and it must still be reachable for HRV re-linking")
+    }
+
     // MARK: - Mutual exclusion with sync
     //
     // Gating the Settings buttons is not sufficient: auto-sync fires from

@@ -278,7 +278,7 @@ extension SyncService {
         var report: [String: Int] = ["shiftDays": Int(shift / 86_400)]
 
         if let rows = json["medicationDefinitions"] as? [[String: Any]] {
-            report["medicationDefinitions"] = Self.importMedDefinitions(rows, into: modelContext)
+            report["medicationDefinitions"] = try Self.importMedDefinitions(rows, into: modelContext)
         }
         if let rows = json["medicationDoses"] as? [[String: Any]] {
             report["medicationDoses"] = try Self.importMedDoses(rows, shift: shift, into: modelContext)
@@ -296,7 +296,7 @@ extension SyncService {
             report["barometricReadings"] = try Self.importBarometricReadings(rows, shift: shift, into: modelContext)
         }
         if let rows = json["pharmacies"] as? [[String: Any]] {
-            report["pharmacies"] = Self.importPharmacies(rows, into: modelContext)
+            report["pharmacies"] = try Self.importPharmacies(rows, into: modelContext)
         }
         if let rows = json["prescriptions"] as? [[String: Any]] {
             // `PrescriptionImporter.importRecords` is an UPSERT — it updates an
@@ -677,14 +677,14 @@ extension SyncService {
         return df.date(from: s)
     }
 
-    private static func importMedDefinitions(_ rows: [[String: Any]], into ctx: ModelContext) -> Int {
+    /// Name-keyed. See `importPharmacies` for why this is a seen-set rather than a
+    /// per-row predicate fetch (fail-open + O(rows) queries + no within-payload dedupe).
+    private static func importMedDefinitions(_ rows: [[String: Any]], into ctx: ModelContext) throws -> Int {
+        var seen = try Self.existingKeys(MedicationDefinition.self, in: ctx) { $0.name }
         var n = 0
         for row in rows {
             guard let name = row["name"] as? String, !name.isEmpty else { continue }
-            let descriptor = FetchDescriptor<MedicationDefinition>(
-                predicate: #Predicate { $0.name == name }
-            )
-            if (try? ctx.fetch(descriptor).first) != nil { continue }
+            guard seen.insert(name).inserted else { continue }
             let def = MedicationDefinition(
                 name: name,
                 defaultDoseMg: (row["default_dose_mg"] as? Double) ?? 0,
@@ -1171,7 +1171,7 @@ extension SyncService {
     static func importSensorSessions(_ rows: [[String: Any]], shift: TimeInterval, into ctx: ModelContext) throws -> (Int, [String: UUID]) {
         var n = 0
         var map: [String: UUID] = [:]
-        let existing = try Self.existingIDs(SensorSession.self, \.id, in: ctx)
+        var existing = try Self.existingIDs(SensorSession.self, \.id, in: ctx)
         for row in rows {
             guard let serverIDString = row["id"] as? String,
                   let startStr = row["start_time"] as? String,
@@ -1188,8 +1188,16 @@ extension SyncService {
             )
             // Preserve the server's UUID so a restored session keeps its
             // identity (and so hrv_readings.session_id rows re-link 1:1).
+            //
+            // Record it as existing NOW, not just in the returned map: SensorSession
+            // has no unique constraint on `id`, so a payload carrying the same session
+            // twice would otherwise insert it twice. The store-backed set alone only
+            // catches rows that were already persisted, never duplicates *within* the
+            // payload. Same fix as `importSongs` — both read their existence set
+            // instead of also inserting into it, so both covered only half the problem.
             if let serverUUID = UUID(uuidString: serverIDString) {
                 session.id = serverUUID
+                existing.insert(serverUUID)
             }
             if let endStr = row["end_time"] as? String, let endTime = parseDate(endStr) {
                 session.endTime = endTime.addingTimeInterval(shift)
@@ -1452,14 +1460,17 @@ extension SyncService {
         return n
     }
 
-    private static func importPharmacies(_ rows: [[String: Any]], into ctx: ModelContext) -> Int {
+    /// Name-keyed, like `importMedDefinitions`. Uses one up-front seen-set rather
+    /// than a per-row predicate fetch: the old form was fail-open (`try?` → a fetch
+    /// error read as "doesn't exist" → duplicate insert) and issued one query per
+    /// row. Folding new names into the set as they're inserted also dedupes within
+    /// the payload, not just against the store.
+    private static func importPharmacies(_ rows: [[String: Any]], into ctx: ModelContext) throws -> Int {
+        var seen = try Self.existingKeys(Pharmacy.self, in: ctx) { $0.name }
         var n = 0
         for row in rows {
             guard let name = row["name"] as? String, !name.isEmpty else { continue }
-            let descriptor = FetchDescriptor<Pharmacy>(
-                predicate: #Predicate { $0.name == name }
-            )
-            if (try? ctx.fetch(descriptor).first) != nil { continue }
+            guard seen.insert(name).inserted else { continue }
             let pharmacy = Pharmacy(
                 name: name,
                 address: (row["address"] as? String) ?? "",
