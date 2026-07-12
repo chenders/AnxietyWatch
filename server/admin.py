@@ -267,7 +267,7 @@ def revoke_key(key_id):
 
 
 # ---------------------------------------------------------------------------
-# ResMed / Walgreens / CapRx Settings
+# ResMed Settings
 # ---------------------------------------------------------------------------
 
 
@@ -282,11 +282,11 @@ def _upsert_setting(cur, key, value):
 def _upgrade_legacy_plaintext_setting(cur, key, secret_key):
     """Re-encrypt a legacy plaintext settings value in place (F-080).
 
-    ResMed email and Walgreens username were historically stored plaintext
-    while the paired passwords (and CapRx's email) were Fernet-encrypted.
-    New saves encrypt these identifiers, but existing rows may still hold
-    plaintext. On each save, if the stored value does NOT have the structural
-    shape of a Fernet token (looks_like_fernet_token) we treat it as legacy
+    The ResMed email was historically stored plaintext while the paired
+    password was Fernet-encrypted. New saves encrypt the email too, but
+    existing rows may still hold plaintext. On each save, if the stored
+    value does NOT have the structural shape of a Fernet token
+    (looks_like_fernet_token) we treat it as legacy
     plaintext and encrypt it in place. The check is on token *shape*, not a
     decrypt attempt, precisely so a misconfigured SECRET_KEY can't misread an
     already-encrypted value as plaintext and double-encrypt it — this lazy
@@ -334,7 +334,7 @@ def resmed_settings():
             flash("Invalid sync time. Use HH or HH:MM format (0-23).", "error")
             return redirect(url_for("admin.resmed_settings"))
 
-        # Save email — encrypted at rest, same as the CapRx email (F-080).
+        # Save email — encrypted at rest (F-080).
         if email:
             _upsert_setting(cur, "resmed_email", encrypt_value(email, secret_key))
         else:
@@ -384,174 +384,6 @@ def resmed_settings():
         has_email=has_email,
         has_password=has_password,
         sync_time=sync_time,
-        last_sync=last_sync,
-        last_status=last_status,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Walgreens Settings
-# ---------------------------------------------------------------------------
-
-
-@admin_bp.route("/settings/walgreens", methods=["GET", "POST"])
-@require_admin
-def walgreens_settings():
-    from crypto import encrypt_value
-
-    db = get_db()
-    cur = db.cursor()
-    secret_key = os.environ.get("SECRET_KEY")
-    if not secret_key:
-        flash("SECRET_KEY not configured — cannot encrypt credentials.", "error")
-        return redirect(url_for("admin.dashboard"))
-
-    if request.method == "POST":
-        action = request.form.get("action", "save")
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        security_answer = request.form.get("security_answer", "")
-        sync_time = request.form.get("sync_time", "21:00").strip()
-
-        # Validate sync_time (HH or HH:MM, 0-23)
-        try:
-            hour = int(sync_time.split(":")[0]) if sync_time else -1
-            if not (0 <= hour <= 23):
-                raise ValueError()
-        except (ValueError, IndexError):
-            flash("Invalid sync time. Use HH or HH:MM format (0-23).", "error")
-            return redirect(url_for("admin.walgreens_settings"))
-
-        # Save username — encrypted at rest, same as the CapRx email (F-080).
-        if username:
-            _upsert_setting(cur, "walgreens_username", encrypt_value(username, secret_key))
-        else:
-            _upgrade_legacy_plaintext_setting(cur, "walgreens_username", secret_key)
-
-        # Save password (only if provided)
-        if password:
-            _upsert_setting(cur, "walgreens_password", encrypt_value(password, secret_key))
-
-        # Save security answer (only if provided)
-        if security_answer:
-            _upsert_setting(cur, "walgreens_security_answer", encrypt_value(security_answer, secret_key))
-
-        # Save sync time
-        _upsert_setting(cur, "walgreens_sync_time", sync_time)
-        db.commit()
-        flash("Settings saved.", "success")
-
-        if action == "sync_now":
-            try:
-                import subprocess
-                result = subprocess.run(
-                    ["xvfb-run", "--auto-servernum", sys.executable, "walgreens_sync.py"],
-                    capture_output=True, text=True, timeout=180,
-                    env={**os.environ},
-                )
-                if result.returncode == 0:
-                    flash(f"Sync completed: {result.stdout.strip()[:500]}", "success")
-                else:
-                    flash(f"Sync failed (exit {result.returncode}): {result.stderr.strip()[:500]}", "error")
-            except Exception as e:
-                flash(f"Sync error: {str(e)[:500]}", "error")
-
-        return redirect(url_for("admin.walgreens_settings"))
-
-    # GET — read current settings. The stored username is never echoed back
-    # into the form (it may be encrypted or legacy plaintext); only presence.
-    def _get(key):
-        cur.execute("SELECT value FROM settings WHERE key = %s", (key,))
-        row = cur.fetchone()
-        return row[0] if row else None
-
-    has_username = _get("walgreens_username") is not None
-    has_password = _get("walgreens_password") is not None
-    has_security_answer = _get("walgreens_security_answer") is not None
-    sync_time = _get("walgreens_sync_time") or "21:00"
-    last_sync = _get("walgreens_last_sync")
-    last_status = _get("walgreens_last_status")
-
-    return render_template(
-        "walgreens_settings.html",
-        has_username=has_username,
-        has_password=has_password,
-        has_security_answer=has_security_answer,
-        sync_time=sync_time,
-        last_sync=last_sync,
-        last_status=last_status,
-    )
-
-
-# ---------------------------------------------------------------------------
-# CapRx Settings
-# ---------------------------------------------------------------------------
-
-
-@admin_bp.route("/settings/caprx", methods=["GET", "POST"])
-@require_admin
-def caprx_settings():
-    from crypto import encrypt_value
-
-    db = get_db()
-    cur = db.cursor()
-    secret_key = os.environ.get("SECRET_KEY")
-    if not secret_key:
-        flash("SECRET_KEY not configured — cannot encrypt credentials.", "error")
-        return redirect(url_for("admin.dashboard"))
-
-    if request.method == "POST":
-        action = request.form.get("action", "save")
-        email = request.form.get("email", "").strip()
-        password = request.form.get("password", "")
-
-        if email:
-            encrypted = encrypt_value(email, secret_key)
-            cur.execute(
-                "INSERT INTO settings (key, value, updated_at) VALUES ('caprx_username', %s, NOW()) "
-                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
-                (encrypted,),
-            )
-
-        if password:
-            encrypted = encrypt_value(password, secret_key)
-            cur.execute(
-                "INSERT INTO settings (key, value, updated_at) VALUES ('caprx_password', %s, NOW()) "
-                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
-                (encrypted,),
-            )
-
-        db.commit()
-        flash("Settings saved.", "success")
-
-        if action == "sync_now":
-            try:
-                from caprx_sync import run_sync
-                status, count = run_sync(conn=db)
-                if status == "success":
-                    flash(f"Sync completed: {count} prescriptions upserted", "success")
-                else:
-                    flash(f"Sync failed: {status}", "error")
-            except Exception as e:
-                flash(f"Sync error: {str(e)[:500]}", "error")
-
-        return redirect(url_for("admin.caprx_settings"))
-
-    # GET
-    def _get(key):
-        cur.execute("SELECT value FROM settings WHERE key = %s", (key,))
-        row = cur.fetchone()
-        return row[0] if row else None
-
-    has_email = _get("caprx_username") is not None
-    has_password = _get("caprx_password") is not None
-    last_sync = _get("caprx_last_sync")
-    last_status = _get("caprx_last_status")
-
-    return render_template(
-        "caprx_settings.html",
-        has_email=has_email,
-        has_password=has_password,
         last_sync=last_sync,
         last_status=last_status,
     )
@@ -619,29 +451,6 @@ def cpap_upload():
         return redirect(url_for("admin.cpap_upload"))
 
     return render_template("cpap_upload.html")
-
-
-# ---------------------------------------------------------------------------
-# Prescription Management
-# ---------------------------------------------------------------------------
-
-
-@admin_bp.route("/prescriptions/clear", methods=["POST"])
-@require_admin
-def clear_prescriptions():
-    source = request.form.get("source", "all")
-    db = get_db()
-    cur = db.cursor()
-
-    if source == "all":
-        cur.execute("DELETE FROM prescriptions")
-        flash(f"Deleted {cur.rowcount} prescriptions.", "success")
-    else:
-        cur.execute("DELETE FROM prescriptions WHERE import_source = %s", (source,))
-        flash(f"Deleted {cur.rowcount} {source} prescriptions.", "success")
-
-    db.commit()
-    return redirect(url_for("admin.caprx_settings"))
 
 
 # ---------------------------------------------------------------------------

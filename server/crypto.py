@@ -51,8 +51,8 @@ def looks_like_fernet_token(value: str) -> bool:
 def decrypt_value_with_plaintext_fallback(value: str | None, secret: str) -> str | None:
     """Decrypt a stored settings value, tolerating legacy plaintext (F-080).
 
-    ResMed email / Walgreens username were historically stored plaintext.
-    New admin saves encrypt them, but rows written before that change still
+    The ResMed email was historically stored plaintext.
+    New admin saves encrypt it, but rows written before that change still
     hold plaintext. Fallback logic:
 
     - Value doesn't look like a Fernet token → legacy plaintext, return as-is.

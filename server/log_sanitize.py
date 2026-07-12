@@ -2,8 +2,8 @@
 
 Network-layer exception messages (urllib3's MaxRetryError in particular) embed the
 full request URL — including the query string. Several integrations put one-time
-credentials in query params (Okta sessionToken, CapRx resolve_id, Musixmatch apikey),
-so raw exception text must never be logged or persisted verbatim. This module
+credentials in query params (Okta sessionToken, Musixmatch apikey), so raw
+exception text must never be logged or persisted verbatim. This module
 redacts query strings from URL-looking tokens and bounds the overall length.
 """
 
