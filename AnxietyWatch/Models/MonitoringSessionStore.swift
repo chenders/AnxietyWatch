@@ -60,10 +60,23 @@ enum MonitoringSessionStore {
     /// `cutoff = now - CNSMonitoringConstants.sampleRetention`; the two
     /// parameters are independent so tests can exercise the safety net with
     /// a tighter cutoff than real retention ever produces.
+    ///
+    /// Fix item 4 (IMPORTANT): the `FetchDescriptor` now carries
+    /// `#Predicate { $0.timestamp < cutoff }` so SwiftData filters at the
+    /// store level instead of fetching every `CNSRiskSampleRecord` row ever
+    /// written and filtering in memory — this runs every 10s while
+    /// monitoring (`CNSMonitoringCoordinator.persistIfDue`), all night, so an
+    /// unbounded full-table fetch only gets more expensive as history
+    /// accumulates. The active-session protection (a record's session
+    /// relationship + `activeSessionProtectedWindow`) can't be expressed in
+    /// the same `#Predicate` (it reaches through a relationship into
+    /// another model's `endedAt`), so it stays a post-filter over the now-
+    /// much-smaller `timestamp < cutoff` candidate set.
     static func prune(before cutoff: Date, now: Date, in context: ModelContext) throws {
         let protectedSince = now.addingTimeInterval(-CNSMonitoringConstants.activeSessionProtectedWindow)
-        let candidates = try context.fetch(FetchDescriptor<CNSRiskSampleRecord>())
-        for record in candidates where record.timestamp < cutoff {
+        let descriptor = FetchDescriptor<CNSRiskSampleRecord>(predicate: #Predicate { $0.timestamp < cutoff })
+        let candidates = try context.fetch(descriptor)
+        for record in candidates {
             if let session = record.session, session.endedAt == nil, record.timestamp >= protectedSince {
                 continue
             }
