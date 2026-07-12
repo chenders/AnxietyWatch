@@ -48,7 +48,7 @@ struct DashboardPerfTests {
         let context = ModelContext(container)
         let calendar = Calendar.current
 
-        // Insert 200 prescriptions (simulating CapRx import)
+        // Insert 200 prescriptions (bulk fixture)
         for i in 0..<200 {
             let rx = Prescription(
                 rxNumber: "CRX-\(i)",

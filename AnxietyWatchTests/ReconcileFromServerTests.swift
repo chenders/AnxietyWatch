@@ -437,6 +437,54 @@ struct ReconcileFromServerTests {
         #expect(try context.fetchCount(FetchDescriptor<Prescription>()) == 1)
     }
 
+    /// Every other test touching `importPrescriptions` asserts counts only — a
+    /// key typo in the mapping (e.g. `"date_filled"` misspelled) would silently
+    /// default every field but `rxNumber` on every restore, with this whole
+    /// suite staying green. Populate all 11 mapped JSON keys with distinct,
+    /// non-default values and assert each field round-trips, so a mapping typo
+    /// actually fails a test.
+    @Test("importPrescriptions maps all 11 JSON keys onto the right Prescription fields")
+    func prescriptionFieldsRoundTrip() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let dateFilled = Self.instant("2026-01-15T00:00:00Z")
+        let runOutDate = Self.instant("2026-04-15T00:00:00Z")
+        let rows: [[String: Any]] = [[
+            "rx_number": "9999999-00001",
+            "medication_name": "Sertraline 50mg Tablets",
+            "dose_mg": 50.0,
+            "dose_description": "1 tablet twice daily",
+            "quantity": 60,
+            "refills_remaining": 3,
+            "date_filled": "2026-01-15T00:00:00Z",
+            "estimated_run_out_date": "2026-04-15T00:00:00Z",
+            "pharmacy_name": "Test Pharmacy #67890",
+            "notes": "field-mapping fixture",
+            "daily_dose_count": 2.0,
+        ]]
+
+        let n = try SyncService.importPrescriptions(rows, into: context)
+        try context.save()
+        #expect(n == 1)
+
+        let rx = try #require(try context.fetch(FetchDescriptor<Prescription>()).first)
+
+        #expect(rx.rxNumber == "9999999-00001")
+        #expect(rx.medicationName == "Sertraline 50mg Tablets")
+        #expect(rx.doseMg == 50.0)
+        #expect(rx.doseDescription == "1 tablet twice daily")
+        #expect(rx.quantity == 60)
+        #expect(rx.refillsRemaining == 3)
+        #expect(rx.dateFilled == dateFilled)
+        #expect(rx.estimatedRunOutDate == runOutDate)
+        #expect(rx.pharmacyName == "Test Pharmacy #67890")
+        #expect(rx.notes == "field-mapping fixture")
+        #expect(rx.dailyDoseCount == 2.0)
+        #expect(rx.medication?.name == "Sertraline 50mg Tablets",
+                "findOrCreateMedication must have linked a MedicationDefinition")
+    }
+
     /// Same class as `songsDedupeWithinPayload`, in the importer I fixed *second*
     /// after only noticing the first. `SensorSession` has no unique constraint on
     /// `id`, so a payload carrying the same session twice would insert two rows —

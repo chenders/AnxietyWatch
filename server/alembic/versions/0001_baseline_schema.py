@@ -12,6 +12,11 @@ Consolidates all prior ad-hoc migrations that were in init_db():
 - Correlations table
 - Analyses table + dose_tracking_incomplete column
 
+As of migration 0011, the Walgreens/CapRx prescription columns listed above
+are no longer part of schema.sql, so a fresh `upgrade()` here — which just
+replays schema.sql — does not create them. 0011 is what drops them from
+databases that were built before the trim.
+
 For existing databases: run `alembic stamp 0001` to mark as applied
 without executing.
 
