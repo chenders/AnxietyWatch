@@ -7,7 +7,13 @@ import Foundation
 /// `now`; there is no hidden clock.
 struct CNSAlertTierMachine {
     private let thresholds: CNSThresholds
-    private let companionPresent: Bool
+    /// Re-markable mid-session (spec §6): a `var`, consulted fresh by
+    /// `entryThreshold(for:)` at every threshold comparison, so flipping it
+    /// via `setCompanionPresent(_:)` changes future comparisons WITHOUT
+    /// touching `tier`/`canAssess`/the rise/clear candidate clocks below —
+    /// rebuilding the whole machine on a re-mark would reset sustain
+    /// progress and delay escalation, the wrong direction for safety.
+    private var companionPresent: Bool
 
     private(set) var tier: CNSAlertTier = .clear
     /// False until the first ingest: before anything has been assessed,
@@ -33,6 +39,13 @@ struct CNSAlertTierMachine {
     init(thresholds: CNSThresholds, companionPresent: Bool) {
         self.thresholds = thresholds
         self.companionPresent = companionPresent
+    }
+
+    /// Re-mark companion presence (spec §6). Threshold-comparison-time only:
+    /// mutates nothing else, so `tier`, `canAssess`, and every rise/clear
+    /// sustain clock survive the flip untouched.
+    mutating func setCompanionPresent(_ present: Bool) {
+        companionPresent = present
     }
 
     /// Threshold to ENTER a tier, adjusted for §14.4: alone fires earlier

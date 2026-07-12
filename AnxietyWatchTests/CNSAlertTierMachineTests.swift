@@ -229,4 +229,62 @@ struct CNSAlertTierMachineTests {
         let cleared = feed(&m, score: 0.1, seconds: 121, startingAt: 201)
         #expect(cleared == .clear)
     }
+
+    @Test("Flipping companionPresent mid-sustain toward confirm does not reset the rise clock")
+    func companionFlipPreservesConfirmSustainClock() throws {
+        // 0.95 saturates every threshold (watch/confirm/klaxon) in BOTH alone
+        // and companion mode, so the flip can never gate on the threshold
+        // delta itself — any timing difference could only come from a
+        // sustain-clock reset, which is exactly what this test rules out.
+        let score = 0.95
+
+        // Control: never flips, stays alone throughout. Records the first
+        // second confirm is reached.
+        var control = machine(companionPresent: false)
+        var controlConfirmSecond: Int?
+        for second in 0..<200 {
+            let tier = control.ingest(
+                .assessed(riskScore: score, contributions: primary(score)),
+                at: t0.addingTimeInterval(Double(second))
+            )
+            if tier == .confirm, controlConfirmSecond == nil { controlConfirmSecond = second }
+        }
+        let controlConfirm = try #require(controlConfirmSecond)
+
+        // Flip run: identical trajectory, alone up through watch and partway
+        // into the confirm rise-sustain window, then flip to companion
+        // present and keep driving with the same score.
+        let flipSecond = 90
+        #expect(flipSecond > 60)             // after watch is reached
+        #expect(flipSecond < controlConfirm) // before confirm would arrive
+
+        var flipped = machine(companionPresent: false)
+        var flippedConfirmSecond: Int?
+        for second in 0..<200 {
+            if second == flipSecond {
+                let tierBeforeFlip = flipped.tier
+                let canAssessBeforeFlip = flipped.canAssess
+                flipped.setCompanionPresent(true)
+                // The flip instant itself must not perturb tier/canAssess —
+                // it only changes the threshold context for future compares.
+                #expect(flipped.tier == tierBeforeFlip)
+                #expect(flipped.tier == .watch)
+                #expect(flipped.canAssess == canAssessBeforeFlip)
+                #expect(flipped.canAssess == true)
+            }
+            let tier = flipped.ingest(
+                .assessed(riskScore: score, contributions: primary(score)),
+                at: t0.addingTimeInterval(Double(second))
+            )
+            if tier == .confirm, flippedConfirmSecond == nil { flippedConfirmSecond = second }
+        }
+        let flippedConfirm = try #require(flippedConfirmSecond)
+
+        // Saturating score => the alone/companion threshold delta never
+        // gates this trajectory, so confirm must arrive at EXACTLY the same
+        // second as the no-flip control. A naive re-init-on-flip
+        // implementation would instead restart the sustain clock at
+        // `flipSecond` and land ~30s later.
+        #expect(flippedConfirm == controlConfirm)
+    }
 }
