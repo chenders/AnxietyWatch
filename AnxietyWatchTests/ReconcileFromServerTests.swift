@@ -331,13 +331,13 @@ struct ReconcileFromServerTests {
         #expect(try context.fetchCount(FetchDescriptor<CPAPSession>()) == 1)
     }
 
-    /// `PrescriptionImporter.importRecords` is an UPSERT — it *updates* on an
-    /// `rx_number` match. Correct for its own callers (re-scanning a refilled bottle
-    /// should update the record) and moot on a restore (empty store), but on a
-    /// reconcile it would revert a locally-edited prescription to the server's older
-    /// copy: the same clobber as HealthSnapshot/CPAPSession, in the one importer
-    /// this feature doesn't own. Filtering to genuinely-new rx numbers makes the
-    /// update branch unreachable from the reconcile path.
+    /// `RestoreFromServer.importPrescriptions` is insert-only and `Prescription` has
+    /// no `#Unique` constraint on `rxNumber`, so calling it unfiltered against every
+    /// server row would insert a fresh duplicate for every prescription the device
+    /// already has, on every reconcile — not a revert, but the same "existing rows
+    /// must be skipped, not re-processed" property every other importer here
+    /// depends on. Filtering to genuinely-new rx numbers first is what makes that
+    /// true for prescriptions too.
     @Test("a locally-edited Prescription is NOT reverted by the server's copy")
     func prescriptionLocalEditSurvives() throws {
         let container = try TestHelpers.makeFullContainer()

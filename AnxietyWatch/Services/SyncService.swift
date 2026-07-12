@@ -535,49 +535,6 @@ final class SyncService {
         await sync(modelContext: modelContext)
     }
 
-    // MARK: - Fetch prescriptions from server
-
-    /// Pull prescriptions from the server and upsert into SwiftData.
-    /// Returns the number of prescriptions added or updated.
-    ///
-    /// `@MainActor`-isolated because the body fetches/inserts/saves on the
-    /// caller's main-context `ModelContext`; running that from the global
-    /// executor is the SwiftData data race documented in F-016.
-    @discardableResult
-    @MainActor
-    func fetchPrescriptions(modelContext: ModelContext) async throws -> Int {
-        guard isConfigured else { throw SyncError.notConfigured }
-
-        guard var urlComponents = URLComponents(string: serverURL) else {
-            throw SyncError.invalidURL
-        }
-        urlComponents.path = "/api/data/prescriptions"
-        guard let url = urlComponents.url else {
-            throw SyncError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 30
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw SyncError.noConnection
-        }
-        guard (200...299).contains(httpResponse.statusCode) else {
-            let body = String(data: data, encoding: .utf8)
-            throw SyncError.serverError(httpResponse.statusCode, body)
-        }
-
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        guard let records = json?["prescriptions"] as? [[String: Any]] else {
-            return 0
-        }
-
-        return try PrescriptionImporter.importRecords(records, into: modelContext)
-    }
-
     // MARK: - Fetch songs from server
 
     /// Pull the song catalog from the server and upsert into SwiftData.
@@ -597,7 +554,30 @@ final class SyncService {
         doseMg: Double,
         in modelContext: ModelContext
     ) throws -> MedicationDefinition? {
-        try PrescriptionImporter.findOrCreateMedication(name: name, doseMg: doseMg, in: modelContext)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        // Try exact match first (fast, predicate-based)
+        var descriptor = FetchDescriptor<MedicationDefinition>(
+            predicate: #Predicate { $0.name == trimmed }
+        )
+        descriptor.fetchLimit = 1
+        if let existing = try modelContext.fetch(descriptor).first {
+            if !existing.isActive { existing.isActive = true }
+            return existing
+        }
+
+        // Fallback: case-insensitive match (SwiftData predicates don't support lowercased())
+        let allMeds = try modelContext.fetch(FetchDescriptor<MedicationDefinition>())
+        let lowered = trimmed.lowercased()
+        if let existing = allMeds.first(where: { $0.name.lowercased() == lowered }) {
+            if !existing.isActive { existing.isActive = true }
+            return existing
+        }
+
+        let newMed = MedicationDefinition(name: trimmed, defaultDoseMg: doseMg)
+        modelContext.insert(newMed)
+        return newMed
     }
 
     /// Link existing prescriptions that have no MedicationDefinition.

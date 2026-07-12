@@ -11,69 +11,16 @@ struct PrescriptionListView: View, Equatable {
     // dedupes rebuilds. See CLAUDE.md render-pitfall #2.
     static func == (lhs: PrescriptionListView, rhs: PrescriptionListView) -> Bool { true }
     @State private var showingAdd = false
-    @State private var isFetching = false
-    @State private var fetchResult: String?
-    @State private var dismissedSyncHint = false
 
     var body: some View {
         // Cache the two supply-status partitions once per body. Each was read
-        // three times (the sync-hint gate, the empty-state gate, and its own
-        // Section), re-running PrescriptionSupplyCalculator.supplyStatus over
-        // the whole prescriptions table on every access (F-065).
+        // twice (the empty-state gate and its own Section), re-running
+        // PrescriptionSupplyCalculator.supplyStatus over the whole
+        // prescriptions table on every access (F-065).
         let active = activePrescriptions
         let expired = expiredPrescriptions
         return NavigationStack {
             List {
-                if SyncService.shared.isConfigured {
-                    Section {
-                        Button {
-                            Task { await fetchFromServer() }
-                        } label: {
-                            HStack {
-                                Label("Fetch from Server", systemImage: "arrow.down.circle")
-                                Spacer()
-                                if isFetching {
-                                    ProgressView()
-                                }
-                            }
-                        }
-                        .disabled(isFetching)
-
-                        if let fetchResult {
-                            Text(fetchResult)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } else if active.isEmpty && expired.isEmpty && !dismissedSyncHint {
-                    Section {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Label("Sync Not Configured", systemImage: "exclamationmark.triangle.fill")
-                                    .font(.subheadline.bold())
-                                    .foregroundStyle(.orange)
-                                Text(
-                                    "Set up your sync server in Settings to automatically " +
-                                    "import prescriptions. You can also add them manually with +."
-                                )
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button {
-                                withAnimation { dismissedSyncHint = true }
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.tertiary)
-                                    .padding(8)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Dismiss sync setup hint")
-                            .accessibilityHint("Hides this message about configuring sync")
-                        }
-                    }
-                }
-
                 if active.isEmpty && expired.isEmpty {
                     Text("No prescriptions yet. Tap + to add one.")
                         .foregroundStyle(.secondary)
@@ -154,20 +101,6 @@ struct PrescriptionListView: View, Equatable {
         for index in offsets {
             modelContext.delete(snapshot[index])
         }
-    }
-
-    private func fetchFromServer() async {
-        isFetching = true
-        fetchResult = nil
-        do {
-            let count = try await SyncService.shared.fetchPrescriptions(modelContext: modelContext)
-            fetchResult = count > 0
-                ? "Synced \(count) prescription\(count == 1 ? "" : "s")"
-                : "No prescriptions found on server"
-        } catch {
-            fetchResult = error.localizedDescription
-        }
-        isFetching = false
     }
 
 }

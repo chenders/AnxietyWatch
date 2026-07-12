@@ -299,25 +299,15 @@ extension SyncService {
             report["pharmacies"] = try Self.importPharmacies(rows, into: modelContext)
         }
         if let rows = json["prescriptions"] as? [[String: Any]] {
-            // `PrescriptionImporter.importRecords` is an UPSERT — it updates an
-            // existing row when `rx_number` matches. That's right for its own use
-            // (an OCR re-scan of a refilled bottle SHOULD update the record), and
-            // it's moot on a restore (empty store: every row is an insert). But on
-            // a reconcile it would overwrite a locally-edited prescription with the
-            // server's older copy — the same clobber `importHealthSnapshots` /
-            // `importCPAPSessions` had, in the one importer this feature doesn't own.
-            //
-            // So filter to genuinely-new rx numbers first: the upsert's update
-            // branch is then unreachable, and "existing rows are skipped, never
-            // overwritten" is true of the whole reconcile rather than most of it.
+            // Insert-only: filter to genuinely-new rx numbers first so a
+            // reconcile can never overwrite a locally-edited prescription
+            // with the server's older copy.
             let newRows = try Self.prescriptionRowsNotAlreadyPresent(rows, in: modelContext)
-            //
             // NOT `try?`. Swallowing the error would report `prescriptions: 0` and let
             // the reconcile finish "successfully" having imported none of them —
             // indistinguishable, in the report the user actually reads, from "nothing
-            // was missing". Every other importer here fails closed; this was the last
-            // one that didn't.
-            report["prescriptions"] = try PrescriptionImporter.importRecords(newRows, into: modelContext)
+            // was missing". Every other importer here fails closed; this one too.
+            report["prescriptions"] = try Self.importPrescriptions(newRows, into: modelContext)
         }
         // After pharmacies so the `pharmacy` relationship can re-link by name.
         if let rows = json["pharmacyCallLogs"] as? [[String: Any]] {
@@ -536,12 +526,12 @@ extension SyncService {
 
     /// Drop prescription rows whose `rx_number` the store already has.
     ///
-    /// `PrescriptionImporter.importRecords` upserts (it updates on an `rx_number`
-    /// match), which is correct for its own callers — re-scanning a refilled bottle
-    /// *should* update the record — but would let a reconcile revert a locally
-    /// edited prescription to the server's older copy. Filtering first makes the
-    /// update branch unreachable from this path without changing the importer that
-    /// other callers depend on. `internal` for ReconcileFromServerTests.
+    /// `importPrescriptions` is insert-only — it has no update branch — and
+    /// `Prescription` carries no `#Unique` constraint on `rxNumber`, so calling it
+    /// unfiltered against every server row would insert a fresh duplicate for every
+    /// prescription the device already has, on every single reconcile. Filtering to
+    /// genuinely-new rx numbers first is what makes prescriptions skip-if-present,
+    /// like every other importer here. `internal` for ReconcileFromServerTests.
     static func prescriptionRowsNotAlreadyPresent(
         _ rows: [[String: Any]], in ctx: ModelContext
     ) throws -> [[String: Any]] {
@@ -1486,6 +1476,38 @@ extension SyncService {
             n += 1
         }
         return n
+    }
+
+    /// Insert prescriptions from restore/reconcile JSON rows. Insert-only by
+    /// design: callers filter to genuinely-new rx numbers via
+    /// `prescriptionRowsNotAlreadyPresent`, so no update branch exists and a
+    /// locally-edited prescription can never be reverted to the server's copy.
+    static func importPrescriptions(
+        _ rows: [[String: Any]], into modelContext: ModelContext
+    ) throws -> Int {
+        var count = 0
+        for row in rows {
+            guard let rxNumber = row["rx_number"] as? String, !rxNumber.isEmpty else { continue }
+            let rx = Prescription(
+                rxNumber: rxNumber,
+                medicationName: row["medication_name"] as? String ?? "",
+                doseMg: row["dose_mg"] as? Double ?? 0,
+                doseDescription: row["dose_description"] as? String ?? "",
+                quantity: row["quantity"] as? Int ?? 0,
+                refillsRemaining: row["refills_remaining"] as? Int ?? 0,
+                dateFilled: parseDate(row["date_filled"]) ?? .now,
+                estimatedRunOutDate: parseDate(row["estimated_run_out_date"]),
+                pharmacyName: row["pharmacy_name"] as? String ?? "",
+                notes: row["notes"] as? String ?? "",
+                dailyDoseCount: row["daily_dose_count"] as? Double
+            )
+            modelContext.insert(rx)
+            rx.medication = try SyncService.findOrCreateMedication(
+                name: rx.medicationName, doseMg: rx.doseMg, in: modelContext
+            )
+            count += 1
+        }
+        return count
     }
 
     /// The server's upsert key is `(timestamp, pharmacy_name)` — the PK of
