@@ -212,6 +212,11 @@ class TestFullMigrationChain:
                     "patient_pay", "plan_pay", "dosage_form", "drug_type"} & rx_cols, (
             f"0011 should have dropped all pharmacy-import columns; found {rx_cols}"
         )
+        # 0012 — supply-tracking columns dropped from prescriptions
+        assert rx_cols == {
+            "rx_number", "medication_name", "dose_mg", "dose_description",
+            "date_filled", "pharmacy_name", "notes",
+        }, f"0012 should leave prescriptions with exactly the 7 core columns; found {rx_cols}"
 
     def test_round_trip(self):
         """Upgrade to head, downgrade to base, upgrade again."""
@@ -263,13 +268,16 @@ class TestPharmacyImportRemoval:
 
     @staticmethod
     def _insert_prescription(rx_number):
+        # quantity is no longer part of the baseline schema (dropped by
+        # 0012) — omit it here so this 0011-focused test still works on a
+        # DB upgraded only to "0010".
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO prescriptions
-                       (rx_number, medication_name, dose_mg, quantity, date_filled,
+                       (rx_number, medication_name, dose_mg, date_filled,
                         import_source, walgreens_rx_id)
-                   VALUES (%s, 'Test Med', 1.0, 30, NOW(), 'walgreens', 'W-123')""",
+                   VALUES (%s, 'Test Med', 1.0, NOW(), 'walgreens', 'W-123')""",
                 (rx_number,),
             )
         conn.commit()
@@ -322,10 +330,11 @@ class TestPharmacyImportRemoval:
         rx_cols = _column_names("prescriptions")
         assert rx_cols == {
             "rx_number", "medication_name", "dose_mg", "dose_description",
-            "quantity", "refills_remaining", "date_filled",
-            "estimated_run_out_date", "pharmacy_name", "notes",
-            "daily_dose_count",
-        }, f"unexpected prescriptions columns after 0011: {rx_cols}"
+            "date_filled", "pharmacy_name", "notes",
+        }, (
+            f"unexpected prescriptions columns after upgrading to head "
+            f"(0011 + 0012): {rx_cols}"
+        )
 
         conn = psycopg2.connect(DATABASE_URL)
         with conn.cursor() as cur:
@@ -397,6 +406,115 @@ class TestPharmacyImportRemoval:
         # Round trip stays clean: re-upgrading drops them again.
         command.upgrade(cfg, "head")
         assert "prescriber_name" not in _column_names("prescriptions")
+
+
+class TestSupplyTrackingRemoval:
+    """0012 — drop prescription supply-tracking columns.
+
+    Data-safety contract (mirrors 0011): dropping the supply-only columns
+    must never delete prescription rows — an existing prescription survives
+    0012 as a plain descriptive record with the four supply-tracking
+    columns gone.
+    """
+
+    def setup_method(self):
+        _reset_db()
+
+    @staticmethod
+    def _insert_prescription(rx_number):
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO prescriptions
+                       (rx_number, medication_name, dose_mg, quantity, date_filled)
+                   VALUES (%s, 'Test Med', 1.0, 30, NOW())""",
+                (rx_number,),
+            )
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def _add_legacy_supply_columns():
+        """Simulate a pre-0012 production database.
+
+        schema.sql (and therefore the 0001 baseline upgrade) no longer
+        creates these columns, so a fresh "upgrade to 0011" scratch DB
+        never has them — 0012's DROP COLUMN IF EXISTS would be a silent
+        no-op against it. Add the columns back by hand, exactly as the
+        old schema.sql/0001 did, so this test exercises 0012 actually
+        dropping real columns on a database that has them.
+        """
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("""
+                ALTER TABLE prescriptions
+                    ADD COLUMN quantity INTEGER NOT NULL DEFAULT 0,
+                    ADD COLUMN refills_remaining INTEGER NOT NULL DEFAULT 0,
+                    ADD COLUMN estimated_run_out_date TIMESTAMPTZ,
+                    ADD COLUMN daily_dose_count DOUBLE PRECISION
+            """)
+        conn.close()
+
+    def test_upgrade_keeps_rows_drops_columns(self):
+        cfg = _alembic_cfg()
+        command.upgrade(cfg, "0011")
+        self._add_legacy_supply_columns()
+        self._insert_prescription("RX-KEEP-1")
+
+        command.upgrade(cfg, "head")
+
+        rx_cols = _column_names("prescriptions")
+        assert rx_cols == {
+            "rx_number", "medication_name", "dose_mg", "dose_description",
+            "date_filled", "pharmacy_name", "notes",
+        }, f"unexpected prescriptions columns after 0012: {rx_cols}"
+
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            # No rows deleted — the existing prescription survives as a
+            # plain descriptive record.
+            cur.execute("SELECT count(*) FROM prescriptions WHERE rx_number = 'RX-KEEP-1'")
+            assert cur.fetchone()[0] == 1
+        conn.close()
+
+    def test_downgrade_recreates_quantity_not_null_no_default(self):
+        cfg = _alembic_cfg()
+        command.upgrade(cfg, "head")
+        command.downgrade(cfg, "0011")
+
+        recreated = ("quantity", "refills_remaining", "estimated_run_out_date",
+                     "daily_dose_count")
+        rx_cols = _column_names("prescriptions")
+        for col in recreated:
+            assert col in rx_cols, f"downgrade did not recreate prescriptions.{col}"
+
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_default, is_nullable FROM information_schema.columns "
+                "WHERE table_name = 'prescriptions' AND column_name = 'quantity'"
+            )
+            assert cur.fetchone() == (None, "NO"), (
+                "recreated quantity column should be NOT NULL with no default, "
+                "matching the baseline exactly"
+            )
+
+            # Behavioral confirmation of the NOT NULL constraint: an insert
+            # that omits quantity (no default to fall back on) must fail.
+            with pytest.raises(psycopg2.errors.NotNullViolation):
+                with conn.cursor() as cur2:
+                    cur2.execute(
+                        """INSERT INTO prescriptions
+                               (rx_number, medication_name, dose_mg, date_filled)
+                           VALUES ('RX-NO-QUANTITY', 'Med', 1.0, NOW())"""
+                    )
+        conn.close()
+
+        # Round trip stays clean: re-upgrading drops them again.
+        command.upgrade(cfg, "head")
+        assert "quantity" not in _column_names("prescriptions")
 
 
 class TestStampExistingDatabase:
