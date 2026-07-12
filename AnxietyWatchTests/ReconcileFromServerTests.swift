@@ -393,6 +393,29 @@ struct ReconcileFromServerTests {
         #expect(newRows.count == 1, "the filter must not drop rows the store lacks")
     }
 
+    /// Duplicates *within a single payload*, not just against the store.
+    ///
+    /// `Song` has no unique constraint on `serverId`, so the store-backed existence
+    /// set alone only catches rows that were already persisted — a payload carrying
+    /// the same song twice would insert it twice. Every other importer folds new
+    /// keys into its `seen` set as it goes; `importSongs` was the one that didn't.
+    @Test("importSongs skips a serverId repeated within the same payload")
+    func songsDedupeWithinPayload() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let rows: [[String: Any]] = [
+            ["id": 42, "title": "Test Song", "artist": "Test Artist"],
+            ["id": 42, "title": "Test Song", "artist": "Test Artist"],
+        ]
+        let (n, map) = try SyncService.importSongs(rows, into: context)
+        try context.save()
+
+        #expect(n == 1, "the same serverId twice in one payload is one song")
+        #expect(try context.fetchCount(FetchDescriptor<Song>()) == 1)
+        #expect(map[42] != nil, "and it must still be reachable for occurrence re-linking")
+    }
+
     // MARK: - Mutual exclusion with sync
     //
     // Gating the Settings buttons is not sufficient: auto-sync fires from

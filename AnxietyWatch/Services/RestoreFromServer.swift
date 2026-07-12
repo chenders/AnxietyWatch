@@ -505,10 +505,18 @@ extension SyncService {
     /// reconcile before a single row is touched. (Same principle as
     /// `restoreGuardBlockers`: a guard that can't evaluate must not assume it's
     /// safe to proceed.)
+    ///
+    /// `propertiesToFetch` so SwiftData hydrates only the id column rather than the
+    /// whole row. Without it a reconcile would fault in every field of ~250k
+    /// `QuantityHealthSample`s (and the spectrogram payloads) purely to read their
+    /// UUIDs — a memory spike on exactly the table where this runs hottest. Same
+    /// pattern as `ClinicalRecordImporter`.
     static func existingIDs<T: PersistentModel>(
         _ type: T.Type, _ id: KeyPath<T, UUID>, in ctx: ModelContext
     ) throws -> Set<UUID> {
-        Set(try ctx.fetch(FetchDescriptor<T>()).map { $0[keyPath: id] })
+        var descriptor = FetchDescriptor<T>()
+        descriptor.propertiesToFetch = [id]
+        return Set(try ctx.fetch(descriptor).map { $0[keyPath: id] })
     }
 
     /// Fail-closed sibling of `existingIDs` for importers keyed on something other
@@ -1331,7 +1339,8 @@ extension SyncService {
     /// returned map**, which `importSongOccurrences` resolves `song_id` through —
     /// omitting them would leave every occurrence of a pre-existing song with a
     /// nil `song` relationship.
-    private static func importSongs(_ rows: [[String: Any]], into ctx: ModelContext) throws -> (Int, [Int: Song]) {
+    /// `internal` (not private) for ReconcileFromServerTests.
+    static func importSongs(_ rows: [[String: Any]], into ctx: ModelContext) throws -> (Int, [Int: Song]) {
         var n = 0
         var map: [Int: Song] = [:]
         // Sorted for a deterministic tie-break if two rows somehow share a
@@ -1362,6 +1371,13 @@ extension SyncService {
             song.lyrics = row["lyrics"] as? String
             song.lyricsSource = row["lyrics_source"] as? String
             ctx.insert(song)
+            // Record it as existing NOW, not just in the returned map. `Song` has no
+            // unique constraint on `serverId`, so a payload carrying the same song
+            // twice would otherwise insert it twice — the store-backed set alone only
+            // catches rows that were already persisted, never duplicates *within* the
+            // payload. Every other importer folds new keys into its `seen` set as it
+            // goes; this was the one that didn't.
+            existingByServerID[serverID] = song
             map[serverID] = song
             n += 1
         }
