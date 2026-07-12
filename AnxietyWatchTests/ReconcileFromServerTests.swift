@@ -416,6 +416,29 @@ struct ReconcileFromServerTests {
         #expect(map[42] != nil, "and it must still be reachable for occurrence re-linking")
     }
 
+    /// Same class as `songsDedupeWithinPayload`. `Prescription` has no unique
+    /// constraint on `rxNumber`, and `prescriptionRowsNotAlreadyPresent` only
+    /// filters against the STORE — it never folds accepted keys back into its
+    /// set — so a payload carrying the same new rx_number twice would insert
+    /// two rows unless the importer itself dedupes within the payload.
+    @Test("importPrescriptions skips an rx_number repeated within the same payload")
+    func prescriptionsDedupeWithinPayload() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let rows: [[String: Any]] = [
+            ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
+             "dose_mg": 1.0, "quantity": 30],
+            ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
+             "dose_mg": 1.0, "quantity": 30],
+        ]
+        let n = try SyncService.importPrescriptions(rows, into: context)
+        try context.save()
+
+        #expect(n == 1, "the same rx_number twice in one payload is one prescription")
+        #expect(try context.fetchCount(FetchDescriptor<Prescription>()) == 1)
+    }
+
     /// Same class as `songsDedupeWithinPayload`, in the importer I fixed *second*
     /// after only noticing the first. `SensorSession` has no unique constraint on
     /// `id`, so a payload carrying the same session twice would insert two rows —

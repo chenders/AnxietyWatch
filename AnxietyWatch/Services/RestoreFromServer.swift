@@ -1482,12 +1482,19 @@ extension SyncService {
     /// design: callers filter to genuinely-new rx numbers via
     /// `prescriptionRowsNotAlreadyPresent`, so no update branch exists and a
     /// locally-edited prescription can never be reverted to the server's copy.
+    /// Deduped by `rx_number` with a seen-set, like `importPharmacies`:
+    /// `Prescription` has no #Unique on `rxNumber`, and the caller's filter only
+    /// checks the STORE — a payload carrying the same new rx_number twice would
+    /// otherwise insert it twice. Folding accepted keys into the set as rows land
+    /// covers within-payload duplicates, not just rows already persisted.
     static func importPrescriptions(
         _ rows: [[String: Any]], into modelContext: ModelContext
     ) throws -> Int {
+        var seen = try Self.existingKeys(Prescription.self, in: modelContext) { $0.rxNumber }
         var count = 0
         for row in rows {
             guard let rxNumber = row["rx_number"] as? String, !rxNumber.isEmpty else { continue }
+            guard seen.insert(rxNumber).inserted else { continue }
             let rx = Prescription(
                 rxNumber: rxNumber,
                 medicationName: row["medication_name"] as? String ?? "",
