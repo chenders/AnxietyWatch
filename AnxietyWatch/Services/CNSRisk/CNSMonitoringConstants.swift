@@ -140,15 +140,22 @@ enum CNSMonitoringConstants {
     ///   monitoring — permanently, given the load-time disk rewrite.
     ///
     /// Flat bound = the overlap leg's worst case:
-    /// `doseWindow (72h, latest overlap-pairing partner) + max(class
-    /// windows) (72h, synergy anchor reach) + synergyWindowExtension (12h)`
-    /// = 156 h. (`synergyWindowFloor` = 24 h never exceeds the 84 h anchor
-    /// reach, so it cannot govern.) Deliberately a flat conservative bound
-    /// rather than the tightest per-class bound — fail-safe direction:
-    /// keeping a dose longer than strictly necessary costs a few bytes of
-    /// `UserDefaults`, never a missed synergy pairing.
+    /// `doseWindow (72h, latest overlap-pairing partner) + max(anchor reach,
+    /// synergyWindowFloor)` where anchor reach = `max(class windows) (72h)
+    /// + synergyWindowExtension (12h)` = 84 h — so 156 h today. The
+    /// `synergyWindowFloor` term (24 h) cannot govern at current values, but
+    /// it participates in the formula so a future downward tuning of class
+    /// windows or the extension can never silently make pruning more
+    /// aggressive than the floor-governed synergy window it must outlive.
+    /// Deliberately a flat conservative bound rather than the tightest
+    /// per-class bound — fail-safe direction: keeping a dose longer than
+    /// strictly necessary costs a few bytes of `UserDefaults`, never a
+    /// missed synergy pairing.
     static let doseRetentionHorizon: TimeInterval =
         CNSDepressantClass.methadoneOrUnknownLongActing.doseWindow
-            + CNSDepressantClass.methadoneOrUnknownLongActing.doseWindow
-            + synergyWindowExtension
+            + max(
+                CNSDepressantClass.methadoneOrUnknownLongActing.doseWindow
+                    + synergyWindowExtension,
+                synergyWindowFloor
+            )
 }
