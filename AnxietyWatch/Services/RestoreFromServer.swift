@@ -311,7 +311,13 @@ extension SyncService {
             // branch is then unreachable, and "existing rows are skipped, never
             // overwritten" is true of the whole reconcile rather than most of it.
             let newRows = try Self.prescriptionRowsNotAlreadyPresent(rows, in: modelContext)
-            report["prescriptions"] = (try? PrescriptionImporter.importRecords(newRows, into: modelContext)) ?? 0
+            //
+            // NOT `try?`. Swallowing the error would report `prescriptions: 0` and let
+            // the reconcile finish "successfully" having imported none of them —
+            // indistinguishable, in the report the user actually reads, from "nothing
+            // was missing". Every other importer here fails closed; this was the last
+            // one that didn't.
+            report["prescriptions"] = try PrescriptionImporter.importRecords(newRows, into: modelContext)
         }
         // After pharmacies so the `pharmacy` relationship can re-link by name.
         if let rows = json["pharmacyCallLogs"] as? [[String: Any]] {
