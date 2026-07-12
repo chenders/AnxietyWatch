@@ -23,16 +23,25 @@ enum CNSMonitoringConstants {
 
     // MARK: - §14.1 benzo+opioid synergy
 
-    /// A benzodiazepine dose and an opioid-class dose form a synergy pair
-    /// when their timestamps are within this horizon of each other (either
-    /// order). Spec §14.1's synergy clause is about being "onboard together"
-    /// — pharmacological presence, NOT monitoring-window overlap: a benzo's
-    /// 12 h monitoring window is deliberately shorter than its elimination
-    /// (clonazepam t½ 30–40 h), so a window-overlap test would miss exactly
-    /// the lethal combination the clause exists for (benzo still onboard
-    /// when an opioid is dosed 20+ h later). 24 h is the spec's own synergy
-    /// figure, reused as the pairing bound. Plan-owner call (2026-07-12),
-    /// fail-safe direction, pending clinical review.
+    /// One leg of the UNION synergy-pairing rule: a benzodiazepine dose and
+    /// an opioid-class dose form a synergy pair when their timestamps are
+    /// within this horizon of each other (either order), OR when their §14.1
+    /// monitoring windows overlap at any instant (the other leg; see
+    /// `DoseWindowGate`). Spec §14.1's synergy clause means "onboard
+    /// together" — pharmacological presence — and each leg covers a case
+    /// the other misses:
+    /// - Monitoring windows are deliberately shorter than elimination
+    ///   half-lives (clonazepam t½ 30–40 h vs its 12 h window), so window
+    ///   overlap alone misses a benzo still onboard when an opioid is dosed
+    ///   20+ h later — the horizon leg catches it. 24 h is the spec's own
+    ///   synergy figure, reused as the pairing bound.
+    /// - The horizon alone misses a benzo dosed 50 h into a methadone
+    ///   window (methadone's long pharmacological tail is why its window is
+    ///   72 h); dropping that pairing would forgo 62 h of monitoring
+    ///   (synergy expiry t0+134h vs the methadone window's own t0+72h) —
+    ///   the overlap leg catches it.
+    /// Plan-owner call (2026-07-12), fail-safe direction, pending clinical
+    /// review.
     static let synergyPairingHorizon: TimeInterval = 24 * 3600
 
     /// Added to `max(benzoClassWindow, opioidClassWindow)` from the LATER of

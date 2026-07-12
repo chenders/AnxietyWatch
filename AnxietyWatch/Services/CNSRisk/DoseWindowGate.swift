@@ -64,29 +64,34 @@ enum DoseWindowGate {
         return Window(expiry: maxExpiry, synergyActive: synergyActive)
     }
 
-    /// One candidate synergy expiry per (benzo, opioid-class) dose pair
-    /// whose timestamps fall within `CNSMonitoringConstants
-    /// .synergyPairingHorizon` (24 h) of each other, in either order.
+    /// One candidate synergy expiry per (benzo, opioid-class) dose pair that
+    /// satisfies EITHER leg of the UNION rule (final plan-owner decision
+    /// 2026-07-12, recorded in task-2-report.md):
     ///
-    /// PAIRING-HORIZON rule, replacing an earlier monitoring-window-overlap
-    /// rule (plan-owner decision 2026-07-12, recorded in task-2-report.md):
-    /// spec §14.1's synergy clause is about the two drugs being "onboard
-    /// together" — pharmacological presence — and monitoring windows are
-    /// deliberately shorter than elimination half-lives (clonazepam t½
-    /// 30–40 h vs its 12 h monitoring window), so window overlap would
-    /// under-detect exactly the lethal case the clause exists for: a benzo
-    /// still onboard when an opioid is dosed 20+ hours later.
+    /// (a) **Pairing horizon** — the two timestamps are within
+    ///     `CNSMonitoringConstants.synergyPairingHorizon` (24 h) of each
+    ///     other, either order. Spec §14.1's synergy clause is about being
+    ///     "onboard together" — pharmacological presence — and monitoring
+    ///     windows are deliberately shorter than elimination half-lives
+    ///     (clonazepam t½ 30–40 h vs its 12 h monitoring window), so a
+    ///     window-overlap test alone would miss a benzo still onboard when
+    ///     an opioid is dosed 20+ hours later.
     ///
-    /// Known, deliberate consequence (plan-owner call, flagged for clinical
-    /// review): doses farther apart than the horizon never pair even when
-    /// the long-acting opioid's own MONITORING window still contains the
-    /// benzo dose (methadone @ t0 + benzo @ t0+50h) — there the long-acting
-    /// class's own 72 h window does the protective work. See
-    /// `DoseWindowGateTests.benzoInsideMethadoneWindowBeyondHorizonIsNotSynergy`.
+    /// (b) **Window overlap** — the two doses' §14.1 monitoring windows
+    ///     (`[timestamp, timestamp + classWindow]`) intersect at any
+    ///     instant. This leg exists for long-acting opioids, whose long
+    ///     pharmacological tail is exactly why their window is 72 h: a
+    ///     benzo dosed 50 h into a methadone window is "onboard together"
+    ///     even though the timestamps are far beyond the horizon. A
+    ///     horizon-only rule would have forgone 62 h of monitoring in that
+    ///     case (synergy expiry t0+134h vs the methadone window's own
+    ///     t0+72h) — the wrong direction for the fail-safe principle. See
+    ///     `DoseWindowGateTests.benzoInsideMethadoneWindowPairsViaOverlapLeg`.
     ///
-    /// No `now` condition here, consistent with the future-timestamped-dose
-    /// rule above: pairing is a pure function of the two logged timestamps,
-    /// and expiry-vs-`now` is adjudicated once, in `activeWindow`.
+    /// No `now` condition in either leg, consistent with the
+    /// future-timestamped-dose rule above: pairing is a pure function of the
+    /// logged doses, and expiry-vs-`now` is adjudicated once, in
+    /// `activeWindow`.
     private static func synergyWindowExpiries(doses: [LoggedCNSDose]) -> [Date] {
         let benzoDoses = doses.filter { $0.drugClass == .benzodiazepine }
         let opioidDoses = doses.filter { opioidClasses.contains($0.drugClass) }
@@ -94,11 +99,14 @@ enum DoseWindowGate {
 
         var expiries: [Date] = []
         for benzo in benzoDoses {
+            let benzoExpiry = benzo.timestamp.addingTimeInterval(benzo.drugClass.doseWindow)
             for opioid in opioidDoses {
-                let gap = abs(benzo.timestamp.timeIntervalSince(opioid.timestamp))
-                guard gap <= CNSMonitoringConstants.synergyPairingHorizon else { continue }
-
+                let opioidExpiry = opioid.timestamp.addingTimeInterval(opioid.drugClass.doseWindow)
                 let laterDose = max(benzo.timestamp, opioid.timestamp)
+                let gap = abs(benzo.timestamp.timeIntervalSince(opioid.timestamp))
+                let withinHorizon = gap <= CNSMonitoringConstants.synergyPairingHorizon
+                let windowsOverlap = laterDose <= min(benzoExpiry, opioidExpiry)
+                guard withinHorizon || windowsOverlap else { continue }
                 let reach = max(benzo.drugClass.doseWindow, opioid.drugClass.doseWindow)
                     + CNSMonitoringConstants.synergyWindowExtension
                 let raw = laterDose.addingTimeInterval(reach)

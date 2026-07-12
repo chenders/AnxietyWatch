@@ -98,16 +98,16 @@ struct DoseWindowGateTests {
         #expect(window?.synergyActive == true)
     }
 
-    /// The plan's "synergy floor" case, under the plan-owner-decided
-    /// PAIRING-HORIZON rule (§14.1 "onboard together"): the dose timestamps
-    /// are 23h50m apart — inside the 24h pairing horizon — so this IS a
-    /// synergy pair even though the benzo's own MONITORING window (ends
-    /// t0+12h) closed before the opioid dose. Pharmacologically the benzo is
-    /// still onboard (clonazepam t½ 30–40h); the monitoring window is
-    /// deliberately shorter than elimination and must not double as a
-    /// presence test. With an IR opioid, the raw synergy formula
-    /// (later + max(12h, 8h) + 12h) exactly EQUALS the 24h floor, making
-    /// this the floor-binding boundary: expiry = later dose + 24h.
+    /// The plan's "synergy floor" case, paired via the HORIZON leg of the
+    /// union rule (§14.1 "onboard together"): the dose timestamps are 23h50m
+    /// apart — inside the 24h pairing horizon — so this IS a synergy pair
+    /// even though the benzo's own MONITORING window (ends t0+12h) closed
+    /// before the opioid dose. Pharmacologically the benzo is still onboard
+    /// (clonazepam t½ 30–40h); the monitoring window is deliberately shorter
+    /// than elimination and must not double as a presence test. With an IR
+    /// opioid, the raw synergy formula (later + max(12h, 8h) + 12h) exactly
+    /// EQUALS the 24h floor, making this the floor-binding boundary:
+    /// expiry = later dose + 24h.
     @Test("Synergy floor: benzo then IR opioid 23h50m later pairs within the horizon; expiry = later + 24h")
     func synergyFloorAtPairingHorizonBoundary() {
         let laterDoseOffset = hours(23) + 50 * 60
@@ -119,8 +119,12 @@ struct DoseWindowGateTests {
         #expect(window?.synergyActive == true)
     }
 
-    @Test("Doses more than the 24h pairing horizon apart are never a synergy pair")
-    func beyondPairingHorizonIsNotSynergy() {
+    /// The case BOTH legs of the union rule leave non-synergistic: 25h apart
+    /// (beyond the 24h horizon) AND the benzo's monitoring window ended at
+    /// t0+12h, 13h before the opioid dose (windows never overlap). Individual
+    /// windows only.
+    @Test("Beyond the horizon with non-overlapping windows: never a synergy pair")
+    func beyondHorizonAndNonOverlappingIsNotSynergy() {
         let doses = [dose(.benzodiazepine, at: 0), dose(.opioidIR, at: hours(25))]
         let window = DoseWindowGate.activeWindow(doses: doses, at: t0.addingTimeInterval(hours(26)))
         // Individual windows only: benzo ended at t0+12h; IR ends t0+33h.
@@ -149,23 +153,21 @@ struct DoseWindowGateTests {
         #expect(window?.synergyActive == true)
     }
 
-    /// PLAN-OWNER CALL (recorded in task-2-report.md): the pairing horizon
-    /// governs even when the long-acting opioid's MONITORING window still
-    /// contains the benzo dose. Methadone@t0 + benzo@t0+50h: the methadone
-    /// window [t0, t0+72h] contains the benzo dose, but the timestamps are
-    /// 50h apart — beyond the 24h horizon — so this is NOT a synergy pair.
-    /// The long-acting class's own 72h window is doing the protective work
-    /// here: it governs the expiry (the benzo's individual window ends at
-    /// t0+62h, inside it). A window-overlap rule WOULD have paired these
-    /// (synergy expiry t0+134h); the horizon rule deliberately trades that
-    /// away for one simple pairing definition — flagged for clinical review
-    /// alongside the horizon constant itself.
-    @Test("Beyond the horizon, a benzo inside a methadone monitoring window is still not a synergy pair")
-    func benzoInsideMethadoneWindowBeyondHorizonIsNotSynergy() {
+    /// The WINDOW-OVERLAP leg of the union rule (final plan-owner decision,
+    /// recorded in task-2-report.md): methadone@t0 + benzo@t0+50h are 50h
+    /// apart — beyond the 24h pairing horizon — but the benzo dose lands
+    /// inside the methadone MONITORING window [t0, t0+72h], which is
+    /// precisely the "onboard together" case (methadone's long
+    /// pharmacological tail is WHY its window is 72h). A horizon-only rule
+    /// would have forgone 62h of monitoring here (synergy expiry t0+134h vs
+    /// the methadone window's own t0+72h); the union rule keeps it:
+    /// expiry = t0+50h + max(12h, 72h) + 12h = t0+134h.
+    @Test("Beyond the horizon, a benzo inside a methadone monitoring window still pairs via the overlap leg")
+    func benzoInsideMethadoneWindowPairsViaOverlapLeg() {
         let doses = [dose(.methadoneOrUnknownLongActing, at: 0), dose(.benzodiazepine, at: hours(50))]
         let window = DoseWindowGate.activeWindow(doses: doses, at: t0.addingTimeInterval(hours(51)))
-        #expect(window?.expiry == t0.addingTimeInterval(hours(72)))
-        #expect(window?.synergyActive == false)
+        #expect(window?.expiry == t0.addingTimeInterval(hours(134)))
+        #expect(window?.synergyActive == true)
     }
 
     @Test("Benzo + benzo does not set synergyActive")
