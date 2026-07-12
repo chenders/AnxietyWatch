@@ -119,6 +119,16 @@ final class CNSMonitoringCoordinator {
     /// (`setContinuousMode`/`stop()` are separate, explicit calls) — so this
     /// hook can never fight that setting. Tests default to a no-op.
     private let emayStartHook: () -> Void
+    /// Fired once per `endSession` call (every end reason) so the EMAY
+    /// oximeter session started alongside this one (`emayStartHook`) doesn't
+    /// outlive it and keep scanning/heartbeating in the background. The
+    /// coordinator stays deliberately ignorant of the continuous-streaming
+    /// toggle — the production closure (see the convenience init) mirrors
+    /// `EMAYLiveView`'s "stop on disappear ONLY if `!continuousModeEnabled`"
+    /// rule itself, exactly the same way `emayStartHook` never touches that
+    /// toggle. Optional/`nil` default: tests that don't care about EMAY
+    /// teardown (most of them) never have to supply one.
+    private let emayStopHook: (() -> Void)?
 
     // MARK: - Session-scoped state (reset in `startNewSession`/`endSession`)
 
@@ -165,7 +175,8 @@ final class CNSMonitoringCoordinator {
         notificationPoster: CNSMonitoringNotificationPosting,
         defaults: UserDefaults = .standard,
         enableTickLoop: Bool = true,
-        emayStartHook: @escaping () -> Void = {}
+        emayStartHook: @escaping () -> Void = {},
+        emayStopHook: (() -> Void)? = nil
     ) {
         self.modelContext = modelContext
         self.now = now
@@ -176,6 +187,7 @@ final class CNSMonitoringCoordinator {
         self.defaults = defaults
         self.enableTickLoop = enableTickLoop
         self.emayStartHook = emayStartHook
+        self.emayStopHook = emayStopHook
     }
 
     /// Production convenience init: wires the real `EMAYRealtimeService` /
@@ -204,7 +216,15 @@ final class CNSMonitoringCoordinator {
             latestPolarHR: { [weak polarService] in polarService?.state.currentHR },
             latestPolarRMSSD: { [weak polarService] in polarService?.state.lastMinuteRMSSD },
             notificationPoster: UNUserNotificationCenterPoster(),
-            emayStartHook: { [weak emayService] in emayService?.start() }
+            emayStartHook: { [weak emayService] in emayService?.start() },
+            emayStopHook: { [weak emayService] in
+                // Mirrors EMAYLiveView's "stop on disappear ONLY if
+                // !continuousModeEnabled" rule (EMAYLiveView.swift:75-80):
+                // never fight the user's continuous-streaming toggle — with
+                // it on, the EMAY session outlives CNS monitoring by design.
+                guard let emayService, !emayService.continuousModeEnabled else { return }
+                emayService.stop()
+            }
         )
         polarService.onLiveSample = { [weak self] _, timestamp in
             self?.noteLivePolarSample(at: timestamp)
@@ -538,6 +558,14 @@ final class CNSMonitoringCoordinator {
         session?.endedAt = now
         session?.endReason = reason.rawValue
         try? modelContext.save()
+
+        // Tear down the EMAY session started alongside this one
+        // (`emayStartHook` in `startNewSession`) — every end reason, not
+        // just manual disarm, so a device-loss or window-expiry end doesn't
+        // also leave a stray BLE session behind. The hook itself (production
+        // closure) is what checks the continuous-streaming toggle; this
+        // coordinator stays ignorant of EMAY specifics.
+        emayStopHook?()
 
         stopTickLoop()
         session = nil

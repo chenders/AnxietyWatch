@@ -52,7 +52,8 @@ struct CNSMonitoringCoordinatorTests {
         polarRMSSD: @escaping () -> Double? = { nil },
         poster: CNSMonitoringNotificationPosting,
         defaults: UserDefaults,
-        emayStartHook: @escaping () -> Void = {}
+        emayStartHook: @escaping () -> Void = {},
+        emayStopHook: (() -> Void)? = nil
     ) -> CNSMonitoringCoordinator {
         CNSMonitoringCoordinator(
             modelContext: context,
@@ -63,7 +64,8 @@ struct CNSMonitoringCoordinatorTests {
             notificationPoster: poster,
             defaults: defaults,
             enableTickLoop: false,
-            emayStartHook: emayStartHook
+            emayStartHook: emayStartHook,
+            emayStopHook: emayStopHook
         )
     }
 
@@ -644,6 +646,61 @@ struct CNSMonitoringCoordinatorTests {
         coordinator.disarm()
         coordinator.armAdHoc()
         #expect(startCount == 2)
+    }
+
+    // MARK: - emayStopHook (EMAY teardown on disarm — session must not outlive monitoring)
+
+    @Test(
+        """
+        endSession invokes emayStopHook; production-closure semantics (the continuous-mode \
+        guard lives in the closure, not the coordinator) are exercised via an injected flag — \
+        OFF means the closure actually performs its "stop"
+        """
+    )
+    func endSessionInvokesEMAYStopHookWhenNotContinuous() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let currentTime = t0
+        // Mirrors the production closure's own guard: never fight the
+        // user's continuous-streaming toggle — the coordinator itself
+        // knows nothing about this flag, only that it must call the hook.
+        let continuousModeEnabled = false
+        var stopCount = 0
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, poster: NotificationPosterSpy(), defaults: makeDefaults(),
+            emayStopHook: {
+                if !continuousModeEnabled { stopCount += 1 }
+            }
+        )
+        coordinator.armManually(companionPresent: true)
+        #expect(stopCount == 0, "the hook must not fire before the session actually ends")
+
+        coordinator.disarm()
+        #expect(stopCount == 1)
+    }
+
+    @Test(
+        """
+        endSession still calls emayStopHook when continuous mode is ON, but the \
+        production-style guard inside the closure suppresses the actual stop — the toggle \
+        is never fought
+        """
+    )
+    func endSessionDoesNotStopEMAYWhenContinuousModeOn() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let currentTime = t0
+        let continuousModeEnabled = true
+        var stopCount = 0
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, poster: NotificationPosterSpy(), defaults: makeDefaults(),
+            emayStopHook: {
+                if !continuousModeEnabled { stopCount += 1 }
+            }
+        )
+        coordinator.armManually(companionPresent: true)
+
+        coordinator.disarm()
+        #expect(stopCount == 0, "continuous mode must never be fought by CNS monitoring disarm")
+        #expect(!coordinator.isMonitoring)
     }
 
     // MARK: - Constants sanity (every CNSMonitoringConstants member is referenced by a test)

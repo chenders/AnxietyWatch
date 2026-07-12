@@ -41,7 +41,9 @@ struct CNSMonitoringView: View {
             Text(
                 "If they leave, re-mark alone — thresholds re-tighten. Arming (any option) "
                     + "starts the EMAY oximeter session automatically; it never overrides your "
-                    + "EMAY continuous-streaming setting."
+                    + "EMAY continuous-streaming setting. Turning off \"Monitor tonight\" stops ALL "
+                    + "monitoring, including ad-hoc and dose-window triggers — this is intentional, "
+                    + "not a bug."
             )
         }
     }
