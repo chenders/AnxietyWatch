@@ -179,7 +179,6 @@ CREATE TABLE IF NOT EXISTS prescriptions (
     notes                   TEXT NOT NULL DEFAULT ''
 );
 
-
 CREATE TABLE IF NOT EXISTS pharmacy_call_logs (
     timestamp           TIMESTAMPTZ NOT NULL,
     pharmacy_name       TEXT NOT NULL,
