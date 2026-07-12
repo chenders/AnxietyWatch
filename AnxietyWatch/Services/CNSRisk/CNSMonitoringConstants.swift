@@ -29,6 +29,16 @@ enum CNSMonitoringConstants {
     /// watching for (device loss, window expiry) — "never a silent stop."
     static let endedNotificationID = "cns.monitoring.ended"
 
+    /// `CNSMonitoringCoordinator`'s rolling sample buffer keeps samples back to
+    /// `gateWindowSeconds + bufferTrimSlackSeconds` before trimming, rather
+    /// than exactly `gateWindowSeconds`: `CNSDetectionPipeline.process`
+    /// re-applies the exact `gateWindowSeconds` boundary itself (its own
+    /// defense-in-depth trim), so the buffer only needs enough slack to
+    /// tolerate tick-to-tick timing jitter without dropping a sample the
+    /// pipeline still wants. Not safety-critical arithmetic — generous slack
+    /// only widens what's KEPT, never what the gate/scorer actually consider.
+    static let bufferTrimSlackSeconds: TimeInterval = 10
+
     // MARK: - §14.1 benzo+opioid synergy
 
     /// One leg of the UNION synergy-pairing rule: a benzodiazepine dose and

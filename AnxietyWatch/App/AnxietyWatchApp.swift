@@ -60,6 +60,13 @@ struct AnxietyWatchApp: App {
     /// unconditional `startIfContinuousModeEnabled()` call in `.task` —
     /// all auto-start/restoration logic lives inside the service.
     @State private var emayService: EMAYRealtimeService
+    /// App-scoped like `polarService`/`emayService`: owns the CNS-depression
+    /// monitor's 1 Hz tick loop and session lifecycle for the app's whole
+    /// runtime, and both dose-log sites (`MedicationsHubView`,
+    /// `DoseAnxietyPromptView`) call `doseLogged` on the SAME injected
+    /// instance. A fresh `ModelContext(sharedModelContainer)`, matching
+    /// `emayService`'s own context.
+    @State private var monitoringCoordinator: CNSMonitoringCoordinator
     /// Shared sheet-presentation state for the in-progress recording UI.
     /// Lives on the App so the in-app pill (rendered at ContentView root)
     /// and entry-point views (Dashboard card, Settings polar section) all
@@ -109,7 +116,14 @@ struct AnxietyWatchApp: App {
         _polarService = State(initialValue: polar)
         _liveActivityCoordinator = State(initialValue: LiveActivityCoordinator(polarService: polar))
 
-        _emayService = State(initialValue: EMAYRealtimeService(modelContext: ModelContext(sharedModelContainer)))
+        let emay = EMAYRealtimeService(modelContext: ModelContext(sharedModelContainer))
+        _emayService = State(initialValue: emay)
+
+        _monitoringCoordinator = State(initialValue: CNSMonitoringCoordinator(
+            modelContext: ModelContext(sharedModelContainer),
+            emayService: emay,
+            polarService: polar
+        ))
 
         // Set notification delegate so notifications show in foreground
         // and taps trigger the pending check-in/follow-up flow.
@@ -121,6 +135,7 @@ struct AnxietyWatchApp: App {
             ContentView()
                 .environment(polarService)
                 .environment(emayService)
+                .environment(monitoringCoordinator)
                 .environment(recordingPresentation)
                 .overlay {
                     // Coordinator's @Observable properties (isBackfilling,
@@ -177,6 +192,12 @@ struct AnxietyWatchApp: App {
                     // Re-arm EMAY continuous streaming (no-op unless the user
                     // enabled the toggle; the decision lives in the service).
                     emayService.startIfContinuousModeEnabled()
+
+                    // CNS monitoring launch hook: mark any session left
+                    // un-ended by a force-quit/crash as `.appTerminated`,
+                    // then re-arm with `.doseWindow` if a persisted dose
+                    // window is still active.
+                    monitoringCoordinator.handleLaunch()
 
                     // Link any prescriptions missing a MedicationDefinition
                     let context = ModelContext(sharedModelContainer)
