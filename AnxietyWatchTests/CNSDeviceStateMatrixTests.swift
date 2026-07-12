@@ -153,6 +153,21 @@ struct CNSDeviceStateMatrixTests {
         #expect(state == .absentFromStart)
     }
 
+    /// Mirror contradiction of the case above: a `lastSample` timestamp
+    /// exists but the caller's `wasEverReporting` flag says the source never
+    /// reported. Also a caller contract violation; the flag governs — a
+    /// source the caller has not acknowledged as ever-reporting cannot be
+    /// `.reporting`, and cannot have "died" — so this resolves to
+    /// `.absentFromStart`.
+    @Test("lastSample non-nil but wasEverReporting false (mirror contract violation) -> absentFromStart")
+    func lastSampleWithoutWasEverReportingIsAbsentFromStart() {
+        let state = CNSDeviceStateMatrix.state(
+            lastSample: t0.addingTimeInterval(30), sessionStart: t0, now: t0.addingTimeInterval(60),
+            wasEverReporting: false
+        )
+        #expect(state == .absentFromStart)
+    }
+
     // MARK: - CNSDeviceFallbackConfig: UserDefaults round trip
 
     /// Fresh, isolated UserDefaults per test — mirrors

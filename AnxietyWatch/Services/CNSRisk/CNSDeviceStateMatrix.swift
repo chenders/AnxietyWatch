@@ -91,16 +91,32 @@ struct CNSDeviceFallbackConfig: Codable, Equatable {
 /// (spec asymmetry rule: degradation is disclosed, never silent).
 ///
 /// `isOnlyPrimarySource` is caller-computed (Task 6's coordinator): whether
-/// the source under evaluation is the only currently-present primary-capable
-/// (continuous SpO₂) source. In practice only `.emayOximeter` is ever
-/// primary-capable (decision 5 — Polar has no primary kind; Apple Watch SpO₂
-/// is periodic, not continuous), so passing `true` for `.polarH10` or
-/// `.appleWatch` is a caller contract violation. `classify` still resolves it
-/// per the literal matrix rule below (source-independent for `.idle`/
-/// `.diedMidSession`) rather than asserting/trapping — a pure decision
-/// function should never crash on an out-of-band input from a caller bug,
-/// and the fail-safe direction (favoring `.endMonitoring`) is the same
-/// either way.
+/// the source under evaluation is the only currently-present PRIMARY-CAPABLE
+/// (continuous SpO₂) source — NOT whether it is the only source present.
+/// Only `.emayOximeter` is primary-capable (plan decision 5 — Polar has no
+/// primary kind; Apple Watch SpO₂ is periodic spot-checks, not continuous),
+/// which collapses the flag to a fixed per-source rule. Task 6's correct
+/// computation, in one sentence: `isOnlyPrimarySource` is `true` exactly
+/// when `source == .emayOximeter`.
+///
+/// - Evaluating `.emayOximeter`: because no other source can stand in as
+///   primary, "the only primary-capable source" reduces to "EMAY is
+///   present" — effectively ALWAYS TRUE when EMAY itself is the source
+///   under evaluation.
+/// - Evaluating `.polarH10` / `.appleWatch`: always `false`. Passing `true`
+///   for these is the benign misuse direction — it merely over-escalates a
+///   corroborating dropout to `.endMonitoring`.
+///
+/// The DANGEROUS misuse is the mirror: conflating "only source present"
+/// with "only primary-capable source present" and passing `false` for EMAY
+/// because a Polar or Watch happens to be around. That silently downgrades
+/// `.endMonitoring` → `.degradeDisclosed` for a dying EMAY — the exact
+/// silent SpO₂ gap §7 exists to prevent, since the remaining corroborating
+/// devices cannot cover the primary signal. `classify` resolves out-of-band
+/// inputs per the literal matrix rule below (source-independent for
+/// `.idle`/`.diedMidSession`) rather than asserting/trapping — a pure
+/// decision function should never crash on a caller bug — so this contract
+/// is enforced entirely at the call site: get the flag right there.
 enum CNSDeviceStateMatrix {
 
     /// The §7 enumerated matrix. Inputs: per-source state + whether that
