@@ -528,6 +528,119 @@ struct CNSMonitoringCoordinatorTests {
         #expect(coordinator.reportingSources.contains(.emayOximeter), "EMAY's own tick-polled liveness must be unaffected")
     }
 
+    // MARK: - Fix item 2 follow-up: bounded RMSSD sample-and-hold
+
+    /// Shared fixture for the two sample-and-hold tests: a `HealthSnapshot`
+    /// carrying an HRV baseline (the scorer never scores `.hrv` without
+    /// one), inserted BEFORE arming so `loadBaselines` picks it up.
+    private func insertHRVBaselineSnapshot(context: ModelContext, hrvMean: Double) throws {
+        let snapshot = HealthSnapshot(date: t0.addingTimeInterval(-86_400))
+        snapshot.hrvAvg = hrvMean
+        context.insert(snapshot)
+        try context.save()
+    }
+
+    @Test(
+        """
+        RMSSD sample-and-hold: while genuine HR arrivals are live, the cached per-minute RMSSD is \
+        re-emitted every tick, so the Polar HRV stream passes the 30s-contiguous quality gate \
+        across a 60s window (an hrv/polarH10 contribution reaches the persisted record) — a \
+        change-only emission (~1 sample/min) could never pass it
+        """
+    )
+    func rmssdSampleAndHoldPassesGateWhileHRArrivalsLive() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        try insertHRVBaselineSnapshot(context: context, hrvMean: 45)
+
+        var currentTime = t0
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime },
+            emayReading: { EMAYReading(spo2: 96, pulseRate: 62, timestamp: currentTime) },
+            polarHR: { 62 },
+            polarRMSSD: { 45 },  // constant per-minute value — sample-and-hold must carry it
+            poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+        coordinator.armManually(companionPresent: true)
+
+        for second in 1...65 {
+            currentTime = t0.addingTimeInterval(Double(second))
+            coordinator.noteLivePolarSample(at: currentTime)
+            coordinator.tick(at: currentTime)
+        }
+
+        #expect(coordinator.reportingSources.contains(.polarH10))
+        let records = try context.fetch(
+            FetchDescriptor<CNSRiskSampleRecord>(sortBy: [SortDescriptor(\.timestamp)])
+        )
+        let lastRecord = try #require(records.last)
+        #expect(
+            lastRecord.contributions.contains { $0.kind == "hrv" && $0.source == "polarH10" },
+            "the held RMSSD stream must pass the gate and contribute while HR arrivals are live"
+        )
+    }
+
+    @Test(
+        """
+        RMSSD sample-and-hold is BOUNDED: once genuine HR arrivals stop, RMSSD emission stops \
+        within gateWindowSeconds even though latestPolarRMSSD keeps returning the frozen cached \
+        value — no frozen resurrection; the hrv contribution drains out and polarH10 leaves \
+        reportingSources
+        """
+    )
+    func rmssdSampleAndHoldStopsWithinGateWindowAfterHRArrivalsStop() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        try insertHRVBaselineSnapshot(context: context, hrvMean: 45)
+
+        var currentTime = t0
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime },
+            emayReading: { EMAYReading(spo2: 96, pulseRate: 62, timestamp: currentTime) },
+            polarHR: { 62 },   // frozen through the reconnect grace, like the real service
+            polarRMSSD: { 45 },  // ditto — the cached value NEVER goes nil or changes
+            poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+        coordinator.armManually(companionPresent: true)
+
+        // Phase 1: live HR arrivals through t0+70 — HRV contributes.
+        for second in 1...70 {
+            currentTime = t0.addingTimeInterval(Double(second))
+            coordinator.noteLivePolarSample(at: currentTime)
+            coordinator.tick(at: currentTime)
+        }
+        let liveRecords = try context.fetch(
+            FetchDescriptor<CNSRiskSampleRecord>(sortBy: [SortDescriptor(\.timestamp)])
+        )
+        #expect(
+            try #require(liveRecords.last).contributions
+                .contains { $0.kind == "hrv" && $0.source == "polarH10" }
+        )
+
+        // Phase 2: the strap dies — HR arrivals stop, but BOTH providers
+        // keep returning the same frozen cached values. Emission is allowed
+        // for at most gateWindowSeconds past the last arrival (t0+130); the
+        // already-buffered samples take one more gate window to leave the
+        // rolling window (t0+190) — so by t0+200 the hrv stream is fully
+        // gone and polar reads stale.
+        for second in 71...200 {
+            currentTime = t0.addingTimeInterval(Double(second))
+            coordinator.tick(at: currentTime)
+        }
+
+        #expect(coordinator.isMonitoring, "Polar is corroborating-only; its loss degrades, never ends")
+        #expect(
+            !coordinator.reportingSources.contains(.polarH10),
+            "the bounded hold must not keep a dead strap in reportingSources indefinitely"
+        )
+        let allRecords = try context.fetch(
+            FetchDescriptor<CNSRiskSampleRecord>(sortBy: [SortDescriptor(\.timestamp)])
+        )
+        let finalRecord = try #require(allRecords.last)
+        #expect(
+            !finalRecord.contributions.contains { $0.source == "polarH10" },
+            "no polar-sourced contribution may survive once emission stopped and the window drained"
+        )
+    }
+
     // MARK: - Contract 7: minimum-bar status line
 
     @Test("Minimum bar: armed without EMAY reporting states the bare-minimum device requirement on statusLine")
@@ -859,7 +972,7 @@ struct CNSMonitoringCoordinatorTests {
 
     @Test(
         """
-        Fix item 3: the persisted dose list is pruned beyond doseRetentionHorizon (108h) on \
+        Fix item 3: the persisted dose list is pruned beyond doseRetentionHorizon (156h) on \
         decode-from-disk load (and, by the same shared write path, on save) — a 200h-old dose is \
         dropped from both the live arming decision and the on-disk blob; a 50h-old methadone dose \
         (inside the horizon, and inside its own 72h window) survives both
@@ -915,6 +1028,59 @@ struct CNSMonitoringCoordinatorTests {
             decoded.contains { $0.drugClass == "methadoneOrUnknownLongActing" },
             "the 50h-old methadone dose must survive"
         )
+    }
+
+    @Test(
+        """
+        doseRetentionHorizon covers the OVERLAP synergy leg (156h, not 108h): methadone@t0 + \
+        benzo@t0+50h form a synergy window expiring t0+134h; a cold relaunch at t0+120h must \
+        still retain the (120h-old) methadone dose, see the pair, and re-arm — a 108h horizon \
+        would prune the methadone on load, dissolve the pair, and silently forgo the remaining \
+        14h of mandated monitoring
+        """
+    )
+    func overlapLegSynergyPairSurvivesRetentionPruneAcrossRelaunch() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let sharedDefaults = makeDefaults()
+        let methadoneMed = makeMethadoneMedication(context: context)
+        let benzoMed = makeBenzoMedication(context: context)
+        var currentTime = t0
+
+        let methadoneDose = MedicationDose(
+            timestamp: t0, medicationName: methadoneMed.name, doseMg: 10, medication: methadoneMed
+        )
+        context.insert(methadoneDose)
+        let benzoTime = t0.addingTimeInterval(50 * 3600)
+        let benzoDose = MedicationDose(
+            timestamp: benzoTime, medicationName: benzoMed.name, doseMg: 1, medication: benzoMed
+        )
+        context.insert(benzoDose)
+        try context.save()
+
+        // Coordinator A logs both doses at their real times (benzo lands 50h
+        // into the methadone window — pairing via the OVERLAP leg only; the
+        // 50h gap exceeds the 24h pairing horizon).
+        let coordinatorA = makeCoordinator(
+            context: context, now: { currentTime }, poster: NotificationPosterSpy(), defaults: sharedDefaults
+        )
+        coordinatorA.doseLogged(methadoneDose)
+        currentTime = benzoTime
+        coordinatorA.doseLogged(benzoDose)
+        #expect(coordinatorA.doseWindowExpiry == benzoTime.addingTimeInterval(84 * 3600))
+
+        // Cold relaunch at t0+120h: the methadone dose is 120h old — inside
+        // the corrected 156h horizon, beyond the old (buggy) 108h one. Both
+        // individual windows (t0+72h, t0+62h) are long expired; ONLY the
+        // synergy pair (expiry t0+134h) can justify re-arming.
+        let relaunchTime = t0.addingTimeInterval(120 * 3600)
+        let coordinatorB = makeCoordinator(
+            context: context, now: { relaunchTime }, poster: NotificationPosterSpy(), defaults: sharedDefaults
+        )
+        coordinatorB.handleLaunch()
+
+        #expect(coordinatorB.isMonitoring, "the overlap-leg synergy window (t0+134h) is still active at t0+120h")
+        #expect(coordinatorB.activeTriggers == [.doseWindow])
+        #expect(coordinatorB.doseWindowExpiry == benzoTime.addingTimeInterval(84 * 3600))
     }
 
     // MARK: - Fix item 5 (IMPORTANT): stale (.appTerminated) session notification

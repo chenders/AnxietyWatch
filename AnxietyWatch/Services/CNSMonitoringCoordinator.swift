@@ -202,18 +202,6 @@ final class CNSMonitoringCoordinator {
     /// window `PolarHRMService` keeps `state.currentHR` populated for) is
     /// never re-emitted as if it just arrived.
     private var lastEmittedPolarHRArrivalTime: Date?
-    /// Fix item 2, RMSSD leg: `PolarHRMService` exposes no packet-arrival
-    /// timestamp for its per-minute RMSSD mean (only `onLiveSample` taps HR
-    /// arrivals), so the honest proxy for "a new value arrived" is "the
-    /// value itself changed" — the service only ever overwrites
-    /// `state.lastMinuteRMSSD` when its internal per-minute tick computes a
-    /// fresh mean from live RR data; a dead device leaves the cached value
-    /// byte-for-byte frozen forever. Documented tradeoff: if two
-    /// consecutive genuine per-minute means were ever exactly equal, this
-    /// would under-count one arrival — the safe (fail-open, not fail-closed)
-    /// direction, since HR's arrival-based gate above still independently
-    /// tracks the source's liveness.
-    private var lastEmittedPolarRMSSDValue: Double?
     private var tickTask: Task<Void, Never>?
     /// In-memory cache of the persisted `[LoggedCNSDose]` list, so
     /// `evaluateDoseWindowExpiry` (called every 1 Hz tick, potentially for a
@@ -478,15 +466,33 @@ final class CNSMonitoringCoordinator {
         return CNSSensorAdapters.samples(polarHR: hr, at: arrival)
     }
 
-    /// Fix item 2, RMSSD leg — see `lastEmittedPolarRMSSDValue`'s doc comment
-    /// for why "the value changed" is the honest arrival proxy here (no
-    /// packet-arrival tap exists for RMSSD). Timestamped `now` (not an
-    /// arrival time, since none is available) — consistent with the OLD
-    /// behavior for this one signal, but now gated so a frozen cached value
-    /// is emitted once, not every tick forever.
+    /// Fix item 2, RMSSD leg — BOUNDED SAMPLE-AND-HOLD. `PolarHRMService`
+    /// exposes no packet-arrival timestamp for its per-minute RMSSD mean
+    /// (`onLiveSample` taps HR arrivals only), and the per-minute value is
+    /// genuinely a 60s aggregate — emitting it only when it CHANGES
+    /// (~1 sample/min) could never satisfy the quality gate's
+    /// `gateMinContiguousGoodSeconds` (30s of ≤3s-gap samples), which would
+    /// leave the Polar HRV channel permanently inert: a silent, LESS
+    /// protective regression versus Phase 2's intent. Construction: re-emit
+    /// the service's cached per-minute RMSSD stamped `now` on every tick,
+    /// but ONLY while the most recent GENUINE Polar HR packet arrival
+    /// (`lastPolarHRArrivalTime`, fed exclusively by the real BLE tap) is
+    /// within `CNSThresholds.standard.gateWindowSeconds` (60s) of `now`. HR
+    /// packets and RMSSD come from the same strap over the same link, so a
+    /// live HR stream is a trustworthy liveness oracle for the RMSSD cache
+    /// — and when HR arrivals stop (strap died; `state.currentHR` frozen
+    /// through the ~10-min reconnect grace), RMSSD emission hard-stops
+    /// within `gateWindowSeconds`, so the frozen-corpse case this fix
+    /// exists for cannot be resurrected through this channel. Bounded
+    /// side effect: the hold keeps the polarH10 stream nominally "reporting"
+    /// for up to one extra `gateWindowSeconds` after the last genuine
+    /// arrival before staleness detection fires — a ≤60s, hard-bounded
+    /// delay in degrade disclosure, never an unbounded one.
     private func collectPolarRMSSDSample(at now: Date) -> [CNSSignalSample] {
-        guard let rmssd = latestPolarRMSSD(), rmssd != lastEmittedPolarRMSSDValue else { return [] }
-        lastEmittedPolarRMSSDValue = rmssd
+        guard let rmssd = latestPolarRMSSD(),
+              let arrival = lastPolarHRArrivalTime,
+              now.timeIntervalSince(arrival) <= CNSThresholds.standard.gateWindowSeconds
+        else { return [] }
         return CNSSensorAdapters.samples(polarRMSSD: rmssd, at: now)
     }
 
@@ -687,7 +693,6 @@ final class CNSMonitoringCoordinator {
         disclosedDegradedSources = []
         lastPolarHRArrivalTime = nil
         lastEmittedPolarHRArrivalTime = nil
-        lastEmittedPolarRMSSDValue = nil
 
         let newSession = MonitoringSession(
             startedAt: now,
@@ -750,7 +755,6 @@ final class CNSMonitoringCoordinator {
         disclosedDegradedSources = []
         lastPolarHRArrivalTime = nil
         lastEmittedPolarHRArrivalTime = nil
-        lastEmittedPolarRMSSDValue = nil
         doseWindowExpiry = nil
         updateStatusLine()
     }
@@ -873,10 +877,11 @@ final class CNSMonitoringCoordinator {
     }
 
     /// Fix item 3 (IMPORTANT — prune the persisted dose list): drops doses
-    /// older than `CNSMonitoringConstants.doseRetentionHorizon` (108h — see
-    /// that constant's doc comment for the derivation) — the horizon beyond
-    /// which no individual OR synergy window this dose could ever be part
-    /// of can reach. Run on every save AND every decode-from-disk load so
+    /// older than `CNSMonitoringConstants.doseRetentionHorizon` (156h — see
+    /// that constant's doc comment for the two-leg derivation) — the horizon
+    /// beyond which no individual OR synergy window (either pairing leg)
+    /// this dose could ever be part of can reach. Run on every save AND
+    /// every decode-from-disk load so
     /// the persisted list stays bounded across months of real usage instead
     /// of growing forever (the previous `savePersistedDoses` only ever
     /// appended).

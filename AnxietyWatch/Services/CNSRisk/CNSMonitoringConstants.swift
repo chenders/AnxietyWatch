@@ -119,20 +119,36 @@ enum CNSMonitoringConstants {
     /// or future `DoseWindowGate.activeWindow` computation — pruned from the
     /// coordinator's persisted `[LoggedCNSDose]` list on both save and load
     /// so it doesn't grow forever across months of real usage. Computed, not
-    /// hardcoded, from the three constants that bound how far a dose's
-    /// influence can reach:
-    /// - `methadoneOrUnknownLongActing.doseWindow` (72 h) — the longest
-    ///   individual class window (also `DoseWindowGate`'s fail-safe default
-    ///   for an unrecognized class, see `CNSDepressantClassifier`/fix 7b).
-    /// - `synergyPairingHorizon` (24 h) — the furthest a FUTURE partner dose
-    ///   could still be logged and pair with this one via the horizon leg.
-    /// - `synergyWindowExtension` (12 h) — the synergy reach added beyond
-    ///   the governing class window once paired.
-    /// Sum = 108 h. Deliberately a conservative (safe) upper bound rather
-    /// than the tightest possible per-pairing-leg bound — fail-safe
-    /// direction: erring toward keeping a dose longer than strictly
-    /// necessary costs a few bytes of `UserDefaults`, never a missed
-    /// synergy pairing.
+    /// hardcoded. The bound must cover BOTH synergy-pairing legs
+    /// (`DoseWindowGate.synergyWindowExpiries`), measured from the pruned
+    /// dose's own timestamp `t`:
+    ///
+    /// - **Pairing-horizon leg:** a partner dose can be logged up to
+    ///   `synergyPairingHorizon` (24 h) after `t`; the synergy window
+    ///   anchors at that later dose and reaches
+    ///   `max(class windows) + synergyWindowExtension` ≤ 72 h + 12 h = 84 h
+    ///   further → influence ends ≤ `t + 24h + 84h = t + 108h`.
+    /// - **Window-overlap leg (the governing one):** a partner dose pairs as
+    ///   long as the two §14.1 monitoring windows intersect at any instant,
+    ///   i.e. it can be logged as late as the pruned dose's OWN window
+    ///   expiry — up to `t + 72h` for a methadone/unknown dose. The synergy
+    ///   window again anchors at that later dose and reaches ≤ 84 h further
+    ///   → influence ends ≤ `t + 72h + 84h = t + 156h`. Concretely:
+    ///   methadone@t + benzo@t+50h yields synergy expiry t+134h; a 108 h
+    ///   horizon would prune the methadone at any load/save after t+108h,
+    ///   dissolve the pair, and silently forgo up to 47 h of mandated
+    ///   monitoring — permanently, given the load-time disk rewrite.
+    ///
+    /// Flat bound = the overlap leg's worst case:
+    /// `doseWindow (72h, latest overlap-pairing partner) + max(class
+    /// windows) (72h, synergy anchor reach) + synergyWindowExtension (12h)`
+    /// = 156 h. (`synergyWindowFloor` = 24 h never exceeds the 84 h anchor
+    /// reach, so it cannot govern.) Deliberately a flat conservative bound
+    /// rather than the tightest per-class bound — fail-safe direction:
+    /// keeping a dose longer than strictly necessary costs a few bytes of
+    /// `UserDefaults`, never a missed synergy pairing.
     static let doseRetentionHorizon: TimeInterval =
-        CNSDepressantClass.methadoneOrUnknownLongActing.doseWindow + synergyPairingHorizon + synergyWindowExtension
+        CNSDepressantClass.methadoneOrUnknownLongActing.doseWindow
+            + CNSDepressantClass.methadoneOrUnknownLongActing.doseWindow
+            + synergyWindowExtension
 }
