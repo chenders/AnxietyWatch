@@ -20,8 +20,9 @@ SUPPLY_COLUMNS = (
 
 
 def upgrade():
-    for col in SUPPLY_COLUMNS:
-        op.execute(f"ALTER TABLE prescriptions DROP COLUMN IF EXISTS {col}")
+    # One statement: a single ACCESS EXCLUSIVE lock instead of one per column.
+    drops = ", ".join(f"DROP COLUMN IF EXISTS {col}" for col in SUPPLY_COLUMNS)
+    op.execute(f"ALTER TABLE prescriptions {drops}")
 
 
 def downgrade():

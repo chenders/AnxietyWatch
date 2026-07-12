@@ -46,8 +46,11 @@ struct PrescriptionListView: View, Equatable {
     }
 
     private func delete(_ offsets: IndexSet) {
-        for index in offsets {
-            modelContext.delete(prescriptions[index])
+        // Snapshot first: deleting mutates the live @Query results, which
+        // could shift the remaining offsets mid-loop.
+        let snapshot = offsets.map { prescriptions[$0] }
+        for rx in snapshot {
+            modelContext.delete(rx)
         }
     }
 
