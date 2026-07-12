@@ -20,6 +20,19 @@ jobs:
       - run: pip install flake8
       - run: flake8 server/ --max-line-length=120 --exclude=__pycache__
 
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install uv
+      # -l (LOW+ severity) rather than -ll so regressions in the low-severity
+      # classes this gate was added for (B105 hardcoded secrets, B404/B603
+      # subprocess) still fail CI; -ii keeps confidence at MEDIUM+.
+      - run: uvx bandit -r server -x server/tests -l -ii
+
   test:
     runs-on: ubuntu-latest
     services:
