@@ -970,11 +970,8 @@ def create_app(test_config=None):
             cur.execute(
                 """INSERT INTO prescriptions (rx_number, medication_name, dose_mg, dose_description,
                        quantity, refills_remaining, date_filled, estimated_run_out_date,
-                       pharmacy_name, notes, daily_dose_count,
-                       prescriber_name, ndc_code, rx_status, last_fill_date,
-                       import_source, walgreens_rx_id, directions)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                           %s, %s, %s, %s, %s, %s, %s)
+                       pharmacy_name, notes, daily_dose_count)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (rx_number) DO UPDATE SET
                        medication_name = EXCLUDED.medication_name,
                        dose_mg = EXCLUDED.dose_mg,
@@ -985,23 +982,12 @@ def create_app(test_config=None):
                        estimated_run_out_date = EXCLUDED.estimated_run_out_date,
                        pharmacy_name = EXCLUDED.pharmacy_name,
                        notes = EXCLUDED.notes,
-                       daily_dose_count = EXCLUDED.daily_dose_count,
-                       prescriber_name = EXCLUDED.prescriber_name,
-                       ndc_code = EXCLUDED.ndc_code,
-                       rx_status = EXCLUDED.rx_status,
-                       last_fill_date = EXCLUDED.last_fill_date,
-                       import_source = EXCLUDED.import_source,
-                       walgreens_rx_id = EXCLUDED.walgreens_rx_id,
-                       directions = EXCLUDED.directions""",
+                       daily_dose_count = EXCLUDED.daily_dose_count""",
                 (rx["rxNumber"], rx["medicationName"], rx["doseMg"],
                  rx.get("doseDescription", ""), rx["quantity"],
                  rx.get("refillsRemaining", 0), rx["dateFilled"],
                  rx.get("estimatedRunOutDate"), rx.get("pharmacyName", ""),
-                 rx.get("notes", ""), rx.get("dailyDoseCount"),
-                 rx.get("prescriberName", ""), rx.get("ndcCode", ""),
-                 rx.get("rxStatus", ""), rx.get("lastFillDate"),
-                 rx.get("importSource", "manual"), rx.get("walgreensRxId"),
-                 rx.get("directions", "")),
+                 rx.get("notes", ""), rx.get("dailyDoseCount")),
             )
         return len(prescriptions)
 
