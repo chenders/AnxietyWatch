@@ -35,6 +35,26 @@ struct CNSDepressantClassifierTests {
     func caseInsensitive() {
         #expect(CNSDepressantClassifier.classify(name: "CLONAZEPAM", category: "other") == .benzodiazepine)
     }
+    @Test("Brand names classify to their generic's class")
+    func brandNames() {
+        #expect(CNSDepressantClassifier.classify(name: "Xanax 0.5mg", category: "Other") == .benzodiazepine)
+        #expect(CNSDepressantClassifier.classify(name: "Percocet", category: "Other") == .opioidIR)
+        #expect(CNSDepressantClassifier.classify(name: "OxyContin 20mg", category: "Other") == .opioidER)
+    }
+    @Test("'contin' inside an unrelated word is never opioid evidence on its own")
+    func continIsNotStandaloneEvidence() {
+        #expect(CNSDepressantClassifier.classify(name: "Metformin (discontinued)", category: "Other") == nil)
+        #expect(CNSDepressantClassifier.classify(
+            name: "Vitamin C Continuous Release", category: "Supplement") == nil)
+    }
+    @Test("Opioid category with no name evidence fails safe to opioidER")
+    func opioidCategoryFailSafe() {
+        #expect(CNSDepressantClassifier.classify(name: "Unknown Pain Med", category: "Opioid") == .opioidER)
+    }
+    @Test("Opioid category: specific name evidence wins over the fail-safe default")
+    func opioidCategoryNameEvidenceWins() {
+        #expect(CNSDepressantClassifier.classify(name: "hydrocodone", category: "Opioid") == .opioidIR)
+    }
     @Test("Dose windows match spec §14.1")
     func windows() {
         #expect(CNSDepressantClass.benzodiazepine.doseWindow == 12 * 3600)

@@ -14,7 +14,7 @@ struct AddMedicationView: View {
     @State private var userToggledCNSDepressantClass = false
 
     private let categories = [
-        "SSRI", "SNRI", "Benzodiazepine", "Stimulant",
+        "SSRI", "SNRI", "Benzodiazepine", "Opioid", "Stimulant",
         "Beta Blocker", "Z-Drug", "Supplement", "Other",
     ]
 
