@@ -8,6 +8,7 @@ import SwiftData
 /// see `MonitoringSession`'s doc comment for the full rationale.
 @Model
 final class CNSRiskSampleRecord {
+    var id: UUID
     var timestamp: Date
     /// nil = `.insufficientData` at this instant (spec §11: the engine never
     /// fabricates a score from nothing — false reassurance is the worst
@@ -30,6 +31,7 @@ final class CNSRiskSampleRecord {
         contributionsData: Data? = nil,
         session: MonitoringSession? = nil
     ) {
+        self.id = UUID()
         self.timestamp = timestamp
         self.riskScore = riskScore
         self.tier = tier

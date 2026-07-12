@@ -195,9 +195,12 @@ struct MonitoringSessionTests {
         // Still active — no endedAt.
         let activeSession = makeSession(endedAt: nil)
         context.insert(activeSession)
-        // Within the protected last-hour window (30 min old at `now`).
+        // Halfway into the protected window — derived from the constant so a
+        // future tuning of activeSessionProtectedWindow keeps this fixture
+        // inside the window it exists to probe.
+        let insideWindow = CNSMonitoringConstants.activeSessionProtectedWindow / 2
         let protectedSample = MonitoringSessionStore.insertSample(
-            timestamp: t0.addingTimeInterval(-minutes(30)), riskScore: 0.1, tier: .clear,
+            timestamp: t0.addingTimeInterval(-insideWindow), riskScore: 0.1, tier: .clear,
             canAssess: true, into: activeSession, context: context
         )
         try context.save()
@@ -244,10 +247,13 @@ struct MonitoringSessionTests {
 
         let activeSession = makeSession(endedAt: nil)
         context.insert(activeSession)
-        // Two hours old — outside the 1h protected window — must be prunable
-        // even though the session is still active.
+        // Twice the protected window's age — derived from the constant so a
+        // future tuning of activeSessionProtectedWindow keeps this fixture
+        // outside the window — must be prunable even though the session is
+        // still active.
+        let outsideWindow = CNSMonitoringConstants.activeSessionProtectedWindow * 2
         MonitoringSessionStore.insertSample(
-            timestamp: t0.addingTimeInterval(-hours(2)), riskScore: 0.1, tier: .clear,
+            timestamp: t0.addingTimeInterval(-outsideWindow), riskScore: 0.1, tier: .clear,
             canAssess: true, into: activeSession, context: context
         )
         try context.save()
