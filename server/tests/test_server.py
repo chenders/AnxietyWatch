@@ -288,6 +288,63 @@ def test_sync_all_entity_types(client):
     assert by_name["Melatonin"]["cns_depressant_class"] is None
 
 
+def _sync_med_def(client, med_def):
+    """POST one medication definition through /api/sync; assert 200."""
+    resp = client.post(
+        "/api/sync",
+        json={"medicationDefinitions": [med_def]},
+        headers=auth_header(),
+    )
+    assert resp.status_code == 200
+
+
+def _get_med_def_cns_class(client, name):
+    defs = client.get(
+        "/api/data/medicationDefinitions", headers=auth_header()
+    ).get_json()["medicationDefinitions"]
+    return {d["name"]: d for d in defs}[name]["cns_depressant_class"]
+
+
+def test_sync_med_def_null_never_clobbers_stored_classification(client):
+    """Fail-safe conflict semantics (COALESCE): an incoming NULL — an old
+    client omitting the cnsDepressantClass key, or a new client whose nil
+    encodes as an absent key — must never clobber a stored explicit
+    classification. Under-monitoring is the failure class this guards."""
+    _sync_med_def(client, {"name": "Oxycodone ER 10mg", "defaultDoseMg": 10.0,
+                           "category": "opioid", "isActive": True,
+                           "cnsDepressantClass": "opioidER"})
+    # Old-shape re-sync of the same definition: key absent entirely.
+    _sync_med_def(client, {"name": "Oxycodone ER 10mg", "defaultDoseMg": 10.0,
+                           "category": "opioid", "isActive": True})
+    assert _get_med_def_cns_class(client, "Oxycodone ER 10mg") == "opioidER", (
+        "a NULL from an old client must not clobber the stored classification"
+    )
+
+
+def test_sync_med_def_value_fills_stored_null(client):
+    """A stored NULL (row created by an old client) takes the first explicit
+    classification a new client syncs up."""
+    _sync_med_def(client, {"name": "Lorazepam", "defaultDoseMg": 0.5,
+                           "category": "benzodiazepine", "isActive": True})
+    assert _get_med_def_cns_class(client, "Lorazepam") is None
+    _sync_med_def(client, {"name": "Lorazepam", "defaultDoseMg": 0.5,
+                           "category": "benzodiazepine", "isActive": True,
+                           "cnsDepressantClass": "benzodiazepine"})
+    assert _get_med_def_cns_class(client, "Lorazepam") == "benzodiazepine"
+
+
+def test_sync_med_def_new_value_overwrites_old_value(client):
+    """Non-NULL always wins: a re-classification (user corrects the picker)
+    propagates normally — COALESCE only shields against NULL."""
+    _sync_med_def(client, {"name": "Tramadol 50mg", "defaultDoseMg": 50.0,
+                           "category": "opioid", "isActive": True,
+                           "cnsDepressantClass": "opioidIR"})
+    _sync_med_def(client, {"name": "Tramadol 50mg", "defaultDoseMg": 50.0,
+                           "category": "opioid", "isActive": True,
+                           "cnsDepressantClass": "opioidER"})
+    assert _get_med_def_cns_class(client, "Tramadol 50mg") == "opioidER"
+
+
 def test_sync_barometric_readings_batched_and_idempotent(client, app):
     """F-060: _upsert_barometric_readings batches via execute_values. Verify a
     multi-row batch inserts all rows, and that re-syncing the same timestamp

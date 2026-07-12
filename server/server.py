@@ -410,9 +410,18 @@ def create_app(test_config=None):
 
     def _upsert_medication_definitions(cur, defs):
         # cnsDepressantClass (0013): the app's explicit CNS-depressant picker
-        # value — source of truth for dose-window monitoring. Old clients
-        # omit the key (.get -> NULL, matching their nil-on-device state);
-        # new clients encode nil as an absent key, so NULL round-trips.
+        # value — source of truth for dose-window monitoring. On conflict the
+        # column takes COALESCE(EXCLUDED..., stored): an incoming NULL — an
+        # old client omitting the key entirely, or a new client whose nil
+        # encodes as an absent key — never clobbers a stored explicit
+        # classification (the under-monitoring direction). Deliberate
+        # consequence: explicit UN-classification (user sets the picker back
+        # to None) does NOT propagate via sync — it stays local on the device
+        # that made it, and the stale server value only matters on a restore,
+        # where it errs toward MORE monitoring (fail-safe, §14.1). A non-NULL
+        # incoming value always wins, so re-classification propagates
+        # normally. The INSERT path is unchanged: brand-new rows take
+        # whatever the payload carries (NULL included).
         for d in defs:
             cur.execute(
                 """INSERT INTO medication_definitions
@@ -422,7 +431,9 @@ def create_app(test_config=None):
                        default_dose_mg = EXCLUDED.default_dose_mg,
                        category = EXCLUDED.category,
                        is_active = EXCLUDED.is_active,
-                       cns_depressant_class = EXCLUDED.cns_depressant_class""",
+                       cns_depressant_class = COALESCE(
+                           EXCLUDED.cns_depressant_class,
+                           medication_definitions.cns_depressant_class)""",
                 (d["name"], d["defaultDoseMg"], d.get("category", ""), d.get("isActive", True),
                  d.get("cnsDepressantClass")),
             )
