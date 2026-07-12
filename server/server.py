@@ -10,6 +10,7 @@ from functools import wraps
 
 import psycopg2
 import psycopg2.extras
+from psycopg2 import sql
 from flask import Flask, g, jsonify, request
 from markupsafe import Markup, escape
 
@@ -45,7 +46,11 @@ def create_app(test_config=None):
     if secret_key:
         app.config["SECRET_KEY"] = secret_key
     elif app.config.get("TESTING"):
-        app.config["SECRET_KEY"] = "test-secret-key"
+        # Not a real credential; only reachable when TESTING is explicitly set
+        # (see test_create_app_uses_test_default_when_testing and
+        # test_create_app_raises_without_secret_key below). Prod (TESTING
+        # unset/false) always raises instead of silently falling back.
+        app.config["SECRET_KEY"] = "test-secret-key"  # nosec B105
     else:
         raise RuntimeError("SECRET_KEY environment variable is required")
 
@@ -74,7 +79,12 @@ def create_app(test_config=None):
             r'<q>\1</q>',
             s,
         )
-        return Markup(s)
+        # `s` was HTML-escaped via markupsafe.escape() above before any regex
+        # substitution; the substitutions only ever emit literal <strong>/<q>
+        # tags around already-escaped text, so no unescaped request-derived
+        # content can reach this Markup() wrapper (see
+        # TestFormatAnalysisFilter.test_html_escaped in tests/test_server.py).
+        return Markup(s)  # nosec B704
 
     # ---------------------------------------------------------------------------
     # Database helpers
@@ -576,6 +586,13 @@ def create_app(test_config=None):
                         s.get("date"),
                     )
                     data_quality = None
+            # Justification for the nosec below: overnight_clause,
+            # spo2_basis_clause, and data_quality_clause are built exclusively
+            # from hardcoded module-level column tuples (_OVERNIGHT_STATS_COLUMNS,
+            # _SPO2_BASIS_COLUMNS) and fixed literal strings selected by an
+            # integer schema_version comparison, never from request-controlled
+            # text (see _overnight_stats_update_clause, _spo2_basis_update_clause,
+            # _data_quality_update_clause above).
             cur.execute(
                 f"""INSERT INTO health_snapshots (
                        date, hrv_avg, hrv_min, resting_hr,
@@ -619,7 +636,7 @@ def create_app(test_config=None):
                        cpap_usage_minutes = EXCLUDED.cpap_usage_minutes,
                        barometric_pressure_avg_kpa = EXCLUDED.barometric_pressure_avg_kpa,
                        barometric_pressure_change_kpa = EXCLUDED.barometric_pressure_change_kpa,
-                       {data_quality_clause}""",
+                       {data_quality_clause}""",  # nosec B608
                 (
                     s["date"], s.get("hrvAvg"), s.get("hrvMin"), s.get("restingHR"),
                     s.get("sleepDurationMin"), s.get("sleepDeepMin"), s.get("sleepREMMin"),
@@ -1040,16 +1057,18 @@ def create_app(test_config=None):
             updates = []
             values = []
             if dob and existing[1] is None:  # date_of_birth is NULL
-                updates.append("date_of_birth = %s")
+                updates.append(sql.SQL("date_of_birth = %s"))
                 values.append(dob)
             if sex and existing[2] is None:  # gender is NULL
-                updates.append("gender = %s")
+                updates.append(sql.SQL("gender = %s"))
                 values.append(sex)
             if updates:
-                updates.append("updated_at = NOW()")
+                updates.append(sql.SQL("updated_at = NOW()"))
                 values.append(existing[0])
                 cur.execute(
-                    f"UPDATE patient_profile SET {', '.join(updates)} WHERE id = %s",
+                    sql.SQL("UPDATE patient_profile SET {} WHERE id = %s").format(
+                        sql.SQL(", ").join(updates)
+                    ),
                     values,
                 )
         else:
@@ -1199,13 +1218,22 @@ def create_app(test_config=None):
             # a short page); running count(*) on all ~50 pages of a 250k-row
             # restore is ~49 full scans for an answer that cannot change.
             if not payload["offset"]:
+                # table/time_col are identifiers from the hardcoded ENTITY_QUERIES
+                # dict, keyed by `entity` which was already validated against
+                # ENTITY_QUERIES above — never request-controlled text. Composed
+                # via psycopg2.sql.Identifier rather than f-string interpolation.
                 table, time_col, _ = ENTITY_QUERIES[entity]
                 if since and time_col:
                     cur.execute(
-                        f"SELECT count(*) AS n FROM {table} WHERE {time_col} >= %s", (since,)
+                        sql.SQL("SELECT count(*) AS n FROM {} WHERE {} >= %s").format(
+                            sql.Identifier(table), sql.Identifier(time_col)
+                        ),
+                        (since,),
                     )
                 else:
-                    cur.execute(f"SELECT count(*) AS n FROM {table}")
+                    cur.execute(
+                        sql.SQL("SELECT count(*) AS n FROM {}").format(sql.Identifier(table))
+                    )
                 count_row = cur.fetchone()
                 payload["total"] = count_row["n"] if count_row else 0
 
@@ -1277,8 +1305,19 @@ def create_app(test_config=None):
     }
 
     def _query_entity(cur, entity, since=None, limit=None, offset=None):
+        # table/time_col/order_col/cols/tiebreak are all identifiers sourced
+        # from the hardcoded ENTITY_QUERIES / ENTITY_SELECT_COLS /
+        # ENTITY_PAGE_TIEBREAK dicts, keyed by `entity` — callers
+        # (get_all_data/get_entity_data) only ever pass an `entity` already
+        # validated against ENTITY_QUERIES. Composed via psycopg2.sql rather
+        # than f-string interpolation.
         table, time_col, order_col = ENTITY_QUERIES[entity]
         cols = ENTITY_SELECT_COLS.get(entity, "*")
+        cols_sql = (
+            sql.SQL("*")
+            if cols == "*"
+            else sql.SQL(", ").join(sql.Identifier(c.strip()) for c in cols.split(","))
+        )
 
         # A unique tiebreaker is appended whenever we page. LIMIT/OFFSET over a
         # non-unique sort key (timestamp collides constantly in per-second
@@ -1290,21 +1329,21 @@ def create_app(test_config=None):
         # here have NO `id` column (they use natural keys), so appending one
         # unconditionally would just make the query 500. get_entity_data rejects
         # a paging request for anything not listed.
-        order = f"{order_col} DESC"
+        order = sql.SQL("{} DESC").format(sql.Identifier(order_col))
         if limit is not None:
-            order += f", {ENTITY_PAGE_TIEBREAK[entity]}"
+            order = sql.SQL("{}, {}").format(order, sql.Identifier(ENTITY_PAGE_TIEBREAK[entity]))
 
         params = []
-        sql = f"SELECT {cols} FROM {table}"
+        query = sql.SQL("SELECT {cols} FROM {table}").format(cols=cols_sql, table=sql.Identifier(table))
         if since and time_col:
-            sql += f" WHERE {time_col} >= %s"
+            query += sql.SQL(" WHERE {} >= %s").format(sql.Identifier(time_col))
             params.append(since)
-        sql += f" ORDER BY {order}"
+        query += sql.SQL(" ORDER BY {}").format(order)
         if limit is not None:
-            sql += " LIMIT %s OFFSET %s"
+            query += sql.SQL(" LIMIT %s OFFSET %s")
             params.extend([limit, offset or 0])
 
-        cur.execute(sql, tuple(params))
+        cur.execute(query, tuple(params))
         rows = cur.fetchall()
         # Serialize dates/datetimes to ISO strings
         return [_serialize_row(r) for r in rows]
@@ -1446,16 +1485,20 @@ def create_app(test_config=None):
         if not updates:
             return jsonify({"error": "No valid fields to update"}), 400
 
+        # `k` is filtered against `allowed` above, but compose via
+        # sql.Identifier (not f-string) for defense in depth.
         set_parts = []
         values = []
         for k, v in updates.items():
-            set_parts.append(f"{k} = %s")
+            set_parts.append(sql.SQL("{} = %s").format(sql.Identifier(k)))
             values.append(v)
-        set_parts.append("updated_at = NOW()")
+        set_parts.append(sql.SQL("updated_at = NOW()"))
         values.append(song_id)
 
         cur.execute(
-            f"UPDATE songs SET {', '.join(set_parts)} WHERE id = %s RETURNING *",
+            sql.SQL("UPDATE songs SET {} WHERE id = %s RETURNING *").format(
+                sql.SQL(", ").join(set_parts)
+            ),
             values,
         )
         song = cur.fetchone()
@@ -1516,8 +1559,9 @@ def create_app(test_config=None):
         cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         counts = {}
+        # `table` iterates the hardcoded ENTITY_QUERIES dict — not request input.
         for entity, (table, _, _) in ENTITY_QUERIES.items():
-            cur.execute(f"SELECT COUNT(*) AS count FROM {table}")
+            cur.execute(sql.SQL("SELECT COUNT(*) AS count FROM {}").format(sql.Identifier(table)))
             counts[entity] = cur.fetchone()["count"]
 
         # Last sync
@@ -1554,4 +1598,13 @@ def create_app(test_config=None):
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    # Dev-only entry point — prod runs under gunicorn (see Dockerfile/CMD).
+    # Defaults are safe-by-default (loopback, no debugger); opt into a LAN-
+    # reachable host or the Werkzeug debugger explicitly via env vars, never
+    # unconditionally (the debugger's evaluation console is a straight RCE
+    # if it's ever reachable off localhost).
+    app.run(
+        host=os.environ.get("FLASK_RUN_HOST", "127.0.0.1"),
+        port=8080,
+        debug=os.environ.get("FLASK_DEBUG") == "1",
+    )
