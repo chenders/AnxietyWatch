@@ -23,6 +23,18 @@ enum CNSMonitoringConstants {
 
     // MARK: - §14.1 benzo+opioid synergy
 
+    /// A benzodiazepine dose and an opioid-class dose form a synergy pair
+    /// when their timestamps are within this horizon of each other (either
+    /// order). Spec §14.1's synergy clause is about being "onboard together"
+    /// — pharmacological presence, NOT monitoring-window overlap: a benzo's
+    /// 12 h monitoring window is deliberately shorter than its elimination
+    /// (clonazepam t½ 30–40 h), so a window-overlap test would miss exactly
+    /// the lethal combination the clause exists for (benzo still onboard
+    /// when an opioid is dosed 20+ h later). 24 h is the spec's own synergy
+    /// figure, reused as the pairing bound. Plan-owner call (2026-07-12),
+    /// fail-safe direction, pending clinical review.
+    static let synergyPairingHorizon: TimeInterval = 24 * 3600
+
     /// Added to `max(benzoClassWindow, opioidClassWindow)` from the LATER of
     /// the two dose times to anchor a synergy window.
     static let synergyWindowExtension: TimeInterval = 12 * 3600

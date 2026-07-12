@@ -98,51 +98,74 @@ struct DoseWindowGateTests {
         #expect(window?.synergyActive == true)
     }
 
-    /// ESCALATION: the plan's Step 1 lists this exact scenario ("benzo at t0,
-    /// opioid at t0+23h50m -> expiry >= later dose + 24h") as a "synergy
-    /// floor" case. Under the literal overlap rule implemented here (the two
-    /// per-dose windows must actually intersect, restricted to ≤ now), this
-    /// pairing can NEVER overlap for any opioid class: the benzo window
-    /// always ends at t0+12h, strictly before the opioid dose at t0+23h50m
-    /// even begins — the opioid's own class window only extends its window's
-    /// END, never moves its START earlier. So no synergy pairing is possible
-    /// here regardless of opioid class.
-    ///
-    /// The plan's asserted bound (expiry >= laterDose + 24h) is nonetheless
-    /// satisfiable — but only via the opioid's OWN individual window, and
-    /// only when that window is >= 24h (ER or methadone). This test uses ER
-    /// to demonstrate exactly that: the bound holds with equality, driven
-    /// entirely by the individual window, with synergyActive == false.
-    /// `synergyFloorAppliesWhenWindowsGenuinelyOverlap` below is the
-    /// from-scratch test that actually exercises the synergy+floor code path
-    /// on doses that do overlap. See task-2-report.md for the full writeup
-    /// and proposed resolution.
-    @Test("Near-24h-boundary, non-overlapping opioid: the bound holds via the individual ER window, not synergy")
-    func nearBoundaryNonOverlappingOpioidSatisfiesBoundWithoutSynergy() {
+    /// The plan's "synergy floor" case, under the plan-owner-decided
+    /// PAIRING-HORIZON rule (§14.1 "onboard together"): the dose timestamps
+    /// are 23h50m apart — inside the 24h pairing horizon — so this IS a
+    /// synergy pair even though the benzo's own MONITORING window (ends
+    /// t0+12h) closed before the opioid dose. Pharmacologically the benzo is
+    /// still onboard (clonazepam t½ 30–40h); the monitoring window is
+    /// deliberately shorter than elimination and must not double as a
+    /// presence test. With an IR opioid, the raw synergy formula
+    /// (later + max(12h, 8h) + 12h) exactly EQUALS the 24h floor, making
+    /// this the floor-binding boundary: expiry = later dose + 24h.
+    @Test("Synergy floor: benzo then IR opioid 23h50m later pairs within the horizon; expiry = later + 24h")
+    func synergyFloorAtPairingHorizonBoundary() {
         let laterDoseOffset = hours(23) + 50 * 60
-        let doses = [dose(.benzodiazepine, at: 0), dose(.opioidER, at: laterDoseOffset)]
+        let doses = [dose(.benzodiazepine, at: 0), dose(.opioidIR, at: laterDoseOffset)]
         let now = t0.addingTimeInterval(laterDoseOffset + 60)
         let window = DoseWindowGate.activeWindow(doses: doses, at: now)
         let laterDose = t0.addingTimeInterval(laterDoseOffset)
-        #expect(window != nil)
-        #expect(window!.expiry >= laterDose.addingTimeInterval(hours(24)))
-        #expect(window?.expiry == laterDose.addingTimeInterval(hours(24)))  // ER's own window, exactly
+        #expect(window?.expiry == laterDose.addingTimeInterval(hours(24)))
+        #expect(window?.synergyActive == true)
+    }
+
+    @Test("Doses more than the 24h pairing horizon apart are never a synergy pair")
+    func beyondPairingHorizonIsNotSynergy() {
+        let doses = [dose(.benzodiazepine, at: 0), dose(.opioidIR, at: hours(25))]
+        let window = DoseWindowGate.activeWindow(doses: doses, at: t0.addingTimeInterval(hours(26)))
+        // Individual windows only: benzo ended at t0+12h; IR ends t0+33h.
+        #expect(window?.expiry == t0.addingTimeInterval(hours(33)))
         #expect(window?.synergyActive == false)
     }
 
-    @Test("Synergy floor applies when the windows genuinely overlap: benzo then methadone")
-    func synergyFloorAppliesWhenWindowsGenuinelyOverlap() {
-        // Methadone dosed at t0+11h, still inside the benzo's [t0, t0+12h]
-        // window: a real overlap, unlike the near-boundary case above.
+    @Test("Pairing horizon is order-independent: opioid first, benzo 23h later")
+    func pairingHorizonOrderIndependence() {
+        let doses = [dose(.opioidIR, at: 0), dose(.benzodiazepine, at: hours(23))]
+        let window = DoseWindowGate.activeWindow(doses: doses, at: t0.addingTimeInterval(hours(24)))
+        // later (benzo, t0+23h) + max(12h, 8h) + 12h = t0+47h; floor equal.
+        #expect(window?.expiry == t0.addingTimeInterval(hours(47)))
+        #expect(window?.synergyActive == true)
+    }
+
+    @Test("Synergy inside the horizon with a long-acting opioid: benzo then methadone")
+    func synergyWithinHorizonLongActingOpioid() {
         let doses = [dose(.benzodiazepine, at: 0), dose(.methadoneOrUnknownLongActing, at: hours(11))]
         let now = t0.addingTimeInterval(hours(12))
         let window = DoseWindowGate.activeWindow(doses: doses, at: now)
         let laterDose = t0.addingTimeInterval(hours(11))
         // max(12h, 72h) + 12h = 84h, which already exceeds the 24h floor —
-        // the floor is not binding here, but the raw formula is exercised
-        // end-to-end on a pair that genuinely overlaps.
+        // the floor is not binding here; the raw formula governs.
         #expect(window?.expiry == laterDose.addingTimeInterval(hours(84)))
         #expect(window?.synergyActive == true)
+    }
+
+    /// PLAN-OWNER CALL (recorded in task-2-report.md): the pairing horizon
+    /// governs even when the long-acting opioid's MONITORING window still
+    /// contains the benzo dose. Methadone@t0 + benzo@t0+50h: the methadone
+    /// window [t0, t0+72h] contains the benzo dose, but the timestamps are
+    /// 50h apart — beyond the 24h horizon — so this is NOT a synergy pair.
+    /// The long-acting class's own 72h window is doing the protective work
+    /// here: it governs the expiry (the benzo's individual window ends at
+    /// t0+62h, inside it). A window-overlap rule WOULD have paired these
+    /// (synergy expiry t0+134h); the horizon rule deliberately trades that
+    /// away for one simple pairing definition — flagged for clinical review
+    /// alongside the horizon constant itself.
+    @Test("Beyond the horizon, a benzo inside a methadone monitoring window is still not a synergy pair")
+    func benzoInsideMethadoneWindowBeyondHorizonIsNotSynergy() {
+        let doses = [dose(.methadoneOrUnknownLongActing, at: 0), dose(.benzodiazepine, at: hours(50))]
+        let window = DoseWindowGate.activeWindow(doses: doses, at: t0.addingTimeInterval(hours(51)))
+        #expect(window?.expiry == t0.addingTimeInterval(hours(72)))
+        #expect(window?.synergyActive == false)
     }
 
     @Test("Benzo + benzo does not set synergyActive")
@@ -188,10 +211,19 @@ struct DoseWindowGateTests {
 
     @Test("Doses whose windows (individual and any synergy) have all expired -> no active window")
     func fullyExpiredDosesReturnNil() {
-        // Spaced so the raw windows never overlap (no synergy contamination):
-        // benzo ends at t0+12h; opioid starts at t0+20h.
-        let doses = [dose(.benzodiazepine, at: 0), dose(.opioidIR, at: hours(20))]
-        let window = DoseWindowGate.activeWindow(doses: doses, at: t0.addingTimeInterval(hours(30)))
+        // Spaced beyond the 24h pairing horizon (no synergy window exists):
+        // benzo ends at t0+12h; opioid dosed t0+30h ends at t0+38h.
+        let doses = [dose(.benzodiazepine, at: 0), dose(.opioidIR, at: hours(30))]
+        let window = DoseWindowGate.activeWindow(doses: doses, at: t0.addingTimeInterval(hours(40)))
+        #expect(window == nil)
+    }
+
+    @Test("A benzo+opioid pair within the horizon whose synergy window has itself expired -> nil")
+    func expiredSynergyPairReturnsNil() {
+        // Pairs (2h apart); synergy expiry is t0+26h, the max of everything.
+        // At t0+27h even the synergy window is over: nil, synergy included.
+        let doses = [dose(.benzodiazepine, at: 0), dose(.opioidIR, at: hours(2))]
+        let window = DoseWindowGate.activeWindow(doses: doses, at: t0.addingTimeInterval(hours(27)))
         #expect(window == nil)
     }
 
