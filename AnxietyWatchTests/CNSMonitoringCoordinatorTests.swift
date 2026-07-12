@@ -616,21 +616,32 @@ struct CNSMonitoringCoordinatorTests {
         )
 
         // Phase 2: the strap dies — HR arrivals stop, but BOTH providers
-        // keep returning the same frozen cached values. Emission is allowed
-        // for at most gateWindowSeconds past the last arrival (t0+130); the
-        // already-buffered samples take one more gate window to leave the
-        // rolling window (t0+190) — so by t0+200 the hrv stream is fully
-        // gone and polar reads stale.
-        for second in 71...200 {
+        // keep returning the same frozen cached values. The presence clock
+        // is fed by genuine arrivals ONLY (held RMSSD re-emissions don't
+        // refresh it), so died-detection fires at lastArrival +
+        // gateWindowSeconds: strictly after t0+130, i.e. by the t0+131
+        // tick. Verify polar has left reportingSources by t0+135 — the
+        // hold must not extend presence by even one extra gate window.
+        for second in 71...135 {
+            currentTime = t0.addingTimeInterval(Double(second))
+            coordinator.tick(at: currentTime)
+        }
+        #expect(
+            !coordinator.reportingSources.contains(.polarH10),
+            "died-detection must fire at lastArrival + gateWindowSeconds; the hold must not extend presence"
+        )
+
+        // Emission itself also stopped at t0+130 (arrival + gateWindow);
+        // the already-buffered samples take one more gate window to leave
+        // the rolling window (t0+190) — so by t0+200 the hrv stream is
+        // fully drained from persisted contributions too.
+        for second in 136...200 {
             currentTime = t0.addingTimeInterval(Double(second))
             coordinator.tick(at: currentTime)
         }
 
         #expect(coordinator.isMonitoring, "Polar is corroborating-only; its loss degrades, never ends")
-        #expect(
-            !coordinator.reportingSources.contains(.polarH10),
-            "the bounded hold must not keep a dead strap in reportingSources indefinitely"
-        )
+        #expect(!coordinator.reportingSources.contains(.polarH10))
         let allRecords = try context.fetch(
             FetchDescriptor<CNSRiskSampleRecord>(sortBy: [SortDescriptor(\.timestamp)])
         )

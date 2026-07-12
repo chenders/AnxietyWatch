@@ -483,11 +483,14 @@ final class CNSMonitoringCoordinator {
     /// — and when HR arrivals stop (strap died; `state.currentHR` frozen
     /// through the ~10-min reconnect grace), RMSSD emission hard-stops
     /// within `gateWindowSeconds`, so the frozen-corpse case this fix
-    /// exists for cannot be resurrected through this channel. Bounded
-    /// side effect: the hold keeps the polarH10 stream nominally "reporting"
-    /// for up to one extra `gateWindowSeconds` after the last genuine
-    /// arrival before staleness detection fires — a ≤60s, hard-bounded
-    /// delay in degrade disclosure, never an unbounded one.
+    /// exists for cannot be resurrected through this channel. The hold does
+    /// NOT extend the source's presence clock: `updateDeviceStates`
+    /// deliberately excludes `.polarH10` from its emission-based
+    /// `lastSampleBySource` refresh (genuine arrivals via
+    /// `noteLivePolarSample` are its only feed), so died-detection still
+    /// fires at `lastPolarHRArrivalTime + gateWindowSeconds` — held
+    /// re-emissions merely let already-trusted data finish draining
+    /// through the pipeline's rolling window.
     private func collectPolarRMSSDSample(at now: Date) -> [CNSSignalSample] {
         guard let rmssd = latestPolarRMSSD(),
               let arrival = lastPolarHRArrivalTime,
@@ -505,7 +508,16 @@ final class CNSMonitoringCoordinator {
     private func updateDeviceStates(newSamples: [CNSSignalSample], at now: Date) {
         guard let session else { return }
         for source in CNSSignalSource.allCases {
-            if newSamples.contains(where: { $0.source == source }) {
+            // Presence clock. `.polarH10`'s is fed EXCLUSIVELY by genuine
+            // packet arrivals — `noteLivePolarSample` (the BLE tap) already
+            // stamps `lastSampleBySource`/`wasEverReportingBySource` for it,
+            // and a held RMSSD re-emission (`collectPolarRMSSDSample`) must
+            // NOT refresh it here, or died-detection would lag one extra
+            // `gateWindowSeconds` behind the last real packet. The other
+            // sources keep the emission-based refresh: an emitted sample is
+            // genuine evidence for them (EMAY's provider is the freshly
+            // polled reading; Apple Watch has no live adapter in Phase 2).
+            if source != .polarH10, newSamples.contains(where: { $0.source == source }) {
                 lastSampleBySource[source] = now
                 wasEverReportingBySource[source] = true
             }
@@ -600,6 +612,22 @@ final class CNSMonitoringCoordinator {
             now.timeIntervalSince($0) >= CNSMonitoringConstants.samplePersistInterval
         } ?? true
 
+        // Prune BEFORE the insert+save below: `persistDue` implies the
+        // insert branch also runs, so the single existing
+        // `modelContext.save()` commits the prune's deletions in the same
+        // transaction. Pruning after the save (the previous order) left the
+        // deletions pending in the context until the NEXT cadence save
+        // ~10s later — an app death inside that window dropped them
+        // (bounded, since the next prune idempotently re-derives the same
+        // deletions, but a needless re-do and a window where the on-disk
+        // store over-reports retention).
+        if persistDue {
+            try? MonitoringSessionStore.prune(
+                before: now.addingTimeInterval(-CNSMonitoringConstants.sampleRetention),
+                now: now, in: modelContext
+            )
+            scheduleDeadMansSwitch(at: now)
+        }
         if persistDue || tierIncreased {
             let riskScore: Double?
             let contributions: [CNSContributionRecord]
@@ -617,13 +645,6 @@ final class CNSMonitoringCoordinator {
             )
             try? modelContext.save()
             lastPersistAt = now
-        }
-        if persistDue {
-            try? MonitoringSessionStore.prune(
-                before: now.addingTimeInterval(-CNSMonitoringConstants.sampleRetention),
-                now: now, in: modelContext
-            )
-            scheduleDeadMansSwitch(at: now)
         }
         // Architecture seam for Phase 3: tier-edge is the hook point for
         // klaxon/haptic escalation and alone-mode fast-escalation UI (spec
