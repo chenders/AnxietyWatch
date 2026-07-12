@@ -1707,6 +1707,29 @@ def test_sync_prescriptions_idempotent(client, app):
         assert cur.fetchone()[0] == "Refilled early"
 
 
+def test_sync_prescriptions_null_optional_fields(client, app):
+    # An explicit JSON null is NOT covered by .get's default — it must be
+    # coerced to '' or the TEXT NOT NULL columns 500 the whole transaction.
+    payload = {
+        "prescriptions": [
+            {"rxNumber": "9999999-00002", "medicationName": "Sertraline 50mg",
+             "doseMg": 50.0, "dateFilled": "2025-12-31T00:00:00Z",
+             "doseDescription": None, "pharmacyName": None, "notes": None},
+        ]
+    }
+    resp = client.post("/api/sync", json=payload, headers=auth_header())
+    assert resp.status_code == 200
+    assert resp.get_json()["counts"]["prescriptions"] == 1
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute(
+            "SELECT dose_description, pharmacy_name, notes FROM prescriptions WHERE rx_number = %s",
+            ("9999999-00002",),
+        )
+        assert cur.fetchone() == ("", "", "")
+
+
 def test_sync_pharmacy_call_logs(client):
     payload = {
         "pharmacyCallLogs": [

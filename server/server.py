@@ -978,9 +978,12 @@ def create_app(test_config=None):
                        date_filled = EXCLUDED.date_filled,
                        pharmacy_name = EXCLUDED.pharmacy_name,
                        notes = EXCLUDED.notes""",
+                # `or ""`: .get's default only covers ABSENT keys — an explicit
+                # JSON null comes through as None and would violate the TEXT
+                # NOT NULL columns, 500ing the whole sync transaction.
                 (rx["rxNumber"], rx["medicationName"], rx["doseMg"],
-                 rx.get("doseDescription", ""), rx["dateFilled"],
-                 rx.get("pharmacyName", ""), rx.get("notes", "")),
+                 rx.get("doseDescription") or "", rx["dateFilled"],
+                 rx.get("pharmacyName") or "", rx.get("notes") or ""),
             )
         return len(prescriptions)
 
