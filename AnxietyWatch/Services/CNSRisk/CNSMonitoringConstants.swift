@@ -13,6 +13,14 @@ enum CNSMonitoringConstants {
     static let samplePersistInterval: TimeInterval = 10
     /// Persisted risk samples older than this (relative to `now`) are pruned.
     static let sampleRetention: TimeInterval = 24 * 3600
+    /// Safety-net window for `MonitoringSessionStore.prune`: the most recent
+    /// hour of a still-active (un-ended) session's samples is never pruned,
+    /// regardless of the cutoff a caller passes. Protects the live rolling-
+    /// buffer / Phase 3 "current session" view from losing its most recent
+    /// data to an overly aggressive or misconfigured cutoff — the retention
+    /// window (24h) is what normally governs pruning, but this is an
+    /// independent floor, not a consequence of it.
+    static let activeSessionProtectedWindow: TimeInterval = 3600
 
     /// Posted when a device transitions to `.degradeDisclosed` (spec §14.2's
     /// asymmetry rule: degradation is always disclosed, never silent).

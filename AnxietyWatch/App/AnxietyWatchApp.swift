@@ -37,6 +37,9 @@ struct AnxietyWatchApp: App {
             // High-fidelity HealthKit sample mirror
             QuantityHealthSample.self,
             SleepStageEvent.self,
+            // CNS-depression monitoring (local-only, klaxon Phase 2 decision 8)
+            MonitoringSession.self,
+            CNSRiskSampleRecord.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
