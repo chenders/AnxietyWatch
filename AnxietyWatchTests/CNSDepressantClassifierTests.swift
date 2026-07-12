@@ -55,6 +55,11 @@ struct CNSDepressantClassifierTests {
     func opioidCategoryNameEvidenceWins() {
         #expect(CNSDepressantClassifier.classify(name: "hydrocodone", category: "Opioid") == .opioidIR)
     }
+    @Test("ER-only brands and long-half-life opioids force the 24h window")
+    func erOnlyBrandsForceOpioidER() {
+        #expect(CNSDepressantClassifier.classify(name: "Exalgo", category: "Other") == .opioidER)
+        #expect(CNSDepressantClassifier.classify(name: "Suboxone", category: "Other") == .opioidER)
+    }
     @Test("Dose windows match spec §14.1")
     func windows() {
         #expect(CNSDepressantClass.benzodiazepine.doseWindow == 12 * 3600)

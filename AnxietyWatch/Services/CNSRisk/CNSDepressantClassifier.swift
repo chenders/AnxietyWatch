@@ -16,6 +16,13 @@ enum CNSDepressantClassifier {
     /// deliberately mapped to the SAME class (and its 12 h window): treating
     /// an unfamiliar Z-drug as anything other than benzodiazepine-class would
     /// violate the "unknown = long-acting/fail-safe" spirit of spec §14.1.
+    ///
+    /// Known safe-direction substring collisions, accepted deliberately
+    /// (Scope Decision 4: a false positive only pre-selects a picker default
+    /// the user can clear; a false negative silently skips monitoring):
+    /// "Equilibrium" contains "librium", "Ambient" contains "ambien". Do NOT
+    /// "fix" these by tightening the matching — that direction trades a
+    /// harmless mis-default for a missed CNS depressant.
     private static let benzodiazepineOrZDrugNames: Set<String> = [
         // Benzodiazepine generics
         "clonazepam", "alprazolam", "lorazepam", "diazepam",
@@ -36,6 +43,19 @@ enum CNSDepressantClassifier {
         // Brands
         "vicodin", "norco", "lortab", "percocet", "percodan", "oxycontin",
         "ms contin", "dilaudid", "exalgo", "opana", "demerol", "suboxone",
+    ]
+
+    /// Opioid names that force `.opioidER` (24 h window) directly, regardless
+    /// of release markers in the free-text name:
+    /// - exalgo / oxycontin / ms contin: sold EXCLUSIVELY as extended-release
+    ///   products — there is no IR formulation the name could refer to.
+    /// - buprenorphine / suboxone: very long half-life → the 24 h window is
+    ///   the fail-safe default. Plan-owner call pending clinical review:
+    ///   buprenorphine's partial-agonist ceiling makes its solo
+    ///   respiratory-depression profile unusual, but benzo-synergy risk is
+    ///   real — the longer window is the conservative direction.
+    private static let erOnlyOpioidBrands: Set<String> = [
+        "exalgo", "oxycontin", "ms contin", "buprenorphine", "suboxone",
     ]
 
     /// Substring markers for extended/sustained-release formulations,
@@ -84,6 +104,9 @@ enum CNSDepressantClassifier {
             return .methadoneOrUnknownLongActing
         }
         if opioidNames.contains(where: { paddedName.contains($0) }) {
+            if erOnlyOpioidBrands.contains(where: { paddedName.contains($0) }) {
+                return .opioidER
+            }
             let isExtendedRelease = extendedReleaseMarkers.contains { paddedName.contains($0) }
             return isExtendedRelease ? .opioidER : .opioidIR
         }
