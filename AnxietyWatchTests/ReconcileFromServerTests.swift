@@ -434,10 +434,9 @@ struct ReconcileFromServerTests {
 
     /// `date_filled` is NOT NULL server-side, so a row arriving without a
     /// parseable value is corrupt. The importer must skip it — not fabricate
-    /// `.now`, which would read as a fresh fill and skew run-out/staleness
-    /// math — and the skip must happen BEFORE the seen-set claims the
-    /// rx_number, so a valid row for the same rx later in the payload still
-    /// imports.
+    /// `.now`, which would falsify the record's fill history — and the skip
+    /// must happen BEFORE the seen-set claims the rx_number, so a valid row
+    /// for the same rx later in the payload still imports.
     @Test("importPrescriptions skips rows missing date_filled without claiming their rx_number")
     func prescriptionMissingDateFilledIsSkipped() throws {
         let container = try TestHelpers.makeFullContainer()

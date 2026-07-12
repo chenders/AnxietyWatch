@@ -307,10 +307,7 @@ final class DashboardViewModel {
             sleepEfficiencyBaseline: efficiencyBaseline,
             ahi: today?.cpapAHI,
             ahiBaseline: cpapAHIBaseline,
-            anxietyLast24h: anxietySeverity24h,
-            // Supply alerts were the only contributor to this count; now that
-            // supply tracking is gone, there are no active alerts to report.
-            activeAlerts: 0
+            anxietyLast24h: anxietySeverity24h
         )
         return SmartSummaryComposer.compose(input: input)
     }

@@ -440,9 +440,11 @@ class TestSupplyTrackingRemoval:
         schema.sql (and therefore the 0001 baseline upgrade) no longer
         creates these columns, so a fresh "upgrade to 0011" scratch DB
         never has them — 0012's DROP COLUMN IF EXISTS would be a silent
-        no-op against it. Add the columns back by hand, exactly as the
-        old schema.sql/0001 did, so this test exercises 0012 actually
-        dropping real columns on a database that has them.
+        no-op against it. Add the columns back by hand, shape-compatible
+        with the old schema; quantity gets a temporary default since the
+        helper must succeed on tables with rows. This lets the test
+        exercise 0012 actually dropping real columns on a database that
+        has them.
         """
         conn = psycopg2.connect(DATABASE_URL)
         conn.autocommit = True

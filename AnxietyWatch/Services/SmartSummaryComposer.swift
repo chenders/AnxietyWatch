@@ -27,7 +27,6 @@ nonisolated enum SmartSummaryComposer {
         let ahi: Double?
         let ahiBaseline: BaselineCalculator.BaselineResult?
         let anxietyLast24h: Int?
-        let activeAlerts: Int
     }
 
     enum Kind: Equatable, Sendable { case summary, quiet }
@@ -95,7 +94,6 @@ nonisolated enum SmartSummaryComposer {
             .prefix(3)
 
         let isQuiet = notable.isEmpty
-            && input.activeAlerts == 0
             && (input.anxietyLast24h ?? 0) < 5
 
         if isQuiet {
@@ -106,9 +104,6 @@ nonisolated enum SmartSummaryComposer {
         // Reaching this point means we should produce a summary; pick the best
         // available shape.
         if notable.isEmpty {
-            if input.activeAlerts > 0 {
-                return Output(kind: .summary, text: "See the alerts above for what changed.")
-            }
             if let sev = input.anxietyLast24h, sev >= 5 {
                 return Output(
                     kind: .summary,

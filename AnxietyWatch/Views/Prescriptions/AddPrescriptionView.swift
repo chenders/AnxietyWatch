@@ -262,6 +262,7 @@ struct AddPrescriptionView: View {
 
     private var canSave: Bool {
         !medicationName.isEmpty
+            && !rxNumber.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private func save() {
