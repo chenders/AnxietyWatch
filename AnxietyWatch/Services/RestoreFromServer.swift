@@ -1494,6 +1494,12 @@ extension SyncService {
         var count = 0
         for row in rows {
             guard let rxNumber = row["rx_number"] as? String, !rxNumber.isEmpty else { continue }
+            // date_filled is NOT NULL server-side, so a row without a parseable
+            // value is corrupt — skip it rather than fabricate a fill date
+            // (defaulting to .now would read as a fresh fill and skew run-out
+            // and staleness math). Checked before the seen-set so a corrupt
+            // row can't claim its rx_number and block a valid duplicate.
+            guard let dateFilled = parseDate(row["date_filled"]) else { continue }
             guard seen.insert(rxNumber).inserted else { continue }
             let rx = Prescription(
                 rxNumber: rxNumber,
@@ -1502,7 +1508,7 @@ extension SyncService {
                 doseDescription: row["dose_description"] as? String ?? "",
                 quantity: row["quantity"] as? Int ?? 0,
                 refillsRemaining: row["refills_remaining"] as? Int ?? 0,
-                dateFilled: parseDate(row["date_filled"]) ?? .now,
+                dateFilled: dateFilled,
                 estimatedRunOutDate: parseDate(row["estimated_run_out_date"]),
                 pharmacyName: row["pharmacy_name"] as? String ?? "",
                 notes: row["notes"] as? String ?? "",

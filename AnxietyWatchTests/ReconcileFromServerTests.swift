@@ -426,15 +426,41 @@ struct ReconcileFromServerTests {
 
         let rows: [[String: Any]] = [
             ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
-             "dose_mg": 1.0, "quantity": 30],
+             "dose_mg": 1.0, "quantity": 30, "date_filled": "2026-01-15T00:00:00Z"],
             ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
-             "dose_mg": 1.0, "quantity": 30],
+             "dose_mg": 1.0, "quantity": 30, "date_filled": "2026-01-15T00:00:00Z"],
         ]
         let n = try SyncService.importPrescriptions(rows, into: context)
         try context.save()
 
         #expect(n == 1, "the same rx_number twice in one payload is one prescription")
         #expect(try context.fetchCount(FetchDescriptor<Prescription>()) == 1)
+    }
+
+    /// `date_filled` is NOT NULL server-side, so a row arriving without a
+    /// parseable value is corrupt. The importer must skip it — not fabricate
+    /// `.now`, which would read as a fresh fill and skew run-out/staleness
+    /// math — and the skip must happen BEFORE the seen-set claims the
+    /// rx_number, so a valid row for the same rx later in the payload still
+    /// imports.
+    @Test("importPrescriptions skips rows missing date_filled without claiming their rx_number")
+    func prescriptionMissingDateFilledIsSkipped() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let rows: [[String: Any]] = [
+            ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
+             "dose_mg": 1.0, "quantity": 30],
+            ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
+             "dose_mg": 1.0, "quantity": 30, "date_filled": "2026-01-15T00:00:00Z"],
+        ]
+        let n = try SyncService.importPrescriptions(rows, into: context)
+        try context.save()
+
+        #expect(n == 1, "the corrupt row is skipped; the valid row still imports")
+        let rx = try #require(try context.fetch(FetchDescriptor<Prescription>()).first)
+        #expect(rx.dateFilled == Self.instant("2026-01-15T00:00:00Z"),
+                "the persisted fill date comes from the valid row, not a fabricated .now")
     }
 
     /// Every other test touching `importPrescriptions` asserts counts only — a
