@@ -331,13 +331,13 @@ struct ReconcileFromServerTests {
         #expect(try context.fetchCount(FetchDescriptor<CPAPSession>()) == 1)
     }
 
-    /// `PrescriptionImporter.importRecords` is an UPSERT — it *updates* on an
-    /// `rx_number` match. Correct for its own callers (re-scanning a refilled bottle
-    /// should update the record) and moot on a restore (empty store), but on a
-    /// reconcile it would revert a locally-edited prescription to the server's older
-    /// copy: the same clobber as HealthSnapshot/CPAPSession, in the one importer
-    /// this feature doesn't own. Filtering to genuinely-new rx numbers makes the
-    /// update branch unreachable from the reconcile path.
+    /// `RestoreFromServer.importPrescriptions` is insert-only and `Prescription` has
+    /// no `#Unique` constraint on `rxNumber`, so calling it unfiltered against every
+    /// server row would insert a fresh duplicate for every prescription the device
+    /// already has, on every reconcile — not a revert, but the same "existing rows
+    /// must be skipped, not re-processed" property every other importer here
+    /// depends on. Filtering to genuinely-new rx numbers first is what makes that
+    /// true for prescriptions too.
     @Test("a locally-edited Prescription is NOT reverted by the server's copy")
     func prescriptionLocalEditSurvives() throws {
         let container = try TestHelpers.makeFullContainer()
@@ -354,9 +354,7 @@ struct ReconcileFromServerTests {
             estimatedRunOutDate: nil,
             pharmacyName: "Test Pharmacy #12345",
             notes: "locally corrected",
-            dailyDoseCount: 1,
-            prescriberName: "Jane Smith MD",
-            ndcCode: "00000-0000-00"
+            dailyDoseCount: 1
         ))
         try context.save()
 
@@ -414,6 +412,103 @@ struct ReconcileFromServerTests {
         #expect(n == 1, "the same serverId twice in one payload is one song")
         #expect(try context.fetchCount(FetchDescriptor<Song>()) == 1)
         #expect(map[42] != nil, "and it must still be reachable for occurrence re-linking")
+    }
+
+    /// Same class as `songsDedupeWithinPayload`. `Prescription` has no unique
+    /// constraint on `rxNumber`, and `prescriptionRowsNotAlreadyPresent` only
+    /// filters against the STORE — it never folds accepted keys back into its
+    /// set — so a payload carrying the same new rx_number twice would insert
+    /// two rows unless the importer itself dedupes within the payload.
+    @Test("importPrescriptions skips an rx_number repeated within the same payload")
+    func prescriptionsDedupeWithinPayload() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let rows: [[String: Any]] = [
+            ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
+             "dose_mg": 1.0, "quantity": 30, "date_filled": "2026-01-15T00:00:00Z"],
+            ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
+             "dose_mg": 1.0, "quantity": 30, "date_filled": "2026-01-15T00:00:00Z"],
+        ]
+        let n = try SyncService.importPrescriptions(rows, into: context)
+        try context.save()
+
+        #expect(n == 1, "the same rx_number twice in one payload is one prescription")
+        #expect(try context.fetchCount(FetchDescriptor<Prescription>()) == 1)
+    }
+
+    /// `date_filled` is NOT NULL server-side, so a row arriving without a
+    /// parseable value is corrupt. The importer must skip it — not fabricate
+    /// `.now`, which would read as a fresh fill and skew run-out/staleness
+    /// math — and the skip must happen BEFORE the seen-set claims the
+    /// rx_number, so a valid row for the same rx later in the payload still
+    /// imports.
+    @Test("importPrescriptions skips rows missing date_filled without claiming their rx_number")
+    func prescriptionMissingDateFilledIsSkipped() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let rows: [[String: Any]] = [
+            ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
+             "dose_mg": 1.0, "quantity": 30],
+            ["rx_number": "9999999-00001", "medication_name": "Clonazepam 1mg Tablets",
+             "dose_mg": 1.0, "quantity": 30, "date_filled": "2026-01-15T00:00:00Z"],
+        ]
+        let n = try SyncService.importPrescriptions(rows, into: context)
+        try context.save()
+
+        #expect(n == 1, "the corrupt row is skipped; the valid row still imports")
+        let rx = try #require(try context.fetch(FetchDescriptor<Prescription>()).first)
+        #expect(rx.dateFilled == Self.instant("2026-01-15T00:00:00Z"),
+                "the persisted fill date comes from the valid row, not a fabricated .now")
+    }
+
+    /// Every other test touching `importPrescriptions` asserts counts only — a
+    /// key typo in the mapping (e.g. `"date_filled"` misspelled) would silently
+    /// default every field but `rxNumber` on every restore, with this whole
+    /// suite staying green. Populate all 11 mapped JSON keys with distinct,
+    /// non-default values and assert each field round-trips, so a mapping typo
+    /// actually fails a test.
+    @Test("importPrescriptions maps all 11 JSON keys onto the right Prescription fields")
+    func prescriptionFieldsRoundTrip() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+
+        let dateFilled = Self.instant("2026-01-15T00:00:00Z")
+        let runOutDate = Self.instant("2026-04-15T00:00:00Z")
+        let rows: [[String: Any]] = [[
+            "rx_number": "9999999-00001",
+            "medication_name": "Sertraline 50mg Tablets",
+            "dose_mg": 50.0,
+            "dose_description": "1 tablet twice daily",
+            "quantity": 60,
+            "refills_remaining": 3,
+            "date_filled": "2026-01-15T00:00:00Z",
+            "estimated_run_out_date": "2026-04-15T00:00:00Z",
+            "pharmacy_name": "Test Pharmacy #67890",
+            "notes": "field-mapping fixture",
+            "daily_dose_count": 2.0,
+        ]]
+
+        let n = try SyncService.importPrescriptions(rows, into: context)
+        try context.save()
+        #expect(n == 1)
+
+        let rx = try #require(try context.fetch(FetchDescriptor<Prescription>()).first)
+
+        #expect(rx.rxNumber == "9999999-00001")
+        #expect(rx.medicationName == "Sertraline 50mg Tablets")
+        #expect(rx.doseMg == 50.0)
+        #expect(rx.doseDescription == "1 tablet twice daily")
+        #expect(rx.quantity == 60)
+        #expect(rx.refillsRemaining == 3)
+        #expect(rx.dateFilled == dateFilled)
+        #expect(rx.estimatedRunOutDate == runOutDate)
+        #expect(rx.pharmacyName == "Test Pharmacy #67890")
+        #expect(rx.notes == "field-mapping fixture")
+        #expect(rx.dailyDoseCount == 2.0)
+        #expect(rx.medication?.name == "Sertraline 50mg Tablets",
+                "findOrCreateMedication must have linked a MedicationDefinition")
     }
 
     /// Same class as `songsDedupeWithinPayload`, in the importer I fixed *second*

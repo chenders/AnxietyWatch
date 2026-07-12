@@ -4,6 +4,8 @@ import os
 from urllib.parse import urlparse
 
 import psycopg2
+import psycopg2.errors
+import pytest
 from alembic.config import Config
 from alembic import command
 
@@ -127,11 +129,6 @@ class TestBaselineMigration:
     def test_baseline_includes_historical_columns(self):
         """Verify columns from historical inline migrations are present."""
         command.upgrade(_alembic_cfg(), "0001")
-        # Walgreens/CapRx columns on prescriptions
-        rx_cols = _column_names("prescriptions")
-        for col in ("walgreens_rx_id", "directions", "days_supply",
-                    "patient_pay", "dosage_form"):
-            assert col in rx_cols, f"prescriptions.{col} missing"
         # Health snapshot extensions
         hs_cols = _column_names("health_snapshots")
         for col in ("cpap_ahi", "cpap_usage_minutes",
@@ -208,6 +205,13 @@ class TestFullMigrationChain:
         cpap_cols = _column_names("cpap_sessions")
         assert {"rdi_events", "rera_events", "spo2_avg", "spo2_min",
                 "pulse_avg", "pressure_95th", "leak_avg", "leak_max"}.issubset(cpap_cols)
+        # 0011 — pharmacy-import columns dropped from prescriptions
+        rx_cols = _column_names("prescriptions")
+        assert not {"prescriber_name", "ndc_code", "rx_status", "last_fill_date",
+                    "import_source", "walgreens_rx_id", "directions", "days_supply",
+                    "patient_pay", "plan_pay", "dosage_form", "drug_type"} & rx_cols, (
+            f"0011 should have dropped all pharmacy-import columns; found {rx_cols}"
+        )
 
     def test_round_trip(self):
         """Upgrade to head, downgrade to base, upgrade again."""
@@ -234,6 +238,165 @@ class TestFullMigrationChain:
         tables = _table_names()
         user_tables = tables - {"alembic_version"}
         assert not user_tables
+
+
+class TestPharmacyImportRemoval:
+    """0011 — drop pharmacy-import columns, purge stored pharmacy credentials.
+
+    Data-safety contract (decision 3): dropping the import-only columns must
+    never delete prescription rows — a previously-imported prescription
+    survives 0011 as an ordinary manual-entry row. The only row deletions
+    are settings keys for stored Walgreens/CapRx credentials; unrelated
+    settings (e.g. resmed_*) must survive untouched.
+    """
+
+    def setup_method(self):
+        _reset_db()
+
+    @staticmethod
+    def _insert_setting(key, value="x"):
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO settings (key, value) VALUES (%s, %s)", (key, value))
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def _insert_prescription(rx_number):
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO prescriptions
+                       (rx_number, medication_name, dose_mg, quantity, date_filled,
+                        import_source, walgreens_rx_id)
+                   VALUES (%s, 'Test Med', 1.0, 30, NOW(), 'walgreens', 'W-123')""",
+                (rx_number,),
+            )
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def _add_legacy_pharmacy_import_columns():
+        """Simulate a pre-0011 production database.
+
+        schema.sql (and therefore the 0001 baseline upgrade) no longer
+        creates these columns, so a fresh "upgrade to 0010" scratch DB
+        never has them — 0011's DROP COLUMN IF EXISTS would be a silent
+        no-op against it. Add the columns back by hand, exactly as the
+        old schema.sql/0001 did, so this test exercises 0011 actually
+        dropping real columns on a database that has them.
+        """
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("""
+                ALTER TABLE prescriptions
+                    ADD COLUMN prescriber_name TEXT NOT NULL DEFAULT '',
+                    ADD COLUMN ndc_code TEXT NOT NULL DEFAULT '',
+                    ADD COLUMN rx_status TEXT NOT NULL DEFAULT '',
+                    ADD COLUMN last_fill_date TIMESTAMPTZ,
+                    ADD COLUMN import_source TEXT NOT NULL DEFAULT 'manual',
+                    ADD COLUMN walgreens_rx_id TEXT,
+                    ADD COLUMN directions TEXT NOT NULL DEFAULT '',
+                    ADD COLUMN days_supply INTEGER,
+                    ADD COLUMN patient_pay DOUBLE PRECISION,
+                    ADD COLUMN plan_pay DOUBLE PRECISION,
+                    ADD COLUMN dosage_form TEXT NOT NULL DEFAULT '',
+                    ADD COLUMN drug_type TEXT NOT NULL DEFAULT ''
+            """)
+        conn.close()
+
+    def test_upgrade_keeps_rows_drops_columns_purges_pharmacy_settings(self):
+        cfg = _alembic_cfg()
+        command.upgrade(cfg, "0010")
+        self._add_legacy_pharmacy_import_columns()
+        self._insert_prescription("RX-KEEP-1")
+        for key in ("walgreens_username", "walgreens_password",
+                    "walgreens_security_answer", "caprx_username", "caprx_password"):
+            self._insert_setting(key)
+        for key in ("resmed_email", "resmed_password", "resmed_sync_time"):
+            self._insert_setting(key)
+
+        command.upgrade(cfg, "head")
+
+        rx_cols = _column_names("prescriptions")
+        assert rx_cols == {
+            "rx_number", "medication_name", "dose_mg", "dose_description",
+            "quantity", "refills_remaining", "date_filled",
+            "estimated_run_out_date", "pharmacy_name", "notes",
+            "daily_dose_count",
+        }, f"unexpected prescriptions columns after 0011: {rx_cols}"
+
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            # No rows deleted — the previously-imported prescription survives
+            # as an ordinary manual record.
+            cur.execute("SELECT count(*) FROM prescriptions WHERE rx_number = 'RX-KEEP-1'")
+            assert cur.fetchone()[0] == 1
+            cur.execute("SELECT key FROM settings ORDER BY key")
+            remaining = {row[0] for row in cur.fetchall()}
+        conn.close()
+        assert remaining == {"resmed_email", "resmed_password", "resmed_sync_time"}, (
+            "settings purge should delete only walgreens_/caprx_ keys and leave "
+            f"everything else (e.g. resmed_*) untouched; got {remaining}"
+        )
+
+    def test_downgrade_recreates_baseline_accurate_columns(self):
+        cfg = _alembic_cfg()
+        command.upgrade(cfg, "head")
+        command.downgrade(cfg, "0010")
+
+        recreated = ("prescriber_name", "ndc_code", "rx_status", "last_fill_date",
+                     "import_source", "walgreens_rx_id", "directions", "days_supply",
+                     "patient_pay", "plan_pay", "dosage_form", "drug_type")
+        rx_cols = _column_names("prescriptions")
+        for col in recreated:
+            assert col in rx_cols, f"downgrade did not recreate prescriptions.{col}"
+
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            # Baseline defaults: bare-minimum insert should backfill the
+            # recreated columns with the same values schema.sql/0001 used.
+            cur.execute(
+                """INSERT INTO prescriptions (rx_number, medication_name, dose_mg,
+                       quantity, date_filled)
+                   VALUES ('RX-DOWNGRADE', 'Med', 1.0, 1, NOW())"""
+            )
+            cur.execute(
+                """SELECT prescriber_name, ndc_code, rx_status, import_source,
+                          directions, dosage_form, drug_type, last_fill_date,
+                          walgreens_rx_id, days_supply, patient_pay, plan_pay
+                   FROM prescriptions WHERE rx_number = 'RX-DOWNGRADE'"""
+            )
+            (prescriber_name, ndc_code, rx_status, import_source, directions,
+             dosage_form, drug_type, last_fill_date, walgreens_rx_id,
+             days_supply, patient_pay, plan_pay) = cur.fetchone()
+
+            assert (prescriber_name, ndc_code, rx_status, directions,
+                    dosage_form, drug_type) == ("", "", "", "", "", ""), (
+                "recreated TEXT columns should default to '' like baseline"
+            )
+            assert import_source == "manual", (
+                "recreated import_source should default to 'manual' like baseline"
+            )
+            assert (last_fill_date, walgreens_rx_id, days_supply, patient_pay,
+                    plan_pay) == (None, None, None, None, None)
+
+            # Baseline declares prescriber_name/ndc_code/rx_status/import_source/
+            # directions/dosage_form/drug_type NOT NULL — the downgrade must
+            # recreate that constraint, not just the default.
+            with pytest.raises(psycopg2.errors.NotNullViolation):
+                with conn.cursor() as cur2:
+                    cur2.execute(
+                        "UPDATE prescriptions SET prescriber_name = NULL "
+                        "WHERE rx_number = 'RX-DOWNGRADE'"
+                    )
+        conn.close()
+
+        # Round trip stays clean: re-upgrading drops them again.
+        command.upgrade(cfg, "head")
+        assert "prescriber_name" not in _column_names("prescriptions")
 
 
 class TestStampExistingDatabase:

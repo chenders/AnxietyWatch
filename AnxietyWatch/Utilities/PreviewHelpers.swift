@@ -112,7 +112,6 @@ enum PreviewHelpers {
             refillsRemaining: 3,
             dateFilled: base,
             pharmacyName: "Test Pharmacy #12345",
-            prescriberName: "Jane Smith MD",
             medication: med,
             pharmacy: pharmacy
         )

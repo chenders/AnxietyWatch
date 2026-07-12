@@ -180,19 +180,7 @@ CREATE TABLE IF NOT EXISTS prescriptions (
     estimated_run_out_date  TIMESTAMPTZ,
     pharmacy_name           TEXT NOT NULL DEFAULT '',
     notes                   TEXT NOT NULL DEFAULT '',
-    daily_dose_count        DOUBLE PRECISION,
-    prescriber_name         TEXT NOT NULL DEFAULT '',
-    ndc_code                TEXT NOT NULL DEFAULT '',
-    rx_status               TEXT NOT NULL DEFAULT '',
-    last_fill_date          TIMESTAMPTZ,
-    import_source           TEXT NOT NULL DEFAULT 'manual',
-    walgreens_rx_id         TEXT,
-    directions              TEXT NOT NULL DEFAULT '',
-    days_supply             INTEGER,
-    patient_pay             DOUBLE PRECISION,
-    plan_pay                DOUBLE PRECISION,
-    dosage_form             TEXT NOT NULL DEFAULT '',
-    drug_type               TEXT NOT NULL DEFAULT ''
+    daily_dose_count        DOUBLE PRECISION
 );
 
 CREATE TABLE IF NOT EXISTS pharmacy_call_logs (

@@ -1640,51 +1640,6 @@ def test_resmed_settings_legacy_plaintext_email_upgrades_on_save(client, app):
     assert decrypt_value(stored, "test-secret-key") == "legacy-user@example.com"
 
 
-def test_walgreens_settings_save_encrypts_username(client, app):
-    os.environ["ADMIN_PASSWORD"] = "testpass"
-    os.environ["SECRET_KEY"] = "test-secret-key"
-    client.post("/admin/login", data={"password": "testpass"})
-    resp = client.post(
-        "/admin/settings/walgreens",
-        data={
-            "action": "save", "username": "wag-user@example.com",
-            "password": "mypass", "security_answer": "", "sync_time": "21:00",
-        },
-        follow_redirects=True,
-    )
-    assert resp.status_code == 200
-    assert b"Settings saved" in resp.data
-
-    stored = _read_setting(app, "walgreens_username")
-    assert stored != "wag-user@example.com"
-    assert decrypt_value(stored, "test-secret-key") == "wag-user@example.com"
-
-    # Presence-only rendering — the identifier is never echoed into the form.
-    resp = client.get("/admin/settings/walgreens")
-    assert b"wag-user@example.com" not in resp.data
-    assert b"Leave blank to keep current username" in resp.data
-
-
-def test_walgreens_settings_legacy_plaintext_username_upgrades_on_save(client, app):
-    os.environ["ADMIN_PASSWORD"] = "testpass"
-    os.environ["SECRET_KEY"] = "test-secret-key"
-    _insert_setting(app, "walgreens_username", "legacy-wag@example.com")
-    client.post("/admin/login", data={"password": "testpass"})
-
-    resp = client.post(
-        "/admin/settings/walgreens",
-        data={
-            "action": "save", "username": "",
-            "password": "", "security_answer": "", "sync_time": "21:00",
-        },
-        follow_redirects=True,
-    )
-    assert b"Settings saved" in resp.data
-    stored = _read_setting(app, "walgreens_username")
-    assert stored != "legacy-wag@example.com"
-    assert decrypt_value(stored, "test-secret-key") == "legacy-wag@example.com"
-
-
 def test_upgrade_does_not_touch_already_encrypted_value(client, app):
     """The lazy re-encrypt must never double-encrypt a value that already
     decrypts cleanly — that would corrupt it."""
