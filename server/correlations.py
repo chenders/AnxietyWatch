@@ -64,10 +64,11 @@ def compute_correlations(cur, tz_name=DEFAULT_ANALYSIS_TIMEZONE):
     # select_exprs is built entirely from the hardcoded module-level SIGNALS
     # list above (fixed SQL expression fragments defined in source, e.g.
     # "h.hrv_avg" or the sleep_quality_ratio CASE WHEN); no request-controlled
-    # data reaches this string. Built via str.format rather than an f-string
-    # so the SQL is a single string constant and the nosec suppresses cleanly
-    # on the node bandit flags (an interpolated f-string splits into sibling
-    # constants that emit spurious "nosec encountered" warnings).
+    # data reaches this string. The query string below interpolates it via
+    # str.format rather than an f-string so the SQL stays a single string
+    # constant and the nosec suppresses cleanly on the node bandit flags (an
+    # interpolated f-string splits into sibling constants that emit spurious
+    # "nosec encountered" warnings).
     select_exprs = ", ".join(
         f"{sql_expr} AS sig_{idx}" for idx, (_, sql_expr, _) in enumerate(SIGNALS)
     )
