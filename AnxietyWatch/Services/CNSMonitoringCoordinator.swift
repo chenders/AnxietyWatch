@@ -305,13 +305,17 @@ final class CNSMonitoringCoordinator {
         updateStatusLine()
     }
 
+    /// Honors the current `companionPresent` marking (spec §6): the user's
+    /// explicit "someone is here" toggle is not uncertain, so §14.4's
+    /// default-to-alone rule doesn't apply — a pre-arm companion marking
+    /// carries into the session instead of silently snapping back to alone.
     func armAdHoc() {
         let now = self.now()
         if isMonitoring {
             activeTriggers.insert(.adHoc)
         } else {
             activeTriggers = [.adHoc]
-            startNewSession(companionPresent: false, at: now)
+            startNewSession(companionPresent: companionPresent, at: now)
         }
         updateStatusLine()
     }

@@ -845,6 +845,34 @@ struct CNSMonitoringCoordinatorTests {
         #expect(startCount == 2)
     }
 
+    @Test(
+        """
+        armAdHoc honors a pre-arm companion marking (spec §6): the user's explicit \
+        "someone is here" toggle carries into the new session instead of snapping back \
+        to alone mode — §14.4's default-to-alone applies to UNCERTAIN attentiveness, \
+        not an explicit marking
+        """
+    )
+    func armAdHocHonorsPreArmCompanionMarking() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let currentTime = t0
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+
+        coordinator.setCompanionPresent(true)
+        #expect(!coordinator.isMonitoring)
+
+        coordinator.armAdHoc()
+        #expect(coordinator.isMonitoring)
+        #expect(coordinator.companionPresent, "pre-arm marking must survive arming")
+
+        let sessions = try context.fetch(FetchDescriptor<MonitoringSession>())
+        #expect(sessions.count == 1)
+        #expect(sessions.first?.companionPresent == true,
+                "the session record must start with the user's explicit marking")
+    }
+
     // MARK: - emayStopHook (EMAY teardown on disarm — session must not outlive monitoring)
 
     @Test(
