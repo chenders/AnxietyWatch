@@ -49,6 +49,15 @@ CI runs `semgrep --config .semgrep/ --error` on PRs touching Swift. Rules at `.s
 
 For every synced table, ask: **"if this device died right now, what brings this row back?"** If the answer is neither HealthKit nor the restore path, it isn't backed up.
 
+## First-run-only paths
+
+**Code that runs once per install is effectively untested.** HealthKit authorization, onboarding, migration gates, schema creation, the restore-vs-fresh decision — each stops executing the moment it succeeds once, then rots invisibly. Two real crashes shipped this way, both latent for months, both detonated by the bundle-ID rename that turned an existing user into a first-run user:
+
+- `HKCorrelationType(.bloodPressure)` in the HealthKit read set — HealthKit disallows authorizing correlation types for read and raises an **uncatchable** ObjC `NSInvalidArgumentException`, so the app aborted on signal 6 the instant the user tapped "Allow". Request the constituent quantity types (`.bloodPressureSystolic` / `.bloodPressureDiastolic`) instead.
+- A `HealthSnapshot` write during the pre-decision window — one row made the store "non-empty" and permanently blocked the restore that the migration gate exists to enable.
+
+When touching a once-per-install path: re-exercise it on a **genuinely fresh install** (delete the app; relaunching is not the same thing), and add a test asserting the path's *inputs* — for uncatchable failures there is no error path to assert on, so input-shape validation is the only defense available.
+
 Restore importers must preserve the server's `id` (the HealthKit mirror does update-or-insert on `hkUUID`; fresh UUIDs duplicate every row on the next backfill), set `syncedToServer = true` (bulk types export on `syncedToServer == false`; the default re-uploads the whole restored history), and be added to `restoreGuardTablesAreEmpty`. Tables over ~10k rows must be paged, not inlined in `/api/data`.
 
 ## Keeping Phase Plan Docs Updated

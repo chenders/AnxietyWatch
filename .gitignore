@@ -108,3 +108,7 @@ AnxietyWatch/Utilities/BuildVersion.swift
 !/PROJECT_FUTURE_PLAN.md
 !/CHANGELOG.md
 !/LICENSE.md
+
+# Instruments / network capture artifacts (may contain live session data)
+*.trace/
+*.trace

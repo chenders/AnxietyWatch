@@ -4,6 +4,25 @@
 <dict>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<!-- The sync server is SELF-HOSTED and its address is entered by the user
+		     at runtime (Settings → Server Sync). The app therefore cannot know the
+		     host at build time, which makes a domain-scoped NSExceptionDomains
+		     entry impossible in principle.
+
+		     NSAllowsLocalNetworking alone is NOT sufficient: it did not exempt a
+		     plain-http:// connection to a private IP (192.168.x.x), which failed
+		     with "App Transport Security policy requires the use of a secure
+		     connection" and blocked the restore on a fresh install.
+
+		     NSAllowsLocalNetworking is now REDUNDANT — NSAllowsArbitraryLoads
+		     disables ATS globally and subsumes it. It is kept only to document
+		     intent (LAN-scoped access is what we actually want) and as a landing
+		     pad if arbitrary loads is ever narrowed. Do not read it as a working
+		     fallback: removing NSAllowsArbitraryLoads alone would NOT preserve
+		     plain-http to a private IP — that is the exact configuration that
+		     failed. -->
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>

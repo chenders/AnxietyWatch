@@ -9,6 +9,12 @@ struct SnapshotAggregator {
     let healthKit: any HealthKitDataSource
     let modelContext: ModelContext
 
+    /// Backing store for the `RestoreMigrationGate` check in `aggregateDay`.
+    /// Injectable so tests can exercise the gate against an isolated suite
+    /// rather than mutating `.standard` (which would leak across tests and,
+    /// in the simulator, across runs).
+    var defaults: UserDefaults = .standard
+
     /// The overnight window runs noon-to-noon: `snapshot.date`'s morning is
     /// the window's end, offset ±12 h from local start-of-day. Shared so
     /// consumers that re-derive "last night" (e.g.
@@ -84,6 +90,23 @@ struct SnapshotAggregator {
     }
 
     func aggregateDay(_ date: Date) async throws {
+        // Do not write snapshots while the restore-vs-fresh decision is still
+        // pending. A snapshot row is one of the tables `restoreGuardTablesAreEmpty`
+        // checks, so writing even ONE here makes the store "non-empty" and
+        // permanently blocks the restore that the migration gate exists to enable
+        // — the user is then stuck with no way out but deleting the app.
+        //
+        // This was a real failure on a fresh install after the bundle-ID rename:
+        // the gate correctly deferred `setupIfNeeded()`, but a snapshot got written
+        // anyway (observer/refresh path), and every restore attempt then failed with
+        // "Local store already contains data" on a store the user had never touched.
+        // Deferring setup is not enough on its own; the WRITE has to be gated too.
+        //
+        // Both "Restore from Server" (on success) and "Start Fresh" resolve the gate,
+        // and an existing non-empty store auto-resolves it at launch, so this only
+        // suppresses writes inside the narrow pre-decision window.
+        guard RestoreMigrationGate.isResolved(defaults: defaults) else { return }
+
         #if DEBUG && targetEnvironment(simulator)
         // Skip aggregation when the app was launched with
         // `-autoRestoreFromServer` (server-restored data) or `-seedDemoData`

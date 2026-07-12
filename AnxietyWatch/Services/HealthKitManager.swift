@@ -13,7 +13,12 @@ actor HealthKitManager: HealthKitDataSource {
 
     // MARK: - Read Types
 
-    private var allReadTypes: Set<HKObjectType> {
+    /// `nonisolated static` so `HealthKitManagerReadTypesTests` can assert on the
+    /// set's *shape* without an actor hop or a live HKHealthStore. That matters
+    /// here: an illegal read type raises an ObjC NSInvalidArgumentException that
+    /// Swift `try` cannot catch, so there is no error path to test — the only
+    /// defense is validating the set itself. See the correlation-type note below.
+    nonisolated static var allReadTypes: Set<HKObjectType> {
         let quantityIdentifiers: [HKQuantityTypeIdentifier] = [
             .heartRateVariabilitySDNN,       // HRV (SDNN, ms)
             .heartRate,                       // Instantaneous HR (bpm)
@@ -49,7 +54,17 @@ actor HealthKitManager: HealthKitDataSource {
         }
         types.insert(HKCategoryType(.sleepAnalysis))
         types.insert(HKWorkoutType.workoutType())
-        types.insert(HKCorrelationType(.bloodPressure))
+        // NB: do NOT add HKCorrelationType(.bloodPressure) here. HealthKit
+        // disallows read authorization for correlation types and raises
+        // NSInvalidArgumentException ("Authorization to read the following types
+        // is disallowed: HKCorrelationTypeIdentifierBloodPressure") — an ObjC
+        // exception, so `try` can't catch it and the app dies on signal 6.
+        // Read access to a correlation is conferred by its constituent quantity
+        // types, which `.bloodPressureSystolic` / `.bloodPressureDiastolic`
+        // above already request; `queryBloodPressure()`'s HKCorrelationQuery
+        // works off those. This crashed on the FIRST authorization prompt, so it
+        // was invisible to any install that had already been granted access and
+        // only surfaced on a fresh install (the bundle-ID rename).
         // Characteristic types (demographics — no samples, just static properties)
         types.insert(HKCharacteristicType(.dateOfBirth))
         types.insert(HKCharacteristicType(.biologicalSex))
@@ -60,7 +75,7 @@ actor HealthKitManager: HealthKitDataSource {
 
     func requestAuthorization() async throws {
         guard isAvailable else { return }
-        try await healthStore.requestAuthorization(toShare: [], read: allReadTypes)
+        try await healthStore.requestAuthorization(toShare: [], read: Self.allReadTypes)
     }
 
     // MARK: - Clinical Records Authorization
