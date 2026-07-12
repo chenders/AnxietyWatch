@@ -132,6 +132,7 @@ struct DoseAnxietyPromptView: View {
             medication: medication
         )
         modelContext.insert(dose)
+        monitoringCoordinator.doseLogged(dose)
         dismiss()
     }
 

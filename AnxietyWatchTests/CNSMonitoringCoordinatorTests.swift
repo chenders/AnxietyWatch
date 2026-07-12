@@ -139,6 +139,63 @@ struct CNSMonitoringCoordinatorTests {
         #expect(!allRecords.isEmpty)
     }
 
+    @Test(
+        """
+        Prune rides the 10s persist cadence, not the 1Hz tick: an over-retention sample \
+        survives every non-cadence tick and is removed at the next cadence boundary
+        """
+    )
+    func pruneRunsOnlyOnPersistCadence() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        var currentTime = t0
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+        coordinator.armManually(companionPresent: true)
+
+        // First tick: lastPersistAt is nil, so this IS a cadence tick
+        // (persist + prune both run) — it anchors the cadence clock at t0+1.
+        currentTime = t0.addingTimeInterval(1)
+        coordinator.tick(at: currentTime)
+
+        // NOW plant an over-retention sample on an ENDED session (no
+        // safety-net protection). The plain retention rule alone would
+        // delete it on ANY prune run — so its survival below proves prune
+        // did not run.
+        let staleSession = MonitoringSession(
+            startedAt: t0.addingTimeInterval(-30 * 3600),
+            endedAt: t0.addingTimeInterval(-26 * 3600),
+            activationTriggers: ["manual"], companionPresent: true
+        )
+        context.insert(staleSession)
+        MonitoringSessionStore.insertSample(
+            timestamp: t0.addingTimeInterval(-25 * 3600), riskScore: 0.1, tier: .clear,
+            canAssess: true, into: staleSession, context: context
+        )
+        try context.save()
+
+        // Ticks at t0+2 ... t0+9: all < samplePersistInterval since the
+        // t0+1 cadence anchor, and no samples flow (tier stays clear, so no
+        // tier-increase writes either). The stale sample must survive all of
+        // them.
+        for second in 2...9 {
+            currentTime = t0.addingTimeInterval(Double(second))
+            coordinator.tick(at: currentTime)
+            let survivors = try context.fetch(FetchDescriptor<CNSRiskSampleRecord>())
+            #expect(
+                survivors.contains { $0.timestamp == t0.addingTimeInterval(-25 * 3600) },
+                "prune must not run on the non-cadence tick at t0+\(second)s"
+            )
+        }
+
+        // Cross the cadence boundary (>= samplePersistInterval since t0+1):
+        // prune runs and the stale sample is gone.
+        currentTime = t0.addingTimeInterval(1 + CNSMonitoringConstants.samplePersistInterval)
+        coordinator.tick(at: currentTime)
+        let remaining = try context.fetch(FetchDescriptor<CNSRiskSampleRecord>())
+        #expect(!remaining.contains { $0.timestamp == t0.addingTimeInterval(-25 * 3600) })
+    }
+
     // MARK: - Contract 3: tier edges (off-cadence write) + peakTier ratchet
 
     @Test(
@@ -225,6 +282,59 @@ struct CNSMonitoringCoordinatorTests {
         coordinatorB.handleLaunch()
         #expect(coordinatorB.isMonitoring)
         #expect(coordinatorB.activeTriggers == [.doseWindow])
+    }
+
+    @Test(
+        """
+        Dose-list cache freshness: a second doseLogged mid-window updates the cached list, \
+        so expiry evaluation honors the EXTENDED window, not the stale one
+        """
+    )
+    func doseLoggedUpdatesCachedListForExpiryEvaluation() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let med = makeBenzoMedication(context: context)
+        var currentTime = t0
+        let firstDose = MedicationDose(timestamp: t0, medicationName: med.name, doseMg: 1, medication: med)
+        context.insert(firstDose)
+        try context.save()
+
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+        coordinator.doseLogged(firstDose)
+        #expect(coordinator.isMonitoring)
+
+        // Ticks populate/exercise the cache with just the first dose onboard.
+        for second in 1...5 {
+            currentTime = t0.addingTimeInterval(Double(second))
+            coordinator.tick(at: currentTime)
+        }
+
+        // Second benzo an hour later extends the window to t0+13h. If
+        // doseLogged didn't keep the cached list coherent, expiry evaluation
+        // would still see only the t0 dose (window t0+12h).
+        currentTime = t0.addingTimeInterval(3600)
+        let secondDose = MedicationDose(
+            timestamp: currentTime, medicationName: med.name, doseMg: 1, medication: med
+        )
+        context.insert(secondDose)
+        try context.save()
+        coordinator.doseLogged(secondDose)
+
+        // Past the FIRST dose's window but inside the extended one: a stale
+        // cache would end the session here.
+        currentTime = t0.addingTimeInterval(12 * 3600 + 60)
+        coordinator.tick(at: currentTime)
+        #expect(coordinator.isMonitoring, "monitoring must honor the extended (fresh) window")
+        #expect(coordinator.activeTriggers == [.doseWindow])
+
+        // Past the extended window: expires normally.
+        currentTime = t0.addingTimeInterval(13 * 3600 + 1)
+        coordinator.tick(at: currentTime)
+        #expect(!coordinator.isMonitoring)
+        let session = try context.fetch(FetchDescriptor<MonitoringSession>())
+            .first { $0.endReason != nil }
+        #expect(session?.endReason == CNSMonitoringCoordinator.EndReason.windowExpired.rawValue)
     }
 
     // MARK: - Contract 5: window expiry vs. trigger independence

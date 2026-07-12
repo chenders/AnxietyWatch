@@ -119,6 +119,16 @@ final class CNSMonitoringCoordinator {
     /// Sources currently disclosed-degraded, surfaced on `statusLine`.
     private var disclosedDegradedSources: Set<CNSSignalSource> = []
     private var tickTask: Task<Void, Never>?
+    /// In-memory cache of the persisted `[LoggedCNSDose]` list, so
+    /// `evaluateDoseWindowExpiry` (called every 1 Hz tick, potentially for a
+    /// 72h+ methadone window) doesn't JSON-decode from `UserDefaults` per
+    /// second. `nil` = not yet loaded; populated lazily by
+    /// `loadPersistedDoses`, kept coherent by `savePersistedDoses` (the ONLY
+    /// write path), and explicitly invalidated by `handleLaunch()` in case an
+    /// earlier coordinator instance wrote to the same suite (relaunch
+    /// simulation in tests; defensive in production, where there is one
+    /// instance).
+    private var cachedDoses: [LoggedCNSDose]?
 
     private static let loggedDosesKey = "cns.monitoring.loggedDoses"
 
@@ -256,6 +266,12 @@ final class CNSMonitoringCoordinator {
         let now = self.now()
         markStaleUnendedSessions(at: now)
         guard !isMonitoring else { return }
+        // Invalidate the dose cache before reading: launch is the one point
+        // where the UserDefaults store may have been written by a previous
+        // coordinator instance (previous process; a second instance in the
+        // relaunch-simulation tests), so the persisted list is authoritative
+        // here.
+        cachedDoses = nil
         let doses = loadPersistedDoses()
         guard DoseWindowGate.activeWindow(doses: doses, at: now) != nil else { return }
         activeTriggers = [.doseWindow]
@@ -299,10 +315,6 @@ final class CNSMonitoringCoordinator {
         })
 
         persistIfDue(assessment: assessment, tier: tier, at: now, into: session)
-
-        try? MonitoringSessionStore.prune(
-            before: now.addingTimeInterval(-CNSMonitoringConstants.sampleRetention), now: now, in: modelContext
-        )
 
         updateStatusLine()
     }
@@ -391,6 +403,13 @@ final class CNSMonitoringCoordinator {
     /// boundary). One `insertSample` call per tick when either condition
     /// holds — never two in the same tick — so a coincidental cadence/edge
     /// overlap doesn't double-write the same instant.
+    ///
+    /// Pruning rides the SAME 10s cadence (the `persistDue` branch only, NOT
+    /// tier-increase writes): `MonitoringSessionStore.prune` fetches the whole
+    /// `CNSRiskSampleRecord` table, so running it on the 1 Hz tick would cost
+    /// a full-table fetch every second, all night, to delete rows that only
+    /// ever age past retention seconds apart. An off-cadence tier-edge write
+    /// doesn't need its own prune — the next cadence boundary is ≤ 10s away.
     private func persistIfDue(
         assessment: CNSRiskAssessment, tier: CNSAlertTier, at now: Date, into session: MonitoringSession
     ) {
@@ -416,6 +435,12 @@ final class CNSMonitoringCoordinator {
             )
             try? modelContext.save()
             lastPersistAt = now
+        }
+        if persistDue {
+            try? MonitoringSessionStore.prune(
+                before: now.addingTimeInterval(-CNSMonitoringConstants.sampleRetention),
+                now: now, in: modelContext
+            )
         }
         // Architecture seam for Phase 3: tier-edge is the hook point for
         // klaxon/haptic escalation and alone-mode fast-escalation UI (spec
@@ -559,14 +584,30 @@ final class CNSMonitoringCoordinator {
         )
     }
 
+    /// Returns the in-memory cache when populated; decodes from
+    /// `UserDefaults` only on the first read after init (or after
+    /// `handleLaunch()` invalidates the cache). `savePersistedDoses` is the
+    /// only write path and updates the cache in the same call, so cache and
+    /// store cannot diverge within one coordinator instance.
     private func loadPersistedDoses() -> [LoggedCNSDose] {
-        guard let data = defaults.data(forKey: Self.loggedDosesKey),
-              let decoded = try? JSONDecoder().decode([PersistedCNSDose].self, from: data)
-        else { return [] }
-        return decoded.compactMap(\.asLoggedCNSDose)
+        if let cachedDoses { return cachedDoses }
+        let doses: [LoggedCNSDose]
+        if let data = defaults.data(forKey: Self.loggedDosesKey),
+           let decoded = try? JSONDecoder().decode([PersistedCNSDose].self, from: data) {
+            doses = decoded.compactMap(\.asLoggedCNSDose)
+        } else {
+            doses = []
+        }
+        cachedDoses = doses
+        return doses
     }
 
     private func savePersistedDoses(_ doses: [LoggedCNSDose]) {
+        // Cache first: even if encoding fails (never expected for these
+        // plain Codable values), in-memory state should reflect what the
+        // caller logged — under-persisting must not become under-monitoring
+        // within the live instance.
+        cachedDoses = doses
         guard let data = try? JSONEncoder().encode(doses.map(PersistedCNSDose.init)) else { return }
         defaults.set(data, forKey: Self.loggedDosesKey)
     }
