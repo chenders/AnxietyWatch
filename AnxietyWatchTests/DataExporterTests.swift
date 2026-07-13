@@ -90,6 +90,24 @@ struct DataExporterTests {
         #expect((json["healthSnapshots"] as? [Any])?.isEmpty == true)
     }
 
+    @Test("JSON export carries MedicationDefinition.cnsDepressantClass — the explicit picker override must survive sync/restore")
+    func jsonExportsCnsDepressantClass() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        context.insert(MedicationDefinition(
+            name: "Oxycodone ER 10mg", defaultDoseMg: 10, category: "Opioid",
+            isActive: true, cnsDepressantClass: "opioidER"
+        ))
+        context.insert(MedicationDefinition(name: "Vitamin D", defaultDoseMg: 50))
+        try context.save()
+
+        let data = try DataExporter.exportJSON(from: context)
+        let bundle = try JSONDecoder().decode(DataExporter.ExportBundle.self, from: data)
+        let byName = Dictionary(uniqueKeysWithValues: bundle.medicationDefinitions.map { ($0.name, $0) })
+        #expect(byName["Oxycodone ER 10mg"]?.cnsDepressantClass == "opioidER")
+        #expect(byName["Vitamin D"]?.cnsDepressantClass == nil, "unclassified stays nil — never fabricated")
+    }
+
     @Test("JSON export encodes anxiety entry fields correctly")
     func jsonAnxietyFields() throws {
         let container = try TestHelpers.makeFullContainer()

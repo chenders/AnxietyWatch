@@ -71,6 +71,7 @@ See [POLAR_H10.md](POLAR_H10.md) for pairing, the full data flow, server schema,
 - **Pharmacy search** via MapKit with call tracking and logging
 - **OCR label scanning** -- point your camera at a pill bottle and the Vision framework extracts Rx number, medication name, and dosage
 - **Manual prescription entry** -- with OCR label-scan prefill
+- **CNS-depression monitoring (in progress)** -- logging a benzodiazepine or opioid dose arms an overnight respiratory-depression watch (Settings -> "CNS Monitoring") for that drug class's pharmacokinetic window, feeding EMAY oximeter and Polar H10 readings into the same baseline-relative detection engine used elsewhere in the app. Phase 2 ships the monitoring infrastructure, dose-window logic, and a minimal arm/status surface; the actual alerting (klaxon, haptics, dashboard indicator) is Phase 3
 
 ---
 

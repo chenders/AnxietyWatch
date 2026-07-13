@@ -26,7 +26,10 @@ CREATE TABLE IF NOT EXISTS medication_definitions (
     name            TEXT NOT NULL PRIMARY KEY,
     default_dose_mg DOUBLE PRECISION NOT NULL,
     category        TEXT NOT NULL DEFAULT '',
-    is_active       BOOLEAN NOT NULL DEFAULT TRUE
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    -- 0013: raw CNSDepressantClass rawValue from the app's explicit picker
+    -- (source of truth for dose-window monitoring); NULL = unclassified.
+    cns_depressant_class TEXT
 );
 
 CREATE TABLE IF NOT EXISTS medication_doses (

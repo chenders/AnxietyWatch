@@ -217,6 +217,8 @@ class TestFullMigrationChain:
             "rx_number", "medication_name", "dose_mg", "dose_description",
             "date_filled", "pharmacy_name", "notes",
         }, f"0012 should leave prescriptions with exactly the 7 core columns; found {rx_cols}"
+        # 0013 — explicit CNS-depressant classification synced from the app
+        assert "cns_depressant_class" in _column_names("medication_definitions")
 
     def test_round_trip(self):
         """Upgrade to head, downgrade to base, upgrade again."""
@@ -517,6 +519,94 @@ class TestSupplyTrackingRemoval:
         # Round trip stays clean: re-upgrading drops them again.
         command.upgrade(cfg, "head")
         assert "quantity" not in _column_names("prescriptions")
+
+
+class TestMedicationCnsClassColumn:
+    """0013 — add medication_definitions.cns_depressant_class.
+
+    Additive nullable column carrying the app's explicit CNS-depressant
+    classification (source of truth for dose-window monitoring). Data-safety
+    contract: existing medication_definitions rows survive the upgrade with
+    the new column NULL; downgrade drops only the column, never rows.
+    """
+
+    def setup_method(self):
+        _reset_db()
+
+    @staticmethod
+    def _insert_med_def(name):
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO medication_definitions
+                       (name, default_dose_mg, category, is_active)
+                   VALUES (%s, 1.0, 'benzodiazepine', TRUE)""",
+                (name,),
+            )
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def _drop_cns_class_column():
+        """Simulate a pre-0013 production database.
+
+        schema.sql (and therefore the 0001 baseline upgrade) now creates
+        cns_depressant_class eagerly, so a fresh "upgrade to 0012" scratch
+        DB already has it — 0013's ADD COLUMN IF NOT EXISTS would be a
+        silent no-op against it (same ownership rule as 0011/0012's
+        legacy-column helpers, in the opposite direction). Drop it by hand
+        so the test exercises 0013 actually adding the column to a database
+        that lacks it.
+        """
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(
+                "ALTER TABLE medication_definitions DROP COLUMN cns_depressant_class"
+            )
+        conn.close()
+
+    def test_upgrade_adds_column_keeps_rows(self):
+        cfg = _alembic_cfg()
+        command.upgrade(cfg, "0012")
+        self._drop_cns_class_column()
+        self._insert_med_def("Test Benzo 1mg")
+
+        command.upgrade(cfg, "head")
+
+        assert "cns_depressant_class" in _column_names("medication_definitions")
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            # No rows deleted; pre-existing rows read back NULL (unclassified)
+            # rather than any fabricated class.
+            cur.execute(
+                "SELECT cns_depressant_class FROM medication_definitions "
+                "WHERE name = 'Test Benzo 1mg'"
+            )
+            row = cur.fetchone()
+            assert row is not None, "existing medication_definitions row must survive 0013"
+            assert row[0] is None
+        conn.close()
+
+    def test_downgrade_removes_column_keeps_rows(self):
+        cfg = _alembic_cfg()
+        command.upgrade(cfg, "head")
+        self._insert_med_def("Test Benzo 1mg")
+
+        command.downgrade(cfg, "0012")
+
+        assert "cns_depressant_class" not in _column_names("medication_definitions")
+        conn = psycopg2.connect(DATABASE_URL)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FROM medication_definitions WHERE name = 'Test Benzo 1mg'"
+            )
+            assert cur.fetchone()[0] == 1
+        conn.close()
+
+        # Round trip stays clean: re-upgrading adds it again.
+        command.upgrade(cfg, "head")
+        assert "cns_depressant_class" in _column_names("medication_definitions")
 
 
 class TestStampExistingDatabase:

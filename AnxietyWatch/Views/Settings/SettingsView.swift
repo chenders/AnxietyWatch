@@ -37,10 +37,22 @@ struct SettingsView: View {
                     } label: {
                         Label("EMAY Oximeter (Live)", systemImage: "lungs.fill")
                     }
+                    NavigationLink {
+                        CNSMonitoringView()
+                    } label: {
+                        Label("CNS Monitoring", systemImage: "waveform.path.ecg.rectangle")
+                    }
                 } header: {
                     Text("Data Sources")
                 } footer: {
-                    Text("Anxiety Watch reads from these sources to correlate symptoms with physiological signals. It never writes back.")
+                    Text(
+                        "Anxiety Watch reads from these sources to correlate symptoms with physiological "
+                            + "signals. It never writes back. CNS Monitoring arms an overnight respiratory-"
+                            + "depression watch after a benzodiazepine/opioid dose or on demand; arming it "
+                            + "auto-starts the EMAY oximeter session without touching your EMAY continuous-"
+                            + "streaming toggle above. Phase 2 detects and discloses; loud alerting "
+                            + "(klaxon/haptics) lands in Phase 3."
+                    )
                 }
 
                 Section {

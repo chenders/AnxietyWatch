@@ -10,14 +10,24 @@ struct AddMedicationView: View {
     @State private var category = ""
     @State private var promptAnxietyOnLog = false
     @State private var userToggledPrompt = false
+    @State private var cnsDepressantClass: CNSDepressantClass?
+    @State private var userToggledCNSDepressantClass = false
 
     private let categories = [
-        "SSRI", "SNRI", "Benzodiazepine", "Stimulant",
+        "SSRI", "SNRI", "Benzodiazepine", "Opioid", "Stimulant",
         "Beta Blocker", "Z-Drug", "Supplement", "Other",
     ]
 
     /// Categories that default to prompting for anxiety on dose log.
     private static let promptCategories: Set<String> = ["Benzodiazepine", "Stimulant"]
+
+    /// Display names for the CNS-depressant class picker (spec §14.1 classes).
+    private static let cnsDepressantClassLabels: [CNSDepressantClass: String] = [
+        .benzodiazepine: "Benzodiazepine / Z-drug",
+        .opioidIR: "Opioid (immediate release)",
+        .opioidER: "Opioid (extended release)",
+        .methadoneOrUnknownLongActing: "Methadone / long-acting",
+    ]
 
     var body: some View {
         NavigationStack {
@@ -45,6 +55,21 @@ struct AddMedicationView: View {
                 } footer: {
                     Text("When enabled, logging a dose will ask for your current anxiety level and follow up 30 minutes later.")
                 }
+
+                Section {
+                    Picker("CNS depressant class", selection: cnsDepressantClassBinding) {
+                        Text("None").tag(CNSDepressantClass?.none)
+                        ForEach(CNSDepressantClass.allCases, id: \.self) { depressantClass in
+                            Text(Self.cnsDepressantClassLabels[depressantClass] ?? depressantClass.rawValue)
+                                .tag(CNSDepressantClass?.some(depressantClass))
+                        }
+                    }
+                } header: {
+                    Text("CNS Depressant Class")
+                } footer: {
+                    Text("Determines the overnight respiratory-depression monitoring window. "
+                        + "Defaults from the name and category — override if the default is wrong.")
+                }
             }
             .navigationTitle("Add Medication")
             .navigationBarTitleDisplayMode(.inline)
@@ -61,8 +86,30 @@ struct AddMedicationView: View {
                 if !userToggledPrompt {
                     promptAnxietyOnLog = Self.promptCategories.contains(newValue)
                 }
+                updateCNSDepressantClassDefault()
+            }
+            .onChange(of: name) { _, _ in
+                updateCNSDepressantClassDefault()
             }
         }
+    }
+
+    /// Tracks whether the user has explicitly touched the picker, so a later
+    /// name/category edit never silently overwrites their explicit choice
+    /// (mirrors `userToggledPrompt` above). `AddMedicationView` only ever
+    /// creates new medications today (no edit mode exists), so this guards
+    /// within a single creation session; it's the same guard an eventual
+    /// edit flow would need against overwriting a persisted explicit value.
+    private var cnsDepressantClassBinding: Binding<CNSDepressantClass?> {
+        Binding(
+            get: { cnsDepressantClass },
+            set: { cnsDepressantClass = $0; userToggledCNSDepressantClass = true }
+        )
+    }
+
+    private func updateCNSDepressantClassDefault() {
+        guard !userToggledCNSDepressantClass else { return }
+        cnsDepressantClass = CNSDepressantClassifier.classify(name: name, category: category)
     }
 
     private func save() {
@@ -70,7 +117,8 @@ struct AddMedicationView: View {
             name: name.trimmingCharacters(in: .whitespaces),
             defaultDoseMg: defaultDoseMg,
             category: category,
-            promptAnxietyOnLog: promptAnxietyOnLog
+            promptAnxietyOnLog: promptAnxietyOnLog,
+            cnsDepressantClass: cnsDepressantClass?.rawValue
         )
         modelContext.insert(med)
         dismiss()

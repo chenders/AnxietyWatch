@@ -71,6 +71,15 @@ final class PolarHRMService: NSObject {
     private let modelContext: ModelContext
     private let log = Logger(subsystem: "AnxietyWatch", category: "PolarHRM")
 
+    /// Optional live-sample tap for Phase 2's `CNSMonitoringCoordinator`.
+    /// Invoked on the main actor with the same `(hrBpm, arrivalTime)` used to
+    /// update `state.currentHR`, immediately after that update, whenever a
+    /// live HR packet arrives. `nil` by default and completely inert when
+    /// unset — existing callers of this service (HRV recording, the Polar
+    /// settings/pairing UI) see zero behavior change; this is purely an
+    /// additional, optional observer of the same event.
+    var onLiveSample: ((Int?, Date) -> Void)?
+
     // MARK: - Runtime
 
     private var central: CBCentralManager!
@@ -1081,6 +1090,7 @@ extension PolarHRMService: CBPeripheralDelegate {
                 return
             }
             self.state.currentHR = frame.hrBpm
+            self.onLiveSample?(frame.hrBpm, arrivalTime)
             guard let buffer = self.buffer else { return }
             for sample in projected {
                 await buffer.append(timestamp: sample.timestamp, rrMs: sample.rrMs)

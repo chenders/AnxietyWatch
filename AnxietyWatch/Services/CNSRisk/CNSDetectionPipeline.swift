@@ -20,6 +20,15 @@ struct CNSDetectionPipeline {
         )
     }
 
+    /// Re-mark companion presence mid-session (spec §6) WITHOUT resetting
+    /// `CNSAlertTierMachine`'s sustain state — forwards to the machine's own
+    /// state-preserving setter rather than rebuilding the pipeline, which
+    /// would reset the tier machine's rise/clear clocks and delay escalation
+    /// (the wrong direction for safety).
+    mutating func setCompanionPresent(_ present: Bool) {
+        tierMachine.setCompanionPresent(present)
+    }
+
     mutating func process(
         samples: [CNSSignalSample], baselines: CNSBaselines, at now: Date
     ) -> (assessment: CNSRiskAssessment, tier: CNSAlertTier) {
