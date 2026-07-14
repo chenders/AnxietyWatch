@@ -4,6 +4,26 @@ import HealthKit
 @testable import AnxietyWatch
 
 actor MockHealthKitDataSource: HealthKitDataSource {
+    /// Simulates `HKAuthorizationRequestStatus.shouldRequest` — the
+    /// never-asked state a fresh install (or bundle-ID rename) starts in.
+    var authorizationNeedsRequestResult = false
+    private(set) var authorizationRequestCount = 0
+
+    func authorizationNeedsRequest() async -> Bool {
+        authorizationNeedsRequestResult
+    }
+
+    func requestAuthorization() async throws {
+        authorizationRequestCount += 1
+        // Responding to the sheet (grant or deny) moves the system status to
+        // `.unnecessary`; mirror that so call-order tests see the transition.
+        authorizationNeedsRequestResult = false
+    }
+
+    func setAuthorizationNeedsRequest(_ value: Bool) {
+        authorizationNeedsRequestResult = value
+    }
+
     var averageResults: [HKQuantityTypeIdentifier: Double] = [:]
     var minimumResults: [HKQuantityTypeIdentifier: Double] = [:]
     var cumulativeResults: [HKQuantityTypeIdentifier: Double] = [:]
@@ -125,5 +145,8 @@ actor MockHealthKitDataSource: HealthKitDataSource {
     }
     func setSleepStageEvents(_ events: [SourcedSleepStageEvent]) {
         sleepStageEventsResult = events
+    }
+    func setOldestDate(_ date: Date?) {
+        oldestDate = date
     }
 }

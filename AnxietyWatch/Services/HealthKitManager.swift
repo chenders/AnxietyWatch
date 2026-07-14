@@ -78,6 +78,34 @@ actor HealthKitManager: HealthKitDataSource {
         try await healthStore.requestAuthorization(toShare: [], read: Self.allReadTypes)
     }
 
+    /// True when the read-authorization sheet has never been presented for
+    /// this app's read set (`.shouldRequest`). A bundle-ID change makes iOS
+    /// treat the app as brand-new, so this flips back to true even for a
+    /// store full of restored data — the state in which every read errors
+    /// with code 5 (authorizationNotDetermined) and the nil-coercion in the
+    /// query layer would otherwise present "unauthorized" as "no data".
+    ///
+    /// **Fails closed**: `.unknown`, a thrown status error, and unavailable
+    /// HealthKit all return true. A false negative here silently reproduces
+    /// the incident this gate exists for (the sheet is never shown, backfill
+    /// burns its one-shot flag against an unauthorized store, and the
+    /// aggregator writes nils over restored values), whereas a false
+    /// positive merely skips the HealthKit block for one pass and re-asks —
+    /// callers retrigger on every launch/observer fire, and re-presenting
+    /// the sheet is a system no-op once the user has answered.
+    func authorizationNeedsRequest() async -> Bool {
+        guard isAvailable else { return true }
+        do {
+            let status = try await healthStore.statusForAuthorizationRequest(
+                toShare: [], read: Self.allReadTypes
+            )
+            return status != .unnecessary
+        } catch {
+            Log.health.error("statusForAuthorizationRequest failed: \(error, privacy: .public)")
+            return true
+        }
+    }
+
     // MARK: - Clinical Records Authorization
 
     /// Request access to clinical health records (lab results).

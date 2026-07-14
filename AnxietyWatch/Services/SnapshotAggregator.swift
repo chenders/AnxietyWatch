@@ -50,6 +50,51 @@ struct SnapshotAggregator {
         return days
     }
 
+    /// How many days BEFORE today each refresh re-aggregates, so data that
+    /// lands in HealthKit after a day's last aggregation still reaches that
+    /// day's snapshot. Two covers the known late-arrival patterns for daily
+    /// (≤1-day-gap) usage: last night's sleep/RR sync from the Watch AFTER
+    /// the typical early-morning app open (re-visiting today and yesterday),
+    /// and Apple writing a day's final resting-HR sample near midnight — a
+    /// day whose evening the app never saw gets its RHR on the aggregation
+    /// after next (day-2). Away-gaps LONGER than this lookback are healed by
+    /// `HealthDataCoordinator.gapDates`, whose walk starts AT the last
+    /// existing snapshot's own day; "Rebuild All History" in Settings
+    /// remains the manual catch-all. See the 2026-07 "Trends empty"
+    /// investigation: every snapshot field arriving later than the day's
+    /// last aggregation was silently frozen out, for months.
+    static let recentAggregationLookbackDays = 2
+
+    /// The calendar days a refresh should (re-)aggregate: today and the
+    /// `lookbackDays` before it, each normalized to `startOfDay`, ordered
+    /// oldest → newest so today aggregates last with the freshest inputs.
+    static func recentAggregationDays(
+        endingAt now: Date,
+        lookbackDays: Int = recentAggregationLookbackDays,
+        calendar: Calendar = .current
+    ) -> [Date] {
+        let today = calendar.startOfDay(for: now)
+        return (0...max(0, lookbackDays)).reversed().compactMap { offset in
+            calendar.date(byAdding: .day, value: -offset, to: today)
+        }
+    }
+
+    /// Re-aggregate today plus the trailing look-back days. Idempotent:
+    /// `aggregateDay` is an upsert whose fingerprint check only marks rows
+    /// dirty when a value actually changed, so re-visiting an unchanged day
+    /// costs queries but no sync traffic. Checks for cancellation between
+    /// days so the BG-refresh expiration handler can cut the walk short.
+    /// Each `aggregateDay` call re-checks the authorization status itself
+    /// (one extra round trip per day) — intentional redundancy, since
+    /// `aggregateDay` has direct callers (gap-fill, backfill, rebuild) that
+    /// need the gate regardless of this walk.
+    func aggregateRecentDays(endingAt now: Date) async throws {
+        for day in Self.recentAggregationDays(endingAt: now) {
+            guard !Task.isCancelled else { return }
+            try await aggregateDay(day)
+        }
+    }
+
     /// Minimum SpO₂ sample count to compute T90 / desat stats. Below this we
     /// treat the data as spot-reading only (e.g., Apple Watch periodic checks)
     /// and emit nil rather than a misleading "good night" zero.
@@ -107,6 +152,21 @@ struct SnapshotAggregator {
         // suppresses writes inside the narrow pre-decision window.
         guard RestoreMigrationGate.isResolved(defaults: defaults) else { return }
 
+        // While HealthKit authorization has never been REQUESTED, every read
+        // errors with code 5 (authorizationNotDetermined), which the query
+        // layer coerces to nil — indistinguishable from "no data" — and the
+        // unconditional HealthKit field assignments below would overwrite
+        // real (e.g. server-restored) values with nils. This is the asymmetry
+        // rule from the CNS engine applied here: "can't assess" must never be
+        // written down as "no data". The flag scopes the skip to the
+        // HealthKit-derived block ONLY: CPAP, barometric, sensor-derived,
+        // precedence, and dataQuality stitching read SwiftData, not
+        // HealthKit, and must keep aggregating for a user whose
+        // authorization sheet is still unanswered. After the sheet has been
+        // answered (even with everything denied), reads legitimately return
+        // empty and full aggregation semantics apply.
+        let healthKitAuthorizationPending = await healthKit.authorizationNeedsRequest()
+
         #if DEBUG && targetEnvironment(simulator)
         // Skip aggregation when the app was launched with
         // `-autoRestoreFromServer` (server-restored data) or `-seedDemoData`
@@ -146,13 +206,28 @@ struct SnapshotAggregator {
 
         // Capture the row's aggregate-field state BEFORE we overwrite it, so
         // we can flip `syncedToServer` only when an aggregation actually
-        // changes a value. Without this guard, today's snapshot (which gets
-        // re-aggregated on every observer trigger and app launch) would be
-        // re-uploaded on every sync even when no inputs changed, producing
-        // persistent extra sync traffic for unchanged days. A new snapshot's
-        // fingerprint is all-nil; if aggregation puts values in, the diff is
-        // non-trivial and dirty fires correctly.
+        // changes a value. Without this guard, the trailing-day snapshots
+        // (re-aggregated on every observer trigger, app launch, and BG
+        // refresh via `aggregateRecentDays`) would be re-uploaded on every
+        // sync even when no inputs changed, producing persistent extra sync
+        // traffic for unchanged days. A new snapshot's fingerprint is
+        // all-nil; if aggregation puts values in, the diff is non-trivial
+        // and dirty fires correctly.
         let preAggregateFingerprint = SnapshotFingerprint(from: snapshot)
+
+        if healthKitAuthorizationPending {
+            // Reduced pass: skip every HealthKit read (each would nil-coerce
+            // code 5) so the HealthKit-derived fields keep whatever values
+            // they already hold, but still stitch the SwiftData-sourced
+            // inputs and finalize normally.
+            try stitchNonHealthKitSources(into: snapshot, dayStart: start, dayEnd: end)
+            try await applySourcePrecedenceAndDataQuality(
+                on: snapshot, dayStart: start, dayEnd: end,
+                overnightStart: overnightStart, overnightEnd: overnightEnd
+            )
+            try finalizeAggregation(of: snapshot, preAggregateFingerprint: preAggregateFingerprint)
+            return
+        }
 
         // Run all HealthKit queries concurrently — they're independent reads
         // of different data types for the same time window.
@@ -367,6 +442,46 @@ struct SnapshotAggregator {
             start: start, end: end
         )
 
+        try stitchNonHealthKitSources(into: snapshot, dayStart: start, dayEnd: end)
+
+        // Nocturnal HR dip: midnight–6am HR vs 9am–9pm HR
+        if let sixAM = calendar.date(byAdding: .hour, value: 6, to: start),
+           let nineAM = calendar.date(byAdding: .hour, value: 9, to: start),
+           let ninePM = calendar.date(byAdding: .hour, value: 21, to: start) {
+            async let nightHR = healthKit.averageQuantity(
+                .heartRate, unit: .count().unitDivided(by: .minute()),
+                start: start, end: sixAM)
+            async let dayHR = healthKit.averageQuantity(
+                .heartRate, unit: .count().unitDivided(by: .minute()),
+                start: nineAM, end: ninePM)
+
+            if let nightVal = try await nightHR,
+               let dayVal = try await dayHR,
+               dayVal > 0 {
+                snapshot.nocturnalHRDip = 1.0 - (nightVal / dayVal)
+            } else {
+                snapshot.nocturnalHRDip = nil
+            }
+        }
+
+        try await applySourcePrecedenceAndDataQuality(
+            on: snapshot, dayStart: start, dayEnd: end,
+            overnightStart: overnightStart, overnightEnd: overnightEnd
+        )
+
+        try finalizeAggregation(of: snapshot, preAggregateFingerprint: preAggregateFingerprint)
+    }
+
+    // MARK: - Aggregation passes shared by the full and reduced paths
+
+    /// Stitch the SwiftData-sourced inputs into the snapshot: CPAP summary,
+    /// barometric aggregates, and watch-sensor-derived metrics. Runs on every
+    /// aggregation pass — including the reduced pass taken while HealthKit
+    /// authorization is still unrequested — because none of these read
+    /// HealthKit.
+    private func stitchNonHealthKitSources(
+        into snapshot: HealthSnapshot, dayStart start: Date, dayEnd end: Date
+    ) throws {
         // Stitch CPAP data from CPAPSession (matched by date).
         // When duplicates exist (re-imports), pick the session with highest usage
         // for deterministic results — it represents the most complete therapy night.
@@ -412,44 +527,33 @@ struct SnapshotAggregator {
         try Self.applySensorDerivedMetrics(
             to: snapshot, dayStart: start, dayEnd: end, context: modelContext
         )
+    }
 
-        // Nocturnal HR dip: midnight–6am HR vs 9am–9pm HR
-        if let sixAM = calendar.date(byAdding: .hour, value: 6, to: start),
-           let nineAM = calendar.date(byAdding: .hour, value: 9, to: start),
-           let ninePM = calendar.date(byAdding: .hour, value: 21, to: start) {
-            async let nightHR = healthKit.averageQuantity(
-                .heartRate, unit: .count().unitDivided(by: .minute()),
-                start: start, end: sixAM)
-            async let dayHR = healthKit.averageQuantity(
-                .heartRate, unit: .count().unitDivided(by: .minute()),
-                start: nineAM, end: ninePM)
-
-            if let nightVal = try await nightHR,
-               let dayVal = try await dayHR,
-               dayVal > 0 {
-                snapshot.nocturnalHRDip = 1.0 - (nightVal / dayVal)
-            } else {
-                snapshot.nocturnalHRDip = nil
-            }
-        }
-
-        // Source-precedence override: when a high-fidelity device covers
-        // the window (EMAY/Wellue oximeter for overnight SpO2, Polar H10
-        // for HR/RHR/HRV), recompute the corresponding aggregate from the
-        // preferred subset only and overwrite the HealthKit-direct value
-        // above. Layered ON TOP of the HK path rather than replacing it
-        // so existing HealthKit-mock test coverage stays intact: when no
-        // preferred SwiftData rows exist for the window, the HK-direct
-        // value remains the snapshot's authoritative value.
-        //
-        // Order matters: SpO2 first, then heart metrics. Both precedence
-        // passes use the overnight noon-to-noon window: chest-strap sessions
-        // are overnight recordings, and bucketing them by calendar day split
-        // a midnight-crossing session across two snapshots — each day's
-        // hrvAvg mixing fragments of two different nights, disagreeing with
-        // the same row's sleep fields and the Trends Polar series (F-046).
-        // The HK-direct hrv/rhr fallbacks above keep their calendar-day
-        // convention (Watch spot samples are day-attributed by HealthKit).
+    /// Source-precedence override: when a high-fidelity device covers
+    /// the window (EMAY/Wellue oximeter for overnight SpO2, Polar H10
+    /// for HR/RHR/HRV), recompute the corresponding aggregate from the
+    /// preferred subset only and overwrite the HealthKit-direct value
+    /// assigned in `aggregateDay`. Layered ON TOP of the HK path rather
+    /// than replacing it so existing HealthKit-mock test coverage stays
+    /// intact: when no preferred SwiftData rows exist for the window, the
+    /// HK-direct value remains the snapshot's authoritative value. Derives
+    /// everything from the local `QuantityHealthSample` mirror — never
+    /// HealthKit directly — so it also runs on the reduced
+    /// authorization-pending pass.
+    ///
+    /// Order matters: SpO2 first, then heart metrics. Both precedence
+    /// passes use the overnight noon-to-noon window: chest-strap sessions
+    /// are overnight recordings, and bucketing them by calendar day split
+    /// a midnight-crossing session across two snapshots — each day's
+    /// hrvAvg mixing fragments of two different nights, disagreeing with
+    /// the same row's sleep fields and the Trends Polar series (F-046).
+    /// The HK-direct hrv/rhr fallbacks keep their calendar-day
+    /// convention (Watch spot samples are day-attributed by HealthKit).
+    private func applySourcePrecedenceAndDataQuality(
+        on snapshot: HealthSnapshot,
+        dayStart start: Date, dayEnd end: Date,
+        overnightStart: Date, overnightEnd: Date
+    ) async throws {
         // Tag the SpO₂ source basis (F-092). At this point avg/nadir/T90/desats
         // are the HealthKit-direct mixed-source values, so default both bases
         // to `.mixed` for whichever group was actually computed. The
@@ -501,20 +605,25 @@ struct SnapshotAggregator {
             dayStart: start, dayEnd: end,
             overnightStart: overnightStart, overnightEnd: overnightEnd
         )
+    }
 
-        // Only mark dirty when an aggregate field actually changed. This
-        // keeps "Rebuild All History" (and any other re-aggregation flow)
-        // re-uploading past-day snapshots whose values shifted under the
-        // SpO2 precedence fix, while sparing today's snapshot the
-        // every-observer-trigger re-upload churn it would otherwise see.
-        //
-        // Bump `pendingSyncVersion` alongside the dirty flip so the
-        // post-upload `flagSnapshotsSynced` step can detect when an
-        // in-flight `aggregateDay` (running while `sync()` is suspended on
-        // its URLSession await) has mutated the row out from under the
-        // payload. The version is the only thing that distinguishes "row
-        // is clean and matches what we uploaded" from "row was re-dirtied
-        // during the sync and has new pending changes."
+    /// Only mark dirty when an aggregate field actually changed. This
+    /// keeps "Rebuild All History" (and any other re-aggregation flow)
+    /// re-uploading past-day snapshots whose values shifted under the
+    /// SpO2 precedence fix, while sparing the trailing-day snapshots
+    /// (re-aggregated on every observer trigger, launch, and BG refresh)
+    /// the every-trigger re-upload churn they would otherwise see.
+    ///
+    /// Bump `pendingSyncVersion` alongside the dirty flip so the
+    /// post-upload `flagSnapshotsSynced` step can detect when an
+    /// in-flight `aggregateDay` (running while `sync()` is suspended on
+    /// its URLSession await) has mutated the row out from under the
+    /// payload. The version is the only thing that distinguishes "row
+    /// is clean and matches what we uploaded" from "row was re-dirtied
+    /// during the sync and has new pending changes."
+    private func finalizeAggregation(
+        of snapshot: HealthSnapshot, preAggregateFingerprint: SnapshotFingerprint
+    ) throws {
         let postAggregateFingerprint = SnapshotFingerprint(from: snapshot)
         if postAggregateFingerprint != preAggregateFingerprint {
             snapshot.syncedToServer = false

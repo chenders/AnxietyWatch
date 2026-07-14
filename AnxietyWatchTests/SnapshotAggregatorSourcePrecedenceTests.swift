@@ -400,8 +400,9 @@ struct SnapshotAggregatorSourcePrecedenceTests {
 
     /// Counter-test for `aggregateDayMarksSnapshotDirty`: re-aggregating a
     /// snapshot whose inputs didn't change must NOT flip dirty. Without
-    /// this guard, today's snapshot (which is re-aggregated on every
-    /// observer trigger and app launch) would be re-uploaded on every
+    /// this guard, the trailing-day snapshots (re-aggregated on every
+    /// observer trigger, app launch, and BG refresh via
+    /// `aggregateRecentDays`) would be re-uploaded on every
     /// sync — persistent extra traffic for unchanged days.
     @Test("aggregateDay leaves syncedToServer alone when no field changes")
     func aggregateDayStaysCleanWhenNothingChanged() async throws {

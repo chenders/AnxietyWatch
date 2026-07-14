@@ -62,9 +62,9 @@ struct SettingsView: View {
                         Label("Server Sync", systemImage: "icloud.and.arrow.up")
                     }
                     Button {
-                        Task { await refreshTodaySnapshot() }
+                        Task { await refreshRecentSnapshots() }
                     } label: {
-                        Label("Refresh Today's Snapshot", systemImage: "arrow.clockwise")
+                        Label("Refresh Recent Snapshots", systemImage: "arrow.clockwise")
                     }
                     .disabled(isRebuilding)
                     Button {
@@ -135,12 +135,12 @@ struct SettingsView: View {
         }
     }
 
-    private func refreshTodaySnapshot() async {
+    private func refreshRecentSnapshots() async {
         let aggregator = SnapshotAggregator(
             healthKit: HealthKitManager.shared,
             modelContext: modelContext
         )
-        try? await aggregator.aggregateDay(.now)
+        try? await aggregator.aggregateRecentDays(endingAt: .now)
     }
 
     private func rebuildAllSnapshots() async {

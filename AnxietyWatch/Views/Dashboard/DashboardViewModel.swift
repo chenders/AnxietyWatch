@@ -46,14 +46,14 @@ final class DashboardViewModel {
         barometricBaseline = BaselineCalculator.barometricPressureBaseline(from: snapshots)
     }
 
-    /// Refresh today's snapshot from HealthKit.
+    /// Refresh the recent trailing days' snapshots from HealthKit.
     func refreshSnapshot(context: ModelContext) async {
         let aggregator = SnapshotAggregator(
             healthKit: HealthKitManager.shared,
             modelContext: context
         )
         do {
-            try await aggregator.aggregateDay(.now)
+            try await aggregator.aggregateRecentDays(endingAt: .now)
         } catch {
             Log.data.error("Dashboard refresh aggregation failed: \(error, privacy: .public)")
         }

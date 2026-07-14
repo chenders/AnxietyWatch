@@ -5,7 +5,10 @@ import os
 import SwiftData
 
 /// Coordinates HealthKit data flow: backfills historical snapshots on first launch
-/// and keeps today's snapshot updated in real-time via observer queries.
+/// and keeps the recent trailing days' snapshots updated via observer queries,
+/// launch refresh, and background refresh (see
+/// `SnapshotAggregator.recentAggregationLookbackDays` for why "recent days",
+/// not just today).
 @Observable
 final class HealthDataCoordinator {
     private let modelContainer: ModelContainer
@@ -52,23 +55,61 @@ final class HealthDataCoordinator {
         self.defaults = defaults
     }
 
-    /// Call once at app launch. Backfills history if needed, fills any gaps,
+    /// Call once at app launch. Requests HealthKit authorization if it has
+    /// never been requested, backfills history if needed, fills any gaps,
     /// imports clinical records, starts live observers, and wires up barometer persistence.
     func setupIfNeeded() async {
         pruneOldSamples()
         // Wire barometer persistence immediately so monitoring/persistence start at launch,
         // even if backfill/import/observer setup take a while.
         startBarometerPersistence()
+        await requestAuthorizationIfNeeded()
         await backfillIfNeeded()
         await fillGaps()
         // Start observers before clinical import — clinical import is slow (~16s)
         await startObserving()
-        // Initial mirror of per-sample HealthKit data into SwiftData. Runs after
-        // observers are wired (so HealthKit auth has been triggered) and before
-        // clinical import. Anchors are persisted in `defaults`, so subsequent
-        // launches only pull data since the last successful mirror.
+        // Initial mirror of per-sample HealthKit data into SwiftData. Runs
+        // after `requestAuthorizationIfNeeded()` above (authorization is
+        // requested explicitly at launch, not as a side effect of query
+        // registration) and before clinical import. Anchors are persisted in
+        // `defaults`, so subsequent launches only pull data since the last
+        // successful mirror.
         await mirrorHealthKitSamples()
+        // Re-aggregate the trailing days now that the mirror is fresh.
+        // `fillGaps` only walks from the last EXISTING row; this pass
+        // revisits recent rows so values that landed in HealthKit after each
+        // day's last aggregation (overnight sleep, near-midnight resting HR)
+        // reach their snapshots even when no observer fires this launch.
+        // Routed through `scheduleRefresh()` — the single-flight debounced
+        // path — rather than walking a private ModelContext here: an
+        // observer that fires during launch (HealthKit typically fires the
+        // initial update immediately after registration) would otherwise
+        // race this walk on `HealthSnapshot`'s unique `date`, and the losing
+        // context's freshly computed fields would be dropped at save time.
+        scheduleRefresh()
         await importClinicalRecordsIfNeeded()
+    }
+
+    // MARK: - Authorization
+
+    /// Present the HealthKit read-authorization sheet if this install has
+    /// never shown it. Until the sheet has been answered, every HealthKit
+    /// read errors with code 5 (authorizationNotDetermined) and the query
+    /// layer's nil-coercion makes the app look like it has "no data" — for
+    /// months, silently, as the bundle-ID rename demonstrated. This used to
+    /// be reachable only through a manual button in Settings → Apple Health;
+    /// that button remains as the manual re-request path.
+    /// Internal (not private) so tests can drive it directly.
+    func requestAuthorizationIfNeeded() async {
+        guard await healthKit.authorizationNeedsRequest() else { return }
+        do {
+            try await healthKit.requestAuthorization()
+        } catch {
+            // Log metadata only, never grant details (public-repo logging
+            // rules). Backfill/aggregation stay gated on the request status,
+            // so a failed request degrades to "try again next launch".
+            Log.health.error("HealthKit authorization request failed: \(error, privacy: .public)")
+        }
     }
 
     // MARK: - Backfill
@@ -77,8 +118,18 @@ final class HealthDataCoordinator {
     /// that change how snapshots are computed (e.g., the noon-to-noon sleep window fix).
     private static let backfillKey = "hasBackfilledSnapshots_v3"
 
-    private func backfillIfNeeded() async {
-        guard !UserDefaults.standard.bool(forKey: Self.backfillKey) else { return }
+    /// Internal (not private) so tests can drive it directly with an
+    /// isolated `defaults` suite.
+    func backfillIfNeeded() async {
+        guard !defaults.bool(forKey: Self.backfillKey) else { return }
+
+        // Never run (or mark done) the one-shot backfill while authorization
+        // has never been requested: every read would coerce code 5 to nil,
+        // and setting the done-flag after aggregating 90 days of nothing
+        // permanently skips the real backfill once the user grants access —
+        // the post-bundle-rename incident. Leaving the flag unset means the
+        // first launch after authorization runs the genuine backfill.
+        guard await !healthKit.authorizationNeedsRequest() else { return }
 
         let calendar = Calendar.current
 
@@ -125,7 +176,7 @@ final class HealthDataCoordinator {
             backfillProgress = offset + 1
         }
 
-        UserDefaults.standard.set(true, forKey: Self.backfillKey)
+        defaults.set(true, forKey: Self.backfillKey)
         isBackfilling = false
     }
 
@@ -133,6 +184,16 @@ final class HealthDataCoordinator {
 
     /// Pure calculation: returns the dates that need gap-filling between lastSnapshotDate and today.
     /// Returns empty if no gap exists or lastSnapshotDate is nil.
+    ///
+    /// The walk starts AT `lastSnapshotDate` itself, not after it: that row
+    /// froze at whatever state the last session's final aggregation saw —
+    /// often a shell missing overnight sleep and the day's final resting HR,
+    /// which land in HealthKit hours later. When the away-gap exceeds the
+    /// trailing lookback (`SnapshotAggregator.recentAggregationLookbackDays`),
+    /// this revisit is the only automatic path that heals it. Gaps of exactly
+    /// one day are left to the trailing lookback (`daysBetween > 1` guard)
+    /// so every ordinary daily launch doesn't run gap-fill redundantly.
+    /// Returns at most `maxDays + 1` dates (the revisit day + capped missed days).
     static func gapDates(lastSnapshotDate: Date?, today: Date, maxDays: Int = 90) -> [Date] {
         guard let lastDate = lastSnapshotDate else { return [] }
         let calendar = Calendar.current
@@ -140,7 +201,7 @@ final class HealthDataCoordinator {
               daysBetween > 1 else { return [] }
 
         let cappedGap = min(daysBetween, maxDays + 1)
-        return (1..<cappedGap).compactMap { offset in
+        return (0..<cappedGap).compactMap { offset in
             calendar.date(byAdding: .day, value: offset, to: lastDate)
         }
     }
@@ -149,7 +210,7 @@ final class HealthDataCoordinator {
     /// Runs every launch to catch days the app was not opened. Skips if initial backfill
     /// hasn't completed yet to avoid racing with it.
     private func fillGaps() async {
-        guard UserDefaults.standard.bool(forKey: Self.backfillKey) else { return }
+        guard defaults.bool(forKey: Self.backfillKey) else { return }
 
         let context = ModelContext(modelContainer)
         let today = Calendar.current.startOfDay(for: .now)
@@ -299,7 +360,12 @@ final class HealthDataCoordinator {
                 modelContext: context
             )
             do {
-                try await aggregator.aggregateDay(.now)
+                // Trailing days, not just today: sleep/respiratory rate for
+                // last night and yesterday's final resting HR land in
+                // HealthKit after that day's last aggregation (see
+                // recentAggregationLookbackDays). aggregateRecentDays checks
+                // cancellation between days, so expiration cuts it short.
+                try await aggregator.aggregateRecentDays(endingAt: .now)
             } catch is CancellationError {
                 // Expected when the background task expires and cancels workTask.
                 return
@@ -321,8 +387,8 @@ final class HealthDataCoordinator {
     // MARK: - Live Observer Refresh
 
     /// Debounce rapid-fire observer callbacks (e.g., Watch syncing multiple types at once).
-    /// Waits 5 seconds after the last update before re-aggregating today's snapshot
-    /// and checking for new clinical records.
+    /// Waits 5 seconds after the last update before re-aggregating the recent
+    /// trailing days' snapshots and checking for new clinical records.
     private func scheduleRefresh() {
         pendingRefreshTask?.cancel()
         pendingRefreshTask = Task { @MainActor in
@@ -341,7 +407,11 @@ final class HealthDataCoordinator {
                 modelContext: context
             )
             do {
-                try await aggregator.aggregateDay(.now)
+                // Trailing days, not just today — a Watch sync delivers
+                // yesterday's late-landing values too (final resting HR is
+                // written near midnight), and this observer path is often
+                // the first aggregation to see them.
+                try await aggregator.aggregateRecentDays(endingAt: .now)
             } catch is CancellationError {
                 return
             } catch {
