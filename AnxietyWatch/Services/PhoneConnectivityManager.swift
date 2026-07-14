@@ -232,6 +232,10 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
                 // values (the journal note), which must not reach logs.
                 self.log.error("Watch quick-log save failed, entry lost: \(String(describing: type(of: error)), privacy: .public)")
 
+                // Ride the shared authorization path so the alert can actually
+                // surface even if no other notification producer has requested
+                // permission yet (safe to call repeatedly; prompt shows once).
+                LocalNotifications.ensureAuthorization()
                 let content = UNMutableNotificationContent()
                 content.title = "Journal Entry Failed"
                 content.body = "Your recent journal entry from the Apple Watch could not be saved to your iPhone. Please try logging it again."

@@ -885,7 +885,12 @@ final class HealthDataCoordinator {
             sampleBuffer.removeAll()
             Log.data.debug("Flushed \(toInsert.count, privacy: .public) health samples in one batch")
         } catch {
-            Log.data.error("Failed to save \(toInsert.count, privacy: .public) health samples: \(error, privacy: .public)")
+            // Log the error TYPE only, never the error string — a SwiftData
+            // save error can embed the failing rows' field values (health
+            // data), which must not reach device logs (matches the convention
+            // in PhoneConnectivityManager).
+            let errorType = String(describing: type(of: error))
+            Log.data.error("Failed to save \(toInsert.count, privacy: .public) health samples: \(errorType, privacy: .public)")
             // Buffer still holds the samples — the next flush will retry.
         }
     }
