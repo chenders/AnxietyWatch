@@ -513,7 +513,10 @@ struct TrendsView: View {
             healthKit: HealthKitManager.shared,
             modelContext: modelContext
         )
-        try? await aggregator.aggregateDay(.now)
+        // Trailing days, not just today: the charts on this tab are exactly
+        // where a yesterday whose sleep/resting HR landed late would
+        // otherwise show a permanent hole.
+        try? await aggregator.aggregateRecentDays(endingAt: .now)
     }
 }
 

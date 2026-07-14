@@ -43,6 +43,20 @@ nonisolated struct SourcedSleepStageEvent: Sendable, Equatable {
 /// Abstraction over HealthKit queries. HealthKitManager conforms to this;
 /// tests can inject a MockHealthKitDataSource instead.
 protocol HealthKitDataSource: Sendable {
+    /// True when the app has never presented the HealthKit read-authorization
+    /// sheet (`HKAuthorizationRequestStatus.shouldRequest`). While true, every
+    /// read errors with HKError code 5 (authorizationNotDetermined), which the
+    /// query layer coerces to nil — indistinguishable from "no data". Callers
+    /// that WRITE HealthKit-derived values (SnapshotAggregator, backfill) must
+    /// treat this state as "can't assess" and skip those fields, never record
+    /// them as "no data". Implementations must FAIL CLOSED: on `.unknown`, a
+    /// status-API error, or unavailable HealthKit, return true — skipping one
+    /// pass is recoverable (callers retrigger constantly); writing nils over
+    /// real data is not.
+    func authorizationNeedsRequest() async -> Bool
+    /// Present the system read-authorization sheet. No-op after the user has
+    /// responded once (HealthKit only ever shows it once per app).
+    func requestAuthorization() async throws
     func averageQuantity(_ identifier: HKQuantityTypeIdentifier, unit: HKUnit,
                          start: Date, end: Date) async throws -> Double?
     func minimumQuantity(_ identifier: HKQuantityTypeIdentifier, unit: HKUnit,
