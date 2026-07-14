@@ -91,7 +91,10 @@ nonisolated enum EMAYProtocol {
         return EMAYReading(
             // SpO₂ is a percentage, so >100 is non-physiological → invalid.
             spo2: (!isSentinel(spo2) && spo2 <= 100) ? spo2 : nil,
-            pulseRate: isSentinel(pr) ? nil : pr,
+            // Pulse rate: validate the byte is not sentinel.
+            // A plausibility *range* is deliberately NOT used here: narrowing it would
+            // silently drop a real dangerous bradycardia as if it were "no data".
+            pulseRate: (!isSentinel(pr)) ? pr : nil,
             timestamp: timestamp
         )
     }
@@ -695,15 +698,16 @@ final class EMAYRealtimeService: NSObject {
     /// dedup. The residual duplicate path is a stop→restart within one
     /// wall-clock minute (two honest partial means for the same minute);
     /// the display-side same-minute merge in `OximeterLiveSeriesBuilder`
-    /// remains as defense-in-depth. Each lookup is a one-shot
-    /// `FetchDescriptor` with NO sort — the documented-safe fetch shape
-    /// (the iOS 26 compound-#Predicate hang is specific to @Query + SQL
-    /// ORDER BY generation) — served by the model's compound
-    /// `(sourceBundleID, timestamp)` index. A failed existence check falls
-    /// back to inserting (data preservation over dedup; the display merge
-    /// absorbs a rare duplicate). Returns the number of rows inserted;
-    /// caller saves. `static` so tests can exercise the dedup against an
-    /// in-memory container without spinning up CoreBluetooth.
+    /// remains as defense-in-depth. Each lookup is a single-property
+    /// #Predicate on `timestamp` (avoiding the iOS 26 compound-#Predicate
+    /// main-thread hang footgun that a three-clause `&&` would trigger),
+    /// then filtered in-memory for the `(sourceBundleID, metricType)` match.
+    /// Served by the model's compound `(sourceBundleID, timestamp)` index
+    /// via the timestamp prefix. A failed existence check falls back to
+    /// inserting (data preservation over dedup; the display merge absorbs a
+    /// rare duplicate). Returns the number of rows inserted; caller saves.
+    /// `static` so tests can exercise the dedup against an in-memory
+    /// container without spinning up CoreBluetooth.
     static func insertLiveMinutes(
         _ minutes: [EMAYLiveDownsampler.MinuteSample],
         into modelContext: ModelContext
@@ -713,16 +717,24 @@ final class EMAYRealtimeService: NSObject {
         for minute in minutes {
             let timestamp = minute.minuteStart
             let metricType = minute.metricType
-            var descriptor = FetchDescriptor<QuantityHealthSample>(
+            // Single-property #Predicate on Date (a primitive backed by
+            // TimeInterval/Double) to avoid the iOS 26 compound-#Predicate
+            // main-thread hang footgun. The compound form
+            // (sourceBundleID && timestamp && metricType) captures two
+            // String locals, which trips SwiftData's slow SQL generation
+            // path. Filter the candidate rows in Swift instead — a live
+            // session produces at most 60 rows/min, so the in-memory scan
+            // is trivially cheap.
+            let descriptor = FetchDescriptor<QuantityHealthSample>(
                 predicate: #Predicate {
-                    $0.sourceBundleID == bundleID
-                        && $0.timestamp == timestamp
-                        && $0.metricType == metricType
+                    $0.timestamp == timestamp
                 }
             )
-            descriptor.fetchLimit = 1
-            let existing = (try? modelContext.fetch(descriptor)) ?? []
-            guard existing.isEmpty else { continue }
+            let candidates = (try? modelContext.fetch(descriptor)) ?? []
+            let alreadyExists = candidates.contains {
+                $0.sourceBundleID == bundleID && $0.metricType == metricType
+            }
+            guard !alreadyExists else { continue }
             modelContext.insert(QuantityHealthSample(
                 timestamp: minute.minuteStart,
                 metricType: minute.metricType,

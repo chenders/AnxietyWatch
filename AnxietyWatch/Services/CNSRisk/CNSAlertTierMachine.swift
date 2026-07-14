@@ -92,6 +92,15 @@ struct CNSAlertTierMachine {
             resetRiseCandidate()
             return
         }
+        // Only primary-informed evidence can escalate the tier PAST watch — HR/HRV
+        // alone (corroborating signals) can trigger a watch state, but cannot
+        // push into confirm/klaxon. Without this guard, a chest-strap-only
+        // (no SpO₂) session could rise to confirm on HR/HRV alone.
+        if next > .watch {
+            guard primaryInformed else {
+                return
+            }
+        }
         guard score >= entryThreshold(for: next) else {
             // Only contrary PRIMARY evidence resets a rise in progress. A
             // corroborating-only tick can't testify about the primary stream

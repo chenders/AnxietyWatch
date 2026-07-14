@@ -41,10 +41,34 @@ struct AnxietyWatchApp: App {
             MonitoringSession.self,
             CNSRiskSampleRecord.self,
         ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first!
+        let storeURL = appSupport.appendingPathComponent("default.store")
+        let modelConfiguration = ModelConfiguration(schema: schema, url: storeURL)
 
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+
+            // SwiftData stores to Application Support by default, which iOS
+            // includes in iCloud backups. Exclude the store file and its SQLite
+            // journal siblings so health data never leaks into an iCloud backup
+            // without explicit opt-in. This must happen AFTER container creation
+            // ensures the files exist.
+            var resourceValues = URLResourceValues()
+            resourceValues.isExcludedFromBackup = true
+
+            for suffix in ["", "-wal", "-shm"] {
+                var fileURL = appSupport.appendingPathComponent("default.store\(suffix)")
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    do {
+                        try fileURL.setResourceValues(resourceValues)
+                    } catch {
+                        os_log("Failed to exclude %@ from backup: %@", type: .error, fileURL.lastPathComponent, error.localizedDescription)
+                    }
+                }
+            }
+            return container
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }

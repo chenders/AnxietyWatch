@@ -1,15 +1,17 @@
 import Foundation
 import os.log
 import SwiftData
+import UserNotifications
 import WatchConnectivity
 
 /// iPhone-side WatchConnectivity. Receives anxiety entries from Watch, sends stats back.
+@MainActor
 final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
     static let shared = PhoneConnectivityManager()
-    private let log = Logger(subsystem: "AnxietyWatch", category: "PhoneConnectivity")
+    nonisolated private let log = Logger(subsystem: "AnxietyWatch", category: "PhoneConnectivity")
 
-    // Set once during app launch — accessed from nonisolated delegate callbacks
-    nonisolated(unsafe) var modelContainer: ModelContainer?
+    // Set once during app launch
+    var modelContainer: ModelContainer?
 
     func activate() {
         guard WCSession.isSupported() else { return }
@@ -90,19 +92,28 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
         guard let metadata = file.metadata,
               metadata["type"] as? String == "sensorData" else { return }
 
-        guard let container = modelContainer else { return }
-
+        // Explicitly clean up the file when done, though WCSession normally handles it
         defer { try? FileManager.default.removeItem(at: file.fileURL) }
 
+        let fileData: Data
         do {
-            let data = try Data(contentsOf: file.fileURL)
-            let payload = try JSONDecoder().decode(SensorTransferPayload.self, from: data)
-            try Self.ingestSensorPayload(payload, into: ModelContext(container))
+            fileData = try Data(contentsOf: file.fileURL)
         } catch {
-            // Log the error TYPE only — a SwiftData/decoding error's string can
-            // embed the failing row's field values (health data), which must
-            // not reach logs (matches handleIncoming).
-            log.error("Sensor data receive failed: \(String(describing: type(of: error)), privacy: .public)")
+            log.error("Sensor data read failed: \(String(describing: type(of: error)), privacy: .public)")
+            return
+        }
+
+        Task { @MainActor in
+            guard let container = self.modelContainer else { return }
+            do {
+                let payload = try JSONDecoder().decode(SensorTransferPayload.self, from: fileData)
+                try Self.ingestSensorPayload(payload, into: ModelContext(container))
+            } catch {
+                // Log the error TYPE only — a SwiftData/decoding error's string can
+                // embed the failing row's field values (health data), which must
+                // not reach logs (matches handleIncoming).
+                self.log.error("Sensor data receive failed: \(String(describing: type(of: error)), privacy: .public)")
+            }
         }
     }
 
@@ -187,8 +198,7 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
     nonisolated private func handleIncoming(_ message: [String: Any]) {
         guard message["type"] as? String == "anxietyEntry",
               let severity = message["severity"] as? Int,
-              let ts = message["timestamp"] as? TimeInterval,
-              let container = modelContainer
+              let ts = message["timestamp"] as? TimeInterval
         else { return }
 
         let notes = message["notes"] as? String ?? ""
@@ -196,6 +206,7 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
         let timestamp = Date(timeIntervalSince1970: ts)
 
         Task { @MainActor in
+            guard let container = self.modelContainer else { return }
             let context = ModelContext(container)
             let entry = AnxietyEntry(timestamp: timestamp, severity: severity, notes: notes, source: source)
             context.insert(entry)
@@ -210,7 +221,15 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
                 // Log the error TYPE only, never the error string — a
                 // SwiftData save error can embed the failing row's field
                 // values (the journal note), which must not reach logs.
-                log.error("Watch quick-log save failed, entry lost: \(String(describing: type(of: error)), privacy: .public)")
+                self.log.error("Watch quick-log save failed, entry lost: \(String(describing: type(of: error)), privacy: .public)")
+
+                let content = UNMutableNotificationContent()
+                content.title = "Journal Entry Failed"
+                content.body = "Your recent journal entry from the Apple Watch could not be saved to your iPhone. Please try logging it again."
+                content.sound = .default
+                let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+                try? await UNUserNotificationCenter.current().add(request)
+
                 return
             }
 

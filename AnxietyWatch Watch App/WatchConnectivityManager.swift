@@ -15,6 +15,13 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
     var lastSyncStatus: String?
     var pendingRandomCheckIn = false
 
+    /// Guards against a second `transferSensorData` call re-fetching the same
+    /// not-yet-flagged rows while the first call's detached fetch/encode/write
+    /// is still in flight (the `outstandingFileTransfers` check alone can't
+    /// see a transfer that hasn't been handed to WCSession yet). Set/cleared
+    /// only on the main actor.
+    private var isFetchingSensorData = false
+
     private let log = Logger(subsystem: "AnxietyWatch", category: "WatchConnectivity")
 
     func activate() {
@@ -67,7 +74,6 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
     @MainActor
     func transferSensorData(modelContainer: ModelContainer) {
         guard WCSession.default.activationState == .activated else { return }
-        transferModelContainer = modelContainer
 
         // Don't stack a new batch on top of an outstanding one: overlapping
         // transfers of the same not-yet-flagged rows would re-deliver
@@ -76,72 +82,86 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
         let sensorTransfersInFlight = WCSession.default.outstandingFileTransfers.contains {
             $0.file.metadata?["type"] as? String == "sensorData"
         }
-        guard !sensorTransfersInFlight else { return }
+        guard !sensorTransfersInFlight && !isFetchingSensorData else { return }
 
-        let context = ModelContext(modelContainer)
+        isFetchingSensorData = true
 
-        do {
-            // Fetch only rows NOT yet transferred to the phone (persistent
-            // per-row flag, not a timestamp watermark — a backward clock step
-            // can't make a row permanently unfetchable). Ascending + capped so
-            // the oldest un-sent rows go first. Single-clause Bool predicate,
-            // safe under the iOS 26 compound-#Predicate footgun.
-            var specDescriptor = FetchDescriptor<AccelSpectrogram>(
-                predicate: #Predicate { !$0.transferredToPhone },
-                sortBy: [SortDescriptor(\.timestamp, order: .forward)]
-            )
-            specDescriptor.fetchLimit = 500
-            let spectrograms = try context.fetch(specDescriptor)
+        Task.detached(priority: .background) {
+            let context = ModelContext(modelContainer)
 
-            var brDescriptor = FetchDescriptor<DerivedBreathingRate>(
-                predicate: #Predicate { !$0.transferredToPhone },
-                sortBy: [SortDescriptor(\.timestamp, order: .forward)]
-            )
-            brDescriptor.fetchLimit = 500
-            let breathingRates = try context.fetch(brDescriptor)
+            do {
+                // Fetch only rows NOT yet transferred to the phone (persistent
+                // per-row flag, not a timestamp watermark — a backward clock step
+                // can't make a row permanently unfetchable). Ascending + capped so
+                // the oldest un-sent rows go first. Single-clause Bool predicate,
+                // safe under the iOS 26 compound-#Predicate footgun.
+                var specDescriptor = FetchDescriptor<AccelSpectrogram>(
+                    predicate: #Predicate { !$0.transferredToPhone },
+                    sortBy: [SortDescriptor(\.timestamp, order: .forward)]
+                )
+                specDescriptor.fetchLimit = 500
+                let spectrograms = try context.fetch(specDescriptor)
 
-            var hrvDescriptor = FetchDescriptor<HRVReading>(
-                predicate: #Predicate { !$0.transferredToPhone },
-                sortBy: [SortDescriptor(\.timestamp, order: .forward)]
-            )
-            hrvDescriptor.fetchLimit = 500
-            let hrvReadings = try context.fetch(hrvDescriptor)
+                var brDescriptor = FetchDescriptor<DerivedBreathingRate>(
+                    predicate: #Predicate { !$0.transferredToPhone },
+                    sortBy: [SortDescriptor(\.timestamp, order: .forward)]
+                )
+                brDescriptor.fetchLimit = 500
+                let breathingRates = try context.fetch(brDescriptor)
 
-            guard !spectrograms.isEmpty || !breathingRates.isEmpty || !hrvReadings.isEmpty else { return }
+                var hrvDescriptor = FetchDescriptor<HRVReading>(
+                    predicate: #Predicate { !$0.transferredToPhone },
+                    sortBy: [SortDescriptor(\.timestamp, order: .forward)]
+                )
+                hrvDescriptor.fetchLimit = 500
+                let hrvReadings = try context.fetch(hrvDescriptor)
 
-            // Encode to JSON
-            let payload = SensorTransferPayload(
-                spectrograms: spectrograms.map { SensorTransferPayload.SpectrogramDTO(from: $0) },
-                breathingRates: breathingRates.map { SensorTransferPayload.BreathingRateDTO(from: $0) },
-                hrvReadings: hrvReadings.map { SensorTransferPayload.HRVDTO(from: $0) }
-            )
-            let data = try JSONEncoder().encode(payload)
+                guard !spectrograms.isEmpty || !breathingRates.isEmpty || !hrvReadings.isEmpty else {
+                    await MainActor.run { self.isFetchingSensorData = false }
+                    return
+                }
 
-            // Clean up any leftover temp files from completed transfers
-            let tempDir = FileManager.default.temporaryDirectory
-            if let contents = try? FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil) {
-                let activeTransferURLs = Set(WCSession.default.outstandingFileTransfers.map(\.file.fileURL))
-                for url in contents where url.lastPathComponent.hasPrefix("sensor_") && !activeTransferURLs.contains(url) {
-                    try? FileManager.default.removeItem(at: url)
+                // Encode to JSON
+                let payload = SensorTransferPayload(
+                    spectrograms: spectrograms.map { SensorTransferPayload.SpectrogramDTO(from: $0) },
+                    breathingRates: breathingRates.map { SensorTransferPayload.BreathingRateDTO(from: $0) },
+                    hrvReadings: hrvReadings.map { SensorTransferPayload.HRVDTO(from: $0) }
+                )
+                let data = try JSONEncoder().encode(payload)
+
+                // Clean up any leftover temp files from completed transfers
+                let tempDir = FileManager.default.temporaryDirectory
+                if let contents = try? FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil) {
+                    let activeTransferURLs = Set(WCSession.default.outstandingFileTransfers.map(\.file.fileURL))
+                    for url in contents where url.lastPathComponent.hasPrefix("sensor_") && !activeTransferURLs.contains(url) {
+                        try? FileManager.default.removeItem(at: url)
+                    }
+                }
+
+                // Write to temp file and transfer
+                let tempURL = tempDir
+                    .appendingPathComponent("sensor_\(UUID().uuidString).json")
+                try data.write(to: tempURL)
+
+                let ids = spectrograms.map(\.persistentModelID)
+                    + breathingRates.map(\.persistentModelID)
+                    + hrvReadings.map(\.persistentModelID)
+
+                await MainActor.run {
+                    self.transferModelContainer = modelContainer
+                    // Stash this batch's row IDs; flip transferredToPhone only when the
+                    // transfer completes (didFinish).
+                    self.pendingTransfers[tempURL.path] = ids
+                    WCSession.default.transferFile(tempURL, metadata: ["type": "sensorData"])
+                    self.isFetchingSensorData = false
+                }
+
+            } catch {
+                await MainActor.run {
+                    self.lastSyncStatus = "Sensor sync failed"
+                    self.isFetchingSensorData = false
                 }
             }
-
-            // Write to temp file and transfer
-            let tempURL = tempDir
-                .appendingPathComponent("sensor_\(UUID().uuidString).json")
-            try data.write(to: tempURL)
-
-            // Stash this batch's row IDs; flip transferredToPhone only when the
-            // transfer completes (didFinish).
-            pendingTransfers[tempURL.path] =
-                spectrograms.map(\.persistentModelID)
-                + breathingRates.map(\.persistentModelID)
-                + hrvReadings.map(\.persistentModelID)
-
-            WCSession.default.transferFile(tempURL, metadata: ["type": "sensorData"])
-
-        } catch {
-            lastSyncStatus = "Sensor sync failed"
         }
     }
 

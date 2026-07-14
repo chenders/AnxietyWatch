@@ -225,7 +225,14 @@ actor SensorCaptureSession {
             pendingBreathingRates.append(rate)
         }
 
-        windowStartTime = .now
+        // Advance to the start of the NEXT window — the 2000 samples just
+        // consumed spanned 10 seconds (200 Hz × 10 s = 2000 samples). Using
+        // .now would label the next window's samples with a timestamp that
+        // includes this function's execution time, causing progressive drift
+        // across the session.
+        windowStartTime = windowStartTime.addingTimeInterval(
+            TimeInterval(Self.accelWindowSamples) / TimeInterval(Self.accelSampleRate)
+        )
     }
 
     // MARK: - Persistence

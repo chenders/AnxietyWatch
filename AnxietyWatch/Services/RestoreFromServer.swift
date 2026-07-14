@@ -663,14 +663,17 @@ extension SyncService {
         if let d = fallback.date(from: s) { return d }
         // Bare dates ("2026-05-11") come from Postgres DATE columns
         // (health_snapshots.date, cpap_sessions.date) and represent LOCAL
-        // calendar days. Parse in the local zone: parsing as UTC midnight
-        // rolls back to the previous calendar day for any UTC-negative
-        // user once the model layer applies startOfDay, desynchronizing
-        // DATE-typed entities from TIMESTAMP-typed ones by a full day.
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd"
-        df.timeZone = .current
-        return df.date(from: s)
+        // calendar days. Parse directly through Calendar so DST transitions
+        // can't shift the result: a DateFormatter with .current timezone
+        // interprets "2026-03-08" as midnight in the current zone, which on
+        // a DST-spring-forward day maps to the previous UTC midnight (23:00
+        // UTC) — and Calendar.current.startOfDay then normalizes it to "March
+        // 7", one full day off. Calendar.date(from: DateComponents) computes
+        // the start of the correct local day without the timezone indirection.
+        let parts = s.split(separator: "-")
+        guard parts.count == 3,
+              let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2]) else { return nil }
+        return Calendar.current.date(from: DateComponents(year: y, month: m, day: d))
     }
 
     /// Name-keyed. See `importPharmacies` for why this is a seen-set rather than a

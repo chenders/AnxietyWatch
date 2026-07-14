@@ -188,9 +188,11 @@ struct SnapshotAggregator {
         // Querying noon Mar 13 to noon Mar 14 gets the whole night.
         guard let previousDay = calendar.date(byAdding: .day, value: -1, to: start),
               let overnightStart = calendar.date(
-                  byAdding: .hour, value: Self.overnightOffsetHours, to: calendar.startOfDay(for: previousDay)
+                  bySettingHour: Self.overnightOffsetHours, minute: 0, second: 0, of: previousDay
               ),
-              let overnightEnd = calendar.date(byAdding: .hour, value: Self.overnightOffsetHours, to: start)
+              let overnightEnd = calendar.date(
+                  bySettingHour: Self.overnightOffsetHours, minute: 0, second: 0, of: start
+              )
         else { return }
 
         // Find or create snapshot for this calendar day

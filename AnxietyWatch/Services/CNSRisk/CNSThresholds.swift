@@ -128,6 +128,12 @@ struct CNSThresholds: Sendable {
     var perfusionHardFloor: Double = 0.4
     /// More than this fraction of artifact samples → window indeterminate.
     var maxArtifactFraction: Double = 0.05
+    /// Fewer than this many samples in the window → indeterminate regardless
+    /// of coverage. Guards against feeding sparse streams (Apple Watch
+    /// spot-checks at ~1/hour) through the per-second-coverage math, which
+    /// would silently return near-zero coverage and look like "bad data"
+    /// rather than the correct signal: "this source is too sparse to assess."
+    var gateMinSampleCount: Int = 2
 
     // MARK: - Confidence
 
