@@ -702,8 +702,10 @@ final class EMAYRealtimeService: NSObject {
     /// #Predicate on `timestamp` (avoiding the iOS 26 compound-#Predicate
     /// main-thread hang footgun that a three-clause `&&` would trigger),
     /// then filtered in-memory for the `(sourceBundleID, metricType)` match.
-    /// Served by the model's compound `(sourceBundleID, timestamp)` index
-    /// via the timestamp prefix. A failed existence check falls back to
+    /// Served by the model's dedicated standalone `timestamp` index (the
+    /// compound `(sourceBundleID, timestamp)` index can NOT serve a
+    /// timestamp-only lookup because timestamp is its trailing column).
+    /// A failed existence check falls back to
     /// inserting (data preservation over dedup; the display merge absorbs a
     /// rare duplicate). Returns the number of rows inserted; caller saves.
     /// `static` so tests can exercise the dedup against an in-memory
