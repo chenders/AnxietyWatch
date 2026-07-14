@@ -673,7 +673,13 @@ extension SyncService {
         let parts = s.split(separator: "-")
         guard parts.count == 3,
               let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2]) else { return nil }
-        return Calendar.current.date(from: DateComponents(year: y, month: m, day: d))
+        // Use an explicit Gregorian calendar (the server DATE strings are
+        // Gregorian) in the local time zone: `Calendar.current` could be a
+        // non-Gregorian user calendar (Buddhist, Japanese, …), which would
+        // mis-map these year/month/day components to a different absolute day.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar.date(from: DateComponents(year: y, month: m, day: d))
     }
 
     /// Name-keyed. See `importPharmacies` for why this is a seen-set rather than a

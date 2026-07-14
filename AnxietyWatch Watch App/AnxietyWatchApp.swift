@@ -18,32 +18,50 @@ struct AnxietyWatchApp: App {
         // health data (accelerometer spectrograms, HRV readings, breathing
         // rates) must not silently leak into the user's iCloud account.
         // Matches the iPhone-side exclusion.
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
+        //
+        // Resolve-and-create the directory (a bare `urls(...).first!` can point
+        // at a not-yet-created path and fail container init on a fresh install),
+        // then exclude the directory itself so the SQLite `-wal`/`-shm` siblings
+        // are covered whenever SQLite (re)creates them.
+        let appSupport: URL
+        do {
+            appSupport = try FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true
+            )
+        } catch {
+            fatalError("Could not resolve Application Support directory: \(error)")
+        }
+        AnxietyWatchApp.excludeFromBackup(appSupport)
+
         let storeURL = appSupport.appendingPathComponent("default.store")
         let config = ModelConfiguration(schema: schema, url: storeURL)
         do {
             let container = try ModelContainer(for: schema, configurations: [config])
-
-            var resourceValues = URLResourceValues()
-            resourceValues.isExcludedFromBackup = true
-
             for suffix in ["", "-wal", "-shm"] {
-                var fileURL = appSupport.appendingPathComponent("default.store\(suffix)")
-                if FileManager.default.fileExists(atPath: fileURL.path) {
-                    do {
-                        try fileURL.setResourceValues(resourceValues)
-                    } catch {
-                        Logger(subsystem: "com.anxietywatch", category: "App").error("Failed to exclude \(fileURL.lastPathComponent) from backup: \(error.localizedDescription)")
-                    }
-                }
+                AnxietyWatchApp.excludeFromBackup(appSupport.appendingPathComponent("default.store\(suffix)"))
             }
             return container
         } catch {
             fatalError("Could not create watch ModelContainer: \(error)")
         }
     }()
+
+    /// Sets `isExcludedFromBackup` on `url` if it exists, logging (not
+    /// swallowing) any real failure. `setResourceValues` throws `ENOENT` for a
+    /// missing path, so guard on existence first.
+    private static func excludeFromBackup(_ url: URL) {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        var target = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        do {
+            try target.setResourceValues(values)
+        } catch {
+            Logger(subsystem: "AnxietyWatch", category: "WatchApp").error(
+                "Failed to exclude \(target.lastPathComponent) from backup: \(error.localizedDescription)")
+        }
+    }
 
     var body: some Scene {
         WindowGroup {

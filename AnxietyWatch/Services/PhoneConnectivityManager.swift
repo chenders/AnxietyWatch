@@ -105,15 +105,24 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
 
         Task { @MainActor in
             guard let container = self.modelContainer else { return }
-            do {
-                let payload = try JSONDecoder().decode(SensorTransferPayload.self, from: fileData)
-                try Self.ingestSensorPayload(payload, into: ModelContext(container))
-            } catch {
-                // Log the error TYPE only — a SwiftData/decoding error's string can
-                // embed the failing row's field values (health data), which must
-                // not reach logs (matches handleIncoming).
-                self.log.error("Sensor data receive failed: \(String(describing: type(of: error)), privacy: .public)")
-            }
+            let log = self.log
+            // Hop to the main actor only to read `modelContainer`, then run the
+            // JSON decode + SwiftData ingest on a background task with its own
+            // context: a sensor batch can carry up to ~1500 rows across three
+            // types, and decoding/inserting that on the main actor janks the UI.
+            // `container` is Sendable and `ingestSensorPayload` is nonisolated
+            // static with its own `ModelContext`, so this is safe off-main.
+            await Task.detached(priority: .utility) {
+                do {
+                    let payload = try JSONDecoder().decode(SensorTransferPayload.self, from: fileData)
+                    try Self.ingestSensorPayload(payload, into: ModelContext(container))
+                } catch {
+                    // Log the error TYPE only — a SwiftData/decoding error's string can
+                    // embed the failing row's field values (health data), which must
+                    // not reach logs (matches handleIncoming).
+                    log.error("Sensor data receive failed: \(String(describing: type(of: error)), privacy: .public)")
+                }
+            }.value
         }
     }
 

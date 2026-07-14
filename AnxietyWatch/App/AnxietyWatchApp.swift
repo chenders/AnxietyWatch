@@ -41,38 +41,61 @@ struct AnxietyWatchApp: App {
             MonitoringSession.self,
             CNSRiskSampleRecord.self,
         ])
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
+        // Resolve (and create, if this is a first launch) the Application
+        // Support directory: `urls(...).first!` returns a URL that may not
+        // exist yet, and passing a store URL under a missing directory can
+        // fail ModelContainer init on a fresh install.
+        let appSupport: URL
+        do {
+            appSupport = try FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true
+            )
+        } catch {
+            fatalError("Could not resolve Application Support directory: \(error)")
+        }
+
+        // SwiftData stores to Application Support by default, which iOS includes
+        // in iCloud/iTunes backups. Exclude the whole directory so health data
+        // never leaks into a backup without explicit opt-in — excluding the
+        // directory (rather than only the files) durably covers the SQLite
+        // `-wal`/`-shm` siblings whenever SQLite (re)creates them, closing the
+        // race where a journal file created after launch would be backup-
+        // eligible. The sync-to-personal-server path is the only deliberate
+        // off-device route.
+        AnxietyWatchApp.excludeFromBackup(appSupport)
+
         let storeURL = appSupport.appendingPathComponent("default.store")
         let modelConfiguration = ModelConfiguration(schema: schema, url: storeURL)
 
         do {
             let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
-
-            // SwiftData stores to Application Support by default, which iOS
-            // includes in iCloud backups. Exclude the store file and its SQLite
-            // journal siblings so health data never leaks into an iCloud backup
-            // without explicit opt-in. This must happen AFTER container creation
-            // ensures the files exist.
-            var resourceValues = URLResourceValues()
-            resourceValues.isExcludedFromBackup = true
-
+            // Belt-and-suspenders: also flag the concrete store files now that
+            // they exist, in case directory-level exclusion is unavailable.
             for suffix in ["", "-wal", "-shm"] {
-                var fileURL = appSupport.appendingPathComponent("default.store\(suffix)")
-                if FileManager.default.fileExists(atPath: fileURL.path) {
-                    do {
-                        try fileURL.setResourceValues(resourceValues)
-                    } catch {
-                        os_log("Failed to exclude %@ from backup: %@", type: .error, fileURL.lastPathComponent, error.localizedDescription)
-                    }
-                }
+                AnxietyWatchApp.excludeFromBackup(appSupport.appendingPathComponent("default.store\(suffix)"))
             }
             return container
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }
     }()
+
+    /// Sets `isExcludedFromBackup` on `url` if it exists. `setResourceValues`
+    /// throws `ENOENT` for a missing path (silently no-op'ing the exclusion),
+    /// so guard on existence and log — don't `try?`-swallow — any real failure.
+    private static func excludeFromBackup(_ url: URL) {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        var target = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        do {
+            try target.setResourceValues(values)
+        } catch {
+            os_log("Failed to exclude %@ from backup: %@", type: .error,
+                   target.lastPathComponent, error.localizedDescription)
+        }
+    }
 
     @State private var coordinator: HealthDataCoordinator?
     @State private var polarService: PolarHRMService
