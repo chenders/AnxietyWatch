@@ -866,7 +866,6 @@ final class HealthDataCoordinator {
     private func flushSampleBuffer() {
         guard !sampleBuffer.isEmpty else { return }
         let toInsert = sampleBuffer
-        sampleBuffer.removeAll()
 
         let context = ModelContext(modelContainer)
         for sample in toInsert {
@@ -879,9 +878,20 @@ final class HealthDataCoordinator {
         }
         do {
             try context.save()
+            // Only clear the buffer after a successful save — the anchored
+            // query's anchor advances on the NEXT pass, so a save failure
+            // with an already-empty buffer would permanently lose these
+            // samples (HealthKit never re-delivers them).
+            sampleBuffer.removeAll()
             Log.data.debug("Flushed \(toInsert.count, privacy: .public) health samples in one batch")
         } catch {
-            Log.data.error("Failed to save \(toInsert.count, privacy: .public) health samples: \(error, privacy: .public)")
+            // Log the error TYPE only, never the error string — a SwiftData
+            // save error can embed the failing rows' field values (health
+            // data), which must not reach device logs (matches the convention
+            // in PhoneConnectivityManager).
+            let errorType = String(describing: type(of: error))
+            Log.data.error("Failed to save \(toInsert.count, privacy: .public) health samples: \(errorType, privacy: .public)")
+            // Buffer still holds the samples — the next flush will retry.
         }
     }
 

@@ -50,8 +50,6 @@ enum CNSQualityGate {
             return CNSWindowVerdict(quality: .indeterminate, goodCoverageFraction: 0)
         }
 
-        // §14.2: > maxArtifactFraction artifact/ectopic samples in the window
-        // → indeterminate, regardless of how much clean coverage remains.
         let artifactCount = inWindow.filter(\.isArtifact).count
         let artifactFraction = Double(artifactCount) / Double(inWindow.count)
         let good = goodSamples(inWindow, thresholds: thresholds)
@@ -60,6 +58,13 @@ enum CNSQualityGate {
         // a cadence-aware coverage/gap design decision — do not feed sparse
         // streams through this gate unchanged.
         let coverage = min(Double(good.count) / thresholds.gateWindowSeconds, 1.0)
+
+        // Reject streams whose effective sample rate is too low for the
+        // quality gate to make a meaningful coverage decision.
+        if inWindow.count < thresholds.gateMinSampleCount {
+            return CNSWindowVerdict(quality: .indeterminate, goodCoverageFraction: coverage)
+        }
+
         guard artifactFraction <= thresholds.maxArtifactFraction else {
             return CNSWindowVerdict(quality: .indeterminate, goodCoverageFraction: coverage)
         }

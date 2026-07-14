@@ -13,7 +13,16 @@ final class QuantityHealthSample {
     /// timestamps; a compound index keeps that lookup O(log n) as the table
     /// grows past CSV-friendly sizes (EMAY 1 Hz exports add ~36k rows per
     /// overnight session).
-    #Index<QuantityHealthSample>([\.sourceBundleID, \.timestamp])
+    ///
+    /// The standalone `timestamp` index serves the live-insert dedup path
+    /// (`EMAYRealtimeService.insertLiveMinutes`), which uses a single-property
+    /// `#Predicate` on `timestamp` to avoid the iOS 26 compound-#Predicate
+    /// main-thread hang. Because `timestamp` is the *trailing* column of the
+    /// compound index, that index can't serve a `timestamp`-only lookup (a
+    /// B-tree is only usable left-to-right), so without this dedicated index
+    /// the per-minute dedup fetch degrades to a full table scan as the table
+    /// grows past ~200k rows.
+    #Index<QuantityHealthSample>([\.sourceBundleID, \.timestamp], [\.timestamp])
 
     @Attribute(.unique) var id: UUID
     var timestamp: Date
