@@ -10,6 +10,7 @@ public struct SampleRow: Sendable, Equatable {
     public let extra: Data?
     public let hlcPhysical: Int64
     public let hlcLogical: Int32
+    /// 16 raw bytes. See `HLCStamped.nodeID`.
     public let nodeID: Data
     
     public init(source: Int32, type: Int32, timestamp: Double, value: Double, extra: Data?, hlcPhysical: Int64, hlcLogical: Int32, nodeID: Data) {

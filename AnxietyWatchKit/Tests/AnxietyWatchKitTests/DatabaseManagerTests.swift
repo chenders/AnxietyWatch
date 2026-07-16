@@ -209,4 +209,44 @@ final class DatabaseManagerWALFilesTests: XCTestCase {
         
         await dbManager.close()
     }
+
+    // MARK: - registerFunction (T06b)
+
+    func testRegisterFunctionCallable() async throws {
+        let dbURL = tempDirectory.appendingPathComponent("register-fn.sqlite")
+        let dbManager = DatabaseManager(url: dbURL)
+        try await dbManager.open()
+        defer { Task { await dbManager.close() } }
+
+        try await dbManager.registerFunction(name: "add_one", argumentCount: 1, pure: true) { args in
+            guard let n = Int64.fromDatabaseValue(args[0]) else { return nil }
+            return n + 1
+        }
+
+        let result: Int64? = try await dbManager.reader { db in
+            try Int64.fetchOne(db, sql: "SELECT add_one(5)")
+        }
+        XCTAssertEqual(result, 6, "UDF add_one(5) must return 6")
+    }
+
+    func testRegisterFunctionSurvivesCorruptionRecovery() async throws {
+        let dbURL = tempDirectory.appendingPathComponent("register-fn-recovery.sqlite")
+        let dbManager = DatabaseManager(url: dbURL)
+        try await dbManager.open()
+        defer { Task { await dbManager.close() } }
+
+        try await dbManager.registerFunction(name: "magic", argumentCount: 0, pure: true) { _ in
+            Int64(42)
+        }
+
+        // Force recovery (deletes DB files and reopens fresh via open()).
+        try await dbManager.forceCorruptionRecovery()
+
+        // After recovery the fresh queue's prepareDatabase snapshot must have
+        // re-registered `magic`. Assert the UDF still resolves.
+        let result: Int64? = try await dbManager.reader { db in
+            try Int64.fetchOne(db, sql: "SELECT magic()")
+        }
+        XCTAssertEqual(result, 42, "UDF magic() must survive corruption recovery reopen")
+    }
 }

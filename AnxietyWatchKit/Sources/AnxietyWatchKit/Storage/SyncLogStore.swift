@@ -11,6 +11,7 @@ public struct SyncLogEntry: Sendable, Equatable {
     public let rowPK: String
     public let hlcPhysical: Int64
     public let hlcLogical: Int32
+    /// 16 raw bytes. See `HLCStamped.nodeID`.
     public let nodeID: Data
     public let operation: Operation
     

@@ -225,7 +225,7 @@ public actor HLC {
 
 **Node ID:**
 - Loaded on first launch from Keychain under service `com.anxietywatch.hlc.node`, account `install`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, `kSecAttrSynchronizable = false`.
-- If absent, generated as `UUID().uuidString` bytes and stored.
+- If absent, generated as **16 raw bytes** via `withUnsafeBytes(of: UUID().uuid) { Data($0) }` (NOT the 36-byte `uuidString`) and stored. This width is canonical across `SchemaV1.samples.node_id`, `HLCStamped.nodeID`, and the §5.1 binary wire format.
 - iPhone and Watch each execute this independently and produce distinct node IDs by construction.
 
 **`now()`:**

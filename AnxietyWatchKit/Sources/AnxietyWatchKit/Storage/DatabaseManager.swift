@@ -10,6 +10,9 @@ public actor DatabaseManager {
     /// The underlying GRDB DatabaseQueue
     private var queue: DatabaseQueue?
     
+    /// Registered database functions for re-adding after recovery
+    private var registeredFunctions: [DatabaseFunction] = []
+    
     /// AsyncStream for corruption events
     private let (corruptionEventStream, corruptionEventContinuation) = AsyncStream<CorruptionEvent>.makeStream()
     
@@ -40,8 +43,25 @@ public actor DatabaseManager {
             case detected
             case recovering
             case recovered
-            case failed(Error)
+            /// Failure carries a Sendable projection of the underlying error so the
+            /// event can cross actor boundaries (CorruptionBroadcaster, DiagnosticsScreen,
+            /// MetricKitReporter). For GRDB DatabaseError, `code` is the SQLite result code.
+            case failed(message: String, code: Int32)
         }
+    }
+
+    /// Convenience: build a `Phase.failed` from an arbitrary Error, extracting a
+    /// SQLite result code when the error is a GRDB `DatabaseError`.
+    private static func failedPhase(_ error: any Error) -> CorruptionEvent.Phase {
+        if let dbErr = error as? DatabaseError {
+            // Our own DatabaseError has no SQLite code; use -1 as sentinel.
+            return .failed(message: String(describing: dbErr), code: -1)
+        }
+        if let grdbErr = error as? GRDB.DatabaseError {
+            return .failed(message: grdbErr.message ?? String(describing: grdbErr),
+                           code: Int32(grdbErr.resultCode.rawValue))
+        }
+        return .failed(message: String(describing: error), code: -1)
     }
     
     /// Creates a new DatabaseManager
@@ -50,6 +70,54 @@ public actor DatabaseManager {
         self.url = url
     }
     
+    /// Builds a GRDB `Configuration` whose `prepareDatabase` closure applies the
+    /// required PRAGMAs and re-adds every currently-registered UDF. The closure
+    /// captures a snapshot of `registeredFunctions` at the moment of build, so a
+    /// later corruption-recovery reopen sees whatever functions were registered
+    /// before recovery ran. New registrations after this build only affect future
+    /// connections; the currently-open queue is patched separately via `registerFunction`.
+    private func makeConfiguration() -> Configuration {
+        let fnsSnapshot = registeredFunctions
+        var configuration = Configuration()
+        configuration.prepareDatabase { db in
+            try db.execute(sql: "PRAGMA journal_mode = WAL")
+            try db.execute(sql: "PRAGMA synchronous = NORMAL")
+            try db.execute(sql: "PRAGMA wal_autocheckpoint = 1000")
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+            for fn in fnsSnapshot {
+                db.add(function: fn)
+            }
+        }
+        return configuration
+    }
+
+    /// Registers a SQLite user-defined function on the current (and future) DB connection.
+    /// Used by the HLC service (T13) to expose `hlc_now_pt`, `hlc_now_lc`, `hlc_now_node`
+    /// to the @Syncable-generated triggers, and by anyone else needing a UDF. The function
+    /// is remembered on the actor so it is re-registered automatically after a
+    /// corruption-recovery reopen.
+    public func registerFunction(
+        name: String,
+        argumentCount: Int?,
+        pure: Bool = false,
+        _ body: @escaping @Sendable (_ arguments: [DatabaseValue]) throws -> (any DatabaseValueConvertible)?
+    ) async throws {
+        let fn = DatabaseFunction(
+            name,
+            argumentCount: argumentCount,
+            pure: pure,
+            function: body
+        )
+        registeredFunctions.append(fn)
+        // If the queue is already open, patch this single connection so callers
+        // don't have to close/reopen to see the new UDF.
+        if let queue {
+            try await queue.write { db in
+                db.add(function: fn)
+            }
+        }
+    }
+
     /// Opens the database connection, applying required PRAGMAs and integrity checks
     public func open() async throws {
         // Check for clean shutdown marker
@@ -57,17 +125,7 @@ public actor DatabaseManager {
         
         // Try to open database, with corruption recovery if needed
         do {
-            // Open the database (this will create the file if it doesn't exist)
-            var configuration = Configuration()
-            configuration.prepareDatabase { db in
-                // Apply PRAGMAs during database initialization
-                try db.execute(sql: "PRAGMA journal_mode = WAL")
-                try db.execute(sql: "PRAGMA synchronous = NORMAL")
-                try db.execute(sql: "PRAGMA wal_autocheckpoint = 1000")
-                try db.execute(sql: "PRAGMA foreign_keys = ON")
-            }
-            
-            let dbQueue = try DatabaseQueue(path: url.path, configuration: configuration)
+            let dbQueue = try DatabaseQueue(path: url.path, configuration: makeConfiguration())
             self.queue = dbQueue
         } catch let error {
             // Check if it's a corruption-related error by examining the error description
@@ -79,18 +137,7 @@ public actor DatabaseManager {
                errorDesc.contains("file is not a database") {
                 Log.storage.warning("Detected corruption on open: \(error). Attempting recovery.")
                 try await recoverFromCorruption()
-                
-                // Retry opening
-                var configuration = Configuration()
-                configuration.prepareDatabase { db in
-                    // Apply PRAGMAs during database initialization
-                    try db.execute(sql: "PRAGMA journal_mode = WAL")
-                    try db.execute(sql: "PRAGMA synchronous = NORMAL")
-                    try db.execute(sql: "PRAGMA wal_autocheckpoint = 1000")
-                    try db.execute(sql: "PRAGMA foreign_keys = ON")
-                }
-                
-                let dbQueue = try DatabaseQueue(path: url.path, configuration: configuration)
+                let dbQueue = try DatabaseQueue(path: url.path, configuration: makeConfiguration())
                 self.queue = dbQueue
             } else {
                 throw error
@@ -226,7 +273,7 @@ public actor DatabaseManager {
             Log.storage.info("Database corruption recovery completed")
         } catch {
             // Notify about failed recovery
-            corruptionEventContinuation.yield(CorruptionEvent(timestamp: Date(), phase: .failed(error)))
+            corruptionEventContinuation.yield(CorruptionEvent(timestamp: Date(), phase: Self.failedPhase(error)))
             Log.storage.fault("Database corruption recovery failed: \(error)")
             throw error
         }
@@ -246,7 +293,7 @@ public actor DatabaseManager {
         // Check if we've exceeded the threshold
         if corruptionEventTimestamps.count > 3 {
             // Emit event before breaker throw
-            corruptionEventContinuation.yield(CorruptionEvent(timestamp: Date(), phase: .failed(DatabaseError.corruptionThresholdExceeded)))
+            corruptionEventContinuation.yield(CorruptionEvent(timestamp: Date(), phase: Self.failedPhase(DatabaseError.corruptionThresholdExceeded)))
             Log.storage.fault("Corruption circuit breaker tripped")
             throw DatabaseError.corruptionThresholdExceeded
         }
