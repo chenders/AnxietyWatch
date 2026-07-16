@@ -215,8 +215,10 @@ public actor DatabaseManager {
         
         // Handle aborted checkpoint independently of clean shutdown
         if hadAbortedCheckpoint {
-            // Run RESTART checkpoint to recover from aborted TRUNCATE
-            try await self.queue!.write { db in
+            // Run RESTART checkpoint to recover from aborted TRUNCATE.
+            // MUST be non-transactional: PRAGMA wal_checkpoint(...) inside a
+            // BEGIN..COMMIT can silently no-op / report busy.
+            try await self.queue!.writeWithoutTransaction { db in
                 try db.execute(sql: "PRAGMA wal_checkpoint(RESTART)")
             }
             
@@ -246,7 +248,8 @@ public actor DatabaseManager {
         
         // Check for unclean shutdown
         if !wasCleanShutdown {
-            try await self.queue!.write { db in
+            // Non-transactional: see comment above.
+            try await self.queue!.writeWithoutTransaction { db in
                 try db.execute(sql: "PRAGMA wal_checkpoint(RESTART)")
             }
             

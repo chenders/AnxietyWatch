@@ -155,3 +155,30 @@ Forward-notes to fold into T13+ work:
 3. **writeWithoutTransaction consistency** — open()'s two RESTART checkpoints still run inside `queue.write{}` (transaction-wrapped). Harmless at open (no concurrent writers) but align them so future authors don't cargo-cult the wrong one.
 4. Minor cleanups: dead `BackfillProgressStoreError {}` enum. Document that monotonic-guarded upsert silently no-ops backwards writes (intended). QuarantineRow always fills capturedAt from Swift Date(), so DB DEFAULT is effectively dead for this store.
 5. **Confirm SamplesStore ingest doesn't Log per-row** — 200 Hz path is the one that must stay silent.
+
+## Combined-review checkpoint after T15 (Opus, 2026-07-16 07:20 PT)
+
+**CHECKPOINT PASSED.** 108/108 tests green. Sync layer coherent + ready for T16/T17.
+
+**Tech-debt now CLEARED:**
+- T10 multi-node samples_1min PK collision — resolved in T10.
+- All T13 R2 blockers (UDF row-scoping via subquery-materialized hlc_now_json + property test branch coverage) — resolved.
+- T13 nit #4 (assert nodeID.count == 16 in HLC.init) — applied.
+- T13 nit #1 (frozen-clock decisive test testRegisterUDFsMintsExactlyOncePerRowUnderFrozenClock) — applied.
+- T10/T11 nit: open()'s two RESTART checkpoints now use writeWithoutTransaction — applied.
+- HLCStamped adoption question — **RATIFIED**: canonical convention is "flat (physical, logical, nodeID) tuples at storage/wire; HLCStamped only for comparison and Comparable-based ordering". No retrofit needed.
+
+**Tech-debt STILL OPEN going into T16:**
+1. Compaction orchestration ownership — who computes ackedCursorPerNode + sequences retention→downsample→truncate? Deferred to T17-T19.
+2. observe() persist-incoming-remote contract — must be enforced at T17 call site (observe() returns clamped local view; peer _sync_log rows must persist incoming remote unchanged).
+3. T13 nit #2 (branch-counter mirror keep-in-lockstep comment) — trivial, apply during T17.
+4. Store-level Log.storage emission on interesting events (unknownOperation throws, unacked_overflow triggers) — T17-T19.
+5. HK adapter emitting into pipeline — deferred to T22.
+
+**T16 friction to pre-empt (per Opus):**
+- @Syncable macro MUST emit the mandatory subquery pattern: `FROM (SELECT hlc_now_json() AS h)`. Direct-multi-hlc-now-json is the anti-pattern that silently corrupts. Add a DDL-shape guard OR macro-side assertion so a mis-authored trigger fails at compile time, not silently at runtime.
+- _sync_log HLCs are NOT immutable — updated rows re-surface above the cursor because their HLC advances. Correct by design but easy to misread.
+
+### T14 + T15
+- [x] T14 (2026-07-16 06:33 PT). Author: Qwen3-Coder (impl) + conductor (test scaffolding after truncation). Reviewer: Opus SIGN-OFF. Quick: Flash. Commit `d11b98b`.
+- [x] T15 (2026-07-16 07:22 PT). Author: Qwen3-Coder. Reviewer: Opus REQUEST CHANGES (TableCursors CodingKeys mismatch with §2.7 — sample_tombstones/sync_log snake). Quick: Flash. Commit pending.
