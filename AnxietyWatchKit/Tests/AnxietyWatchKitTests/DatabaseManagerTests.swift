@@ -207,4 +207,123 @@ final class DatabaseManagerTests: XCTestCase {
         }
         XCTAssertEqual(count, 2)
     }
+    
+    // MARK: - T12: schema migrator + post-recovery hook (Spec §1.6)
+    
+    /// Actor-guarded capture box for the post-recovery hook argument.
+    private actor HookCapture {
+        private(set) var invoked = false
+        private(set) var capturedErrorDescription: String?
+        
+        func record(_ error: Error?) {
+            invoked = true
+            capturedErrorDescription = error.map { String(describing: $0) }
+        }
+    }
+    
+    private struct MigratorTestError: Error, CustomStringConvertible {
+        let description = "MigratorTestError.boom"
+    }
+    
+    func testSchemaMigratorRunsOnOpen() async throws {
+        let dbManager = DatabaseManager(url: dbURL)
+        await dbManager.setSchemaMigrator { db in
+            try db.execute(sql: "CREATE TABLE migrator_marker (id INTEGER PRIMARY KEY)")
+        }
+        
+        try await dbManager.open()
+        
+        let exists = try await dbManager.reader { db in
+            try db.tableExists("migrator_marker")
+        }
+        XCTAssertTrue(exists)
+        
+        await dbManager.close()
+    }
+    
+    func testSchemaMigratorReRunsAfterRecovery() async throws {
+        let dbManager = DatabaseManager(url: dbURL)
+        // Creates the marker table and inserts one row on EVERY invocation.
+        await dbManager.setSchemaMigrator { db in
+            try db.execute(sql: "CREATE TABLE migrator_marker (id INTEGER PRIMARY KEY, note TEXT)")
+            try db.execute(sql: "INSERT INTO migrator_marker (note) VALUES ('from-migrator')")
+        }
+        
+        try await dbManager.open()
+        
+        // Add user data so we can prove the post-recovery DB is fresh.
+        try await dbManager.writer { db in
+            try db.execute(sql: "INSERT INTO migrator_marker (note) VALUES ('user-data')")
+        }
+        let preCount = try await dbManager.reader { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM migrator_marker") ?? 0
+        }
+        XCTAssertEqual(preCount, 2)
+        
+        try await dbManager.forceCorruptionRecovery()
+        
+        // Marker table must exist again on the fresh DB (schema re-applied),
+        // containing only the migrator's own row — the user data is gone.
+        let exists = try await dbManager.reader { db in
+            try db.tableExists("migrator_marker")
+        }
+        XCTAssertTrue(exists)
+        
+        let postRows = try await dbManager.reader { db in
+            try String.fetchAll(db, sql: "SELECT note FROM migrator_marker")
+        }
+        XCTAssertEqual(postRows, ["from-migrator"])
+        
+        await dbManager.close()
+    }
+    
+    func testPostRecoveryHookInvokedWithNilOnSuccess() async throws {
+        let dbManager = DatabaseManager(url: dbURL)
+        let capture = HookCapture()
+        
+        await dbManager.setSchemaMigrator { db in
+            try db.execute(sql: "CREATE TABLE migrator_marker (id INTEGER PRIMARY KEY)")
+        }
+        await dbManager.setPostRecoveryHook { error in
+            await capture.record(error)
+        }
+        
+        try await dbManager.open()
+        try await dbManager.forceCorruptionRecovery()
+        
+        let invoked = await capture.invoked
+        let capturedError = await capture.capturedErrorDescription
+        XCTAssertTrue(invoked)
+        XCTAssertNil(capturedError)
+        
+        await dbManager.close()
+    }
+    
+    func testPostRecoveryHookInvokedWithErrorOnMigratorFailure() async throws {
+        let dbManager = DatabaseManager(url: dbURL)
+        let capture = HookCapture()
+        
+        // Open first WITHOUT a migrator so the initial open succeeds.
+        try await dbManager.open()
+        
+        // Now install a migrator that always throws — the recovery reopen will fail.
+        await dbManager.setSchemaMigrator { _ in
+            throw MigratorTestError()
+        }
+        await dbManager.setPostRecoveryHook { error in
+            await capture.record(error)
+        }
+        
+        do {
+            try await dbManager.forceCorruptionRecovery()
+            XCTFail("Expected recovery to rethrow the migrator error")
+        } catch {
+            XCTAssertEqual(String(describing: error), String(describing: MigratorTestError()))
+        }
+        
+        let invoked = await capture.invoked
+        let capturedError = await capture.capturedErrorDescription
+        XCTAssertTrue(invoked)
+        XCTAssertEqual(capturedError, String(describing: MigratorTestError()))
+    }
 }

@@ -4,6 +4,18 @@ import os
 
 /// Manages the SQLite database connection, opening, closing, and corruption recovery
 public actor DatabaseManager {
+    /// Applies schema migrations to a freshly-opened database connection.
+    /// Called both on first open() and after recoverFromCorruption() reopens.
+    /// Runs on the writer queue inside a savepoint, so throwing rolls back cleanly.
+    public typealias SchemaMigrator = @Sendable (Database) throws -> Void
+
+    /// Called after a corruption recovery has completed (fresh empty DB + schema
+    /// applied). Intended for the SyncCoordinator to kick full-restore-from-server
+    /// (Spec §1.6 step 6). The Error argument is nil on success, or the underlying
+    /// error if the migrator itself threw (in which case restore should NOT be
+    /// attempted).
+    public typealias PostRecoveryHook = @Sendable (Error?) async -> Void
+
     /// URL to the database file
     private let url: URL
     
@@ -12,6 +24,14 @@ public actor DatabaseManager {
     
     /// Registered database functions for re-adding after recovery
     private var registeredFunctions: [DatabaseFunction] = []
+    
+    /// Schema migrator applied at the end of every successful open() (Spec §1.6:
+    /// after recovery the fresh DB must get its schema back before anyone reads it).
+    private var schemaMigrator: SchemaMigrator?
+    
+    /// Hook invoked after a corruption recovery completes (SyncCoordinator.fullRestore
+    /// plumbing, T18). Invoked OFF the writer queue so it can call other actors.
+    private var postRecoveryHook: PostRecoveryHook?
     
     /// AsyncStream for corruption events
     private let (corruptionEventStream, corruptionEventContinuation) = AsyncStream<CorruptionEvent>.makeStream()
@@ -48,6 +68,12 @@ public actor DatabaseManager {
             case detected
             case recovering
             case recovered
+            /// Emitted after a recovery reopen has successfully re-applied the
+            /// schema migrator (Spec §1.6 — the fresh DB is usable again).
+            case schemaReapplied
+            /// Emitted just before the PostRecoveryHook is invoked on success
+            /// (UI "Recovering…" → restore-in-progress signal, Spec §1.6 step 7).
+            case restoreStarted
             /// Failure carries a Sendable projection of the underlying error so the
             /// event can cross actor boundaries (CorruptionBroadcaster, DiagnosticsScreen,
             /// MetricKitReporter). For GRDB DatabaseError, `code` is the SQLite result code.
@@ -73,6 +99,20 @@ public actor DatabaseManager {
     /// - Parameter url: The URL to the database file
     public init(url: URL) {
         self.url = url
+    }
+    
+    /// Sets the schema migrator, applied at the end of every successful open()
+    /// (including the reopen inside recoverFromCorruption()). Set this BEFORE
+    /// calling open() so the first connection is migrated too.
+    public func setSchemaMigrator(_ migrator: @escaping SchemaMigrator) async {
+        self.schemaMigrator = migrator
+    }
+    
+    /// Sets the post-recovery hook, invoked after recoverFromCorruption() has
+    /// reopened and re-migrated the fresh database. DatabaseManager stays
+    /// dependency-free: the Sync layer registers itself here at bootstrap.
+    public func setPostRecoveryHook(_ hook: @escaping PostRecoveryHook) async {
+        self.postRecoveryHook = hook
     }
     
     /// Builds a GRDB `Configuration` whose `prepareDatabase` closure applies the
@@ -220,6 +260,25 @@ public actor DatabaseManager {
                 return
             }
         }
+        
+        // Apply schema migrations on the writer queue. Runs inside a savepoint
+        // so a throwing migrator rolls back cleanly; on failure the connection
+        // is closed and the error propagated (callers must not see a half-
+        // migrated DB).
+        if let migrator = schemaMigrator, let queue = self.queue {
+            do {
+                try await queue.write { db in
+                    try db.inSavepoint {
+                        try migrator(db)
+                        return .commit
+                    }
+                }
+            } catch {
+                Log.storage.error("Schema migrator failed during open: \(error)")
+                self.queue = nil
+                throw error
+            }
+        }
     }
     
     /// Closes the database connection
@@ -305,16 +364,34 @@ public actor DatabaseManager {
                 }
             }
             
-            // Reopen fresh database
+            // Reopen fresh database. open() re-applies the schema migrator at
+            // the end of a successful open, so the fresh DB is never left
+            // schemaless ("no such table" on the next read).
             try await open()
             
             // Notify about successful recovery
             corruptionEventContinuation.yield(CorruptionEvent(timestamp: Date(), phase: .recovered))
+            if schemaMigrator != nil {
+                corruptionEventContinuation.yield(CorruptionEvent(timestamp: Date(), phase: .schemaReapplied))
+            }
             Log.storage.info("Database corruption recovery completed")
+            
+            // Kick the post-recovery hook (SyncCoordinator.fullRestore, Spec §1.6
+            // step 6) OFF the writer queue: plain await in actor context so the
+            // hook can freely hop to other actors.
+            if let hook = postRecoveryHook {
+                corruptionEventContinuation.yield(CorruptionEvent(timestamp: Date(), phase: .restoreStarted))
+                await hook(nil)
+            }
         } catch {
             // Notify about failed recovery
             corruptionEventContinuation.yield(CorruptionEvent(timestamp: Date(), phase: Self.failedPhase(error)))
             Log.storage.fault("Database corruption recovery failed: \(error)")
+            // Inform the hook that recovery did NOT produce a usable DB (e.g.
+            // the migrator threw). Restore must not be attempted in this case.
+            if let hook = postRecoveryHook {
+                await hook(error)
+            }
             throw error
         }
     }
