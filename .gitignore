@@ -112,3 +112,7 @@ AnxietyWatch/Utilities/BuildVersion.swift
 # Instruments / network capture artifacts (may contain live session data)
 *.trace/
 *.trace
+# SPM build artifacts
+AnxietyWatchKit/.build/
+AnxietyWatchKit/.swiftpm/
+
