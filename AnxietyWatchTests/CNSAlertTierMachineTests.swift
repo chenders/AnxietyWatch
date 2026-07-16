@@ -213,6 +213,48 @@ struct CNSAlertTierMachineTests {
         #expect(tier == .watch)
     }
 
+    @Test("Corroborating-only evidence can never escalate past watch, however high or long")
+    func corroboratingOnlyCannotEscalatePastWatch() {
+        var m = machine()
+        // A HR/HRV-only stream (no SpO₂/RR sensor) with a score well above the
+        // confirm/klaxon thresholds (0.55/0.80 alone-mode) sustained for far
+        // longer than every rise window combined must cap at watch: only
+        // primary (SpO₂/RR) evidence may push a tier past watch (spec §5.2).
+        // Guards the `next > .watch` primary-informed gate in advanceRise
+        // directly, independent of CNSFusionEngine's corroborating risk cap —
+        // so a future threshold/fusion retune can't silently reopen the path.
+        var tier = m.tier
+        for second in 0..<400 {
+            tier = m.ingest(
+                .assessed(riskScore: 0.95, contributions: corroboratingOnly(0.95)),
+                at: t0.addingTimeInterval(Double(second))
+            )
+        }
+        #expect(tier == .watch)
+    }
+
+    @Test("A primary-raised watch tier is never wedged higher by a later corroborating-only stream")
+    func corroboratingOnlyDoesNotWedgeTierAboveWatch() {
+        var m = machine()
+        // Rise to watch on genuine primary evidence …
+        let raised = feed(&m, score: 0.4, seconds: 70)
+        #expect(raised == .watch)
+        // … then the SpO₂ sensor drops out and only a high HR/HRV stream
+        // remains for well beyond the clear-sustain window. The tier must not
+        // escalate past watch, since no primary evidence is present to do so.
+        // (The complementary invariant — that a raised tier can't be *cleared*
+        // by corroborating-only evidence either — is covered separately by
+        // `corroboratingOnlyTicksCannotClear`.) It should hold at watch.
+        var tier = raised
+        for second in 70..<400 {
+            tier = m.ingest(
+                .assessed(riskScore: 0.95, contributions: corroboratingOnly(0.95)),
+                at: t0.addingTimeInterval(Double(second))
+            )
+        }
+        #expect(tier == .watch)
+    }
+
     @Test("A tick-starvation blackout inside a clear window restarts it — never clear on bracketing lows")
     func blackoutRestartsClearWindow() {
         var m = machine()
