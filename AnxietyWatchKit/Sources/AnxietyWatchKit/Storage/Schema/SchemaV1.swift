@@ -100,7 +100,11 @@ public enum SchemaV1 {
           hlc_logical   INTEGER NOT NULL,
           node_id       BLOB    NOT NULL,
           reason        TEXT    NOT NULL,
-          payload       BLOB,
+          payload       BLOB    NOT NULL,
+          -- Local wall-clock at quarantine time (ms since Unix epoch). Used for
+          -- diagnostics ordering because hlc_physical is by definition untrusted
+          -- on rows that got quarantined (drift-exceeded).
+          captured_at   INTEGER NOT NULL DEFAULT (CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)),
           PRIMARY KEY (table_name, row_pk, hlc_physical, hlc_logical, node_id)
         ) WITHOUT ROWID, STRICT
         """

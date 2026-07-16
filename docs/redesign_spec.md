@@ -715,6 +715,7 @@ User-visible screen accessible from Settings, showing:
 - Current DB size, WAL size, rollup coverage %.
 - `clockSuspect` state.
 - Last 10 `data_gap` events by reason.
+- Last 10 quarantined rows (from `_sync_quarantine`) ordered by trusted `captured_at` (local ingest wall-clock), not by the untrusted incoming HLC.
 - Sync last-success / next-attempt.
 - Feature flag values.
 - OSLog fault count over last 24 h.
