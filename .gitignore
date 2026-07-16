@@ -116,3 +116,7 @@ AnxietyWatch/Utilities/BuildVersion.swift
 AnxietyWatchKit/.build/
 AnxietyWatchKit/.swiftpm/
 
+
+# Scratch
+debug_*
+Scratch/
