@@ -133,6 +133,16 @@ struct CNSThresholds: Sendable {
     /// spot-checks at ~1/hour) through the per-second-coverage math, which
     /// would silently return near-zero coverage and look like "bad data"
     /// rather than the correct signal: "this source is too sparse to assess."
+    ///
+    /// Phase-1 floor: at the `standard` values this check is redundant — were
+    /// it removed, a 0-sample window would still be rejected by the empty-
+    /// window guard in `CNSQualityGate.evaluate`, and a 1-sample window by the
+    /// near-zero contiguous-run check (`gateMinContiguousGoodSeconds`, 30 s) or
+    /// the artifact-fraction check. (As written it runs before those, so it is
+    /// what actually rejects a 1-sample window today.) It becomes load-bearing
+    /// only when a real sparse-cadence adapter lands — at which point the
+    /// minimum should be derived from the window/cadence rather than left as a
+    /// flat constant.
     var gateMinSampleCount: Int = 2
 
     // MARK: - Confidence
