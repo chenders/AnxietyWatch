@@ -136,3 +136,11 @@ All three panes smoke-tested with `reply with just OK` → all responded.
 - quick-check (gpt-5.5-pro): distinct-provider third-pass QUICK-CHECK.
 
 Multi-model workflow restored: AUTHOR (worker-2) → REVIEWER (worker-1) ↔ iterate → QUICK-CHECK (quick-check) → commit.
+
+## Queued post-completion steps
+
+Executed automatically once the spec is implemented, tested, and coverage target hit:
+1. **Install the app on the iPhone `theodore`** — via `xcodebuild -destination "id=<theodore's UDID>,name=theodore"` or the XcodeBuildMCP `build_run_ios_device` flow. Confirm signing team + provisioning first; ask if manual code-signing is required.
+2. Only then start the `/respond-to-copilot` review cycle.
+
+If any of these are blocked at that point (device not paired, provisioning missing, etc.) I will surface the block rather than proceed.

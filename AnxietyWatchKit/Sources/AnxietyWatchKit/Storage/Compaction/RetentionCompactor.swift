@@ -124,7 +124,7 @@ public actor RetentionCompactor {
 
         // PASSIVE checkpoint only — never TRUNCATE here (Spec §1.5: TRUNCATE
         // runs solely inside the WKApplicationRefresh background task, T11).
-        try await database.writer { db in
+        try await database.writeWithoutTransaction { db in
             try db.execute(sql: "PRAGMA wal_checkpoint(PASSIVE)")
         }
 

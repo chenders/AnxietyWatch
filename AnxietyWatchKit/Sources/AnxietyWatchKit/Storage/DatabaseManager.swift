@@ -27,6 +27,11 @@ public actor DatabaseManager {
         url.deletingLastPathComponent().appendingPathComponent(".cleanshutdown-\(url.lastPathComponent)")
     }
     
+    /// Checkpoint in progress marker file name
+    private var checkpointInProgressMarker: URL {
+        url.deletingLastPathComponent().appendingPathComponent(".checkpoint-in-progress-\(url.lastPathComponent)")
+    }
+    
     /// Database errors
     public enum DatabaseError: Error, Sendable {
         case notOpen
@@ -123,6 +128,9 @@ public actor DatabaseManager {
         // Check for clean shutdown marker
         let wasCleanShutdown = FileManager.default.fileExists(atPath: cleanShutdownMarker.path)
         
+        // Check for checkpoint in progress marker
+        let hadAbortedCheckpoint = FileManager.default.fileExists(atPath: checkpointInProgressMarker.path)
+        
         // Try to open database, with corruption recovery if needed
         do {
             let dbQueue = try DatabaseQueue(path: url.path, configuration: makeConfiguration())
@@ -163,6 +171,27 @@ public actor DatabaseManager {
         // Remove clean shutdown marker on successful open (before any writes)
         if wasCleanShutdown {
             try? FileManager.default.removeItem(at: cleanShutdownMarker)
+        }
+        
+        // Handle aborted checkpoint independently of clean shutdown
+        if hadAbortedCheckpoint {
+            // Run RESTART checkpoint to recover from aborted TRUNCATE
+            try await self.queue!.write { db in
+                try db.execute(sql: "PRAGMA wal_checkpoint(RESTART)")
+            }
+            
+            // Re-check integrity after checkpoint
+            let postCheckpointIntegrity = try await self.queue!.read { db in
+                try String.fetchOne(db, sql: "PRAGMA integrity_check")
+            }
+            
+            if postCheckpointIntegrity != "ok" {
+                try await recoverFromCorruption()
+                return
+            }
+            
+            // Remove checkpoint marker after successful recovery
+            try? FileManager.default.removeItem(at: checkpointInProgressMarker)
         }
         
         // Check integrity
@@ -222,6 +251,17 @@ public actor DatabaseManager {
         }
         
         return try queue.write(block)
+    }
+    
+    /// Executes a write operation on the database without wrapping in a transaction
+    /// - Parameter block: The write operation to execute
+    /// - Returns: The result of the write operation
+    public func writeWithoutTransaction<T>(_ block: @Sendable (Database) throws -> T) async throws -> T {
+        guard let queue = self.queue else {
+            throw DatabaseError.notOpen
+        }
+        
+        return try queue.writeWithoutTransaction(block)
     }
     
     /// Executes a read operation on the database
