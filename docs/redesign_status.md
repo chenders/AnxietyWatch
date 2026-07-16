@@ -37,8 +37,12 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 - [x] T04. SchemaV1 DDL bundle. Author: Qwen3-Coder (author-fast rerouted — Groq TPM cap 12k tokens). Reviewer: Opus (3 nits). Quick: Flash. Commit `43569c5`.
 
 **Author-fast update (2026-07-16 02:15 PT):** user switched author-fast to `openai/gpt-5.3-codex` — agentic-coding model, appears reliable. Re-add to rotation for T05+.
-- [ ] T05. `Storage/SamplesStore.swift` + tests. Includes HK-boundary trap. AUTHOR-Swift.
-- [ ] T06. `Storage/SyncLogStore.swift` + tests. AUTHOR-Fast.
+- [x] T05. SamplesStore. Author: Qwen3-Coder. Reviewer: Opus (3 correctness fixes). Quick: Flash. Commit `7cd5026`.
+- [x] T06. SyncLogStore. Author: Qwen3-Coder. Reviewer: Opus (3 correctness fixes incl HLC-guarded ON CONFLICT). Quick: Flash. Commit `7cd5026`.
+- [x] T06a. HLCStamped. Author: gpt-5.3-codex. Reviewer: Opus (nodeID-width fix in spec §2.1). Quick: Opus. Commit `582d612`.
+- [x] T06b. DatabaseManager.registerFunction. Author: Qwen3-Coder produced only a dead field; implementation by conductor from Opus's spec. Reviewer: Opus. Quick: Opus. Commit `582d612`.
+- [ ] T06c. `Storage/SampleTombstonesStore.swift`. Mirror of SamplesStore. AUTHOR-Swift.
+- [x] T06d. CorruptionBroadcaster. Author: gpt-5.3-codex + conductor (onTermination, publish self-prune, Phase Sendable projection). Reviewer: Opus. Quick: Opus. Commit `582d612`.
 - [ ] T07. `Storage/BackfillProgressStore.swift` + tests. AUTHOR-Fast.
 - [ ] T08. `Storage/QuarantineStore.swift` + tests. AUTHOR-Fast.
 - [ ] T09. `Storage/Compaction/RetentionCompactor.swift` + tests. AUTHOR-Swift.
