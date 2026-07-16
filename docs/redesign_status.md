@@ -91,7 +91,7 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 - [ ] T40. Documentation pass: update `AGENTS.md`, add ADRs for each subsystem. AUTHOR-Fast.
 
 ## Combined-review checkpoints
-- [ ] After T05
+- [x] After T05 (Opus). Blocked first pass on hygiene; passed conceptually after commit + insertion of T06a-T06d as follow-ups. Log entry below.
 - [ ] After T10
 - [ ] After T15
 - [ ] After T20
