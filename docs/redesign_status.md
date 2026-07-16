@@ -144,3 +144,14 @@ Executed automatically once the spec is implemented, tested, and coverage target
 2. Only then start the `/respond-to-copilot` review cycle.
 
 If any of these are blocked at that point (device not paired, provisioning missing, etc.) I will surface the block rather than proceed.
+
+## Combined-review checkpoint after T10 (Opus, 2026-07-16 05:45 PT)
+
+**CHECKPOINT PASSED.** 77/77 tests green. All individual T07-T11 review blockers remediated in committed tree.
+
+Forward-notes to fold into T13+ work:
+1. **Orchestration ownership** — nobody yet computes `ackedCursorPerNode` or sequences the four Compaction actors. T17 SyncCoordinator becomes the cursor owner; add an explicit Compaction orchestrator with pinned ordering: daily = retention → downsample → TRUNCATE; panic = on-demand downsample → evict → tombstone insert. Also fold this ordering into Spec §1.5 / §2.6 so the next author doesn't rediscover it.
+2. **HLCStamped adoption** — pick a canonical shape after T13 (all row types migrate to `hlc: HLCStamped`, OR "flat at storage, HLCStamped only in sync/wire"). Don't leave the migration partial.
+3. **writeWithoutTransaction consistency** — open()'s two RESTART checkpoints still run inside `queue.write{}` (transaction-wrapped). Harmless at open (no concurrent writers) but align them so future authors don't cargo-cult the wrong one.
+4. Minor cleanups: dead `BackfillProgressStoreError {}` enum. Document that monotonic-guarded upsert silently no-ops backwards writes (intended). QuarantineRow always fills capturedAt from Swift Date(), so DB DEFAULT is effectively dead for this store.
+5. **Confirm SamplesStore ingest doesn't Log per-row** — 200 Hz path is the one that must stay silent.
