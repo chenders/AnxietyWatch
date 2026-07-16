@@ -28,7 +28,9 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ### Foundation
 - [x] T01. `AnxietyWatchKit` SPM foundation. Author: Qwen3-Coder. Reviewer: Opus (2 rounds → sign-off). Quick: Flash. Commit `74a24cb`. **Xcode-project package reference deferred to T02+ as a hard gate.**
-- [ ] T02. `Diagnostics/Logger.swift` + `Diagnostics/Signpost.swift` — OSLog subsystems for every module. AUTHOR-Fast.
+- [x] T02. Diagnostics logging + signposts. Author: Qwen3-Coder (AUTHOR-Fast on Groq llama-3.3-70b hit TPM=12k limit on 20k prompt; rerouted). Reviewer: Opus SIGN-OFF w/ nits. Quick: Flash. Commit `69293aa`. Spec §8.3 amended to lock single-subsystem convention.
+
+**Note on AUTHOR-Fast:** Groq free tier caps `llama-3.3-70b-versatile` at 12k TPM. Prompts must stay <8k prompt tokens (no file reads). Currently only useful for pure-generation tasks with tiny prompts. Consider deferring to shell/worker-2 for anything requiring context files.
 - [ ] T03. `Storage/DatabaseManager.swift` skeleton — open/close, PRAGMAs, corruption circuit breaker interface (no schema yet). AUTHOR-Swift + REVIEWER Opus.
 
 ### Storage (§1)
@@ -107,3 +109,4 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 _Timestamps in local time. Each entry: author, reviewer(s), commit sha._
 
 - **T01** (2026-07-16 00:57 PT) · author=Qwen3-Coder · reviewer=Opus (2 rounds) · quick=Flash · commit=74a24cb · notes: reviewer flagged empty subdirs (fixed via `*Namespace.swift` placeholders) and scope drift (Watch/ folder removed). GRDB pin refined to `.upToNextMajor(from: "6.29.3")`. Xcode-project integration deferred to first consumer task with hard-gate reminder in T02.
+- **T02** (2026-07-16 01:32 PT) · author=Qwen3-Coder (rerouted from AUTHOR-Fast which hit Groq TPM limit) · reviewer=Opus (1 round → SIGN-OFF + nits) · quick=Flash · commit=69293aa · notes: added Log.healthkit + Log.complication categories, `id:` param on beginInterval, spec §8.3 amended. Test-spy protocol tracked as tech debt for downstream sync/panic tests.
