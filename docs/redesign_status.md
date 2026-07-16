@@ -117,3 +117,22 @@ _Timestamps in local time. Each entry: author, reviewer(s), commit sha._
 - **T01** (2026-07-16 00:57 PT) · author=Qwen3-Coder · reviewer=Opus (2 rounds) · quick=Flash · commit=74a24cb · notes: reviewer flagged empty subdirs (fixed via `*Namespace.swift` placeholders) and scope drift (Watch/ folder removed). GRDB pin refined to `.upToNextMajor(from: "6.29.3")`. Xcode-project integration deferred to first consumer task with hard-gate reminder in T02.
 - **T02** (2026-07-16 01:32 PT) · author=Qwen3-Coder (rerouted from AUTHOR-Fast which hit Groq TPM limit) · reviewer=Opus (1 round → SIGN-OFF + nits) · quick=Flash · commit=69293aa · notes: added Log.healthkit + Log.complication categories, `id:` param on beginInterval, spec §8.3 amended. Test-spy protocol tracked as tech debt for downstream sync/panic tests.
 - **T03+T04** (2026-07-16 02:16 PT) · author=Qwen3-Coder (T03+T04 both, since author-fast was Groq-throttled and briefly on broken gpt-5.6 fallback) · reviewer=Opus (T03: 5 fixes; T04: 3 nits including inSavepoint) · quick=Flash · commit=43569c5 · 15 tests passing. Tech debt: string-match on GRDB error description (fix #3), single-consumer CorruptionEvent stream, and SyncCoordinator.fullRestore() dependency for T17.
+
+## Model availability snapshot (2026-07-16 03:55 PT — post user pane restart)
+
+User reset the three main panes with different models. Shell + author-fast panes remain closed.
+
+| Role | Pane | Model | Status |
+|---|---|---|---|
+| REVIEWER | worker-1 (w1:p3) | deepseek/deepseek-v4-pro | ✅ |
+| AUTHOR | worker-2 (w1:p4) | claude-fable-5 | ✅ (Anthropic sub) |
+| QUICK-CHECK | quick-check (w1:p6) | openai/gpt-5.5-pro | ✅ |
+
+All three panes smoke-tested with `reply with just OK` → all responded.
+
+**Role reassignments per model strength:**
+- worker-1 (deepseek-v4-pro): rigorous chain-of-thought → primary REVIEWER (replacing Opus).
+- worker-2 (claude-fable-5): strong Swift/actor concurrency → AUTHOR for all tasks.
+- quick-check (gpt-5.5-pro): distinct-provider third-pass QUICK-CHECK.
+
+Multi-model workflow restored: AUTHOR (worker-2) → REVIEWER (worker-1) ↔ iterate → QUICK-CHECK (quick-check) → commit.
