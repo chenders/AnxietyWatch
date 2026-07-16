@@ -31,10 +31,12 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 - [x] T02. Diagnostics logging + signposts. Author: Qwen3-Coder (AUTHOR-Fast on Groq llama-3.3-70b hit TPM=12k limit on 20k prompt; rerouted). Reviewer: Opus SIGN-OFF w/ nits. Quick: Flash. Commit `69293aa`. Spec §8.3 amended to lock single-subsystem convention.
 
 **Note on AUTHOR-Fast:** Groq free tier caps `llama-3.3-70b-versatile` at 12k TPM. Prompts must stay <8k prompt tokens (no file reads). Currently only useful for pure-generation tasks with tiny prompts. Consider deferring to shell/worker-2 for anything requiring context files.
-- [ ] T03. `Storage/DatabaseManager.swift` skeleton — open/close, PRAGMAs, corruption circuit breaker interface (no schema yet). AUTHOR-Swift + REVIEWER Opus.
+- [x] T03. DatabaseManager skeleton. Author: Qwen3-Coder. Reviewer: Opus (5 fix items). Quick: Flash. Commit `43569c5`.
 
 ### Storage (§1)
-- [ ] T04. `Storage/Schema/SchemaV1.swift` — full DDL for samples, sample_tombstones, samples_1min, _sync_log, _backfill_progress, _sync_quarantine. AUTHOR-Fast (schemas are its sweet spot).
+- [x] T04. SchemaV1 DDL bundle. Author: Qwen3-Coder (author-fast rerouted — Groq TPM cap 12k tokens). Reviewer: Opus (3 nits). Quick: Flash. Commit `43569c5`.
+
+**Author-fast update (2026-07-16 02:15 PT):** user switched author-fast to `openai/gpt-5.3-codex` — agentic-coding model, appears reliable. Re-add to rotation for T05+.
 - [ ] T05. `Storage/SamplesStore.swift` + tests. Includes HK-boundary trap. AUTHOR-Swift.
 - [ ] T06. `Storage/SyncLogStore.swift` + tests. AUTHOR-Fast.
 - [ ] T07. `Storage/BackfillProgressStore.swift` + tests. AUTHOR-Fast.
@@ -110,3 +112,4 @@ _Timestamps in local time. Each entry: author, reviewer(s), commit sha._
 
 - **T01** (2026-07-16 00:57 PT) · author=Qwen3-Coder · reviewer=Opus (2 rounds) · quick=Flash · commit=74a24cb · notes: reviewer flagged empty subdirs (fixed via `*Namespace.swift` placeholders) and scope drift (Watch/ folder removed). GRDB pin refined to `.upToNextMajor(from: "6.29.3")`. Xcode-project integration deferred to first consumer task with hard-gate reminder in T02.
 - **T02** (2026-07-16 01:32 PT) · author=Qwen3-Coder (rerouted from AUTHOR-Fast which hit Groq TPM limit) · reviewer=Opus (1 round → SIGN-OFF + nits) · quick=Flash · commit=69293aa · notes: added Log.healthkit + Log.complication categories, `id:` param on beginInterval, spec §8.3 amended. Test-spy protocol tracked as tech debt for downstream sync/panic tests.
+- **T03+T04** (2026-07-16 02:16 PT) · author=Qwen3-Coder (T03+T04 both, since author-fast was Groq-throttled and briefly on broken gpt-5.6 fallback) · reviewer=Opus (T03: 5 fixes; T04: 3 nits including inSavepoint) · quick=Flash · commit=43569c5 · 15 tests passing. Tech debt: string-match on GRDB error description (fix #3), single-consumer CorruptionEvent stream, and SyncCoordinator.fullRestore() dependency for T17.
