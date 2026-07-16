@@ -707,7 +707,7 @@ Every flag flip logs an OSLog event and appears on the diagnostics screen.
 
 ### 8.3 Signposts
 
-Every BLE frame parse, sync pull/push, refresh-task lifecycle, and SQLite write batch is wrapped in an `os_signpost` interval with a category-specific subsystem (`com.anxietywatch.<subsystem>`). Instruments profile is checked in to `Docs/InstrumentsTemplates/`.
+Every BLE frame parse, sync pull/push, refresh-task lifecycle, and SQLite write batch is wrapped in an `os_signpost` interval. **Convention (locked in T02):** a single framework-wide subsystem `com.anxietywatch.kit` with per-module categories (`storage`, `sync`, `hlc`, `ble`, `pipeline`, `transport`, `wc`, `panic`, `migration`, `diag`, `complication`; `healthkit` is an alias for `ble`). Filter by category in Instruments. Instruments profile is checked in to `Docs/InstrumentsTemplates/`.
 
 ### 8.4 Diagnostics screen
 

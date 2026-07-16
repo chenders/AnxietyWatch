@@ -27,7 +27,7 @@ Every 5 completed tasks: full combined review of the branch diff since the last 
 Legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ### Foundation
-- [~] T01. Create `AnxietyWatchKit` SPM-inside-Xcode framework target (iOS + watchOS). Wire it into the existing `AnxietyWatch.xcodeproj`. Initial folder skeleton per Spec §0. Add empty `AnxietyWatchKit.swift` public umbrella. AUTHOR-Swift, REVIEWER Opus. — pending
+- [x] T01. `AnxietyWatchKit` SPM foundation. Author: Qwen3-Coder. Reviewer: Opus (2 rounds → sign-off). Quick: Flash. Commit `74a24cb`. **Xcode-project package reference deferred to T02+ as a hard gate.**
 - [ ] T02. `Diagnostics/Logger.swift` + `Diagnostics/Signpost.swift` — OSLog subsystems for every module. AUTHOR-Fast.
 - [ ] T03. `Storage/DatabaseManager.swift` skeleton — open/close, PRAGMAs, corruption circuit breaker interface (no schema yet). AUTHOR-Swift + REVIEWER Opus.
 
@@ -105,3 +105,5 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 ## Log
 
 _Timestamps in local time. Each entry: author, reviewer(s), commit sha._
+
+- **T01** (2026-07-16 00:57 PT) · author=Qwen3-Coder · reviewer=Opus (2 rounds) · quick=Flash · commit=74a24cb · notes: reviewer flagged empty subdirs (fixed via `*Namespace.swift` placeholders) and scope drift (Watch/ folder removed). GRDB pin refined to `.upToNextMajor(from: "6.29.3")`. Xcode-project integration deferred to first consumer task with hard-gate reminder in T02.
