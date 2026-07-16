@@ -216,7 +216,7 @@ struct CNSAlertTierMachineTests {
     @Test("Corroborating-only evidence can never escalate past watch, however high or long")
     func corroboratingOnlyCannotEscalatePastWatch() {
         var m = machine()
-        // A HR/HRV-only stream (no SpO₂/RR sensor) with a score well above the
+        // An HR-only stream (no SpO₂/RR sensor) with a score well above the
         // confirm/klaxon thresholds (0.55/0.80 alone-mode) sustained for far
         // longer than every rise window combined must cap at watch: only
         // primary (SpO₂/RR) evidence may push a tier past watch (spec §5.2).
@@ -239,7 +239,7 @@ struct CNSAlertTierMachineTests {
         // Rise to watch on genuine primary evidence …
         let raised = feed(&m, score: 0.4, seconds: 70)
         #expect(raised == .watch)
-        // … then the SpO₂ sensor drops out and only a high HR/HRV stream
+        // … then the SpO₂ sensor drops out and only a high HR stream
         // remains for well beyond the clear-sustain window. The tier must not
         // escalate past watch, since no primary evidence is present to do so.
         // (The complementary invariant — that a raised tier can't be *cleared*
