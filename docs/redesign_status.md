@@ -41,7 +41,7 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 - [x] T06. SyncLogStore. Author: Qwen3-Coder. Reviewer: Opus (3 correctness fixes incl HLC-guarded ON CONFLICT). Quick: Flash. Commit `7cd5026`.
 - [x] T06a. HLCStamped. Author: gpt-5.3-codex. Reviewer: Opus (nodeID-width fix in spec §2.1). Quick: Opus. Commit `582d612`.
 - [x] T06b. DatabaseManager.registerFunction. Author: Qwen3-Coder produced only a dead field; implementation by conductor from Opus's spec. Reviewer: Opus. Quick: Opus. Commit `582d612`.
-- [ ] T06c. `Storage/SampleTombstonesStore.swift`. Mirror of SamplesStore. AUTHOR-Swift.
+- [x] T06c. SampleTombstonesStore. Author: conductor (single-reviewer mode). Reviewer: Opus SIGN-OFF. Quick-check: none (Flash over budget). Commit `0a6aa85`. Forward-notes: no tombstone GC yet; style drift (named vs positional row subscripts); fetchOverlapping unpaginated.
 - [x] T06d. CorruptionBroadcaster. Author: gpt-5.3-codex + conductor (onTermination, publish self-prune, Phase Sendable projection). Reviewer: Opus. Quick: Opus. Commit `582d612`.
 - [ ] T07. `Storage/BackfillProgressStore.swift` + tests. AUTHOR-Fast.
 - [ ] T08. `Storage/QuarantineStore.swift` + tests. AUTHOR-Fast.
