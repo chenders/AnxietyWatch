@@ -35,7 +35,7 @@ public enum SchemaV1 {
           source INTEGER NOT NULL, type INTEGER NOT NULL, minute_bucket INTEGER NOT NULL,
           value REAL NOT NULL, sample_count INTEGER NOT NULL,
           hlc_physical INTEGER NOT NULL, hlc_logical INTEGER NOT NULL, node_id BLOB NOT NULL,
-          PRIMARY KEY (source, type, minute_bucket)
+          PRIMARY KEY (source, type, minute_bucket, node_id)
           CHECK(sample_count >= 1)  -- Catch downsampler bugs
         ) WITHOUT ROWID, STRICT
         """,
