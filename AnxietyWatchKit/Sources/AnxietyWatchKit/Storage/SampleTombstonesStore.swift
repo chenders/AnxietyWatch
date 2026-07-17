@@ -47,6 +47,22 @@ public struct SampleTombstoneRow: Sendable, Equatable {
     }
 }
 
+/// Wire encoding per Spec §2.7 style: snake_case throughout.
+/// Keys are load-bearing — changing them breaks the server contract.
+extension SampleTombstoneRow: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case source
+        case type
+        case tsStart = "ts_start"
+        case tsEnd = "ts_end"
+        case hlcPhysical = "hlc_physical"
+        case hlcLogical = "hlc_logical"
+        case nodeID = "node_id"
+        case droppedRowCount = "dropped_row_count"
+        case reason
+    }
+}
+
 /// Storage layer for the `sample_tombstones` table.
 ///
 /// Callers (PanicProtocol, RetentionCompactor, corruption recovery, and manual
@@ -96,6 +112,61 @@ public actor SampleTombstonesStore {
             }
             return inserted
         }
+    }
+
+    /// HLC-guarded upsert (sync pull-apply path), symmetric with
+    /// `SamplesStore.upsertHLCLatest`. NOTE: the tombstone PK already includes
+    /// (hlc_physical, hlc_logical, node_id), so a "same range, newer HLC"
+    /// arrival is a NEW row by construction; a conflict can only be an exact
+    /// duplicate, which the HLC guard drops. Semantically equivalent to
+    /// INSERT OR IGNORE but kept in the guarded-upsert shape so the pull-apply
+    /// path has one uniform semantic across tables.
+    /// - Returns: how many rows were newly inserted vs LWW-updated.
+    @discardableResult
+    public func upsertHLCLatest(_ rows: [SampleTombstoneRow]) async throws -> (inserted: Int, updated: Int) {
+        guard !rows.isEmpty else { return (0, 0) }
+        return try await database.writer { db in
+            try Self.upsertHLCLatest(rows, in: db)
+        }
+    }
+
+    /// Transaction-composable core of `upsertHLCLatest(_:)` — callable from an
+    /// enclosing writer block (SyncCoordinator applies a whole pulled batch in
+    /// ONE transaction).
+    @discardableResult
+    public static func upsertHLCLatest(_ rows: [SampleTombstoneRow], in db: Database) throws -> (inserted: Int, updated: Int) {
+        var inserted = 0
+        var updated = 0
+        for row in rows {
+            let exists = try Bool.fetchOne(db, sql: """
+                SELECT EXISTS(SELECT 1 FROM sample_tombstones
+                    WHERE source = ? AND type = ? AND ts_start = ?
+                      AND hlc_physical = ? AND hlc_logical = ? AND node_id = ?)
+                """, arguments: [
+                    row.source, row.type, row.tsStart,
+                    row.hlcPhysical, row.hlcLogical, row.nodeID
+                ]) ?? false
+            try db.execute(sql: """
+                INSERT INTO sample_tombstones
+                    (source, type, ts_start, ts_end,
+                     hlc_physical, hlc_logical, node_id, dropped_row_count, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source, type, ts_start, hlc_physical, hlc_logical, node_id) DO UPDATE SET
+                    ts_end            = excluded.ts_end,
+                    dropped_row_count = excluded.dropped_row_count,
+                    reason            = excluded.reason
+                WHERE (excluded.hlc_physical, excluded.hlc_logical)
+                    > (sample_tombstones.hlc_physical, sample_tombstones.hlc_logical)
+                """, arguments: [
+                    row.source, row.type, row.tsStart, row.tsEnd,
+                    row.hlcPhysical, row.hlcLogical, row.nodeID,
+                    row.droppedRowCount, row.reason.rawValue
+                ])
+            if db.changesCount > 0 {
+                if exists { updated += 1 } else { inserted += 1 }
+            }
+        }
+        return (inserted, updated)
     }
 
     // MARK: - Range queries

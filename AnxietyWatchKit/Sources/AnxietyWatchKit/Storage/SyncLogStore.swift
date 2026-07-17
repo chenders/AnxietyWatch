@@ -30,6 +30,19 @@ public struct SyncLogEntry: Sendable, Equatable {
     }
 }
 
+/// Wire encoding per Spec §2.7 style: snake_case throughout.
+/// Keys are load-bearing — changing them breaks the server contract.
+extension SyncLogEntry: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case tableName = "table_name"
+        case rowPK = "row_pk"
+        case hlcPhysical = "hlc_physical"
+        case hlcLogical = "hlc_logical"
+        case nodeID = "node_id"
+        case operation
+    }
+}
+
 /// Storage layer for the _sync_log table
 public actor SyncLogStore {
     private let database: DatabaseManager

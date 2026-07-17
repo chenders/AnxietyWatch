@@ -25,6 +25,21 @@ public struct SampleRow: Sendable, Equatable {
     }
 }
 
+/// Wire encoding per Spec §2.7 style: snake_case for HLC fields + node_id.
+/// Keys are load-bearing — changing them breaks the server contract.
+extension SampleRow: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case source
+        case type
+        case timestamp
+        case value
+        case extra
+        case hlcPhysical = "hlc_physical"
+        case hlcLogical = "hlc_logical"
+        case nodeID = "node_id"
+    }
+}
+
 /// Storage layer for the samples table
 public actor SamplesStore {
     private let database: DatabaseManager
@@ -97,6 +112,63 @@ public actor SamplesStore {
         }
     }
     
+    /// HLC-guarded last-writer-wins upsert (sync pull-apply path). Unlike
+    /// `insert(_:)` (INSERT OR IGNORE — first-writer-wins), an incoming row
+    /// with a HIGHER HLC replaces the existing (source, type, timestamp) row;
+    /// a lower-or-equal HLC is dropped. This matches the _sync_log semantic
+    /// and is required because the samples PK has no node_id: two nodes can
+    /// legitimately write the same tuple.
+    /// - Returns: how many rows were newly inserted vs LWW-updated.
+    @discardableResult
+    public func upsertHLCLatest(_ rows: [SampleRow]) async throws -> (inserted: Int, updated: Int) {
+        for row in rows {
+            if Self.isHealthKitOwned(source: row.source, type: row.type) {
+                #if DEBUG
+                preconditionFailure("Attempted to upsert HealthKit-owned type (source: \(row.source), type: \(row.type))")
+                #else
+                throw SamplesStoreError.healthKitOwnedType(source: row.source, type: row.type)
+                #endif
+            }
+        }
+        return try await database.writer { db in
+            try Self.upsertHLCLatest(rows, in: db)
+        }
+    }
+
+    /// Transaction-composable core of `upsertHLCLatest(_:)` — callable from an
+    /// enclosing writer block (SyncCoordinator applies a whole pulled batch in
+    /// ONE transaction).
+    @discardableResult
+    public static func upsertHLCLatest(_ rows: [SampleRow], in db: Database) throws -> (inserted: Int, updated: Int) {
+        var inserted = 0
+        var updated = 0
+        for row in rows {
+            let exists = try Bool.fetchOne(db, sql: """
+                SELECT EXISTS(SELECT 1 FROM samples WHERE source = ? AND type = ? AND timestamp = ?)
+                """, arguments: [row.source, row.type, row.timestamp]) ?? false
+            try db.execute(sql: """
+                INSERT INTO samples
+                    (source, type, timestamp, value, extra, hlc_physical, hlc_logical, node_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source, type, timestamp) DO UPDATE SET
+                    value        = excluded.value,
+                    extra        = excluded.extra,
+                    hlc_physical = excluded.hlc_physical,
+                    hlc_logical  = excluded.hlc_logical,
+                    node_id      = excluded.node_id
+                WHERE (excluded.hlc_physical, excluded.hlc_logical)
+                    > (samples.hlc_physical, samples.hlc_logical)
+                """, arguments: [
+                    row.source, row.type, row.timestamp, row.value, row.extra,
+                    row.hlcPhysical, row.hlcLogical, row.nodeID
+                ])
+            if db.changesCount > 0 {
+                if exists { updated += 1 } else { inserted += 1 }
+            }
+        }
+        return (inserted, updated)
+    }
+
     /// Fetches sample rows within a time range
     /// - Parameters:
     ///   - source: The source identifier
