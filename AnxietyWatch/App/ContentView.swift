@@ -1,4 +1,5 @@
 import SwiftUI
+import AnxietyWatchKit
 
 private enum AppTab: String, Hashable {
     case dashboard, journal, medications, trends, settings
@@ -13,6 +14,7 @@ struct ContentView: View {
     @Environment(PolarHRMService.self) private var polarService
     @Environment(RecordingPresentationCoordinator.self) private var presentation
     @State private var selectedTab: AppTab
+    private let screenshotOuraService = OuraService()
 
     init() {
         let args = ProcessInfo.processInfo.arguments
@@ -22,9 +24,20 @@ struct ContentView: View {
         _selectedTab = State(initialValue: requested ?? .dashboard)
     }
 
+    @ViewBuilder
     var body: some View {
+        if ProcessInfo.processInfo.arguments.contains("-screenshotOuraData") {
+            NavigationStack {
+                OuraDataDashboardView(service: screenshotOuraService)
+            }
+        } else {
+            mainTabs
+        }
+    }
+
+    private var mainTabs: some View {
         @Bindable var presentation = presentation
-        TabView(selection: $selectedTab) {
+        return TabView(selection: $selectedTab) {
             Tab("Dashboard", systemImage: "heart.text.square", value: .dashboard) {
                 DashboardView()
             }

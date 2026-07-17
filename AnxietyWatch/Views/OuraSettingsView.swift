@@ -109,6 +109,14 @@ struct OuraSettingsView: View {
                 Text("Your token is stored securely in the system Keychain. Leave this field blank unless you want to replace it.")
             }
 
+            Section("Data") {
+                NavigationLink {
+                    OuraDataDashboardView(service: service)
+                } label: {
+                    Label("View All Oura Data", systemImage: "chart.xyaxis.line")
+                }
+            }
+
             Section {
                 Toggle("Bridge Oura Data to HealthKit", isOn: $healthKitBridgingEnabled)
                     .onChange(of: healthKitBridgingEnabled) { _, enabled in
@@ -144,8 +152,12 @@ struct OuraSettingsView: View {
     }
 
     private var lastSyncDate: Date? {
+#if targetEnvironment(simulator)
+        return Date().addingTimeInterval(-180)
+#else
         guard lastSyncTimeInterval > 0 else { return nil }
         return Date(timeIntervalSince1970: lastSyncTimeInterval)
+#endif
     }
 
     private var errorIsPresented: Binding<Bool> {
@@ -159,6 +171,11 @@ struct OuraSettingsView: View {
     private func loadConnectionStatus() async {
         defer { isLoading = false }
 
+#if targetEnvironment(simulator)
+        connectionStatus = .connected
+        healthKitBridgingEnabled = true
+        return
+#else
         do {
             guard let storedToken = try tokenStore.read() else {
                 connectionStatus = .notConfigured
@@ -169,6 +186,7 @@ struct OuraSettingsView: View {
             connectionStatus = .disconnected
             errorMessage = "The saved Oura token could not be read."
         }
+#endif
     }
 
     @MainActor
