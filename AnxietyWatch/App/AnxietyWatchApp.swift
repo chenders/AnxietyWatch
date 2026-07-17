@@ -496,12 +496,23 @@ enum AppGroup {
     static let identifier = "group.com.anxietywatch"
 
     static var containerURL: URL {
-        guard let url = FileManager.default.containerURL(
+        if let url = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: identifier
-        ) else {
-            fatalError("App Group container '\(identifier)' not found. Check entitlements.")
+        ) {
+            return url
         }
-        return url
+#if targetEnvironment(simulator)
+        // Simulator may not have the App Group provisioned — fall back
+        // to a synthetic directory under the app's container.
+        let fallback = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .deletingLastPathComponent()
+            .appendingPathComponent("AppGroup-\(identifier)")
+        try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+        return fallback
+#else
+        fatalError("App Group container '\(identifier)' not found. Check entitlements.")
+#endif
     }
 }
 

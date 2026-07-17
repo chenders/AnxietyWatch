@@ -37,11 +37,19 @@ public actor ComplicationCacheWriter {
     public init(containerURL: URL? = nil) {
         if let url = containerURL {
             self.containerURL = url
-        } else {
-            guard let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier) else {
-                fatalError("App Group entitlement missing for \(Self.appGroupIdentifier)")
-            }
+        } else if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier) {
             self.containerURL = url
+        } else {
+#if targetEnvironment(simulator)
+            // Simulator may lack the App Group entitlement. Fall back to
+            // a temp directory for development — complication won't update
+            // on the watch face, but the pipeline still works.
+            self.containerURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("ComplicationSimFallback")
+            try? FileManager.default.createDirectory(at: self.containerURL, withIntermediateDirectories: true)
+#else
+            fatalError("App Group entitlement missing for \(Self.appGroupIdentifier)")
+#endif
         }
     }
     
