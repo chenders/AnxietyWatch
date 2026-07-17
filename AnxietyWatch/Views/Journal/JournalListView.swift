@@ -92,6 +92,9 @@ private struct JournalEntriesList: View {
                 }
             }
         }
+#if DEBUG
+        .demoAutoScroll("journal", stops: 2, initialDelay: .seconds(3), pause: .seconds(2), step: 500)
+#endif
         .overlay {
             if entries.isEmpty {
                 ContentUnavailableView(

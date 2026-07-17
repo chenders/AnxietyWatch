@@ -178,6 +178,10 @@ enum DemoSeeder {
         let paper = Song(title: "Paper Satellites", artist: "The North Window", album: "Small Signals")
         let staticSummer = Song(title: "Static Summer", artist: "Harbor Lines", album: "Low Tide Radio")
         let hallway = Song(title: "Blue Hallway", artist: "Small Hours", album: "After Midnight")
+        // Keep the recurring song first in activity-sorted demo catalogs.
+        paper.updatedAt = .now
+        staticSummer.updatedAt = cal.date(byAdding: .day, value: -12, to: .now)!
+        hallway.updatedAt = cal.date(byAdding: .day, value: -29, to: .now)!
         for song in [paper, staticSummer, hallway] { ctx.insert(song) }
 
         let rows: [(Int, Int, Int, String, [String], Song?, String?)] = [

@@ -14,6 +14,9 @@ struct ContentView: View {
     @Environment(PolarHRMService.self) private var polarService
     @Environment(RecordingPresentationCoordinator.self) private var presentation
     @State private var selectedTab: AppTab
+#if DEBUG
+    @State private var demoSequence = DemoVideoSequence.shared
+#endif
     private let screenshotOuraService = OuraService()
 
     init() {
@@ -35,6 +38,10 @@ struct ContentView: View {
             NavigationStack {
                 LabResultsView()
             }
+        } else if arguments.contains("-demoLabsAndSongs") {
+            DemoLabsAndSongsSequenceView()
+        } else if arguments.contains("-demoSongs") {
+            DemoSongsWalkthroughView()
         } else {
             mainTabs
         }
@@ -76,6 +83,16 @@ struct ContentView: View {
             HRVSessionLiveView(service: polarService)
         }
         #if DEBUG
+        .task(id: demoSequence.completedProfiles) {
+            guard ProcessInfo.processInfo.arguments.contains("-demoMainSequence") else { return }
+            if demoSequence.completedProfiles.contains("dashboard"), selectedTab == .dashboard {
+                try? await Task.sleep(for: .seconds(2)); selectedTab = .journal
+            } else if demoSequence.completedProfiles.contains("journal"), selectedTab == .journal {
+                try? await Task.sleep(for: .seconds(2)); selectedTab = .medications
+            } else if demoSequence.completedProfiles.contains("medications"), selectedTab == .medications {
+                try? await Task.sleep(for: .seconds(2)); selectedTab = .trends
+            }
+        }
         .modifier(DebugShakeCapture())
         #endif
     }

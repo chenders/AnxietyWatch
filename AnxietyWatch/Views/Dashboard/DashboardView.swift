@@ -122,6 +122,9 @@ struct DashboardView: View {
                 }
                 .padding()
             }
+#if DEBUG
+            .demoAutoScroll("dashboard", stops: 4, step: 500)
+#endif
             .navigationTitle("Dashboard")
             .task {
                 // Compute immediately from cached @Query data — no async, no blocking

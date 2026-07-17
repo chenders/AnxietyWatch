@@ -149,6 +149,13 @@ struct OuraTrendsSection: View {
                 .padding(.horizontal)
             }
         }
+#if DEBUG
+        .task {
+            guard DemoVideoScroll.shouldRun("trends") else { return }
+            try? await Task.sleep(for: .seconds(3))
+            expanded = true
+        }
+#endif
         .task(id: loadKey) {
             points = await OuraPresentationData.load(service: service, start: start, end: end)
         }

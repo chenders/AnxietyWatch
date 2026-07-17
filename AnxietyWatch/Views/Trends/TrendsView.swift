@@ -481,6 +481,9 @@ struct TrendsView: View {
                 }
                 .padding(.vertical)
             }
+#if DEBUG
+            .demoAutoScroll("trends", stops: 8, initialDelay: .seconds(4), pause: .seconds(2.2), step: 505)
+#endif
             .navigationTitle("Trends")
             .simultaneousGesture(
                 DragGesture(minimumDistance: 50)

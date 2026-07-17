@@ -32,6 +32,9 @@ struct OuraDataDashboardView: View {
             }
             .padding()
         }
+#if DEBUG
+        .demoAutoScroll("oura", stops: 4, initialDelay: .seconds(4), pause: .seconds(2.5), step: 500)
+#endif
         .navigationTitle("Oura Ring Data")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
