@@ -120,7 +120,7 @@ final class DependencyContainerTests: XCTestCase {
     // MARK: - Shutdown
 
     func testShutdownCompletesWithoutError() async throws {
-        let container = DependencyContainer(
+        var container = DependencyContainer(
             dbURL: dbURL,
             cursorFileURL: cursorURL,
             nodeID: nodeID,
@@ -133,7 +133,7 @@ final class DependencyContainerTests: XCTestCase {
     }
 
     func testShutdownWithoutBootstrapDoesNotCrash() async {
-        let container = DependencyContainer(
+        var container = DependencyContainer(
             dbURL: dbURL,
             cursorFileURL: cursorURL,
             nodeID: nodeID,
@@ -171,7 +171,7 @@ final class DependencyContainerTests: XCTestCase {
     // MARK: - Full lifecycle
 
     func testFullBootstrapShutdownCycle() async throws {
-        let container = DependencyContainer(
+        var container = DependencyContainer(
             dbURL: dbURL,
             cursorFileURL: cursorURL,
             nodeID: nodeID,

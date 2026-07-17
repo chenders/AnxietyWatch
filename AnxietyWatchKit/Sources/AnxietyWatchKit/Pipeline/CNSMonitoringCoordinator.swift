@@ -132,6 +132,13 @@ public actor CNSMonitoringCoordinator {
             case .respiratoryRate:
                 return nil
             }
+        case .oura(let ibi):
+            // IBI → HRV (SDNN). Single-point IBI is routed as an HRV sample
+            // so the fusion engine's HRV ring receives it. The pipeline's
+            // CNSFusionEngine accumulates multiple IBI-derived values to
+            // compute a meaningful HRV contribution over time.
+            let tMs = Int64(ibi.timestamp * 1_000)
+            return .hrv(tMs: tMs, sdnnMs: Double(ibi.ibiMs))
         }
     }
 

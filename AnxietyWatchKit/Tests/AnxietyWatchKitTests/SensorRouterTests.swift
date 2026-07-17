@@ -50,6 +50,8 @@ final class SensorRouterTests: XCTestCase {
                 hasEmay = true
             case .healthkit:
                 hasHK = true
+            case .oura:
+                break // Oura samples not injected in this test
             }
         }
         

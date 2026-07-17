@@ -49,6 +49,13 @@ public struct DependencyContainer: Sendable {
     public let idleDownsampler: IdleDownsampler
     public let checkpointManager: CheckpointManager
 
+    // MARK: - Oura (Phase 2)
+
+    /// Optional Oura Ring integration service. Created on-demand after the
+    /// user completes the OAuth2 flow and a token is available.
+    /// Set via `configureOura(token:)`.
+    public private(set) var ouraService: OuraService?
+
     // MARK: - Factory
 
     /// Builds the full object graph.
@@ -150,14 +157,33 @@ public struct DependencyContainer: Sendable {
 
     /// Graceful shutdown: stops background loops, runs a PASSIVE checkpoint,
     /// and closes the database (Spec §1.1 close flow).
-    public func shutdown() async {
+    public mutating func shutdown() async {
         await syncEngine.stop()
+        await ouraService?.stopPolling()
 
         do {
             _ = try await checkpointManager.run(mode: .passive)
             await database.close()
         } catch {
             Log.sync.error("Shutdown checkpoint/close failed: \(error)")
+        }
+    }
+
+    // MARK: - Oura (Phase 2)
+
+    /// Configure the Oura Ring integration after the user completes OAuth2.
+    /// Creates the service on first call; subsequent calls update the token
+    /// on the existing service.
+    public mutating func configureOura(
+        token: OuraTokenStore.Token,
+        router: SensorRouter? = nil
+    ) async {
+        if ouraService == nil {
+            ouraService = OuraService()
+        }
+        await ouraService?.configure(token: token)
+        if let router {
+            await ouraService?.startPolling(router: router)
         }
     }
 }

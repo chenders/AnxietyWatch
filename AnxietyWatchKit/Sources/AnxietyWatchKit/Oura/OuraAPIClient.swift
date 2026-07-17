@@ -61,6 +61,10 @@ public actor OuraAPIClient {
     public func fetchStress(startDate: String, endDate: String) async throws -> [OuraStressData] {
         return try await fetch(endpoint: "daily_stress", startDate: startDate, endDate: endDate, responseType: OuraStressResponse.self).data
     }
+
+    public func fetchResilience(startDate: String, endDate: String) async throws -> [OuraResilienceData] {
+        return try await fetch(endpoint: "daily_resilience", startDate: startDate, endDate: endDate, responseType: OuraResilienceResponse.self).data
+    }
     
     private func fetch<T: Decodable>(endpoint: String, startDate: String, endDate: String, responseType: T.Type) async throws -> T {
         guard let token = accessToken else {

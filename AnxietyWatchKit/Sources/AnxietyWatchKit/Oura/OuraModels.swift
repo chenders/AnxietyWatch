@@ -104,12 +104,47 @@ public struct OuraReadinessData: Codable, Sendable, Identifiable {
     }
 }
 
+// MARK: - Resilience
+
+public struct OuraResilienceResponse: Codable, Sendable {
+    public let data: [OuraResilienceData]
+    public let nextToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case data
+        case nextToken = "next_token"
+    }
+}
+
+public struct OuraResilienceData: Codable, Sendable, Identifiable {
+    public let id: String
+    public let day: String
+    public let level: String
+    public let contributors: OuraResilienceContributors?
+
+    enum CodingKeys: String, CodingKey {
+        case id, day, level, contributors
+    }
+}
+
+public struct OuraResilienceContributors: Codable, Sendable {
+    public let sleepRecovery: Int?
+    public let daytimeRecovery: Int?
+    public let stress: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case sleepRecovery = "sleep_recovery"
+        case daytimeRecovery = "daytime_recovery"
+        case stress
+    }
+}
+
 // MARK: - Stress
 
 public struct OuraStressResponse: Codable, Sendable {
     public let data: [OuraStressData]
     public let nextToken: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case data
         case nextToken = "next_token"
@@ -122,7 +157,7 @@ public struct OuraStressData: Codable, Sendable, Identifiable {
     public let stressHigh: Int?
     public let recoveryHigh: Int?
     public let daySummary: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case id, day
         case stressHigh = "stress_high"
