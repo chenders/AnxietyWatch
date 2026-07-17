@@ -78,7 +78,9 @@ public enum SchemaV1 {
           operation     TEXT    NOT NULL CHECK (operation IN ('upsert','delete')),
           PRIMARY KEY (table_name, row_pk)
         ) WITHOUT ROWID, STRICT
-        -- TODO: hlc_now_pt/hlc_now_lc/hlc_now_node SQLite UDFs registered by DatabaseManager.open() when HLC service lands.
+        -- UDFs hlc_now_json() registered by DatabaseManager.open() (see HLC.registerUDFs).
+        -- @Syncable triggers use scalar subquery FROM (SELECT hlc_now_json() AS h)
+        -- to mint exactly one stamp per row.
         """,
         
         // _backfill_progress table

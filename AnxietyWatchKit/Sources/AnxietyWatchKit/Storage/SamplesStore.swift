@@ -50,11 +50,10 @@ public actor SamplesStore {
         case notOpen
     }
     
-    /// HealthKit-owned types for Apple Watch (source == 2)
-    /// HR=1, HRV=4
-    /// TODO: Spec §1.7 lists five HK-owned kinds (HR, HRV, resting HR, VO2max, respiratory rate)
-    /// but only HR (1) and HRV (4) have type numbers in §1.2 today; expand the set when
-    /// new numbers land.
+    /// HealthKit-owned types for Apple Watch (source == 2).
+    /// HR=1, HRV=4. Per §1.7, these types must not appear in the samples
+    /// table — inserts are guarded by insert() with a preconditionFailure
+    /// (debug) or SamplesStoreError (release).
     public static let healthKitOwnedTypes: Set<Int32> = [1, 4]
     
     /// Creates a new SamplesStore
