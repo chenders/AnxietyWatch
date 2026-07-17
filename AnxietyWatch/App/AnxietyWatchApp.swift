@@ -158,6 +158,9 @@ struct AnxietyWatchApp: App {
                     // ── v3 Pipeline service ────────────────────────────
                     // BLE actors + SensorRouter + CNS coordinator + ViewModel.
                     await pipelineService.start()
+#if targetEnvironment(simulator)
+                    pipelineService.seedDemoVitals()
+#endif
                     // ── Existing launch logic ─────────────────────────
                     await existingLaunchSetup()
                 }

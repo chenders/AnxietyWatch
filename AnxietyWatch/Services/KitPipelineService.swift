@@ -108,7 +108,22 @@ public final class KitPipelineService: ObservableObject {
         logger.info("KitPipelineService started")
     }
 
-    /// Stops all actors, cancels the pipeline loop, and flushes the
+    /// Seeds demo vitals on simulator so screenshots show realistic data
+    /// instead of IDLE/"--". No-op on device.
+    public func seedDemoVitals() {
+#if targetEnvironment(simulator)
+        guard let vm = monitoring else { return }
+        vm.apply(ViewModelSnapshot(
+            latestHR: 72,
+            latestSpO2: 98,
+            latestHRV: 42.0,
+            alertTier: .normal,
+            isIdle: false,
+            fusionScore: 0.22
+        ))
+        isRunning = true
+#endif
+    }
     /// complication cache. Safe to call multiple times.
     public func stop() async {
         guard isRunning else { return }
