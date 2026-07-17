@@ -42,6 +42,7 @@ public actor CNSMonitoringCoordinator {
     private var state: PipelineState
     private var lastFusion: CNSFusionEngine.FusionScore
     private var runningTask: Task<Void, Never>?
+    private var throttledTask: Task<Void, Never>?
 
     public init(
         router: SensorRouter,
@@ -59,6 +60,10 @@ public actor CNSMonitoringCoordinator {
     /// Start the monitoring loop. Non-blocking. Idempotent.
     public func start() async {
         guard runningTask == nil else { return }
+        await router.setCoordinatorSnapshotProvider { [weak self] in
+            guard let self else { return nil }
+            return (tier: await self.currentTier, fusion: await self.currentFusionScore.overall)
+        }
         let stream = await router.outbound
         runningTask = Task { [weak self] in
             for await sample in stream {
@@ -69,10 +74,12 @@ public actor CNSMonitoringCoordinator {
         }
     }
 
-    /// Stop the loop (cancel the inner task). Idempotent.
+    /// Stop the loop (cancel the inner tasks). Idempotent.
     public func stop() async {
         runningTask?.cancel()
         runningTask = nil
+        throttledTask?.cancel()
+        throttledTask = nil
     }
 
     // MARK: - Snapshot readers (ViewModel / diagnostics)

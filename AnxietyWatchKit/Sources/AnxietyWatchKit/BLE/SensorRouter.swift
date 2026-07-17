@@ -3,6 +3,11 @@ import Foundation
 /// Fan-in for BLE + HK actors. Consumers subscribe to `outbound` for a merged
 /// stream; the compaction/downsample scheduler reads `isIdle` to decide when
 /// TRUNCATE-checkpoints and on-demand downsampling are safe (Spec §1.5).
+///
+/// Throttled snapshots (Spec §3.2, §3.4): call `throttled(rate:)` to get a
+/// per-consumer AsyncStream<ViewModelSnapshot> throttled to at most `rate` Hz.
+/// The coordinator installs itself via `setCoordinatorSnapshotProvider(_:)`
+/// to inject alertTier and fusionScore into each snapshot.
 public actor SensorRouter {
 
     public enum AnySensorSample: Sendable, Equatable {
@@ -32,38 +37,27 @@ public actor SensorRouter {
 
         public var timestamp: Double {
             switch self {
-            case .polar(let sample):
-                return sample.timestamp
-            case .emay(let sample):
-                return sample.timestamp
-            case .healthkit(let sample):
-                return sample.timestamp
-            case .oura(let sample):
-                return sample.timestamp
+            case .polar(let sample):    return sample.timestamp
+            case .emay(let sample):     return sample.timestamp
+            case .healthkit(let sample): return sample.timestamp
+            case .oura(let sample):     return sample.timestamp
             }
         }
-        
-        /// The (source, type) code pair used by SamplesStore. Fully cross-referenced.
+
+        /// The (source, type) code pair used by SamplesStore.
         public var storageCoordinates: (source: Int32, type: Int32) {
             switch self {
-            case .polar:
-                return (source: 1, type: 1) // Polar=1, HR=1
-            case .emay:
-                return (source: 0, type: 2) // EMAY=0, SpO2=2
+            case .polar:     return (source: 1, type: 1)  // Polar=1, HR=1
+            case .emay:      return (source: 0, type: 2)  // EMAY=0, SpO2=2
             case .healthkit(let sample):
-                // HK=2, map quantity types to specific types
                 let type: Int32
                 switch sample.quantityType {
-                case .heartRate:
-                    type = 1 // HR=1 (matches SamplesStore.healthKitOwnedTypes)
-                case .heartRateVariability:
-                    type = 4 // HRV=4 (matches SamplesStore.healthKitOwnedTypes)
-                case .respiratoryRate:
-                    type = 5 // RR=5
+                case .heartRate:             type = 1  // HR
+                case .heartRateVariability:  type = 4  // HRV
+                case .respiratoryRate:       type = 5  // RR
                 }
-                return (source: 2, type: type) // HealthKit=2
-            case .oura:
-                return (source: 3, type: 4) // Oura=3, IBI→HRV=4
+                return (source: 2, type: type)  // HealthKit=2
+            case .oura:      return (source: 3, type: 4)  // Oura=3, IBI→HRV=4
             }
         }
     }
@@ -72,12 +66,12 @@ public actor SensorRouter {
         public let sourceName: String
         public let lastFrameAt: Double?
         public func isIdle(now: Double, idleAfterSeconds: TimeInterval) -> Bool {
-            guard let lastFrameAt = lastFrameAt else {
-                return true // No frames received yet, so it's idle
-            }
+            guard let lastFrameAt else { return true }
             return (now - lastFrameAt) >= idleAfterSeconds
         }
     }
+
+    // MARK: - Properties
 
     private let polar: PolarActor?
     private let emay: EMAYActor?
@@ -85,6 +79,21 @@ public actor SensorRouter {
     private let bleIdleAfterSeconds: TimeInterval
     private let hkIdleAfterSeconds: TimeInterval
     private let (stream, continuation): (AsyncStream<AnySensorSample>, AsyncStream<AnySensorSample>.Continuation)
+
+    // Snapshot broadcast
+    private var coordinatorSnapshotProvider: (@Sendable () async -> (tier: AlertTier, fusion: Double)?)?
+    private struct SnapshotSubscriber {
+        let continuation: AsyncStream<ViewModelSnapshot>.Continuation
+        let minimumInterval: Duration
+        var lastEmission: ContinuousClock.Instant?
+    }
+
+    private var snapshotSubscribers: [UUID: SnapshotSubscriber] = [:]
+    private var latestHR: Int?
+    private var latestSpO2: Int?
+    private var latestHRV: Double?
+
+    // MARK: - Init
 
     public init(
         polar: PolarActor?,
@@ -96,69 +105,140 @@ public actor SensorRouter {
         self.emay = emay
         self.healthKit = healthKit
         self.bleIdleAfterSeconds = idleAfterSeconds
-        self.hkIdleAfterSeconds = 300 // HK uses longer window per spec
-        let bufferingPolicy = AsyncStream<AnySensorSample>.Continuation.BufferingPolicy.bufferingNewest(1000)
-        let (stream, continuation) = AsyncStream<AnySensorSample>.makeStream(of: AnySensorSample.self, bufferingPolicy: bufferingPolicy)
-        self.stream = stream
-        self.continuation = continuation
+        self.hkIdleAfterSeconds = 300
+        let policy = AsyncStream<AnySensorSample>.Continuation.BufferingPolicy.bufferingNewest(1000)
+        let (s, c) = AsyncStream<AnySensorSample>.makeStream(of: AnySensorSample.self, bufferingPolicy: policy)
+        self.stream = s
+        self.continuation = c
     }
-    
-    /// Lazy-start guard so `outbound` getter or any consumer sees a bridged stream.
+
+    // MARK: - Bridging
+
     private var bridgingStarted = false
 
-    /// Starts bridging upstream sources into `outbound`. Idempotent — safe to
-    /// call from tests or a startup wiring layer. Also auto-invoked lazily by
-    /// the `outbound` getter so callers who forget still get correct behavior.
     public func startBridging() async {
         guard !bridgingStarted else { return }
         bridgingStarted = true
-        // Bridge each attached upstream's outbound stream. `outboundHR` and
-        // friends are actor-isolated getters so we must `await` to read the
-        // underlying AsyncStream. Once the stream is in hand, iteration itself
-        // happens off the source actor.
-        if let polar = polar {
-            let stream = await polar.outboundHR
-            Task {
-                for await sample in stream {
-                    await self.ingest(.polar(sample))
-                }
-            }
-        }
 
-        if let emay = emay {
-            let stream = await emay.outboundOxygen
-            Task {
-                for await sample in stream {
-                    await self.ingest(.emay(sample))
-                }
-            }
+        if let polar {
+            let s = await polar.outboundHR
+            Task { for await sample in s { await self.ingest(.polar(sample)) } }
         }
-
-        if let healthKit = healthKit {
-            let stream = await healthKit.outboundHK
-            Task {
-                for await sample in stream {
-                    await self.ingest(.healthkit(sample))
-                }
-            }
+        if let emay {
+            let s = await emay.outboundOxygen
+            Task { for await sample in s { await self.ingest(.emay(sample)) } }
+        }
+        if let healthKit {
+            let s = await healthKit.outboundHK
+            Task { for await sample in s { await self.ingest(.healthkit(sample)) } }
         }
     }
+
+    // MARK: - Ingest
 
     private func ingest(_ sample: AnySensorSample) async {
         continuation.yield(sample)
+        await publishSnapshot(for: sample)
     }
 
-    /// Direct ingest for polling-based sources (Oura). Unlike BLE/HK actors
-    /// which have their own AsyncStreams bridged in `startBridging()`,
-    /// polling-based sources push samples through this method.
     public func push(_ sample: AnySensorSample) async {
         continuation.yield(sample)
+        await publishSnapshot(for: sample)
     }
 
-    /// Merged AsyncStream of AnySensorSample from all attached sources.
-    /// Single-consumer (SensorRouter is the point of fan-in; downstream
-    /// consumers get one merged view). Lazily starts bridging so callers who
-    /// don't manually call `startBridging()` still see upstream samples.
+    // MARK: - Coordinator wiring
+
+    /// Installs the pipeline-state reader used when constructing UI snapshots.
+    public func setCoordinatorSnapshotProvider(
+        _ provider: (@Sendable () async -> (tier: AlertTier, fusion: Double)?)?
+    ) {
+        coordinatorSnapshotProvider = provider
+    }
+
+    // MARK: - Throttled snapshot stream (Spec §3.2, §3.4)
+
+    /// Returns a per-consumer broadcast stream of ViewModelSnapshot, emitted at
+    /// no more than `rate` times per second. The stream lives until the caller
+    /// drops it; termination cleans up the internal continuation.
+    ///
+    /// - Parameter rate: Maximum snapshots per second (e.g. 10 → ≤10 Hz).
+    /// - Returns: An AsyncStream<ViewModelSnapshot>.
+    public func throttled(rate: Int) async -> AsyncStream<ViewModelSnapshot> {
+        precondition(rate > 0, "Snapshot rate must be positive")
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<ViewModelSnapshot>.makeStream(
+            of: ViewModelSnapshot.self,
+            bufferingPolicy: .bufferingNewest(5)
+        )
+        snapshotSubscribers[id] = SnapshotSubscriber(
+            continuation: continuation,
+            minimumInterval: .seconds(1) / rate,
+            lastEmission: nil  // nil → first sample always emits immediately
+        )
+        continuation.onTermination = { [weak self] _ in
+            Task { await self?.removeSnapshotSubscriber(id) }
+        }
+        let pipeline = await coordinatorSnapshotProvider?()
+        // Ensure bridging is running so upstream samples reach publishSnapshot.
+        await startBridging()
+        continuation.yield(ViewModelSnapshot(
+            latestHR: latestHR,
+            latestSpO2: latestSpO2,
+            latestHRV: latestHRV,
+            alertTier: pipeline?.tier ?? .normal,
+            isIdle: await isIdle(now: Date().timeIntervalSince1970),
+            fusionScore: pipeline?.fusion ?? 0
+        ))
+        return stream
+    }
+
+    private func removeSnapshotSubscriber(_ id: UUID) {
+        snapshotSubscribers.removeValue(forKey: id)
+    }
+
+    private func publishSnapshot(for sample: AnySensorSample) async {
+        switch sample {
+        case .polar(let hr):
+            latestHR = hr.heartRate
+        case .emay(let oxygen):
+            latestSpO2 = oxygen.spo2Percent
+            if let pulse = oxygen.pulseRate { latestHR = pulse }
+        case .healthkit(let hk):
+            switch hk.quantityType {
+            case .heartRate:            latestHR = Int(hk.value)
+            case .heartRateVariability:  latestHRV = hk.value
+            case .respiratoryRate:       break
+            }
+        case .oura(let ibi):
+            latestHR = Int(ibi.instantHR.rounded())
+            latestHRV = Double(ibi.ibiMs)
+        }
+
+        let now = ContinuousClock.now
+        let pipeline = await coordinatorSnapshotProvider?()
+        let snapshot = ViewModelSnapshot(
+            latestHR: latestHR,
+            latestSpO2: latestSpO2,
+            latestHRV: latestHRV,
+            alertTier: pipeline?.tier ?? .normal,
+            isIdle: await isIdle(now: sample.timestamp),
+            fusionScore: pipeline?.fusion ?? 0
+        )
+
+        for id in snapshotSubscribers.keys {
+            guard var subscriber = snapshotSubscribers[id] else { continue }
+            if let previous = subscriber.lastEmission,
+               previous.duration(to: now) < subscriber.minimumInterval {
+                continue
+            }
+            subscriber.continuation.yield(snapshot)
+            subscriber.lastEmission = now
+            snapshotSubscribers[id] = subscriber
+        }
+    }
+
+    // MARK: - Outbound stream
+
     public var outbound: AsyncStream<AnySensorSample> {
         get async {
             await startBridging()
@@ -166,72 +246,30 @@ public actor SensorRouter {
         }
     }
 
-    /// True iff ALL attached upstream actors are idle. HK uses its own longer
-    /// window (300s default per T22).
+    // MARK: - Idle detection
+
     public func isIdle(now: Double) async -> Bool {
-        // Check Polar actor
-        if let polar = polar {
-            let isIdle = await polar.isIdle(now: now, idleAfterSeconds: bleIdleAfterSeconds)
-            if !isIdle {
-                return false
-            }
-        }
-        // Nil upstreams are treated as idle (no data flowing)
-        
-        // Check EMAY actor
-        if let emay = emay {
-            let isIdle = await emay.isIdle(now: now, idleAfterSeconds: bleIdleAfterSeconds)
-            if !isIdle {
-                return false
-            }
-        }
-        // Nil upstreams are treated as idle (no data flowing)
-        
-        // Check HealthKit actor
-        if let healthKit = healthKit {
-            let isIdle = await healthKit.isIdle(now: now, idleAfterSeconds: hkIdleAfterSeconds)
-            if !isIdle {
-                return false
-            }
-        }
-        // Nil upstreams are treated as idle (no data flowing)
-        
-        return true // All upstreams are idle (or nil)
+        if let polar, await !polar.isIdle(now: now, idleAfterSeconds: bleIdleAfterSeconds) { return false }
+        if let emay,  await !emay.isIdle(now: now, idleAfterSeconds: bleIdleAfterSeconds)  { return false }
+        if let healthKit, await !healthKit.isIdle(now: now, idleAfterSeconds: hkIdleAfterSeconds) { return false }
+        return true
     }
 
-    /// Per-source idle snapshots for diagnostics.
     public func idleStates(now: Double) async -> [SourceIdleState] {
         var states: [SourceIdleState] = []
-        
-        // Polar state
-        if let polar = polar {
-            let lastFrameAt = await polar.lastFrameAtTimestamp
-            states.append(SourceIdleState(sourceName: "Polar", lastFrameAt: lastFrameAt))
-        }
-        
-        // EMAY state
-        if let emay = emay {
-            let lastFrameAt = await emay.lastFrameAtTimestamp
-            states.append(SourceIdleState(sourceName: "EMAY", lastFrameAt: lastFrameAt))
-        }
-        
-        // HealthKit state
-        if let healthKit = healthKit {
-            let lastFrameAt = await healthKit.lastFrameAt
-            states.append(SourceIdleState(sourceName: "HealthKit", lastFrameAt: lastFrameAt))
-        }
-        
+        if let polar { states.append(SourceIdleState(sourceName: "Polar", lastFrameAt: await polar.lastFrameAtTimestamp)) }
+        if let emay  { states.append(SourceIdleState(sourceName: "EMAY", lastFrameAt: await emay.lastFrameAtTimestamp)) }
+        if let healthKit { states.append(SourceIdleState(sourceName: "HealthKit", lastFrameAt: await healthKit.lastFrameAt)) }
         return states
     }
-    
-    /// Helper method for testing - collect a specific number of samples from the stream
+
+    // MARK: - Test helpers
+
     public func collectSamples(count: Int) async -> [AnySensorSample] {
         var samples: [AnySensorSample] = []
         for await sample in stream {
             samples.append(sample)
-            if samples.count >= count {
-                break
-            }
+            if samples.count >= count { break }
         }
         return samples
     }
