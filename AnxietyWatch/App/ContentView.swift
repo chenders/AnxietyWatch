@@ -1,5 +1,9 @@
 import SwiftUI
 
+private enum AppTab: String, Hashable {
+    case dashboard, journal, medications, trends, settings
+}
+
 struct ContentView: View {
     /// Held just to forward to the live session sheet — its `.state`
     /// properties are intentionally NOT read inside this body so the
@@ -8,23 +12,32 @@ struct ContentView: View {
     /// CLAUDE.md). `RecordingStatusPill` scopes its own observation.
     @Environment(PolarHRMService.self) private var polarService
     @Environment(RecordingPresentationCoordinator.self) private var presentation
+    @State private var selectedTab: AppTab
+
+    init() {
+        let args = ProcessInfo.processInfo.arguments
+        let requested = args.firstIndex(of: "-screenshotTab").flatMap { index in
+            args.indices.contains(index + 1) ? AppTab(rawValue: args[index + 1]) : nil
+        }
+        _selectedTab = State(initialValue: requested ?? .dashboard)
+    }
 
     var body: some View {
         @Bindable var presentation = presentation
-        TabView {
-            Tab("Dashboard", systemImage: "heart.text.square") {
+        TabView(selection: $selectedTab) {
+            Tab("Dashboard", systemImage: "heart.text.square", value: .dashboard) {
                 DashboardView()
             }
-            Tab("Journal", systemImage: "book") {
+            Tab("Journal", systemImage: "book", value: .journal) {
                 JournalListView()
             }
-            Tab("Medications", systemImage: "pills") {
+            Tab("Medications", systemImage: "pills", value: .medications) {
                 MedicationsHubView()
             }
-            Tab("Trends", systemImage: "chart.xyaxis.line") {
+            Tab("Trends", systemImage: "chart.xyaxis.line", value: .trends) {
                 TrendsView()
             }
-            Tab("Settings", systemImage: "gear") {
+            Tab("Settings", systemImage: "gear", value: .settings) {
                 SettingsView()
             }
         }
