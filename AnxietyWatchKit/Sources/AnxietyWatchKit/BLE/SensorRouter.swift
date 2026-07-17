@@ -9,6 +9,26 @@ public actor SensorRouter {
         case polar(PolarActor.HRSample)
         case emay(EMAYActor.OxygenSample)
         case healthkit(HealthKitAdapterActor.HKSample)
+        case oura(OuraIBISample)
+
+        /// An individual Oura IBI reading, normalized for the pipeline.
+        public struct OuraIBISample: Sendable, Equatable {
+            /// Unix timestamp (seconds since epoch).
+            public var timestamp: Double
+            /// Interbeat interval in milliseconds.
+            public var ibiMs: Int
+            /// Instantaneous heart rate derived from IBI (bpm).
+            public var instantHR: Double
+            /// Oura validity flag (nil = unknown).
+            public var validity: OuraDataValidity?
+
+            public init(timestamp: Double, ibiMs: Int, validity: OuraDataValidity?) {
+                self.timestamp = timestamp
+                self.ibiMs = ibiMs
+                self.instantHR = ibiMs > 0 ? 60_000.0 / Double(ibiMs) : 0
+                self.validity = validity
+            }
+        }
 
         public var timestamp: Double {
             switch self {
@@ -17,6 +37,8 @@ public actor SensorRouter {
             case .emay(let sample):
                 return sample.timestamp
             case .healthkit(let sample):
+                return sample.timestamp
+            case .oura(let sample):
                 return sample.timestamp
             }
         }
@@ -40,6 +62,8 @@ public actor SensorRouter {
                     type = 5 // RR=5
                 }
                 return (source: 2, type: type) // HealthKit=2
+            case .oura:
+                return (source: 3, type: 4) // Oura=3, IBI→HRV=4
             }
         }
     }
@@ -121,6 +145,13 @@ public actor SensorRouter {
     }
 
     private func ingest(_ sample: AnySensorSample) async {
+        continuation.yield(sample)
+    }
+
+    /// Direct ingest for polling-based sources (Oura). Unlike BLE/HK actors
+    /// which have their own AsyncStreams bridged in `startBridging()`,
+    /// polling-based sources push samples through this method.
+    public func push(_ sample: AnySensorSample) async {
         continuation.yield(sample)
     }
 
