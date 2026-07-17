@@ -41,14 +41,23 @@ struct CNSMonitoringDemoView: View {
     @State private var heartRate = 68
     @State private var tier: Tier = .clear
     @State private var autoStarted = false
+    @State private var isStarting = false
 
     var body: some View {
         List {
             Section {
                 Toggle("Monitor tonight", isOn: .constant(false))
                     .disabled(monitoring)
-                Button("Monitor me now") { startSimulation() }
-                    .disabled(monitoring)
+                Button {
+                    beginMonitoring()
+                } label: {
+                    if isStarting {
+                        Label("Starting monitoring…", systemImage: "sensor.tag.radiowaves.forward.fill")
+                    } else {
+                        Text("Monitor me now")
+                    }
+                }
+                .disabled(monitoring || isStarting)
                 Toggle("Companion present", isOn: $companionPresent)
                     .disabled(monitoring)
             } footer: {
@@ -72,6 +81,11 @@ struct CNSMonitoringDemoView: View {
                     LabeledContent("Elapsed", value: "\(elapsedMinutes) of 10 min")
                     LabeledContent("Reporting", value: "EMAY Oximeter, Polar H10")
                     LabeledContent("Active trigger", value: "Ad hoc")
+                    LabeledContent("Alert tier") {
+                        Label(tier.title, systemImage: tier.icon)
+                            .foregroundStyle(tier.color)
+                            .fontWeight(.semibold)
+                    }
                 }
             }
 
@@ -114,14 +128,43 @@ struct CNSMonitoringDemoView: View {
         }
         .navigationTitle("CNS Monitoring")
         .navigationBarTitleDisplayMode(.inline)
+        .overlay(alignment: .top) {
+            if tier == .klaxon {
+                klaxonNotification
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(10)
+            }
+        }
         .task {
             guard ProcessInfo.processInfo.arguments.contains("-demoCNSSequence"), !autoStarted else { return }
             autoStarted = true
             // Hold on setup controls so the viewer sees the equivalent of
             // choosing “Monitor me now” before the accelerated session begins.
             try? await Task.sleep(for: .seconds(4))
-            startSimulation()
+            beginMonitoring()
         }
+    }
+
+    private var klaxonNotification: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Label("CRITICAL CNS ALERT", systemImage: "speaker.wave.3.fill")
+                    .font(.headline)
+                Spacer()
+                Text("now").font(.caption)
+            }
+            Text("Blood oxygen and breathing have reached the highest alert tier.")
+                .font(.subheadline)
+            Text("Wake the person and check breathing. Call emergency services if they are difficult to wake or breathing is slow or stopped.")
+                .font(.caption)
+        }
+        .foregroundStyle(.white)
+        .padding(14)
+        .background(.red.gradient, in: .rect(cornerRadius: 16))
+        .shadow(radius: 12)
+        .accessibilityElement(children: .combine)
     }
 
     private func metric(_ title: String, value: String, icon: String) -> some View {
@@ -138,6 +181,17 @@ struct CNSMonitoringDemoView: View {
         case .watch: "A downward trend needs closer observation."
         case .confirm: "Multiple signals confirm a concerning decline."
         case .klaxon: "Critical sustained decline; urgent response indicated."
+        }
+    }
+
+    private func beginMonitoring() {
+        guard !monitoring, !isStarting else { return }
+        isStarting = true
+        Task { @MainActor in
+            // Briefly expose acknowledgement of the visible button action.
+            try? await Task.sleep(for: .milliseconds(650))
+            isStarting = false
+            startSimulation()
         }
     }
 
@@ -158,6 +212,8 @@ struct CNSMonitoringDemoView: View {
                 tier = minute < 4 ? .clear : minute < 7 ? .watch : minute < 9 ? .confirm : .klaxon
                 if minute < 10 { try? await Task.sleep(for: .milliseconds(1500)) }
             }
+            // Hold the highest-tier notification for the recording viewer.
+            try? await Task.sleep(for: .seconds(7))
         }
     }
 }
