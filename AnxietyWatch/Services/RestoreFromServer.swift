@@ -58,6 +58,14 @@ enum RestoreMigrationGate {
     /// deferral check must not itself trip the guard it protects.
     @MainActor
     static func evaluateAtLaunch(context: ModelContext, defaults: UserDefaults = .standard) -> Bool {
+#if targetEnvironment(simulator)
+        // Simulator: no real server to restore from. Auto-resolve so the
+        // "Set Up This Device" modal doesn't block development.
+        if !defaults.bool(forKey: decisionResolvedKey) {
+            defaults.set(true, forKey: decisionResolvedKey)
+        }
+        return false
+#else
         let resolved = defaults.bool(forKey: decisionResolvedKey)
         let storeIsEmpty = SyncService.restoreGuardTablesAreEmpty(context)
         guard shouldDeferSetup(storeIsEmpty: storeIsEmpty, decisionResolved: resolved) else {
@@ -67,6 +75,7 @@ enum RestoreMigrationGate {
             return false
         }
         return true
+#endif
     }
 
     static func resolve(defaults: UserDefaults = .standard) {
