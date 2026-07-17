@@ -42,6 +42,11 @@ struct SettingsView: View {
                     } label: {
                         Label("CNS Monitoring", systemImage: "waveform.path.ecg.rectangle")
                     }
+                    NavigationLink {
+                        OuraSettingsView()
+                    } label: {
+                        Label("Oura Ring", systemImage: "circle.hexagongrid.fill")
+                    }
                 } header: {
                     Text("Data Sources")
                 } footer: {

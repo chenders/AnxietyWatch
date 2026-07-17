@@ -4,6 +4,7 @@ import SwiftData
 struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(PolarHRMService.self) private var polarService
+    @EnvironmentObject private var pipelineService: KitPipelineService
     // All six of these queries are bounded to a 30-day window in init() below
     // (AnxietyEntry, MedicationDose, HealthSnapshot, CPAPSession,
     // ClinicalLabResult, SleepStageEvent) — each can grow unbounded, and the
@@ -70,6 +71,11 @@ struct DashboardView: View {
                 VStack(spacing: 16) {
                     // 1. Alerts strip
                     AlertsSectionView(snapshots: recentSnapshots, vm: vm)
+
+                    // 1.5 v3 Pipeline monitoring card (BLE live vitals)
+                    if let monitor = pipelineService.monitoring {
+                        DashboardMonitoringCard(monitor: monitor)
+                    }
 
                     // 2. Smart Summary "What changed today"
                     SmartSummaryCard(summary: vm.smartSummary(

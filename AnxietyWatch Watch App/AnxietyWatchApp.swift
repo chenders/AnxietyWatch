@@ -14,6 +14,7 @@ final class WatchAppDelegate: NSObject, WKExtensionDelegate {
     /// Captured during bootstrap so the delegate can drive the close flow
     /// (Spec §1.1) without threading a reference through the SwiftUI hierarchy.
     var kit: DependencyContainer?
+    var complicationFeed: ComplicationFeedService?
 
     func applicationWillResignActive() {
         // Spec §1.1 close flow: checkpoint + close. The delegate fires
@@ -22,6 +23,7 @@ final class WatchAppDelegate: NSObject, WKExtensionDelegate {
         // are synchronous.
         guard let kit else { return }
         Task {
+            await complicationFeed?.stop()
             await kit.shutdown()
         }
     }
@@ -103,6 +105,9 @@ struct AnxietyWatchApp: App {
     /// P2P sync will be wired when the delegate migration is complete.
     @State private var kit: DependencyContainer?
 
+    /// Complication cache writer for watch face updates.
+    private let complicationFeed = ComplicationFeedService()
+
     // MARK: - Body
 
     var body: some Scene {
@@ -121,7 +126,8 @@ struct AnxietyWatchApp: App {
 
     // MARK: - Kit bootstrap
 
-    /// Constructs the v3 object graph and wires the delegate.
+    /// Constructs the v3 object graph, wires the delegate, and starts
+    /// complication feed from HealthKit.
     @MainActor
     private func bootstrapKit() async {
         guard kit == nil else { return }
@@ -179,6 +185,16 @@ struct AnxietyWatchApp: App {
                 Log.sync.error("Background refresh schedule failed: \(error.localizedDescription)")
             }
         }
+
+        // ── Complication feed ──────────────────────────────────────
+        // Create a HealthKit-only SensorRouter for watch face updates.
+        // The watch reads vitals from HealthKit (Apple Watch sensors) and
+        // publishes them to the App Group plist for the Complication
+        // Extension to display.
+        let hkAdapter = HealthKitAdapterActor()
+        let watchRouter = SensorRouter(polar: nil, emay: nil, healthKit: hkAdapter)
+        await complicationFeed.start(router: watchRouter)
+        extensionDelegate.complicationFeed = complicationFeed
     }
 
     // MARK: - Sensor capture

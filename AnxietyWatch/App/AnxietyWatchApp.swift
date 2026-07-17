@@ -145,6 +145,7 @@ struct AnxietyWatchApp: App {
                 .environment(emayService)
                 .environment(monitoringCoordinator)
                 .environment(recordingPresentation)
+                .environmentObject(pipelineService)
                 .overlay {
                     if let coordinator {
                         BackfillOverlay(coordinator: coordinator)
