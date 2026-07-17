@@ -155,7 +155,7 @@ public struct DependencyContainer: Sendable {
 
         do {
             _ = try await checkpointManager.run(mode: .passive)
-            try await database.close()
+            await database.close()
         } catch {
             Log.sync.error("Shutdown checkpoint/close failed: \(error)")
         }
