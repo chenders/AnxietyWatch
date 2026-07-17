@@ -8,9 +8,9 @@ public protocol OuraHealthStoreProtocol: Sendable {
 
 extension HKHealthStore: OuraHealthStoreProtocol {
     public func requestPermissions(share: Set<HKSampleType>?, read: Set<HKObjectType>?) async throws {
-        #if os(iOS) || os(watchOS)
-        try await requestAuthorization(toShare: share, read: read)
-        #endif
+#if os(iOS) || os(watchOS)
+        try await requestAuthorization(toShare: share ?? [], read: read ?? [])
+#endif
     }
 }
 

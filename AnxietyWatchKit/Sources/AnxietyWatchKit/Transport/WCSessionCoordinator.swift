@@ -53,8 +53,14 @@ public actor WCSessionCoordinator: NSObject {
     }
 
     
-    public init(session: WCSessionProtocol = WCSession.default) {
-        self.session = session
+    public init(session: WCSessionProtocol? = nil) {
+        self.session = session ?? {
+#if canImport(WatchConnectivity)
+            return LiveWCSessionAdapter()
+#else
+            return WCSession.default
+#endif
+        }()
         
         let (mStream, mContinuation) = AsyncStream.makeStream(of: IncomingMessage.self)
         self.messages = mStream
@@ -137,9 +143,6 @@ public actor WCSessionCoordinator: NSObject {
     /// Nonisolated — only touches the session, not actor state.
     public nonisolated func updateApplicationContext(_ context: [String: Any]) throws {
         let session = self.session
-        guard session.isCompanionAppInstalled else {
-            throw WCSessionError.companionAppNotInstalled
-        }
         do {
             try session.updateApplicationContext(context)
         } catch {
@@ -174,15 +177,19 @@ extension WCSessionCoordinator: WCSessionDelegate {
             await self.completeActivation(activationState, error: error)
         }
     }
-    
+
+    // sessionDidBecomeInactive / sessionDidDeactivate are removed from
+    // WCSessionDelegate in watchOS 11+. On iOS 26+ and in stub mode
+    // they still exist and must be implemented.
+#if os(iOS) || !canImport(WatchConnectivity)
     public nonisolated func sessionDidBecomeInactive(_ session: WCSession) {
-        // No-op for now
+        // No-op
     }
-    
+
     public nonisolated func sessionDidDeactivate(_ session: WCSession) {
-        // Reactivate per Apple guidelines
         session.activate()
     }
+#endif
     
     public nonisolated func session(_ session: WCSession, didReceiveMessage message: [String : Any], replyHandler: @escaping ([String : Any]) -> Void) {
         Task {

@@ -30,7 +30,6 @@ public class WCSession: NSObject {
     public weak var delegate: WCSessionDelegate?
     public var activationState: WCSessionActivationState = .notActivated
     public var isReachable: Bool = false
-    public var isCompanionAppInstalled: Bool = false
     
     public func activate() {}
     public func sendMessage(_ message: [String: Any], replyHandler: (([String: Any]) -> Void)?, errorHandler: ((Error) -> Void)?) {}

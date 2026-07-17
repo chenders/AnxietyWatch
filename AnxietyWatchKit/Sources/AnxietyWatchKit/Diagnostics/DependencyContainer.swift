@@ -73,10 +73,18 @@ public struct DependencyContainer: Sendable {
         cursorFileURL: URL,
         nodeID: Data,
         endpoint: SyncEndpoint,
-        session: WCSessionProtocol = WCSession.default,
+        session: WCSessionProtocol? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) },
         monotonicNow: @escaping @Sendable () -> Int64 = { HLC.defaultMonotonic() }
     ) {
+        // Resolve WCSession protocol wrapper — default varies by platform.
+        let session = session ?? {
+#if canImport(WatchConnectivity)
+            return LiveWCSessionAdapter()
+#else
+            return WCSession.default
+#endif
+        }()
         // 1. Storage
         let db = DatabaseManager(url: dbURL)
         database = db

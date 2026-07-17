@@ -171,7 +171,10 @@ struct AnxietyWatchApp: App {
                         saveCleanShutdownFlag()
                         Task {
                             await pipelineService.stop()
-                            await kit?.shutdown()
+                            if var k = kit {
+                                await k.shutdown()
+                                kit = k
+                            }
                         }
                     }
                 }

@@ -21,7 +21,7 @@ final class WatchAppDelegate: NSObject, WKExtensionDelegate {
         // BEFORE suspension — we have a bounded window (~2 s wall clock) to
         // flush. Do not await long-running work here; checkpoint and close
         // are synchronous.
-        guard let kit else { return }
+        guard var kit else { return }
         Task {
             await complicationFeed?.stop()
             await kit.shutdown()
@@ -47,7 +47,7 @@ final class WatchAppDelegate: NSObject, WKExtensionDelegate {
 
 @main
 struct AnxietyWatchApp: App {
-    @WKExtensionDelegateAdaptor private var extensionDelegate = WatchAppDelegate()
+    @WKExtensionDelegateAdaptor(WatchAppDelegate.self) var extensionDelegate
 
     private let log = Logger(subsystem: "AnxietyWatch", category: "WatchApp")
 
@@ -161,7 +161,6 @@ struct AnxietyWatchApp: App {
             endpoint: endpoint
         )
         kit = container
-        wcCoordinator = container.transport
         extensionDelegate.kit = container
 
         do {

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 import os
 import AnxietyWatchKit
 
@@ -36,7 +37,7 @@ public final class KitPipelineService: ObservableObject {
     private var emay: EMAYActor?
     private var healthKit: HealthKitAdapterActor?
     private var router: SensorRouter?
-    private var coordinator: CNSMonitoringCoordinator?
+    private var coordinator: PipelineCoordinator?
     private var complicationWriter: ComplicationCacheWriter?
     private var monitoringTask: Task<Void, Never>?
 
@@ -68,7 +69,7 @@ public final class KitPipelineService: ObservableObject {
 
         // ── Pipeline coordinator ──────────────────────────────────
         guard let router else { return }
-        coordinator = CNSMonitoringCoordinator(router: router)
+        coordinator = PipelineCoordinator(router: router)
         await coordinator?.start()
 
         // ── Complication cache writer ─────────────────────────────

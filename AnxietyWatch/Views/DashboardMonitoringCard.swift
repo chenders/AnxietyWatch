@@ -97,36 +97,9 @@ public struct DashboardMonitoringCard: View {
     
     @ViewBuilder
     private func tierBadge(tier: AlertTier, isIdle: Bool) -> some View {
-        let text: String
-        let color: Color
-        
-        if isIdle {
-            text = "IDLE"
-            color = .gray
-        } else {
-            switch tier {
-            case .normal:
-                text = "NORMAL"
-                color = .green
-            case .advisory:
-                text = "ADVISORY"
-                color = .yellow
-            case .warning:
-                text = "WARNING"
-                color = .orange
-            case .critical:
-                text = "CRITICAL"
-                color = .red
-            }
-        }
-        
-        Text(text)
+        Text(isIdle ? "IDLE" : "\(tier)")
             .font(.caption2.bold())
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(color.opacity(0.2), in: Capsule())
-            .foregroundStyle(color)
-            .animation(.default, value: tier)
+            .foregroundStyle(.gray)
     }
     
     private func progressColor(for score: Double) -> Color {
@@ -136,22 +109,4 @@ public struct DashboardMonitoringCard: View {
         if score < 0.9 { return .orange }
         return .red
     }
-}
-
-#Preview {
-    let router = SensorRouter(polar: nil, emay: nil, healthKit: nil)
-    let vm = MonitoringViewModel(router: router)
-    
-    // Inject mock data for preview
-    vm.apply(ViewModelSnapshot(
-        latestHR: 72,
-        latestSpO2: 98,
-        latestHRV: 45.0,
-        alertTier: .normal,
-        isIdle: false,
-        fusionScore: 0.15
-    ))
-    
-    return DashboardMonitoringCard(monitor: vm)
-        .padding()
 }

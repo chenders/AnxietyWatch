@@ -300,6 +300,7 @@
 			);
 			name = AnxietyWatch;
 			packageProductDependencies = (
+				AWK002 /* AnxietyWatchKit */,
 			);
 			productName = AnxietyWatch;
 			productReference = 833535F92F6D0B3D00B45286 /* AnxietyWatch.app */;
@@ -324,6 +325,7 @@
 			);
 			name = "AnxietyWatch Watch App";
 			packageProductDependencies = (
+				AWK002 /* AnxietyWatchKit */,
 			);
 			productName = "AnxietyWatch Watch App";
 			productReference = 8335360D2F6D0BFF00B45286 /* AnxietyWatch Watch App.app */;
@@ -432,6 +434,9 @@
 				Base,
 			);
 			mainGroup = 833535F02F6D0B3D00B45286;
+			packageReferences = (
+				AWK001 /* AnxietyWatchKit */,
+			);
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 833535FA2F6D0B3D00B45286 /* Products */;
@@ -1044,6 +1049,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AWK001 /* AnxietyWatchKit */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = AnxietyWatchKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AWK002 /* AnxietyWatchKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AWK001 /* AnxietyWatchKit */;
+			productName = AnxietyWatchKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 833535F12F6D0B3D00B45286 /* Project object */;
 }
