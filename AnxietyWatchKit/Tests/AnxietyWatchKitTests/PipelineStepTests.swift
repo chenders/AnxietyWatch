@@ -88,8 +88,13 @@ final class PipelineStepTests: XCTestCase {
             .deletingLastPathComponent()                            // .../AnxietyWatchKit
             .appendingPathComponent("Sources/AnxietyWatchKit/Pipeline", isDirectory: true)
 
+        // CNSMonitoringCoordinator is the ONE documented impure boundary in
+        // the Pipeline layer (Spec §4.2): it owns the driver Task and calls
+        // the injected effect handlers. Everything else stays pure.
+        let exemptImpureBoundaries: Set<String> = ["CNSMonitoringCoordinator.swift"]
+
         let files = try FileManager.default.contentsOfDirectory(at: pipelineDir, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "swift" }
+            .filter { $0.pathExtension == "swift" && !exemptImpureBoundaries.contains($0.lastPathComponent) }
         XCTAssertFalse(files.isEmpty, "purity lint found no Pipeline sources — path broken?")
 
         for file in files {
