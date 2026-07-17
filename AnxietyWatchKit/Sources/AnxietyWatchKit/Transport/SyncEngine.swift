@@ -141,7 +141,7 @@ public actor SyncEngine {
             )
 
             if !samples.isEmpty {
-                let recordsData = try JSONEncoder().encode(samples)
+                let recordsData = try encodeSamples(samples)
                 var pushCursor = localPushCursor
                 for row in samples {
                     pushCursor.advance(
@@ -182,7 +182,7 @@ public actor SyncEngine {
                     lc: watermark.logical,
                     limit: limit
                 )
-                let recordsData = try JSONEncoder().encode(samples)
+                let recordsData = try encodeSamples(samples)
                 let nodeID = await nodeIDString()
                 let batch = SyncMessage.batch(nodeID: nodeID, cursor: localPushCursor, recordsData: recordsData)
                 let batchDict = try SyncMessageCodec.encode(batch)
@@ -224,7 +224,7 @@ public actor SyncEngine {
     // MARK: - Batch apply
 
     private func applyBatch(recordsData: Data, cursor: SyncCursor) async throws {
-        let samples = try JSONDecoder().decode([SampleRow].self, from: recordsData)
+        let samples = try decodeSamples(recordsData)
 
         for row in samples {
             let stamp = HLCStamped(
@@ -251,6 +251,20 @@ public actor SyncEngine {
     }
 
     // MARK: - Helpers
+
+    private func encodeSamples(_ samples: [SampleRow]) throws -> Data {
+        if Feature.wcBinaryFormatEnabled {
+            return try BinaryCodec.encodeSamplePayload(samples)
+        }
+        return try JSONEncoder().encode(samples)
+    }
+
+    private func decodeSamples(_ data: Data) throws -> [SampleRow] {
+        if Feature.wcBinaryFormatEnabled {
+            return try BinaryCodec.decodeSamplePayload(data)
+        }
+        return try JSONDecoder().decode([SampleRow].self, from: data)
+    }
 
     private func nodeIDString() async -> String {
         await hlc.currentLocal.nodeID.hlcHexString

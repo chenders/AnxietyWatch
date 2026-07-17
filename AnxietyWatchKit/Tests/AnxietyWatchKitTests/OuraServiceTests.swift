@@ -152,4 +152,64 @@ import Testing
         )
         #expect(abs(sample.instantHR) < 0.001)
     }
+    
+    // MARK: - New service method tests
+    
+    @Test func fetchCardiovascularAgeReturnsEmptyWithoutToken() async {
+        let service = isolatedService()
+        let result = await service.fetchCardiovascularAge(
+            startDate: Date().addingTimeInterval(-86400),
+            endDate: Date()
+        )
+        #expect(result.isEmpty)
+    }
+    
+    @Test func fetchVO2MaxReturnsEmptyWithoutToken() async {
+        let service = isolatedService()
+        let result = await service.fetchVO2Max(
+            startDate: Date().addingTimeInterval(-86400),
+            endDate: Date()
+        )
+        #expect(result.isEmpty)
+    }
+    
+    @Test func fetchSleepDetailReturnsEmptyWithoutToken() async {
+        let service = isolatedService()
+        let result = await service.fetchSleepDetail(
+            startDate: Date().addingTimeInterval(-86400),
+            endDate: Date()
+        )
+        #expect(result.isEmpty)
+    }
+    
+    @Test func fetchDailySpO2ReturnsEmptyWithoutToken() async {
+        let service = isolatedService()
+        let result = await service.fetchDailySpO2(
+            startDate: Date().addingTimeInterval(-86400),
+            endDate: Date()
+        )
+        #expect(result.isEmpty)
+    }
+    
+    @Test func fetchDailyActivityReturnsEmptyWithoutToken() async {
+        let service = isolatedService()
+        let result = await service.fetchDailyActivity(
+            startDate: Date().addingTimeInterval(-86400),
+            endDate: Date()
+        )
+        #expect(result.isEmpty)
+    }
+    
+    @Test func fetchAllNewDataReturnsEmptyWithoutToken() async {
+        let service = isolatedService()
+        let result = await service.fetchAllNewData(
+            startDate: Date().addingTimeInterval(-86400),
+            endDate: Date()
+        )
+        #expect(result.cardiovascularAge.isEmpty)
+        #expect(result.vo2Max.isEmpty)
+        #expect(result.sleepDetail.isEmpty)
+        #expect(result.dailySpO2.isEmpty)
+        #expect(result.dailyActivity.isEmpty)
+    }
 }

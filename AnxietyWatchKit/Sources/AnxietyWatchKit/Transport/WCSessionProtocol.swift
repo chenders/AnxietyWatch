@@ -10,8 +10,11 @@ public protocol WCSessionTransfer: AnyObject {
     func cancel()
 }
 
+public protocol WCSessionFileTransferProtocol: WCSessionTransfer {}
+
 #if canImport(WatchConnectivity)
 extension WCSessionUserInfoTransfer: WCSessionTransfer {}
+extension WCSessionFileTransfer: WCSessionFileTransferProtocol {}
 #endif
 
 public protocol WCSessionProtocol: AnyObject {
@@ -23,6 +26,7 @@ public protocol WCSessionProtocol: AnyObject {
     func activate()
     func sendMessage(_ message: [String: Any], replyHandler: (([String: Any]) -> Void)?, errorHandler: ((Error) -> Void)?)
     func transferUserInfo(_ userInfo: [String: Any]) -> WCSessionTransfer
+    func transferFile(_ fileURL: URL, metadata: [String: Any]?) -> WCSessionFileTransferProtocol
     func updateApplicationContext(_ context: [String: Any]) throws
 }
 

@@ -20,6 +20,11 @@ public class WCSessionUserInfoTransfer: NSObject, WCSessionTransfer {
     public func cancel() {}
 }
 
+public class WCSessionFileTransfer: NSObject, WCSessionFileTransferProtocol {
+    public var isTransferring: Bool { false }
+    public func cancel() {}
+}
+
 public class WCSession: NSObject {
     public static let `default` = WCSession()
     public weak var delegate: WCSessionDelegate?
@@ -29,7 +34,8 @@ public class WCSession: NSObject {
     
     public func activate() {}
     public func sendMessage(_ message: [String: Any], replyHandler: (([String: Any]) -> Void)?, errorHandler: ((Error) -> Void)?) {}
-    public func transferUserInfo(_ userInfo: [String: Any]) -> WCSessionTransfer { return WCSessionUserInfoTransfer() }
+    public func transferUserInfo(_ userInfo: [String: Any]) -> WCSessionTransfer { WCSessionUserInfoTransfer() }
+    public func transferFile(_ fileURL: URL, metadata: [String: Any]?) -> WCSessionFileTransferProtocol { WCSessionFileTransfer() }
     public func updateApplicationContext(_ context: [String: Any]) throws {}
 }
 

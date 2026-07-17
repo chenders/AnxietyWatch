@@ -165,3 +165,164 @@ public struct OuraStressData: Codable, Sendable, Identifiable {
         case daySummary = "day_summary"
     }
 }
+
+// MARK: - Cardiovascular Age
+
+public struct OuraCardiovascularAgeResponse: Codable, Sendable {
+    public let data: [OuraCardiovascularAgeData]
+    public let nextToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case data
+        case nextToken = "next_token"
+    }
+}
+
+public struct OuraCardiovascularAgeData: Codable, Sendable, Identifiable {
+    public let id: String
+    public let day: String
+    public let vascularAge: Double?
+    public let pulseWaveVelocity: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case id, day
+        case vascularAge = "vascular_age"
+        case pulseWaveVelocity = "pulse_wave_velocity"
+    }
+}
+
+// MARK: - VO2 Max
+
+public struct OuraVO2MaxResponse: Codable, Sendable {
+    public let data: [OuraVO2MaxData]
+    public let nextToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case data
+        case nextToken = "next_token"
+    }
+}
+
+public struct OuraVO2MaxData: Codable, Sendable, Identifiable {
+    public let id: String
+    public let day: String
+    public let vo2Max: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case id, day
+        case vo2Max = "vo2_max"
+    }
+}
+
+// MARK: - Sleep Detail
+
+public struct OuraSleepDetailResponse: Codable, Sendable {
+    public let data: [OuraSleepDetailData]
+    public let nextToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case data
+        case nextToken = "next_token"
+    }
+}
+
+public struct OuraSleepDetailData: Codable, Sendable, Identifiable {
+    public let id: String
+    public let day: String
+    public let averageHeartRate: Double?
+    public let averageHrv: Double?
+    public let timeInBed: Int
+    public let awakeTime: Int?
+    public let deepSleepDuration: Int?
+    public let lightSleepDuration: Int?
+    public let remSleepDuration: Int?
+    public let totalSleepDuration: Int?
+    public let efficiency: Int?
+    public let score: Int?
+    // New detailed fields
+    public let hypnogram: String?
+    public let hrvSeries: [Double]?
+    public let respiratoryRate: Double?
+    public let latency: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id, day
+        case averageHeartRate = "average_heart_rate"
+        case averageHrv = "average_hrv"
+        case timeInBed = "time_in_bed"
+        case awakeTime = "awake_time"
+        case deepSleepDuration = "deep_sleep_duration"
+        case lightSleepDuration = "light_sleep_duration"
+        case remSleepDuration = "rem_sleep_duration"
+        case totalSleepDuration = "total_sleep_duration"
+        case efficiency, score
+        case hypnogram
+        case hrvSeries = "hrv_series"
+        case respiratoryRate = "respiratory_rate"
+        case latency
+    }
+}
+
+// MARK: - Daily SpO2
+
+public struct OuraDailySpO2Response: Codable, Sendable {
+    public let data: [OuraDailySpO2Data]
+    public let nextToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case data
+        case nextToken = "next_token"
+    }
+}
+
+public struct OuraDailySpO2Data: Codable, Sendable, Identifiable {
+    public let id: String
+    public let day: String
+    public let averageSpO2: Double?
+    public let breathingDisturbanceIndex: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case id, day
+        case averageSpO2 = "average_spo2"
+        case breathingDisturbanceIndex = "breathing_disturbance_index"
+    }
+}
+
+// MARK: - Daily Activity
+
+public struct OuraDailyActivityResponse: Codable, Sendable {
+    public let data: [OuraDailyActivityData]
+    public let nextToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case data
+        case nextToken = "next_token"
+    }
+}
+
+public struct OuraDailyActivityData: Codable, Sendable, Identifiable {
+    public let id: String
+    public let day: String
+    public let met: Double?
+    public let steps: Int?
+    public let activityClasses: [OuraActivityClass]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, day, met, steps
+        case activityClasses = "class_5_min"
+    }
+}
+
+public struct OuraActivityClass: Codable, Sendable {
+    public let activity: String?
+    public let endTime: String?
+    public let met: Double?
+    public let startTime: String?
+
+    enum CodingKeys: String, CodingKey {
+        case activity
+        case endTime = "end_time"
+        case met
+        case startTime = "start_time"
+    }
+}

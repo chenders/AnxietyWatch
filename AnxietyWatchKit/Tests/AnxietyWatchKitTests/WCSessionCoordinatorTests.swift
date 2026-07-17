@@ -9,6 +9,11 @@ final class MockTransfer: WCSessionTransfer {
     func cancel() {}
 }
 
+final class MockFileTransfer: WCSessionFileTransferProtocol {
+    let isTransferring: Bool = false
+    func cancel() {}
+}
+
 final class MockWCSession: WCSessionProtocol {
     var delegate: WCSessionDelegate?
     var activationState: WCSessionActivationState = .notActivated
@@ -18,6 +23,8 @@ final class MockWCSession: WCSessionProtocol {
     var activateCalled = false
     var messageSent: [String: Any]?
     var userInfoTransferred: [String: Any]?
+    var fileTransferred: URL?
+    var fileMetadata: [String: Any]?
     var applicationContextUpdated: [String: Any]?
     
     var mockReply: [String: Any]?
@@ -70,6 +77,12 @@ final class MockWCSession: WCSessionProtocol {
         return MockTransfer()
     }
     
+    func transferFile(_ fileURL: URL, metadata: [String: Any]?) -> WCSessionFileTransferProtocol {
+        fileTransferred = fileURL
+        fileMetadata = metadata
+        return MockFileTransfer()
+    }
+
     func updateApplicationContext(_ context: [String: Any]) throws {
         if let error = mockApplicationContextError {
             throw error
@@ -165,6 +178,15 @@ final class WCSessionCoordinatorTests: XCTestCase {
             XCTAssertEqual(error, .notReachable)
         } catch { XCTFail() }
         XCTAssertNil(mock.userInfoTransferred)
+    }
+
+    func testHistoricalBatchUsesFileTransfer() {
+        let mock = MockWCSession()
+        let coordinator = WCSessionCoordinator(session: mock)
+        let url = URL(fileURLWithPath: "/tmp/history.awbin")
+        _ = coordinator.transferFile(url, metadata: ["kind": "samples"])
+        XCTAssertEqual(mock.fileTransferred, url)
+        XCTAssertEqual(mock.fileMetadata?["kind"] as? String, "samples")
     }
 
     func testUpdateApplicationContextSuccess() throws {

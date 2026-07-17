@@ -66,6 +66,28 @@ public actor OuraAPIClient {
         return try await fetch(endpoint: "daily_resilience", startDate: startDate, endDate: endDate, responseType: OuraResilienceResponse.self).data
     }
     
+    // MARK: - New API methods
+    
+    public func fetchCardiovascularAge(startDate: String, endDate: String) async throws -> [OuraCardiovascularAgeData] {
+        return try await fetch(endpoint: "daily_cardiovascular_age", startDate: startDate, endDate: endDate, responseType: OuraCardiovascularAgeResponse.self).data
+    }
+    
+    public func fetchVO2Max(startDate: String, endDate: String) async throws -> [OuraVO2MaxData] {
+        return try await fetch(endpoint: "vo2_max", startDate: startDate, endDate: endDate, responseType: OuraVO2MaxResponse.self).data
+    }
+    
+    public func fetchSleepDetail(startDate: String, endDate: String) async throws -> [OuraSleepDetailData] {
+        return try await fetch(endpoint: "sleep", startDate: startDate, endDate: endDate, responseType: OuraSleepDetailResponse.self).data
+    }
+    
+    public func fetchDailySpO2(startDate: String, endDate: String) async throws -> [OuraDailySpO2Data] {
+        return try await fetch(endpoint: "daily_spo2", startDate: startDate, endDate: endDate, responseType: OuraDailySpO2Response.self).data
+    }
+    
+    public func fetchDailyActivity(startDate: String, endDate: String) async throws -> [OuraDailyActivityData] {
+        return try await fetch(endpoint: "daily_activity", startDate: startDate, endDate: endDate, responseType: OuraDailyActivityResponse.self).data
+    }
+    
     private func fetch<T: Decodable>(endpoint: String, startDate: String, endDate: String, responseType: T.Type) async throws -> T {
         guard let token = accessToken else {
             throw OuraAPIError.unauthorized

@@ -193,6 +193,12 @@ def create_app(test_config=None):
     # POST /api/sync
     # ---------------------------------------------------------------------------
 
+    # ---------------------------------------------------------------------------
+    # Delta Sync and Oura Extensions
+    # ---------------------------------------------------------------------------
+    import delta_oura_patch
+    delta_oura_patch.apply_patch(app, get_db, require_api_key)
+
     @app.route("/api/sync", methods=["POST"])
     @require_api_key
     def sync():

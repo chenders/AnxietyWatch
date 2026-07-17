@@ -38,7 +38,7 @@ public actor WCSessionCoordinator: NSObject {
         public let replyHandler: @Sendable ([String: Any]) -> Void
     }
     
-    private let session: WCSessionProtocol
+    nonisolated(unsafe) private let session: WCSessionProtocol
     
     private var messageContinuation: AsyncStream<IncomingMessage>.Continuation?
     private var userInfoContinuation: AsyncStream<[String: Any]>.Continuation?
@@ -119,6 +119,17 @@ public actor WCSessionCoordinator: NSObject {
     @discardableResult
     public nonisolated func transferUserInfo(_ payload: [String: Any]) -> WCSessionTransfer {
         self.session.transferUserInfo(payload)
+    }
+
+    /// Queues a disk-backed historical time-series chunk (Spec §5.2).
+    /// The caller owns creation of the framed binary file. WCSession keeps the
+    /// transfer alive independently of process suspension.
+    @discardableResult
+    public nonisolated func transferFile(
+        _ fileURL: URL,
+        metadata: [String: Any]? = nil
+    ) -> WCSessionFileTransferProtocol {
+        self.session.transferFile(fileURL, metadata: metadata)
     }
 
     /// Push a last-writer-wins application-context dictionary (Spec §5.2).

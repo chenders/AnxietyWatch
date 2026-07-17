@@ -211,4 +211,97 @@ public actor OuraService {
             return []
         }
     }
+    
+    // MARK: - New fetch methods
+    
+    /// Fetch cardiovascular age data for the given date range.
+    public func fetchCardiovascularAge(startDate: Date, endDate: Date) async -> [OuraCardiovascularAgeData] {
+        guard let _ = currentToken else { return [] }
+        let startStr = dateFormatter.string(from: startDate)
+        let endStr = dateFormatter.string(from: endDate)
+        do {
+            return try await client.fetchCardiovascularAge(startDate: startStr, endDate: endStr)
+        } catch {
+            Log.ble.error("OuraService: cardiovascular age fetch failed: \(error)")
+            return []
+        }
+    }
+    
+    /// Fetch VO2 max data for the given date range.
+    public func fetchVO2Max(startDate: Date, endDate: Date) async -> [OuraVO2MaxData] {
+        guard let _ = currentToken else { return [] }
+        let startStr = dateFormatter.string(from: startDate)
+        let endStr = dateFormatter.string(from: endDate)
+        do {
+            return try await client.fetchVO2Max(startDate: startStr, endDate: endStr)
+        } catch {
+            Log.ble.error("OuraService: VO2 max fetch failed: \(error)")
+            return []
+        }
+    }
+    
+    /// Fetch detailed sleep data for the given date range.
+    public func fetchSleepDetail(startDate: Date, endDate: Date) async -> [OuraSleepDetailData] {
+        guard let _ = currentToken else { return [] }
+        let startStr = dateFormatter.string(from: startDate)
+        let endStr = dateFormatter.string(from: endDate)
+        do {
+            return try await client.fetchSleepDetail(startDate: startStr, endDate: endStr)
+        } catch {
+            Log.ble.error("OuraService: sleep detail fetch failed: \(error)")
+            return []
+        }
+    }
+    
+    /// Fetch daily SpO2 data for the given date range.
+    public func fetchDailySpO2(startDate: Date, endDate: Date) async -> [OuraDailySpO2Data] {
+        guard let _ = currentToken else { return [] }
+        let startStr = dateFormatter.string(from: startDate)
+        let endStr = dateFormatter.string(from: endDate)
+        do {
+            return try await client.fetchDailySpO2(startDate: startStr, endDate: endStr)
+        } catch {
+            Log.ble.error("OuraService: daily SpO2 fetch failed: \(error)")
+            return []
+        }
+    }
+    
+    /// Fetch daily activity data for the given date range.
+    public func fetchDailyActivity(startDate: Date, endDate: Date) async -> [OuraDailyActivityData] {
+        guard let _ = currentToken else { return [] }
+        let startStr = dateFormatter.string(from: startDate)
+        let endStr = dateFormatter.string(from: endDate)
+        do {
+            return try await client.fetchDailyActivity(startDate: startStr, endDate: endStr)
+        } catch {
+            Log.ble.error("OuraService: daily activity fetch failed: \(error)")
+            return []
+        }
+    }
+    
+    /// Fetch all new Oura data types for the given date range.
+    /// This method coordinates fetching cardiovascular age, VO2 max, sleep detail,
+    /// SpO2, and activity data in parallel for efficiency.
+    public func fetchAllNewData(startDate: Date, endDate: Date) async -> (
+        cardiovascularAge: [OuraCardiovascularAgeData],
+        vo2Max: [OuraVO2MaxData],
+        sleepDetail: [OuraSleepDetailData],
+        dailySpO2: [OuraDailySpO2Data],
+        dailyActivity: [OuraDailyActivityData]
+    ) {
+        // Run all fetches in parallel
+        async let cardiovascularAge = fetchCardiovascularAge(startDate: startDate, endDate: endDate)
+        async let vo2Max = fetchVO2Max(startDate: startDate, endDate: endDate)
+        async let sleepDetail = fetchSleepDetail(startDate: startDate, endDate: endDate)
+        async let dailySpO2 = fetchDailySpO2(startDate: startDate, endDate: endDate)
+        async let dailyActivity = fetchDailyActivity(startDate: startDate, endDate: endDate)
+        
+        return (
+            cardiovascularAge: await cardiovascularAge,
+            vo2Max: await vo2Max,
+            sleepDetail: await sleepDetail,
+            dailySpO2: await dailySpO2,
+            dailyActivity: await dailyActivity
+        )
+    }
 }

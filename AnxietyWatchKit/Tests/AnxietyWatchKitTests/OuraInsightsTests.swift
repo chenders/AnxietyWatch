@@ -168,4 +168,126 @@ import Testing
         #expect(decoded.data[0].recoveryHigh == 240)
         #expect(decoded.data[0].daySummary == "restorative")
     }
+    
+    // MARK: - New model tests
+    
+    @Test func cardiovascularAgeResponseCodable() throws {
+        let json = """
+        {
+            "data": [{
+                "id": "cva1",
+                "day": "2025-01-15",
+                "vascular_age": 45.2,
+                "pulse_wave_velocity": 8.7
+            }],
+            "next_token": null
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(OuraCardiovascularAgeResponse.self, from: Data(json.utf8))
+        #expect(decoded.data.count == 1)
+        #expect(decoded.data[0].vascularAge == 45.2)
+        #expect(decoded.data[0].pulseWaveVelocity == 8.7)
+        #expect(decoded.nextToken == nil)
+    }
+    
+    @Test func vo2MaxResponseCodable() throws {
+        let json = """
+        {
+            "data": [{
+                "id": "vo2max1",
+                "day": "2025-01-15",
+                "vo2_max": 42.5
+            }],
+            "next_token": null
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(OuraVO2MaxResponse.self, from: Data(json.utf8))
+        #expect(decoded.data.count == 1)
+        #expect(decoded.data[0].vo2Max == 42.5)
+        #expect(decoded.nextToken == nil)
+    }
+    
+    @Test func sleepDetailResponseCodable() throws {
+        let json = """
+        {
+            "data": [{
+                "id": "sleep1",
+                "day": "2025-01-15",
+                "average_heart_rate": 62.5,
+                "average_hrv": 25.3,
+                "time_in_bed": 27840,
+                "awake_time": 1800,
+                "deep_sleep_duration": 10800,
+                "light_sleep_duration": 14400,
+                "rem_sleep_duration": 2640,
+                "total_sleep_duration": 27840,
+                "efficiency": 92,
+                "score": 85,
+                "hypnogram": "333222111333222111",
+                "hrv_series": [22.1, 25.3, 28.7, 24.2],
+                "respiratory_rate": 15.2,
+                "latency": 600
+            }],
+            "next_token": null
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(OuraSleepDetailResponse.self, from: Data(json.utf8))
+        #expect(decoded.data.count == 1)
+        #expect(decoded.data[0].hypnogram == "333222111333222111")
+        #expect(decoded.data[0].hrvSeries?.count == 4)
+        #expect(decoded.data[0].respiratoryRate == 15.2)
+        #expect(decoded.data[0].latency == 600)
+        #expect(decoded.nextToken == nil)
+    }
+    
+    @Test func dailySpO2ResponseCodable() throws {
+        let json = """
+        {
+            "data": [{
+                "id": "spo2_1",
+                "day": "2025-01-15",
+                "average_spo2": 96.8,
+                "breathing_disturbance_index": 2.3
+            }],
+            "next_token": null
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(OuraDailySpO2Response.self, from: Data(json.utf8))
+        #expect(decoded.data.count == 1)
+        #expect(decoded.data[0].averageSpO2 == 96.8)
+        #expect(decoded.data[0].breathingDisturbanceIndex == 2.3)
+        #expect(decoded.nextToken == nil)
+    }
+    
+    @Test func dailyActivityResponseCodable() throws {
+        let json = """
+        {
+            "data": [{
+                "id": "activity1",
+                "day": "2025-01-15",
+                "met": 1.8,
+                "steps": 8420,
+                "class_5_min": [{
+                    "activity": "walking",
+                    "end_time": "2025-01-15T10:05:00Z",
+                    "met": 3.5,
+                    "start_time": "2025-01-15T10:00:00Z"
+                }]
+            }],
+            "next_token": null
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(OuraDailyActivityResponse.self, from: Data(json.utf8))
+        #expect(decoded.data.count == 1)
+        #expect(decoded.data[0].met == 1.8)
+        #expect(decoded.data[0].steps == 8420)
+        #expect(decoded.data[0].activityClasses?.count == 1)
+        #expect(decoded.data[0].activityClasses?[0].activity == "walking")
+        #expect(decoded.nextToken == nil)
+    }
 }
