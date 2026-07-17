@@ -26,9 +26,14 @@ struct ContentView: View {
 
     @ViewBuilder
     var body: some View {
-        if ProcessInfo.processInfo.arguments.contains("-screenshotOuraData") {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-screenshotOuraData") {
             NavigationStack {
                 OuraDataDashboardView(service: screenshotOuraService)
+            }
+        } else if arguments.contains("-screenshotLabResults") {
+            NavigationStack {
+                LabResultsView()
             }
         } else {
             mainTabs
