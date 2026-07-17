@@ -120,6 +120,12 @@ struct AnxietyWatchApp: App {
         _coordinator = State(initialValue: coord)
         coord.registerBackgroundTask()
 
+#if targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("-seedDemoData") {
+            UserDefaults.standard.set("00000000-0000-0000-0000-000000000010", forKey: PolarHRMService.pairedUUIDKey)
+            UserDefaults.standard.set("Polar H10 Demo", forKey: PolarHRMService.pairedNameKey)
+        }
+#endif
         let polar = PolarHRMService(modelContext: ModelContext(sharedModelContainer))
         _polarService = State(initialValue: polar)
         _liveActivityCoordinator = State(initialValue: LiveActivityCoordinator(polarService: polar))
