@@ -15,7 +15,7 @@ struct CareSectionRowView: View {
                 Text("Care").font(.headline)
                 Spacer()
                 if recentLabResultsCount > 0 {
-                    Text("\(recentLabResultsCount) recent lab\(recentLabResultsCount == 1 ? "" : "s")")
+                    Text("\(recentLabResultsCount) recent lab result\(recentLabResultsCount == 1 ? "" : "s")")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
@@ -26,7 +26,7 @@ struct CareSectionRowView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(recentLabResultsCount > 0
-            ? "Care, \(recentLabResultsCount) recent lab\(recentLabResultsCount == 1 ? "" : "s")"
+            ? "Care, \(recentLabResultsCount) recent lab result\(recentLabResultsCount == 1 ? "" : "s")"
             : "Care"
         )
         .accessibilityHint("Tap to view lab results")
