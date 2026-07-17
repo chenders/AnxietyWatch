@@ -2,6 +2,17 @@ import XCTest
 @testable import AnxietyWatchKit
 
 final class PipelineStepTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        // Enable data-gap events for tests (§4.3 Phase 1 gate).
+        UserDefaults.standard.set(true, forKey: "pipeline.gapEventsEnabled")
+    }
+
+    override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: "pipeline.gapEventsEnabled")
+        super.tearDown()
+    }
+
     private func makeState() -> PipelineState {
         PipelineState()
     }
