@@ -151,4 +151,51 @@ public struct PipelineStep {
         }
         // Equal tier: transition-only emission — nothing to do.
     }
+
+    /// Applies a fusion-score-based tier bump to (state, commands).
+    /// If fusion.overall crosses defined thresholds, may upgrade the tier
+    /// beyond what per-sample logic produced. Downgrades never — only upgrades.
+    ///
+    /// - Parameter tMs: the current sample's timestamp in ms since epoch. Used
+    ///   as the fresh hysteresis anchor on any upgrade so subsequent downgrade
+    ///   ticks are measured from THIS upgrade time, not a stale prior anchor
+    ///   or an epoch-0 sentinel (Opus R1 T25 bug: without tMs, upgrading from
+    ///   .normal set anchor to 0 and permitted immediate downgrades).
+    public static func applyFusion(
+        _ state: PipelineState,
+        _ commands: [AlertCommand],
+        fusion: CNSFusionEngine.FusionScore,
+        tMs: Int64
+    ) -> (PipelineState, [AlertCommand]) {
+        var state = state
+        var commands = commands
+
+        // Thresholds: fusion.overall >= 0.8 → critical; >= 0.6 → warning; >= 0.4 → advisory
+        let target: AlertTier
+        if fusion.overall >= 0.8 {
+            target = .critical
+        } else if fusion.overall >= 0.6 {
+            target = .warning
+        } else if fusion.overall >= 0.4 {
+            target = .advisory
+        } else {
+            target = .normal
+        }
+
+        // Only UPGRADE (never downgrade), preserving hysteresis anchor semantics.
+        if PipelineStep.rank(target) > PipelineStep.rank(state.currentAlertTier) {
+            state.currentAlertTier = target
+            // Fresh anchor at the upgrade moment so the 30 s hysteresis window
+            // is measured from THIS upgrade, not a stale prior tier's anchor.
+            state.hysteresisAnchorMs = tMs
+
+            let message = "Fusion score indicated CNS depression risk"
+            commands.append(.notify(tier: target, message: message))
+            if target == .critical {
+                commands.append(.haptic(pattern: .failure))
+            }
+        }
+
+        return (state, commands)
+    }
 }
