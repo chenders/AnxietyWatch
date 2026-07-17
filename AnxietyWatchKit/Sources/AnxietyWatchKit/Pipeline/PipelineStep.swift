@@ -75,6 +75,10 @@ public struct PipelineStep {
                       escalationMessage: "Sustained high movement (\(magnitude))")
 
         case .dataGap(let range):
+            // Phase 1 gate (§4.3): gap events are compiled but dark by
+            // default. The branch becomes active when the remote-config
+            // flag is set to true (Phase 2+).
+            guard Feature.pipelineGapEventsEnabled else { break }
             // Drop ring contents covered by the gap — they describe a window
             // that no longer has trustworthy continuity.
             state.hrRing.removeAll { range.contains($0.tMs) }
