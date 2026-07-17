@@ -242,15 +242,21 @@ enum DemoSeeder {
         func sample(_ type: String, _ value: Double, _ ts: Date) {
             ctx.insert(HealthSample(type: type, value: value, timestamp: ts, source: appleSource))
         }
-        // Today's intraday points for the HR + SpO2 sparklines.
-        for h in stride(from: 7, through: 22, by: 2) {
-            let ts = cal.date(byAdding: .hour, value: h, to: today)!
-            sample(HKQuantityTypeIdentifier.heartRate.rawValue, 64 + Double((h * 7) % 22), ts)
-            sample(HKQuantityTypeIdentifier.oxygenSaturation.rawValue, 0.96 + Double(h % 3) * 0.01, ts)
+        // Recent intraday points for the HR + SpO2 sparklines. Anchor the
+        // newest observation near now so screenshots never imply a future
+        // reading when captured before the former fixed 22:00 endpoint.
+        let currentHour = cal.component(.hour, from: .now)
+        for hoursAgo in stride(from: 14, through: 0, by: -2) {
+            let ts = cal.date(byAdding: .hour, value: -hoursAgo, to: .now)!
+            sample(HKQuantityTypeIdentifier.heartRate.rawValue, 64 + Double((hoursAgo * 7) % 22), ts)
+            sample(HKQuantityTypeIdentifier.oxygenSaturation.rawValue, 0.96 + Double(hoursAgo % 3) * 0.01, ts)
         }
-        // Daily points over the last week for the remaining tiles.
+        // Daily points over the last week for the remaining tiles. Today's
+        // value is also near now, avoiding a future-dated 09:00 sample.
         for n in 0..<7 {
-            let ts = cal.date(byAdding: .hour, value: 9, to: cal.date(byAdding: .day, value: -n, to: today)!)!
+            let dayDate = cal.date(byAdding: .day, value: -n, to: today)!
+            let hour = n == 0 ? currentHour : 9
+            let ts = cal.date(byAdding: .hour, value: hour, to: dayDate)!
             sample(HKQuantityTypeIdentifier.restingHeartRate.rawValue, 66 + Double(n % 4), ts)
             sample(HKQuantityTypeIdentifier.heartRateVariabilitySDNN.rawValue, 30 + Double(n % 5), ts)
             sample(HKQuantityTypeIdentifier.respiratoryRate.rawValue, 14 + Double(n % 2) * 0.5, ts)
