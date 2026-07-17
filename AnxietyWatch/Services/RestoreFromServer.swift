@@ -59,13 +59,16 @@ enum RestoreMigrationGate {
     @MainActor
     static func evaluateAtLaunch(context: ModelContext, defaults: UserDefaults = .standard) -> Bool {
 #if targetEnvironment(simulator)
-        // Simulator: no real server to restore from. Auto-resolve so the
-        // "Set Up This Device" modal doesn't block development.
-        if !defaults.bool(forKey: decisionResolvedKey) {
-            defaults.set(true, forKey: decisionResolvedKey)
+        // Automated simulator demos have no real server to restore from. Keep
+        // the production decision path testable for ordinary simulator runs.
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-seedDemoData") || arguments.contains("-screenshotOuraData") || arguments.contains("-screenshotTab") {
+            if !defaults.bool(forKey: decisionResolvedKey) {
+                defaults.set(true, forKey: decisionResolvedKey)
+            }
+            return false
         }
-        return false
-#else
+#endif
         let resolved = defaults.bool(forKey: decisionResolvedKey)
         let storeIsEmpty = SyncService.restoreGuardTablesAreEmpty(context)
         guard shouldDeferSetup(storeIsEmpty: storeIsEmpty, decisionResolved: resolved) else {
@@ -75,7 +78,6 @@ enum RestoreMigrationGate {
             return false
         }
         return true
-#endif
     }
 
     static func resolve(defaults: UserDefaults = .standard) {

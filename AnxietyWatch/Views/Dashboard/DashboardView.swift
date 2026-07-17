@@ -84,6 +84,9 @@ struct DashboardView: View {
                         lastAnxiety: recentEntries.first
                     ))
 
+                    // Oura Cloud daily context is distinct from HealthKit and BLE.
+                    OuraDailyContextCard()
+
                     // 3. Polar HRV start-session (always visible when paired per Q4)
                     if polarService.isPaired {
                         HRVSessionCardView(service: polarService)
