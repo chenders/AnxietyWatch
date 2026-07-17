@@ -10,7 +10,8 @@ import Foundation
 /// file in this directory for banned symbols.
 public struct PipelineStep {
     /// Hysteresis window: a tier downgrade requires 30 s past the last change.
-    static let hysteresisMs: Int64 = 30_000
+    /// Single source of truth lives in CNSAlertTierMachine (T26).
+    static let hysteresisMs: Int64 = CNSAlertTierMachine.hysteresisMs
     /// Staleness window for `.tick`: no samples within 60 s → decay to normal.
     static let stalenessMs: Int64 = 60_000
     /// Gaps longer than 5 minutes are surfaced to the user.
@@ -102,7 +103,7 @@ public struct PipelineStep {
             let stale = latestSample.map { tMs - $0 >= stalenessMs } ?? true
             if stale && state.currentAlertTier != .normal {
                 applyTier(.normal, at: tMs, state: &state, commands: &commands,
-                          escalationMessage: "")
+                          escalationMessage: "", source: .tickStale)
             }
         }
 
@@ -111,45 +112,45 @@ public struct PipelineStep {
 
     // MARK: - Tier transitions
 
-    private static func rank(_ tier: AlertTier) -> Int {
-        switch tier {
-        case .normal: return 0
-        case .advisory: return 1
-        case .warning: return 2
-        case .critical: return 3
-        }
-    }
-
-    /// Applies a per-event target tier with transition-only command emission:
-    /// - Upgrades happen immediately and reset the hysteresis anchor.
-    /// - Downgrades require >= 30 s since the last change AND the fresh signal
-    ///   that produced `target` (the caller only invokes this from an event).
-    /// - Equal tier: no state change, no commands.
+    /// Thin wrapper around CNSAlertTierMachine.propose (T26) — the machine
+    /// owns the transition-only-emit + 30 s hysteresis contract; this wrapper
+    /// only threads the decision back into (state, commands).
+    ///
+    /// Historical emission profile preserved: the per-sample path emits a
+    /// haptic ONLY for critical upgrades. The machine's richer tier-scaled
+    /// haptics (advisory=singleTap, warning=doubleTap) are for direct machine
+    /// consumers (T27 coordinator); here they are filtered out so the
+    /// long-standing per-sample behavior (and its tests) stay stable.
     private static func applyTier(
         _ target: AlertTier,
         at tMs: Int64,
         state: inout PipelineState,
         commands: inout [AlertCommand],
-        escalationMessage: String
+        escalationMessage: String,
+        source: CNSAlertTierMachine.ProposalSource = .perSample
     ) {
-        let current = state.currentAlertTier
+        // The override message describes the escalating measurement — apply it
+        // to upgrades only; downgrades keep the machine's "Condition improved".
+        let isUpgrade = CNSAlertTierMachine.rank(target) > CNSAlertTierMachine.rank(state.currentAlertTier)
+        let override = (isUpgrade && !escalationMessage.isEmpty) ? escalationMessage : nil
 
-        if rank(target) > rank(current) {
-            state.currentAlertTier = target
-            state.hysteresisAnchorMs = tMs
-            commands.append(.notify(tier: target, message: escalationMessage))
-            if target == .critical {
-                commands.append(.haptic(pattern: .failure))
+        let decision = CNSAlertTierMachine.propose(
+            currentTier: state.currentAlertTier,
+            currentAnchorMs: state.hysteresisAnchorMs,
+            target: target,
+            tMs: tMs,
+            source: source,
+            messageOverride: override
+        )
+
+        state.currentAlertTier = decision.newTier
+        state.hysteresisAnchorMs = decision.newAnchorMs
+        commands.append(contentsOf: decision.commands.filter { command in
+            if case .haptic = command {
+                return decision.newTier == .critical
             }
-        } else if rank(target) < rank(current) {
-            let anchorOK = state.hysteresisAnchorMs.map { tMs - $0 >= hysteresisMs } ?? true
-            if anchorOK {
-                state.currentAlertTier = target
-                state.hysteresisAnchorMs = tMs
-                commands.append(.notify(tier: target, message: "Condition improved"))
-            }
-        }
-        // Equal tier: transition-only emission — nothing to do.
+            return true
+        })
     }
 
     /// Applies a fusion-score-based tier bump to (state, commands).
@@ -182,19 +183,24 @@ public struct PipelineStep {
             target = .normal
         }
 
-        // Only UPGRADE (never downgrade), preserving hysteresis anchor semantics.
-        if PipelineStep.rank(target) > PipelineStep.rank(state.currentAlertTier) {
-            state.currentAlertTier = target
-            // Fresh anchor at the upgrade moment so the 30 s hysteresis window
-            // is measured from THIS upgrade, not a stale prior tier's anchor.
-            state.hysteresisAnchorMs = tMs
-
-            let message = "Fusion score indicated CNS depression risk"
-            commands.append(.notify(tier: target, message: message))
-            if target == .critical {
-                commands.append(.haptic(pattern: .failure))
-            }
+        // Fusion is UPGRADE-ONLY: never propose a downgrade, so the machine's
+        // hysteresis path is unreachable from here by construction.
+        guard CNSAlertTierMachine.rank(target) > CNSAlertTierMachine.rank(state.currentAlertTier) else {
+            return (state, commands)
         }
+
+        let decision = CNSAlertTierMachine.propose(
+            currentTier: state.currentAlertTier,
+            currentAnchorMs: state.hysteresisAnchorMs,
+            target: target,
+            tMs: tMs,
+            source: .fusion
+        )
+        state.currentAlertTier = decision.newTier
+        // Fresh anchor at the upgrade moment so the 30 s hysteresis window is
+        // measured from THIS upgrade, not a stale prior tier's anchor.
+        state.hysteresisAnchorMs = decision.newAnchorMs
+        commands.append(contentsOf: decision.commands)
 
         return (state, commands)
     }
