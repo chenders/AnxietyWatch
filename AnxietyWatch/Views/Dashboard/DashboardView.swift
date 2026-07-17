@@ -20,6 +20,10 @@ struct DashboardView: View {
     @Query private var recentSleepEvents: [SleepStageEvent]
 
     @State private var vm = DashboardViewModel()
+#if DEBUG
+    @State private var demoLabsPresented = false
+    @State private var demoSequence = DemoVideoSequence.shared
+#endif
     private let barometer = BarometerService.shared
 
     init() {
@@ -126,6 +130,22 @@ struct DashboardView: View {
             .demoAutoScroll("dashboard", stops: 4, step: 500)
 #endif
             .navigationTitle("Dashboard")
+#if DEBUG
+            .navigationDestination(isPresented: $demoLabsPresented) {
+                LabResultsView().equatable()
+            }
+            .task(id: demoSequence.completedProfiles) {
+                guard ProcessInfo.processInfo.arguments.contains("-demoLabsAndSongs"),
+                      demoSequence.completedProfiles.contains("dashboard") else { return }
+                // The Dashboard has programmatically scrolled to its Care row;
+                // now follow the same navigation destination as that row.
+                try? await Task.sleep(for: .seconds(2))
+                demoLabsPresented = true
+                try? await Task.sleep(for: .seconds(6))
+                demoLabsPresented = false
+                demoSequence.labsViewed = true
+            }
+#endif
             .task {
                 // Compute immediately from cached @Query data — no async, no blocking
                 vm.computeBaselines(from: recentSnapshots)

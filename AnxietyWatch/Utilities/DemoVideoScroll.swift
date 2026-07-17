@@ -9,6 +9,7 @@ import SwiftUI
 final class DemoVideoSequence {
     static let shared = DemoVideoSequence()
     var completedProfiles: Set<String> = []
+    var labsViewed = false
     func markCompleted(_ profile: String) { completedProfiles.insert(profile) }
 }
 
@@ -28,9 +29,12 @@ enum DemoVideoScroll {
     }
 
     static func shouldRun(_ profile: String) -> Bool {
-        let isOuraSequence = ProcessInfo.processInfo.arguments.contains("-demoOuraSequence")
+        let arguments = ProcessInfo.processInfo.arguments
+        let isOuraSequence = arguments.contains("-demoOuraSequence")
+        let isLabsAndSongsSequence = arguments.contains("-demoLabsAndSongs")
         return (isActive && (self.profile == profile || isMainSequence))
             || (profile == "oura" && isOuraSequence)
+            || (profile == "dashboard" && isLabsAndSongsSequence)
     }
 }
 

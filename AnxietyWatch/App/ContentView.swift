@@ -38,8 +38,6 @@ struct ContentView: View {
             NavigationStack {
                 LabResultsView()
             }
-        } else if arguments.contains("-demoLabsAndSongs") {
-            DemoLabsAndSongsSequenceView()
         } else if arguments.contains("-demoSongs") {
             DemoSongsWalkthroughView()
         } else {
@@ -89,6 +87,14 @@ struct ContentView: View {
             // Settings tab. The remaining route is driven by each destination.
             try? await Task.sleep(for: .seconds(4))
             selectedTab = .settings
+        }
+        .task(id: demoSequence.labsViewed) {
+            guard ProcessInfo.processInfo.arguments.contains("-demoLabsAndSongs"),
+                  demoSequence.labsViewed else { return }
+            // Return through the Dashboard navigation stack, then use the real
+            // Journal tab and its visible Songs segment.
+            try? await Task.sleep(for: .seconds(2))
+            selectedTab = .journal
         }
         .task(id: demoSequence.completedProfiles) {
             guard ProcessInfo.processInfo.arguments.contains("-demoMainSequence") else { return }
