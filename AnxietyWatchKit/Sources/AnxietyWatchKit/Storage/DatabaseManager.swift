@@ -125,6 +125,12 @@ public actor DatabaseManager {
         let fnsSnapshot = registeredFunctions
         var configuration = Configuration()
         configuration.prepareDatabase { db in
+            // Auto-vacuum MUST be set before any CREATE TABLE, or it's fixed at
+            // NONE for the file's lifetime — and with NONE, DELETE only moves
+            // pages to the freelist; page_count never shrinks, so size-based
+            // eviction (PanicProtocol) can never actually relieve a panic.
+            // Setting on every open is a no-op after the first, so this is safe.
+            try db.execute(sql: "PRAGMA auto_vacuum = INCREMENTAL")
             try db.execute(sql: "PRAGMA journal_mode = WAL")
             try db.execute(sql: "PRAGMA synchronous = NORMAL")
             try db.execute(sql: "PRAGMA wal_autocheckpoint = 1000")
@@ -324,6 +330,24 @@ public actor DatabaseManager {
         }
         
         return try queue.writeWithoutTransaction(block)
+    }
+    
+    /// Runs PRAGMA incremental_vacuum(pages) to reclaim `pages` free pages from
+    /// the freelist back to the OS (all of them when nil). Requires
+    /// auto_vacuum=INCREMENTAL (set at DB creation in makeConfiguration —
+    /// BEFORE any CREATE TABLE, or it's fixed at NONE for the file's lifetime).
+    /// Non-transactional (like PRAGMA wal_checkpoint).
+    public func incrementalVacuum(pages: Int? = nil) async throws {
+        guard let queue = self.queue else {
+            throw DatabaseError.notOpen
+        }
+        try await queue.writeWithoutTransaction { db in
+            if let pages {
+                try db.execute(sql: "PRAGMA incremental_vacuum(\(pages))")
+            } else {
+                try db.execute(sql: "PRAGMA incremental_vacuum")
+            }
+        }
     }
     
     /// Executes a read operation on the database

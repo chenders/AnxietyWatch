@@ -208,6 +208,48 @@ final class DatabaseManagerTests: XCTestCase {
         XCTAssertEqual(count, 2)
     }
     
+    func testIncrementalVacuumReclaimsFreelist() async throws {
+        let dbManager = DatabaseManager(url: dbURL)
+        try await dbManager.open()
+
+        // Bulk data so page_count is significantly > 0.
+        try await dbManager.writer { db in
+            try db.execute(sql: "CREATE TABLE bulk (id INTEGER PRIMARY KEY, blob BLOB)")
+            let stmt = try db.makeStatement(sql: "INSERT INTO bulk (id, blob) VALUES (?, ?)")
+            for i in 0..<5_000 {
+                try stmt.execute(arguments: [i, Data(repeating: 0xAB, count: 256)])
+            }
+        }
+
+        func pageCount() async throws -> Int64 {
+            try await dbManager.reader { db in
+                try Int64.fetchOne(db, sql: "PRAGMA page_count") ?? 0
+            }
+        }
+
+        let pageCountBefore = try await pageCount()
+        XCTAssertGreaterThan(pageCountBefore, 100)
+
+        try await dbManager.writer { db in
+            try db.execute(sql: "DELETE FROM bulk")
+        }
+
+        // DELETE alone does NOT shrink the file: pages go to the freelist,
+        // page_count stays put (this is the systemic bug the fix targets).
+        let pageCountAfterDelete = try await pageCount()
+        XCTAssertGreaterThanOrEqual(pageCountAfterDelete, pageCountBefore - 2,
+                                    "deletion must not shrink page_count without a vacuum")
+
+        try await dbManager.incrementalVacuum()
+
+        // Freed pages returned to the OS.
+        let pageCountAfterVacuum = try await pageCount()
+        XCTAssertLessThan(pageCountAfterVacuum, pageCountBefore / 2,
+                          "incremental_vacuum must reclaim the freelist")
+
+        await dbManager.close()
+    }
+
     // MARK: - T12: schema migrator + post-recovery hook (Spec §1.6)
     
     /// Actor-guarded capture box for the post-recovery hook argument.
