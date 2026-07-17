@@ -111,26 +111,6 @@ struct SongDetailView: View {
     }
 
     private var albumArt: some View {
-        Group {
-            if let urlString = song.albumArtURL, let url = URL(string: urlString) {
-                AsyncImage(url: url) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Image(systemName: "music.note")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 80, height: 80)
-                        .background(.quaternary, in: .rect(cornerRadius: 8))
-                }
-            } else {
-                Image(systemName: "music.note")
-                    .font(.largeTitle)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 80, height: 80)
-                    .background(.quaternary, in: .rect(cornerRadius: 8))
-            }
-        }
-        .frame(width: 80, height: 80)
-        .clipShape(.rect(cornerRadius: 8))
+        SongAlbumArtView(urlString: song.albumArtURL, size: 80)
     }
 }

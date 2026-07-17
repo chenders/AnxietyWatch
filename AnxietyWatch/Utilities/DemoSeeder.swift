@@ -178,6 +178,25 @@ enum DemoSeeder {
         let paper = Song(title: "Paper Satellites", artist: "The North Window", album: "Small Signals")
         let staticSummer = Song(title: "Static Summer", artist: "Harbor Lines", album: "Low Tide Radio")
         let hallway = Song(title: "Blue Hallway", artist: "Small Hours", album: "After Midnight")
+        // Original fictional lyrics and bundled demo cover treatments avoid
+        // copyright or network dependencies in published recordings.
+        paper.lyrics = """
+        Paper satellites over the avenue
+        Turning in a sky of borrowed blue
+        I let the signal fade into the night
+        And count the windows holding quiet light
+
+        Come back slowly, come back clear
+        Leave a little room for silence here
+        """
+        paper.lyricsSource = "Anxiety Watch fictional demo"
+        paper.albumArtURL = "demo://paper-satellites"
+        staticSummer.lyrics = "Static summer humming through the screen\nA distant station caught between."
+        staticSummer.lyricsSource = "Anxiety Watch fictional demo"
+        staticSummer.albumArtURL = "demo://static-summer"
+        hallway.lyrics = "Blue hallway, late light on the floor\nA quiet step, then one step more."
+        hallway.lyricsSource = "Anxiety Watch fictional demo"
+        hallway.albumArtURL = "demo://blue-hallway"
         // Keep the recurring song first in activity-sorted demo catalogs.
         paper.updatedAt = .now
         staticSummer.updatedAt = cal.date(byAdding: .day, value: -12, to: .now)!

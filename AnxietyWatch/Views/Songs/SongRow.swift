@@ -33,26 +33,6 @@ struct SongRow: View {
     }
 
     private var albumArtView: some View {
-        Group {
-            if let urlString = song.albumArtURL, let url = URL(string: urlString) {
-                AsyncImage(url: url) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    musicNotePlaceholder
-                }
-            } else {
-                musicNotePlaceholder
-            }
-        }
-        .frame(width: 44, height: 44)
-        .clipShape(.rect(cornerRadius: 6))
-    }
-
-    private var musicNotePlaceholder: some View {
-        Image(systemName: "music.note")
-            .font(.title3)
-            .foregroundStyle(.secondary)
-            .frame(width: 44, height: 44)
-            .background(.quaternary, in: .rect(cornerRadius: 6))
+        SongAlbumArtView(urlString: song.albumArtURL, size: 44)
     }
 }
