@@ -175,35 +175,71 @@ enum DemoSeeder {
     // MARK: - Journal and recurring songs
 
     private static func seedJournalAndSongs(_ ctx: ModelContext, cal: Calendar) {
-        let paper = Song(title: "Paper Satellites", artist: "The North Window", album: "Small Signals")
-        let staticSummer = Song(title: "Static Summer", artist: "Harbor Lines", album: "Low Tide Radio")
-        let hallway = Song(title: "Blue Hallway", artist: "Small Hours", album: "After Midnight")
-        // Keep the recurring song first in activity-sorted demo catalogs.
-        paper.updatedAt = .now
-        staticSummer.updatedAt = cal.date(byAdding: .day, value: -12, to: .now)!
-        hallway.updatedAt = cal.date(byAdding: .day, value: -29, to: .now)!
-        for song in [paper, staticSummer, hallway] { ctx.insert(song) }
+        func lyrics(_ resource: String) -> String? {
+            let url = Bundle.main.url(forResource: resource, withExtension: "txt", subdirectory: "DemoSongLyrics")
+                ?? Bundle.main.url(forResource: resource, withExtension: "txt")
+            return url.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        }
+        func geniusSong(_ title: String, _ artist: String, _ album: String, _ geniusID: Int,
+                        _ art: String, _ slug: String, _ resource: String) -> Song {
+            let song = Song(title: title, artist: artist, album: album, geniusId: geniusID,
+                            albumArtURL: art, geniusURL: "https://genius.com/\(slug)-lyrics")
+            song.lyrics = lyrics(resource)
+            song.lyricsSource = "genius"
+            return song
+        }
+
+        // These are the same real metadata, cover-art URLs, and fetched lyrics
+        // returned by the app's normal Genius-backed add-song flow. The cover's
+        // recording is represented by its actual artist even though Genius only
+        // indexes the Phil Collins lyric page.
+        let inTheAir = geniusSong(
+            "In the Air Tonight", "Dead When I Found Her", "Stitches & Cover Ups", 110034,
+            "https://is1-ssl.mzstatic.com/image/thumb/Music/v4/23/de/ce/23dece11-5b08-5bf4-0600-6a96c5c1bcf0/Cover.jpg/600x600bb.jpg",
+            "Phil-collins-in-the-air-tonight", "in-the-air-tonight")
+        let stack = geniusSong(
+            "Fuck Shit Stack", "Reggie Watts", "Why Shit So Crazy?", 49099,
+            "https://images.genius.com/0618835631b7811e06d04a0bc0296c0e.300x300x1.jpg",
+            "Reggie-watts-fuck-shit-stack", "fuck-shit-stack")
+        let man = geniusSong(
+            "The Man in Me", "Bob Dylan", "New Morning", 199483,
+            "https://images.genius.com/25db6d290660d0b5b21541fc53647f96.1000x1000x1.png",
+            "Bob-dylan-the-man-in-me", "the-man-in-me")
+        let mezzanine = geniusSong(
+            "Mezzanine", "Massive Attack", "Mezzanine", 376450,
+            "https://images.genius.com/fd937974e43a074ce84893d815b067ae.1000x1000x1.png",
+            "Massive-attack-mezzanine", "mezzanine")
+        let trickyKid = geniusSong(
+            "Tricky Kid", "Tricky", "Pre-Millennium Tension", 1315263,
+            "https://images.genius.com/d3d09d008d3db7b7b9d3a4f93b64ec20.523x523x1.jpg",
+            "Tricky-tricky-kid", "tricky-kid")
+
+        let songs = [inTheAir, stack, man, mezzanine, trickyKid]
+        for (index, song) in songs.enumerated() {
+            song.updatedAt = cal.date(byAdding: .day, value: -(index * 3), to: .now)!
+            ctx.insert(song)
+        }
 
         let rows: [(Int, Int, Int, String, [String], Song?, String?)] = [
             (0, 9, 3, "A little keyed up before the first meeting. A short task list helped.", ["work","morning"], nil, nil),
             (1, 16, 5, "Several messages arrived at once and I felt scattered.", ["work","overloaded"], nil, nil),
-            (1, 17, 5, "A chorus has been looping in my head since lunch.", ["work","song-stuck"], paper, "Chorus repeating; neutral at first."),
+            (1, 17, 5, "The chorus from In the Air Tonight has been looping since lunch.", ["work","song-stuck"], inTheAir, "Dead When I Found Her cover; chorus repeating."),
             (3, 22, 4, "Tired but still mentally rehearsing tomorrow.", ["sleep","anticipation"], nil, nil),
             (5, 10, 2, "Quiet morning. Slept longer and feel more settled.", ["weekend","sleep"], nil, nil),
             (8, 15, 6, "Presentation ended, but the physical tension lingered.", ["work","presentation"], nil, nil),
             (8, 16, 5, "Shoulders feel less tight. Still a little distracted.", ["follow-up","work"], nil, nil),
             (12, 8, 4, "Rushed start after waking later than planned.", ["morning","sleep"], nil, nil),
-            (12, 13, 3, "The same melody returned while making lunch.", ["song-stuck","midday"], staticSummer, "First recurrence this week."),
+            (12, 13, 3, "The same rhythm returned while making lunch.", ["song-stuck","midday"], mezzanine, "First Mezzanine recurrence this week."),
             (16, 18, 2, "A walk helped me shift out of work mode.", ["walk","evening"], nil, nil),
             (20, 21, 4, "Thinking about the upcoming week more than I want to.", ["anticipation","sleep"], nil, nil),
-            (24, 10, 6, "Hard to focus while switching between several small tasks.", ["work","focus"], nil, nil),
+            (24, 10, 6, "Hard to focus while switching between several small tasks.", ["work","focus"], stack, "A phrase from the song interrupted focus."),
             (24, 11, 4, "Follow-up: attention is steadier, though I still feel restless.", ["follow-up","work"], nil, nil),
-            (29, 14, 3, "A short song fragment is stuck after hearing a similar melody.", ["song-stuck","music"], hallway, "Short fragment repeated for about 20 minutes."),
-            (34, 13, 1, "Relaxed afternoon doing ordinary errands.", ["weekend","errands"], nil, nil),
+            (29, 14, 3, "A short song fragment is stuck after hearing a similar melody.", ["song-stuck","music"], trickyKid, "Short fragment repeated for about 20 minutes."),
+            (34, 13, 1, "Relaxed afternoon doing ordinary errands.", ["weekend","errands"], man, "Pleasant, low-intensity recurrence."),
             (40, 20, 7, "Busy day without much downtime. Thoughts feel crowded.", ["work","fatigue","evening"], nil, nil),
             (40, 21, 5, "Follow-up: less intense, but still reviewing the day.", ["follow-up","fatigue"], nil, nil),
             (47, 8, 3, "Woke earlier than expected. Mild tension, no clear trigger.", ["sleep","morning"], nil, nil),
-            (48, 9, 4, "That same chorus returned again this morning.", ["song-stuck","recurrence"], paper, "Second logged recurrence, several weeks later."),
+            (48, 9, 4, "That same chorus returned again this morning.", ["song-stuck","recurrence"], inTheAir, "Second logged recurrence, several weeks later."),
             (55, 17, 2, "Prepared a few things for tomorrow and feel reasonably settled.", ["planning","evening"], nil, nil)
         ]
         for (daysAgo, hour, severity, note, tags, song, occurrenceNote) in rows {

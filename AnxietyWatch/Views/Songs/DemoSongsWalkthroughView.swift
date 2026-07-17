@@ -22,7 +22,9 @@ struct DemoSongsWalkthroughView: View {
             .task {
                 guard ProcessInfo.processInfo.arguments.contains("-demoAutoOpenSong") else { return }
                 try? await Task.sleep(for: .seconds(4))
-                selectedSong = songs.first
+                selectedSong = songs.first {
+                    $0.title == "In the Air Tonight" && $0.artist == "Dead When I Found Her"
+                } ?? songs.first
             }
             .navigationDestination(item: $selectedSong) { song in
                 SongDetailView(song: song)

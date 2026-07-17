@@ -7,6 +7,9 @@ struct SettingsView: View {
     @State private var rebuildProgress = 0
     @State private var rebuildTotal = 0
     @State private var showRebuildConfirmation = false
+#if DEBUG
+    @State private var demoOuraPresented = false
+#endif
 
     var body: some View {
         NavigationStack {
@@ -130,6 +133,18 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+#if DEBUG
+            .navigationDestination(isPresented: $demoOuraPresented) {
+                OuraSettingsView()
+            }
+            .task {
+                guard ProcessInfo.processInfo.arguments.contains("-demoOuraSequence") else { return }
+                // Let Settings remain visible long enough to establish where
+                // Oura lives before following the same destination as its row.
+                try? await Task.sleep(for: .seconds(3))
+                demoOuraPresented = true
+            }
+#endif
         }
     }
 

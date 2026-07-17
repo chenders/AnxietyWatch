@@ -18,7 +18,7 @@ struct DemoLabsAndSongsSequenceView: View {
                 List(songs) { SongRow(song: $0) }
                     .navigationTitle("Songs")
             case .detail:
-                if let song = songs.first {
+                if let song = featuredSong {
                     SongDetailView(song: song)
                 } else {
                     ContentUnavailableView("No Demo Songs", systemImage: "music.note")
@@ -27,8 +27,13 @@ struct DemoLabsAndSongsSequenceView: View {
         }
         .task {
             try? await Task.sleep(for: .seconds(6)); stage = .songs
-            try? await Task.sleep(for: .seconds(6)); stage = .detail
+            try? await Task.sleep(for: .seconds(7)); stage = .detail
         }
+    }
+
+    private var featuredSong: Song? {
+        songs.first { $0.title == "In the Air Tonight" && $0.artist == "Dead When I Found Her" }
+            ?? songs.first
     }
 }
 #endif

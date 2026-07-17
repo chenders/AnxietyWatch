@@ -41,6 +41,9 @@ struct OuraSettingsView: View {
     @State private var isLoading = true
     @State private var isSaving = false
     @State private var errorMessage: String?
+#if DEBUG
+    @State private var demoDataPresented = false
+#endif
 
     @AppStorage("oura.healthKitBridgingEnabled")
     private var healthKitBridgingEnabled = false
@@ -138,6 +141,18 @@ struct OuraSettingsView: View {
         .task {
             await loadConnectionStatus()
         }
+#if DEBUG
+        .navigationDestination(isPresented: $demoDataPresented) {
+            OuraDataDashboardView(service: service)
+        }
+        .task {
+            guard ProcessInfo.processInfo.arguments.contains("-demoOuraSequence") else { return }
+            // Show connection, provenance, and HealthKit bridge state before
+            // opening the same complete-data destination as the visible row.
+            try? await Task.sleep(for: .seconds(4))
+            demoDataPresented = true
+        }
+#endif
         .alert("Oura Connection", isPresented: errorIsPresented) {
             Button("OK", role: .cancel) {
                 errorMessage = nil

@@ -28,7 +28,9 @@ enum DemoVideoScroll {
     }
 
     static func shouldRun(_ profile: String) -> Bool {
-        isActive && (self.profile == profile || isMainSequence)
+        let isOuraSequence = ProcessInfo.processInfo.arguments.contains("-demoOuraSequence")
+        return (isActive && (self.profile == profile || isMainSequence))
+            || (profile == "oura" && isOuraSequence)
     }
 }
 

@@ -83,6 +83,13 @@ struct ContentView: View {
             HRVSessionLiveView(service: polarService)
         }
         #if DEBUG
+        .task {
+            guard ProcessInfo.processInfo.arguments.contains("-demoOuraSequence") else { return }
+            // Begin on the app's home Dashboard before visibly moving to the
+            // Settings tab. The remaining route is driven by each destination.
+            try? await Task.sleep(for: .seconds(4))
+            selectedTab = .settings
+        }
         .task(id: demoSequence.completedProfiles) {
             guard ProcessInfo.processInfo.arguments.contains("-demoMainSequence") else { return }
             if demoSequence.completedProfiles.contains("dashboard"), selectedTab == .dashboard {
