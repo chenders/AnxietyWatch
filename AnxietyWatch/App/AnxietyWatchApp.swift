@@ -82,6 +82,9 @@ struct AnxietyWatchApp: App {
     /// because they depend on platform entitlements.
     @State private var kit: DependencyContainer?
 
+    /// v3 pipeline service: BLE actors → SensorRouter → CNS coordinator → ViewModel.
+    @StateObject private var pipelineService = KitPipelineService()
+
     // MARK: - Existing services (during Phase 2A dual-write)
 
     @State private var coordinator: HealthDataCoordinator?
@@ -151,6 +154,9 @@ struct AnxietyWatchApp: App {
                     // ── AnxietyWatchKit bootstrap ──────────────────────
                     // Must happen before any sync or trigger DDL.
                     await bootstrapKit()
+                    // ── v3 Pipeline service ────────────────────────────
+                    // BLE actors + SensorRouter + CNS coordinator + ViewModel.
+                    await pipelineService.start()
                     // ── Existing launch logic ─────────────────────────
                     await existingLaunchSetup()
                 }
@@ -162,7 +168,10 @@ struct AnxietyWatchApp: App {
                     // Spec §1.1 close flow: checkpoint + close on background.
                     if newPhase == .background {
                         saveCleanShutdownFlag()
-                        Task { await kit?.shutdown() }
+                        Task {
+                            await pipelineService.stop()
+                            await kit?.shutdown()
+                        }
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .didTapLocalNotification)) { _ in
