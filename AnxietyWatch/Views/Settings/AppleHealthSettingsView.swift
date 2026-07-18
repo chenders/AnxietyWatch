@@ -18,7 +18,11 @@ struct AppleHealthSettingsView: View {
         Form {
             Section("Status") {
                 statusRow
-                if let result {
+                // Probe rows are shown only once authorization is determined.
+                // While `.notRequested`, the probes are intentionally NOT run
+                // (reads would error code 5), so rendering "—" here would imply
+                // "checked, nothing there" rather than "not checked yet."
+                if let result, result.state != .notRequested {
                     probeRow("Steps", present: result.stepsPresent)
                     probeRow("Resting Heart Rate", present: result.restingHRPresent)
                     probeRow("Sleep", present: result.sleepPresent)
@@ -55,19 +59,21 @@ struct AppleHealthSettingsView: View {
     // MARK: - Rows
 
     private var statusRow: some View {
-        HStack(spacing: 12) {
-            Image(systemName: statusIcon)
-                .foregroundStyle(statusColor)
+        let state = result?.state
+        return HStack(spacing: 12) {
+            Image(systemName: state?.statusSymbolName ?? "hourglass")
+                .foregroundStyle(tintColor(state))
             VStack(alignment: .leading, spacing: 2) {
-                Text(statusTitle).font(.subheadline.bold())
-                Text(statusDetail).font(.caption).foregroundStyle(.secondary)
+                Text(state?.statusTitle ?? "Checking…").font(.subheadline.bold())
+                Text(state?.statusDetail ?? "Checking HealthKit access…")
+                    .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
             if checking { ProgressView() }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(statusTitle). \(statusDetail)")
+        .accessibilityLabel("\(state?.statusTitle ?? "Checking"). \(state?.statusDetail ?? "")")
     }
 
     private func probeRow(_ name: String, present: Bool) -> some View {
@@ -81,47 +87,11 @@ struct AppleHealthSettingsView: View {
         .accessibilityLabel("\(name): \(present ? "recent data present" : "no recent data")")
     }
 
-    // MARK: - Status presentation
-
-    private var statusIcon: String {
-        switch result?.state {
-        case .receiving: "checkmark.circle.fill"
-        case .notRequested, .likelyRevoked: "exclamationmark.triangle.fill"
-        case .noDataYet: "circle.dashed"
-        case nil: "hourglass"
-        }
-    }
-
-    private var statusColor: Color {
-        switch result?.state {
-        case .receiving: .green
-        case .notRequested, .likelyRevoked: .orange
-        case .noDataYet, nil: .secondary
-        }
-    }
-
-    private var statusTitle: String {
-        switch result?.state {
-        case .receiving: "Receiving data"
-        case .notRequested: "Access not granted"
-        case .likelyRevoked: "Not receiving data"
-        case .noDataYet: "No data yet"
-        case nil: "Checking…"
-        }
-    }
-
-    private var statusDetail: String {
-        switch result?.state {
-        case .receiving:
-            "HealthKit reads are working."
-        case .notRequested:
-            "The authorization prompt hasn't been answered. Tap Request HealthKit Access below."
-        case .likelyRevoked:
-            "Access may have been revoked. Re-enable the types in iOS Settings, then rebuild history."
-        case .noDataYet:
-            "No recent health data to read yet."
-        case nil:
-            "Checking HealthKit access…"
+    private func tintColor(_ state: HealthKitAccessState?) -> Color {
+        switch state?.statusTint {
+        case .positive: .green
+        case .warning: .orange
+        case .neutral, nil: .secondary
         }
     }
 

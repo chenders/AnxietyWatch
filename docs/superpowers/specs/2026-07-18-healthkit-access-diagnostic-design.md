@@ -99,15 +99,18 @@ the probe, so it is robust regardless of probe-window nuances.
    - A deep link to iOS Settings (`UIApplication.openSettingsURLString`) for the
      revoked case, where re-toggling in Health is the real fix.
 
-2. **Dashboard banner** (`HealthKitAccessBanner`, new) — a dedicated, dismissible
-   banner **separate from the physiological `AlertsStrip`** (whose categories are
+2. **Dashboard banner** (`HealthKitAccessBanner`, new) — a dedicated banner
+   **separate from the physiological `AlertsStrip`** (whose categories are
    autonomic/sleep/environment — a plumbing failure is not a physiological signal).
    - Fires **only** for `.notRequested` (per approved decision — zero false-positive
      risk; would have caught both prior incidents).
-   - Tap → navigates to the Apple Health panel.
-   - Computed inside a child view with its own `@State` + `.task`, so observation is
-     scoped and does not register at WindowGroup scope (the documented
-     `@Observable`-at-App-scope render-loop pitfall).
+   - Tap → presents the HealthKit authorization sheet in place (`requestAuthorization`),
+     then re-probes; a granted response flips the gate and the banner clears itself.
+     (One-tap recovery, rather than navigating to the Settings panel.)
+   - Self-contained child view: owns its `@State` and probes in its own `.task`
+     (plus a `scenePhase`-active refresh), so observation is scoped to the banner and
+     a probe result never invalidates the whole dashboard body (the documented
+     `@Observable`/broad-scope render pitfall).
 
 ## Testing
 
@@ -135,3 +138,28 @@ Swift Testing (`@Test`), reusing `MockHealthKitDataSource` and an in-memory
 
 - `swift-pre-pr-reviewer` before push (mandatory per CLAUDE.md).
 - `swiftui-render-pitfall-detector` (touches Dashboard view + a `.task`-driven child).
+
+## Implementation notes (post-review)
+
+Shipped on `feat/healthkit-access-diagnostic`. Both review agents ran; the
+render-pitfall detector returned 0 findings (and empirically confirmed the hidden
+banner reserves no `VStack` spacing via an `ImageRenderer` harness). The generalist
+raised 0 Will-Block / 4 Should-Address / 2 Nit — all addressed:
+
+- **Probe-row honesty:** the Settings panel now hides the per-probe Steps/RHR/Sleep
+  rows while `.notRequested`, so unmeasured signals are never rendered as "—" (which
+  read as "checked, empty"). Probes are only reported once auth is determined and the
+  reads actually ran.
+- **Testable presentation:** the four state→`(icon, title, detail, tint)` switches were
+  extracted from the view into a tested `HealthKitAccessState` presentation extension
+  (`HealthKitAccessState+Presentation.swift`), since those strings also feed VoiceOver.
+  `.notRequested` and `.likelyRevoked` now use distinct icons.
+- **Scoped state (matches original design):** an interim revision had hoisted the
+  probe `@State` into `DashboardView`; reverted to the self-contained child view so a
+  probe result invalidates only the banner, not the whole dashboard body.
+- **Banner action:** requests authorization in place (one-tap) rather than navigating
+  to Settings — see the Surfaces section, updated to match.
+
+Coverage: 17 Swift Testing cases (evaluator truth table + precedence, runner probe
+composition, history-helper boundaries, banner scope, presentation mapping). Full
+suite 1454/1454 green, app builds with zero warnings.

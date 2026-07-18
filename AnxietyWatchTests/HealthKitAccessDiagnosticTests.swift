@@ -52,6 +52,28 @@ struct HealthKitAccessDiagnosticTests {
         ) == .noDataYet)
     }
 
+    // MARK: - Status presentation mapping
+
+    @Test("Status presentation is total, non-empty, and correctly tinted per state")
+    func statusPresentationMapping() {
+        let allStates: [HealthKitAccessState] = [.receiving, .notRequested, .likelyRevoked, .noDataYet]
+        for state in allStates {
+            #expect(!state.statusSymbolName.isEmpty)
+            #expect(!state.statusTitle.isEmpty)
+            #expect(!state.statusDetail.isEmpty)
+        }
+        #expect(HealthKitAccessState.receiving.statusTint == .positive)
+        #expect(HealthKitAccessState.notRequested.statusTint == .warning)
+        #expect(HealthKitAccessState.likelyRevoked.statusTint == .warning)
+        #expect(HealthKitAccessState.noDataYet.statusTint == .neutral)
+    }
+
+    @Test("notRequested and likelyRevoked are visually distinguishable by icon")
+    func warningStatesUseDistinctIcons() {
+        #expect(HealthKitAccessState.notRequested.statusSymbolName
+                != HealthKitAccessState.likelyRevoked.statusSymbolName)
+    }
+
     // MARK: - Dashboard banner scope (approved decision: notRequested only)
 
     @Test("Dashboard banner fires only for notRequested")

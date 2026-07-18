@@ -21,11 +21,6 @@ struct DashboardView: View {
     @Query private var recentSleepEvents: [SleepStageEvent]
 
     @State private var vm = DashboardViewModel()
-    @Environment(\.scenePhase) private var scenePhase
-    /// Drives the HealthKit-access banner. One-shot bool (flips at most once or
-    /// twice per session), owned here so its `.task`/`scenePhase` probe is
-    /// reliable and the banner itself stays a pure `EmptyView`-when-fine view.
-    @State private var healthKitNeedsRequest = false
 #if DEBUG
     @State private var demoLabsPresented = false
     @State private var demoSequence = DemoVideoSequence.shared
@@ -79,9 +74,10 @@ struct DashboardView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    // 0. HealthKit access banner — only shows when authorization
-                    // has never resolved, i.e. every read is silently failing.
-                    HealthKitAccessBanner(needsRequest: $healthKitNeedsRequest)
+                    // 0. HealthKit access banner — self-contained; only shows
+                    // when authorization has never resolved (every read is
+                    // silently failing). Renders nothing otherwise.
+                    HealthKitAccessBanner()
 
                     // 1. Alerts strip
                     AlertsSectionView(snapshots: recentSnapshots, vm: vm)
@@ -143,19 +139,6 @@ struct DashboardView: View {
             .demoAutoScroll("dashboard", stops: 4, step: 500)
 #endif
             .navigationTitle("Dashboard")
-            .task {
-                // Surface the access banner if HealthKit authorization has never
-                // resolved. Cheap status call; its own task so it never delays
-                // the synchronous baseline compute below.
-                healthKitNeedsRequest = await HealthKitManager.shared.authorizationNeedsRequest()
-            }
-            .onChange(of: scenePhase) { _, phase in
-                // Re-probe on foreground: if the user granted access in iOS
-                // Settings and returned, the banner clears itself.
-                if phase == .active {
-                    Task { healthKitNeedsRequest = await HealthKitManager.shared.authorizationNeedsRequest() }
-                }
-            }
 #if DEBUG
             .navigationDestination(isPresented: $demoLabsPresented) {
                 LabResultsView().equatable()

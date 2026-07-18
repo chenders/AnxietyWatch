@@ -10,31 +10,46 @@ import SwiftUI
 /// never resolved. `.likelyRevoked` is deliberately left to Settings → Apple
 /// Health — see `HealthKitAccessState.showsDashboardBanner` and the design doc.
 ///
-/// Pure presentational view: `DashboardView` owns the one-shot `needsRequest`
-/// probe (its `.task` runs on appear and refreshes on `scenePhase` becoming
-/// active — the reliable "user granted access in Settings and came back"
-/// signal). When access is fine this returns `EmptyView`, so it reserves no
-/// `VStack` spacing.
+/// Self-contained: it owns the one-shot `needsRequest` probe and runs it in its
+/// own `.task` (plus a `scenePhase`-active refresh — the reliable "user granted
+/// access in Settings and came back" signal). Scoping the state here, rather
+/// than in `DashboardView`, keeps a probe result from invalidating the entire
+/// dashboard body. The `Group` wrapper always exists so the `.task` fires, and
+/// its conditional content collapses to nothing when hidden, so the banner
+/// reserves no `VStack` spacing while access is fine.
 struct HealthKitAccessBanner: View {
-    @Binding var needsRequest: Bool
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var needsRequest = false
     @State private var requesting = false
 
     var body: some View {
         // Route through the tested scope property rather than an inline check,
         // so the "banner on .notRequested only" decision has one enforced home.
         let state: HealthKitAccessState = needsRequest ? .notRequested : .receiving
-        if state.showsDashboardBanner {
-            Button {
-                Task { await grantAccess() }
-            } label: {
-                bannerLabel
+        Group {
+            if state.showsDashboardBanner {
+                bannerButton
             }
-            .buttonStyle(.plain)
-            .disabled(requesting)
-            .accessibilityLabel("Apple Health isn't connected")
-            .accessibilityHint("Anxiety Watch hasn't been granted access to your health "
-                               + "data. Activate to grant access.")
         }
+        .task { await check() }
+        .onChange(of: scenePhase) { _, phase in
+            // Re-probe on foreground: if the user granted access in iOS Settings
+            // and returned, the banner clears itself.
+            if phase == .active { Task { await check() } }
+        }
+    }
+
+    private var bannerButton: some View {
+        Button {
+            Task { await grantAccess() }
+        } label: {
+            bannerLabel
+        }
+        .buttonStyle(.plain)
+        .disabled(requesting)
+        .accessibilityLabel("Apple Health isn't connected")
+        .accessibilityHint("Anxiety Watch hasn't been granted access to your health "
+                           + "data. Activate to grant access.")
     }
 
     private var bannerLabel: some View {
@@ -67,12 +82,16 @@ struct HealthKitAccessBanner: View {
         .background(Color.orange.opacity(0.12), in: .rect(cornerRadius: 12))
     }
 
+    private func check() async {
+        needsRequest = await HealthKitManager.shared.authorizationNeedsRequest()
+    }
+
     private func grantAccess() async {
         requesting = true
         // For `.notRequested` this presents the system sheet directly; a granted
         // response flips the gate to `.unnecessary` and the banner disappears.
         try? await HealthKitManager.shared.requestAuthorization()
-        needsRequest = await HealthKitManager.shared.authorizationNeedsRequest()
+        await check()
         requesting = false
     }
 }
