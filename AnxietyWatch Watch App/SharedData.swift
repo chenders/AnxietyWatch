@@ -1,9 +1,11 @@
 import Foundation
 
 /// Shared constants for the watch app group used by both the Watch App and Widget Extension.
-/// This file is duplicated in the Widget target; keep the shared constants aligned where both targets use them.
+/// This enum is duplicated in the Widget target; keep the overlapping keys aligned where both
+/// targets use them. The app group identifier itself is NOT duplicated — both reference the
+/// single `AppGroupIdentifier.value` source of truth.
 enum SharedData {
-    static let appGroup = "group.com.groundeffectsoftware.AnxietyWatch.watch"
+    static let appGroup = AppGroupIdentifier.value
 
     static var shared: UserDefaults? {
         UserDefaults(suiteName: appGroup)

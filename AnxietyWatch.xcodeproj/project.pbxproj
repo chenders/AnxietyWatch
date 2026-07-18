@@ -135,6 +135,7 @@
 				Services/AccelerometerProcessor.swift,
 				Services/HRVCalculator.swift,
 				Services/SpectralAnalyzer.swift,
+				Utilities/AppGroupIdentifier.swift,
 				Utilities/QuickLogLayout.swift,
 			);
 			target = 8335360C2F6D0BFF00B45286 /* AnxietyWatch Watch App */;
@@ -146,6 +147,13 @@
 			);
 			target = 83B1FAE42FB4009800584A97 /* AnxietyWatchLiveActivitiesExtension */;
 		};
+			83EE00012F6E200000B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatchWidgetsExtension" target */ = {
+				isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+				membershipExceptions = (
+					Utilities/AppGroupIdentifier.swift,
+				);
+				target = 839563752F6D2DF3002DA90A /* AnxietyWatchWidgetsExtension */;
+			};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -155,6 +163,7 @@
 				83AA00012F6D0B3D00B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatch" target */,
 				83CC00012F6E200000B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatch Watch App" target */,
 				83DD00012F6E200000B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatchLiveActivitiesExtension" target */,
+					83EE00012F6E200000B45286 /* Exceptions for "AnxietyWatch" folder in "AnxietyWatchWidgetsExtension" target */,
 			);
 			path = AnxietyWatch;
 			sourceTree = "<group>";

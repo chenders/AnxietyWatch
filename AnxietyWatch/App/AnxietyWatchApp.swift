@@ -524,8 +524,9 @@ private struct BackfillOverlay: View {
 /// namespace avoids hardcoding the team ID in source.
 enum AppGroup {
     /// Must match the `com.apple.security.application-groups` entitlement
-    /// value in the iOS, Watch, and Complication targets.
-    static let identifier = "group.com.groundeffectsoftware.AnxietyWatch.watch"
+    /// value in the iOS, Watch, and Complication targets. Sourced from the
+    /// shared `AppGroupIdentifier` so the value can't drift between targets.
+    static let identifier = AppGroupIdentifier.value
 
     static var containerURL: URL {
         if let url = FileManager.default.containerURL(

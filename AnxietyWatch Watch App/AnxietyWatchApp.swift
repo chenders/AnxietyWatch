@@ -228,7 +228,7 @@ struct AnxietyWatchApp: App {
 /// Centralized App Group discovery for the watch side. Must match the
 /// entitlement in the Watch App and Complication targets.
 enum WatchAppGroup {
-    static let identifier = "group.com.groundeffectsoftware.AnxietyWatch.watch"
+    static let identifier = AppGroupIdentifier.value
 
     static var containerURL: URL {
         guard let url = FileManager.default.containerURL(

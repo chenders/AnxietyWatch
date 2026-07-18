@@ -2,12 +2,13 @@ import SwiftUI
 import WidgetKit
 
 // MARK: - Shared Constants
-// NOTE: This duplicates the shared app group and the subset of keys this widget reads from
+// NOTE: This duplicates the subset of keys this widget reads from
 // "AnxietyWatch Watch App/SharedData.swift". Keep overlapping keys in sync, but the two enums
-// are intentionally not identical.
+// are intentionally not identical. The app group identifier is NOT duplicated — both reference
+// the single `AppGroupIdentifier.value` source of truth.
 
 enum SharedData {
-    static let appGroup = "group.com.groundeffectsoftware.AnxietyWatch.watch"
+    static let appGroup = AppGroupIdentifier.value
 
     static var shared: UserDefaults? {
         UserDefaults(suiteName: appGroup)
