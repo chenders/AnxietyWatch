@@ -30,8 +30,9 @@ struct SnapshotAggregatorSourcePrecedenceTests {
         SnapshotAggregator(healthKit: mock, modelContext: context, defaults: TestHelpers.gateResolvedDefaults())
     }
 
-    /// Seed a run of overnight SpO2 samples spaced 1s apart, all from the
-    /// given source. `value` is the fraction (0.0–1.0) — matches the
+    /// Seed a run of overnight SpO2 samples `interval` seconds apart (default
+    /// 1s; callers pass 60 to model the live-BLE per-minute cadence), all from
+    /// the given source. `value` is the fraction (0.0–1.0) — matches the
     /// HealthKit convention the mirror preserves.
     private func seedOvernightSpO2(
         bundle: String,
