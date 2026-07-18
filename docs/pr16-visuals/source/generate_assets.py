@@ -291,8 +291,122 @@ def montage_v2():
     return svg_wrap("Representative AnxietyWatch v3 dark-mode surfaces", "Four large simulator screenshots show the Dashboard daily context, Oura Cloud and demo summary surface, Trends, and Journal. All shown values are fictional and deterministic. These representative surfaces do not claim a completed comprehensive walkthrough or hardware validation.", 1470, 1570, b)
 
 
+def architecture_v3():
+    b = text(70, 70, "How AnxietyWatch v3 fits together", 42, TEXT, 750)
+    b += text(70, 110, "Active iPhone monitoring, watch runtime, app data, and foundations remain distinct.", 22, MUTED)
+    b += text(70, 165, "ACTIVE IPHONE MONITORING", 19, GREEN, 800)
+    sources = [("Polar H10", "BLE actor"), ("EMAY Oximeter", "BLE actor"), ("Apple Health", "HealthKit read adapter")]
+    for i, (name, detail) in enumerate(sources):
+        x = 70 + i * 300
+        b += card(x, 190, 270, 82, name, detail, GREEN)
+        b += f'<path class="arrow" d="M{x + 135} 272 V315 H{570 + i * 35} V350"/>'
+    b += card(480, 350, 350, 88, "SensorRouter", "routes supported observations", BLUE)
+    b += card(480, 485, 350, 100, "Package CNS processing", ["event step → fusion", "→ tier state"], BLUE)
+    b += card(480, 632, 350, 82, "Monitoring view model", "iPhone presentation state", BLUE)
+    b += '<path class="arrow" d="M655 438 V479"/><path class="arrow" d="M655 585 V626"/>'
+    b += card(940, 190, 590, 245, "Separate watch runtime", ["Apple Health / HealthKit-only router", "→ complication feed and cache", "Not a direct continuation of the iPhone view model"], CYAN, True)
+    b += card(940, 485, 590, 229, "Phased coexistence", ["Legacy app services remain during package rollout.", "Existing WatchConnectivity path is active;", "package peer transport is a foundation and", "watch migration is incomplete."], PURPLE, True)
+
+    b += text(70, 780, "SEPARATE APP DATA / PRESENTATION PATHS", 19, PURPLE, 800)
+    paths = [("Oura Cloud", "daily API summaries"), ("CPAP", "imported session records"), ("Deterministic fixtures", "seeded demo-store content")]
+    for i, (name, detail) in enumerate(paths):
+        b += card(70 + i * 365, 805, 335, 100, name, detail, PURPLE if i < 2 else GOLD, i == 2)
+    b += card(1165, 805, 365, 100, "Source-aware app surfaces", "Dashboard · Oura · Trends · Journal", CYAN)
+
+    b += text(70, 975, "SEPARATE FOUNDATIONS — NOT ONE COMPLETED CHAIN", 19, BLUE, 800)
+    foundations = [
+        ("Local GRDB + HLC", "package storage/sync foundation"),
+        ("Existing app sync", "pushes to personal server mirror"),
+        ("Oura BLE foundation", "Feature-gated; 16-byte shared key required;", "physical Ring 5 protocol, decryption,", "and key validation not completed."),
+    ]
+    b += card(70, 1000, 420, 112, foundations[0][0], foundations[0][1], BLUE)
+    b += card(540, 1000, 420, 112, foundations[1][0], foundations[1][1], BLUE)
+    b += card(1010, 1000, 520, 148, foundations[2][0], list(foundations[2][1:]), PURPLE, True)
+    b += text(70, 1200, "Demo-device observations do not enter the production router, HealthKit, or production sensor sessions.", 20, GOLD, 700)
+    b += text(70, 1235, "HealthKit remains the physiological source of truth; the personal server is a push-oriented mirror.", 20, MUTED, 650)
+    return svg_wrap("AnxietyWatch v3 architecture and data flow", "On iPhone, Polar H10, EMAY Oximeter, and Apple Health each connect to SensorRouter, then package event processing, fusion, tier state, and the monitoring view model. A separate watch HealthKit-only router drives the complication feed and cache. Oura Cloud, CPAP, deterministic fixtures, GRDB and HLC, existing server sync, WatchConnectivity, and feature-gated Oura BLE are separate paths or foundations. Oura BLE requires a 16-byte shared key; physical Ring 5 protocol, decryption, and key validation are not completed.", 1600, 1280, b)
+
+
+def architecture_mobile():
+    b = text(40, 65, "How AnxietyWatch v3 fits together", 34, TEXT, 750)
+    b += multiline(40, 108, ["Active iPhone monitoring, watch runtime, app data,", "and foundations remain distinct."], 22, MUTED, 30)
+    b += text(40, 205, "ACTIVE IPHONE MONITORING", 20, GREEN, 800)
+    y = 235
+    for name, detail in [("Polar H10", "BLE actor → router"), ("EMAY Oximeter", "BLE actor → router"), ("Apple Health", "HealthKit read adapter → router")]:
+        b += card(40, y, 640, 90, name, detail, GREEN); y += 110
+    for name, lines in [("SensorRouter", ["routes supported observations"]), ("Package CNS processing", ["event step → fusion → tier state"]), ("Monitoring view model", ["iPhone presentation state"])]:
+        b += card(40, y, 640, 96, name, lines, BLUE)
+        if y < 780: b += f'<path class="arrow" d="M360 {y + 96} V{y + 108}"/>'
+        y += 116
+    b += text(40, y + 20, "SEPARATE WATCH RUNTIME", 20, CYAN, 800); y += 45
+    b += card(40, y, 640, 155, "Watch HealthKit-only path", ["Apple Health → SensorRouter", "→ complication feed and cache", "Not an iPhone-view-model continuation"], CYAN, True); y += 185
+    b += card(40, y, 640, 175, "Phased coexistence", ["Legacy services remain during rollout.", "Existing WatchConnectivity path is active;", "package peer transport is a foundation;", "watch migration is incomplete."], PURPLE, True); y += 215
+    b += text(40, y, "SEPARATE APP DATA", 20, PURPLE, 800); y += 30
+    for name, detail in [("Oura Cloud", "daily API summaries"), ("CPAP", "imported session records"), ("Deterministic fixtures", "seeded demo-store content; not observations")]:
+        b += card(40, y, 640, 90, name, detail, PURPLE if name != "Deterministic fixtures" else GOLD, name == "Deterministic fixtures"); y += 110
+    b += text(40, y + 10, "SEPARATE FOUNDATIONS", 20, BLUE, 800); y += 40
+    b += card(40, y, 640, 90, "Local GRDB + HLC", "package storage/sync foundation", BLUE); y += 110
+    b += card(40, y, 640, 90, "Existing app sync", "pushes to personal server mirror", BLUE); y += 110
+    b += card(40, y, 640, 165, "Oura BLE foundation", ["Feature-gated; 16-byte shared key required.", "Physical Ring 5 protocol, decryption,", "and key validation not completed."], PURPLE, True); y += 205
+    b += multiline(40, y, ["Demo-device observations do not enter the production", "router, HealthKit, or production sensor sessions.", "HealthKit is the physiological source of truth;", "the personal server is a push-oriented mirror."], 21, GOLD, 31, 700)
+    return svg_wrap("AnxietyWatch v3 architecture and data flow — mobile", "A stacked mobile version of the architecture. Three iPhone sources feed SensorRouter, package event processing, fusion, tier state, and iPhone presentation. The watch HealthKit-only runtime, app-data paths, storage, server sync, WatchConnectivity, and incomplete Oura BLE foundation are separate.", 720, y + 155, b)
+
+
+def provenance_v3():
+    svg = provenance_v2()
+    svg = svg.replace("Oura BLE foundation</text><text", "Oura BLE foundation</text><text")
+    svg = svg.replace("feature-gated · key required", "16-byte shared key required")
+    svg = svg.replace("hardware-dependent</tspan>", "physical validation incomplete</tspan>")
+    svg = svg.replace("Physical Oura Ring 5 BLE protocol/decryption validation remains hardware-dependent.", "Physical Ring 5 protocol, decryption, and key validation are not completed.")
+    svg = svg.replace("Feature-gated Oura BLE requires key provisioning and remains hardware-dependent.", "Feature-gated Oura BLE requires a 16-byte shared key; physical Ring 5 protocol, decryption, and key validation are not completed.")
+    return svg
+
+
+def provenance_mobile():
+    b = text(40, 65, "Source-aware — demos stop here", 34, TEXT, 750)
+    b += multiline(40, 108, ["Selected surfaces name source or mode.", "Simulation is not a hardware reading."], 22, MUTED, 30)
+    y = 200
+    b += text(40, y, "PRODUCTION / IMPORTED SOURCES", 20, GREEN, 800); y += 30
+    for name, detail in [("● Oura Cloud", "daily API summaries"), ("◆ Apple Health", "separate HealthKit read/import source"), ("■ Polar H10", "hardware sensor path"), ("■ EMAY Oximeter", "hardware / imported path"), ("■ CPAP", "imported session data")]:
+        b += card(40, y, 640, 90, name, detail, GREEN if "Oura" not in name else PURPLE); y += 110
+    b += card(40, y, 640, 155, "Oura BLE foundation", ["Feature-gated; 16-byte shared key required.", "Physical Ring 5 protocol, decryption,", "and key validation not completed."], PURPLE, True); y += 200
+    b += text(40, y, "ISOLATED DEMONSTRATIONS", 20, GOLD, 800); y += 30
+    b += card(40, y, 640, 240, "◇ Simulated Polar + EMAY", ["DETERMINISTIC · HARDWARE-FREE", "six-hour logical demo clock", "⊘ No production BLE or sensor session", "⊘ No HealthKit writes", "⊘ Not saved as readings"], GOLD, True); y += 270
+    b += card(40, y, 640, 220, "◇ Isolated CNS UI demo", ["scripted: Clear → Watch → Confirm → Klaxon", "separate from production tier naming", "⊘ No production monitoring or real notification", "⊘ No diagnosis or clinical certainty"], GOLD, True); y += 260
+    b += card(40, y, 640, 135, "Seeded application fixtures", ["Deterministic fixtures may be written to the", "demo store for screenshots; they are distinct", "from simulated device observations."], BLUE); y += 175
+    b += multiline(40, y, ["All displayed health values in these aids are", "fictional, deterministic simulator content."], 22, TEXT, 31, 700)
+    return svg_wrap("AnxietyWatch source provenance and demo boundaries — mobile", "A stacked mobile version listing Oura Cloud, Apple Health, Polar H10, EMAY and CPAP as distinct sources. Oura BLE is an incomplete feature-gated foundation requiring a 16-byte key. Simulated device observations and the scripted CNS demonstration remain isolated from production behavior.", 720, y + 100, b)
+
+
+def montage_mobile():
+    shots = prepare_shots()
+    selected = [("dashboard", shots["dashboard"]), ("oura", shots["oura"]), ("trends", shots["trends"]), ("journal", shots["journal"])]
+    labels = {"dashboard": ("Dashboard", "daily context"), "oura": ("Oura data", "Oura Cloud / demo surface"), "trends": ("Trends", "time-based patterns"), "journal": ("Journal", "subjective anchor")}
+    b = text(40, 65, "Representative v3 surfaces", 34, TEXT, 750)
+    b += text(40, 105, "FICTIONAL, DETERMINISTIC SIMULATOR DATA", 19, GOLD, 800)
+    y = 145
+    for slug, (path, _) in selected:
+        title_value, subtitle = labels[slug]
+        b += f'<rect x="40" y="{y}" width="640" height="1120" rx="24" fill="{PANEL}" stroke="{BORDER}" stroke-width="2"/>'
+        b += f'<clipPath id="mobile-{slug}"><rect x="80" y="{y+35}" width="560" height="900" rx="20"/></clipPath>'
+        b += f'<image href="{data_uri(path)}" x="80" y="{y+35}" width="560" height="1096" preserveAspectRatio="xMidYMin slice" clip-path="url(#mobile-{slug})"/>'
+        b += text(80, y + 990, title_value, 32, TEXT, 750)
+        b += text(80, y + 1030, subtitle, 21, PURPLE if slug == "oura" else CYAN, 700)
+        b += text(80, y + 1070, "FICTIONAL SIMULATOR", 18, GOLD, 800)
+        y += 1150
+    b += card(40, y, 640, 165, "Representative surfaces only", ["The comprehensive walkthrough is not complete.", "All shown values are deterministic and fictional;", "route choreography remains follow-up work."], GOLD)
+    return svg_wrap("Representative AnxietyWatch v3 dark-mode surfaces — mobile", "A one-column mobile montage of four large fictional simulator screenshots: Dashboard, Oura data, Trends, and Journal. It does not claim a completed comprehensive walkthrough or hardware validation.", 720, y + 210, b)
+
+
 def main():
-    assets = {"architecture": architecture_v2(), "provenance": provenance_v2(), "ui-montage": montage_v2()}
+    assets = {
+        "architecture": architecture_v3(),
+        "architecture-mobile": architecture_mobile(),
+        "provenance": provenance_v3(),
+        "provenance-mobile": provenance_mobile(),
+        "ui-montage": montage_v2(),
+        "ui-montage-mobile": montage_mobile(),
+    }
     for name, content in assets.items():
         svg = RENDERED / f"{name}.svg"
         svg.write_text(content)
