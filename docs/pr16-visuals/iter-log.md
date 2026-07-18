@@ -76,3 +76,11 @@ The following remain mandatory after implementation: source-image privacy review
 - PR #16 was initially updated with desktop-only Markdown images.
 - Subsequent restart review rejected that earlier desktop-only closure: there was no valid user waiver of the mobile requirement, and technical findings remained open. Iteration 3 therefore supersedes those assets and this log entry.
 - Final completion must be recorded only after the iteration-3 mobile assets merge, PR #16 receives responsive image-plus-caption markup, and the actual GitHub page is verified at multiple widths.
+
+## 2026-07-18 — publication completion
+
+- Iteration-3 desktop and mobile assets merged through follow-up PR #18 (`6dbec42`).
+- Updated PR #16 with responsive `<picture>` markup, linked full-resolution desktop assets, descriptive alt text, and adjacent captions carrying the narrow-width safety qualifiers.
+- Confirmed all six `raw.githubusercontent.com` PNG URLs return HTTP 200 from `main`.
+- Confirmed the rendered GitHub PR page contains the `<picture>` elements, mobile sources, and adjacent architecture, representative-surface, and provenance/safety captions.
+- **COMPLETE:** the bounded narrow-width publication gate is closed.
