@@ -39,6 +39,39 @@ without crying wolf on a store that is legitimately empty.
   presence *probe*, not an authorization query, to infer whether reads work.
 - No new persistence. The diagnostic is computed on demand.
 
+### Why read grant/denial cannot be detected (verified 2026-07-18)
+
+This was checked against ground truth before settling on a heuristic, so nobody
+re-investigates:
+
+- **The SDK API has no representation for it.** In the iOS 26.5 HealthKit
+  headers, `authorizationStatusForType:` returns `HKAuthorizationStatus`, whose
+  only non-`notDetermined` cases are `sharingDenied` / `sharingAuthorized` —
+  both defined purely in terms of *save* (write). There is no `read`-grant case,
+  so for a read type the method can only ever return `.notDetermined`. The
+  absence is structural, not just a runtime redaction. The one read-relevant
+  API, `getRequestStatusForAuthorization` → `HKAuthorizationRequestStatus`
+  (`.shouldRequest` / `.unnecessary`), reports only *asked-vs-never-asked*;
+  `.unnecessary` conflates granted and denied. That is exactly (and only) what
+  `authorizationNeedsRequest()` uses.
+- **The open-source ecosystem confirms it.** Every surveyed wrapper hits the
+  same wall — react-native-health's own docs state "There is no way to check
+  authorization status for read permission"; Flutter `health` returns `null`
+  for read on iOS by design; Capacitor exposes only write ("edition") status.
+  (The `read: [1,1]` in react-native-health#342 is `sharingDenied` write status
+  mislabeled as read — a red herring.)
+- **The only technique with real signal is one-directional.** Reading a sample
+  from a *foreign source* (not written by this app) proves read is granted;
+  absence is ambiguous (denied vs genuinely empty). Because this app is
+  read-only (Design Principle #1), *every* sample it can read is foreign-source
+  (the Apple Watch's own HR/sleep/step writes), so "any successful read ⇒
+  granted" is the strongest form of that technique — and it needs no sentinel
+  write. A cross-process written sentinel can't improve on this: an app
+  extension shares the parent's HealthKit authorization
+  (`handleAuthorizationForExtension…` authorizes "the app and its extensions"),
+  and a genuinely separate app is disproportionate. Hence the probe +
+  `hadRecentHistory` heuristic is the best available design.
+
 ## Core: pure evaluator
 
 The heart of the feature is a pure, HealthKit-free, SwiftData-free function —
