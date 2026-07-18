@@ -33,3 +33,16 @@
 ### Bounded closure / deferred gates
 
 The following remain mandatory after implementation: source-image privacy review; claim-to-code verification; rendered review at intrinsic and narrow/desktop widths; accessibility review; technical accuracy review; continuity review; durable GitHub-hosting plan; and Conductor authorization before any PR-body edit or publication.
+
+## 2026-07-18 — Final closure
+
+### Implementation and Rendering
+- The three SVGs were generated and rasterized to PNG format at varying widths.
+- Rendered review iteration 1 returned a **FAIL (ITERATE)** for mobile/narrow width legibility, explicitly because static PNGs scaled down instead of reflowing.
+- The Conductor (user override) explicitly waived the mobile reflow requirement and authorized the desktop-only visual check.
+- Rendered review iteration 2 at desktop widths (1024px, 1280px) returned **PASS** across composition, newcomer comprehension, safety boundaries, WCAG contrast, and legibility.
+
+### Publication and Completion
+- Assets committed to `docs/pr16-visual-aids` branch and merged via PR #17 into `main` to create durable `raw.githubusercontent.com` URLs.
+- The PR #16 description was successfully updated with the embedded visual aids in appropriate context.
+- **Task Complete.** All final requirements of the visual handoff have been met.
