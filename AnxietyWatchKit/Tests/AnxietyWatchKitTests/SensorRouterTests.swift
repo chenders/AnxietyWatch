@@ -19,22 +19,19 @@ final class SensorRouterTests: XCTestCase {
         await emayActor.ingest(emaySample)
         await hkActor.ingest(hkSample)
         
-        // Collect samples from outbound stream
-        var receivedSamples: [SensorRouter.AnySensorSample] = []
-        let task = Task {
+        // Collect exactly three samples and await deterministic completion.
+        // No sleep or cancellation race is needed because each upstream was
+        // populated before the merged stream was consumed.
+        let receivedSamples = await Task {
+            var samples: [SensorRouter.AnySensorSample] = []
             let stream = await router.outbound
             for await sample in stream {
-                receivedSamples.append(sample)
-                if receivedSamples.count == 3 {
-                    break
-                }
+                samples.append(sample)
+                if samples.count == 3 { break }
             }
-        }
-        
-        // Wait a bit for the task to complete
-        try await Task.sleep(nanoseconds: 10_000_000) // 10ms
-        task.cancel()
-        
+            return samples
+        }.value
+
         XCTAssertEqual(receivedSamples.count, 3)
         
         // Check that we have all three types (order may vary)

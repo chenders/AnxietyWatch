@@ -48,7 +48,6 @@ final class SyncableIntegrationTests: XCTestCase {
         let dbURL = tempDir.appendingPathComponent("macro.sqlite")
         let dbManager = DatabaseManager(url: dbURL)
         try await dbManager.open()
-        defer { Task { await dbManager.close() } }
 
         // Apply the redesign schema.
         try await dbManager.writer { db in try SchemaV1.apply(to: db) }
@@ -105,6 +104,10 @@ final class SyncableIntegrationTests: XCTestCase {
         XCTAssertEqual(afterResurrect.count, 1)
         XCTAssertEqual(afterResurrect.op, "upsert", "Resurrection must flip op back to upsert")
         XCTAssertGreaterThan(afterResurrect.pt, afterDelete.pt)
+
+        // Close synchronously before the temporary-directory defer runs so no
+        // SQLite handle can race directory removal on slower CI machines.
+        await dbManager.close()
     }
 
     private struct LogRow {

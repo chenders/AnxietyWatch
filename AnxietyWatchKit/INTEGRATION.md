@@ -57,13 +57,14 @@ The package depends on:
 
 ## Current Status
 
-The package currently contains:
-- A basic umbrella file with version information
-- Empty module directories following the specification structure
-- A simple test to verify the version
+The package now contains the v3 storage, sync, BLE, pipeline, diagnostics,
+transport, and view-model foundations. It is integrated as a local package
+dependency of both the AnxietyWatch iOS app and Watch App targets.
 
 ## Integration Requirement
 
-Starting with task T02, Xcode project integration becomes a hard requirement as the AnxietyWatchKit modules will need to be consumed by the AnxietyWatch app and Watch App targets. Please ensure the package is properly integrated into the Xcode project before proceeding with subsequent tasks.
-
-Future work will implement the modules as specified in Docs/redesign_spec.md.
+Xcode-project integration was intentionally deferred while the package
+foundations were developed in isolation, then completed when app and Watch
+consumers were introduced. New package APIs used by either target must remain
+linked to the appropriate target and should be verified with both package tests
+and application-target builds.
