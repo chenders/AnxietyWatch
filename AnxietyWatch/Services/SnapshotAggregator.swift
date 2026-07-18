@@ -816,9 +816,11 @@ struct SnapshotAggregator {
     /// SpO₂ avg/nadir/T90 partition on EITHER side would be dishonest: on the
     /// preferred side the night double-counts once the CSV lands; on the
     /// opportunistic side per-minute oximeter means masquerade as the "Apple
-    /// Watch" nadir line. Live rows are display-only provenance for the
-    /// Trends "Oximeter (live sessions)" card — they contribute to no
-    /// snapshot aggregate, heart-metric precedence, or data-quality tier.
+    /// Watch" nadir line. Live rows normally remain display-only provenance
+    /// for the Trends "Oximeter (live sessions)" card and never affect
+    /// heart-metric precedence or data-quality tier. The sole snapshot
+    /// exception is the live-only overnight SpO₂ fallback below, which is
+    /// safe because no CSV/HK oximeter record exists to double-count.
     nonisolated static func excludingLiveOximeterRows(
         _ rows: [QuantityHealthSample]
     ) -> [QuantityHealthSample] {
