@@ -38,11 +38,12 @@ struct SnapshotAggregatorSourcePrecedenceTests {
         count: Int,
         value: Double,
         in context: ModelContext,
-        startingAt start: Date
+        startingAt start: Date,
+        interval: TimeInterval = 1
     ) {
         for i in 0..<count {
             context.insert(QuantityHealthSample(
-                timestamp: start.addingTimeInterval(Double(i)),
+                timestamp: start.addingTimeInterval(Double(i) * interval),
                 metricType: HKQuantityTypeIdentifier.oxygenSaturation.rawValue,
                 value: value,
                 unitString: "%",
@@ -515,55 +516,38 @@ struct SnapshotAggregatorSourcePrecedenceTests {
         #expect(snap?.spo2NadirOpportunistic == nil)
     }
 
-    /// The 30 live-only samples in the test above are spaced 1s apart (~29s
-    /// monitored) — well under `minMonitoredDurationForOvernightStats`
-    /// (300s) — so avg/nadir promote (no duration gate on that path) but
-    /// T90/desats stay at whatever `aggregateDay`'s sufficient HK-direct
-    /// pass already computed, mirroring `sparsePreferredKeepsHKDirectT90Desats`
-    /// (same HK setup, but "preferred" is live-only samples instead of CSV).
-    @Test("Live-only promotion still respects the T90/desats sufficiency gate")
-    func liveOnlyPromotionKeepsHKDirectT90WhenSparse() async throws {
+    /// Production live-BLE rows are minute means, not 1 Hz samples. Thirty
+    /// contiguous rows therefore represent thirty monitored minutes and must
+    /// be sufficient to replace HK-direct T90/desats as well as avg/nadir.
+    @Test("Live-only promotion computes burden using the persisted minute cadence")
+    func liveOnlyPromotionUsesMinuteCadenceForBurden() async throws {
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
         let mock = MockHealthKitDataSource()
-        await mock.setMinimum(.oxygenSaturation, value: 0.88)
-        // Sufficient HK-direct overnight coverage: 60 × 10s samples (600s
-        // monitored ≥ 300s, count ≥ 30), 20 of them below 0.90 → T90 > 0.
-        var hkSamples: [QuantitySample] = []
-        for i in 0..<60 {
-            let start = overnightAnchor.addingTimeInterval(Double(i) * 10)
-            hkSamples.append(QuantitySample(
-                start: start, end: start.addingTimeInterval(10),
-                value: i < 20 ? 0.88 : 0.95
-            ))
-        }
-        await mock.setQuantitySamples(.oxygenSaturation, hkSamples)
+        await mock.setMinimum(.oxygenSaturation, value: 0.94)
+        await mock.setAverage(.oxygenSaturation, value: 0.96)
 
-        // Only 30 live-BLE samples spaced 1s apart (~29s monitored) — well
-        // below `minMonitoredDurationForOvernightStats`.
         seedOvernightSpO2(
             bundle: EMAYRealtimeService.liveSourceBundleID,
             count: 30,
             value: 0.85,
             in: context,
-            startingAt: overnightAnchor.addingTimeInterval(3600)
+            startingAt: overnightAnchor,
+            interval: 60
         )
         try context.save()
 
         try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
 
         let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
-        // Nadir promoted from the live rows (no duration gate on this path).
         #expect(abs((snap?.spo2NadirOvernight ?? 0) - 85.0) < 0.001)
-        // T90/desats KEPT from the sufficient HK-direct computation — the
-        // sparse live subset can't replace them, and must not nil them.
-        #expect((snap?.spo2TimeBelow90Min ?? 0) >= 3)
+        #expect(abs((snap?.spo2Avg ?? 0) - 85.0) < 0.001)
+        // Thirty below-threshold minute means represent 30 minutes of T90,
+        // not the 30 seconds produced by treating every persisted row as 1 Hz.
+        #expect(snap?.spo2TimeBelow90Min == 30)
         #expect(snap?.spo2DesatsCount != nil)
-        // Same divergence disclosure as the CSV sparse-coverage case: nadir
-        // came from the oximeter (here: live) subset, T90/desats from mixed
-        // HK-direct.
         #expect(snap?.spo2AggregateBasis == .oximeter)
-        #expect(snap?.spo2BurdenBasis == .mixed)
+        #expect(snap?.spo2BurdenBasis == .oximeter)
     }
 
     // F-023: sparse preferred coverage must not discard the HK-direct

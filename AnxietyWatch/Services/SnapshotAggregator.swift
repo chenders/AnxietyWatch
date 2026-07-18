@@ -1042,13 +1042,17 @@ struct SnapshotAggregator {
         // avg/nadir now come from the dedicated-oximeter subset (F-092).
         snapshot.spo2AggregateBasis = .oximeter
 
-        // 8) T90 + desat count need start/end intervals. Synthesize 1-second
-        // intervals — overnight oximeters write at 1 Hz so this matches
-        // both the cadence and what HealthKit reports for the same writes.
+        // 8) T90 + desat count need start/end intervals. CSV/HK oximeter
+        // samples are 1 Hz, while the live-BLE route persists one mean per
+        // minute. Model each row at its persisted cadence so live-only nights
+        // do not undercount monitored duration and T90 by roughly 60×. A live
+        // row may represent a partial minute (the downsampler accepts at least
+        // 10 readings), but its exact coverage is not currently persisted.
         let preferredQS = preferred.map { sample in
-            QuantitySample(
+            let duration: TimeInterval = sample.sourceBundleID == EMAYRealtimeService.liveSourceBundleID ? 60 : 1
+            return QuantitySample(
                 start: sample.timestamp,
-                end: sample.timestamp.addingTimeInterval(1.0),
+                end: sample.timestamp.addingTimeInterval(duration),
                 value: sample.value
             )
         }
