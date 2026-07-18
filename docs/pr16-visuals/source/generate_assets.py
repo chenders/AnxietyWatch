@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import html
+import os
 import subprocess
 from pathlib import Path
 from PIL import Image
@@ -132,7 +133,8 @@ def provenance():
 
 
 def prepare_shots():
-    home = Path.home() / "anxietywatch-screenshots-verified"
+    home_dir = os.environ.get("AW_SCREENSHOTS_DIR", str(Path.home() / "anxietywatch-screenshots-verified"))
+    home = Path(home_dir)
     picks = {
         "dashboard": (home/"dashboard-01.png", "Dashboard"),
         "oura": (home/"oura-data-01.png", "Oura data"),
@@ -144,7 +146,7 @@ def prepare_shots():
     out = {}
     for slug,(path,label) in picks.items():
         if not path.exists():
-            raise SystemExit(f"Missing reviewed source screenshot: {path}")
+            raise SystemExit(f"Missing reviewed source screenshot: {path} (set AW_SCREENSHOTS_DIR env var to override)")
         im = Image.open(path).convert("RGB")
         # Keep a representative upper viewport. It avoids scroll seams and preserves navigation context.
         im = im.crop((0, 0, im.width, min(im.height, 2360)))
@@ -354,7 +356,6 @@ def architecture_mobile():
 
 def provenance_v3():
     svg = provenance_v2()
-    svg = svg.replace("Oura BLE foundation</text><text", "Oura BLE foundation</text><text")
     svg = svg.replace("feature-gated · key required", "16-byte shared key required")
     svg = svg.replace("hardware-dependent</tspan>", "physical validation incomplete</tspan>")
     svg = svg.replace("Physical Oura Ring 5 BLE protocol/decryption validation remains hardware-dependent.", "Physical Ring 5 protocol, decryption, and key validation are not completed.")
@@ -409,7 +410,7 @@ def main():
     }
     for name, content in assets.items():
         svg = RENDERED / f"{name}.svg"
-        svg.write_text(content)
+        svg.write_text(content, encoding="utf-8")
         subprocess.run(["rsvg-convert", str(svg), "-o", str(RENDERED / f"{name}.png")], check=True)
         print(svg)
 
