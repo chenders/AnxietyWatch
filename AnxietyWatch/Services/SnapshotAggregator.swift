@@ -825,6 +825,18 @@ struct SnapshotAggregator {
         rows.filter { $0.sourceBundleID != EMAYRealtimeService.liveSourceBundleID }
     }
 
+    /// The complement of `excludingLiveOximeterRows` — only the live-BLE
+    /// rows. Used by the fallback in `applyOvernightSpO2Precedence` that
+    /// promotes live rows into the preferred (oximeter) tier on a night with
+    /// no CSV/HK oximeter coverage at all: with nothing else present for
+    /// that night, there's nothing for the live rows to double-count
+    /// against, so the exclusion above doesn't need to apply.
+    nonisolated static func liveOximeterRows(
+        _ rows: [QuantityHealthSample]
+    ) -> [QuantityHealthSample] {
+        rows.filter { $0.sourceBundleID == EMAYRealtimeService.liveSourceBundleID }
+    }
+
     /// Provenance-tagged sample value used for SpO2 partitioning. Decoupled
     /// from `QuantityHealthSample` so the precedence path can also consume
     /// `SourcedQuantitySample` values pulled live from HealthKit when the
@@ -987,6 +999,24 @@ struct SnapshotAggregator {
         // samples exist — feeds the trends chart's Apple Watch line
         // regardless of whether a preferred source also covers the window.
         snapshot.spo2NadirOpportunistic = opportunistic.map(\.value).min().map { $0 * 100 }
+
+        // 5b) Fallback: no CSV/HK oximeter coverage this night at all —
+        // promote live-BLE rows (excluded above, and from `unified`/
+        // `opportunistic` entirely, by `excludingLiveOximeterRows`) into the
+        // preferred tier. The double-count risk `excludingLiveOximeterRows`
+        // guards against (the same night reaching a CSV import AND the live
+        // stream) can't occur here: there IS no CSV/HK row for this night to
+        // double-count against. If one lands later, `preferred` is rebuilt
+        // from scratch on the next aggregation pass and — being non-empty
+        // from the CSV/HK rows alone — this branch stops firing, so a
+        // live-promoted night can't linger stale once a "real" record
+        // supersedes it.
+        if preferred.isEmpty {
+            let liveRows = Self.liveOximeterRows(windowRows).filter { $0.metricType == spo2Type }
+            preferred = liveRows.map {
+                ProvSpO2Sample(timestamp: $0.timestamp, value: $0.value, sourceBundleID: $0.sourceBundleID)
+            }
+        }
 
         // 6) No preferred-tier coverage: keep the HK-direct avg/nadir/T90/desats
         // already set by the HealthKit aggregate calls in `aggregateDay` (those

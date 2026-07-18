@@ -180,6 +180,19 @@ struct SleepRespiratoryTrendChart: View {
                     NadirSeries.oximeter: ChartPalette.oximeterSpO2,
                     NadirSeries.appleWatch: ChartPalette.appleWatchSpO2,
                 ])
+                // Without an explicit chartSymbolScale keyed on the same
+                // domain, Swift Charts fails to recognize the `.symbol(by:)`
+                // channel shares its domain with `.foregroundStyle(by:)` and
+                // renders a SECOND, unmerged legend row for one of the two
+                // series with an auto-assigned color — a stray third legend
+                // swatch (e.g. a second "Oximeter" or "Apple Watch" entry in
+                // a color that matches neither ChartPalette value). Giving
+                // both series an explicit, distinct shape here lets Swift
+                // Charts merge color+symbol into one two-entry legend.
+                .chartSymbolScale([
+                    NadirSeries.oximeter: .circle,
+                    NadirSeries.appleWatch: .square,
+                ])
                 .chartXScale(domain: dateRange)
                 .chartYScale(domain: nadirDomainFloor...100)
                 .chartYAxisLabel("SpO₂ nadir (%)")

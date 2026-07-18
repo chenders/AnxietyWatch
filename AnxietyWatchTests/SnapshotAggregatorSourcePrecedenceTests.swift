@@ -478,12 +478,17 @@ struct SnapshotAggregatorSourcePrecedenceTests {
         #expect(snap?.spo2NadirOpportunistic == nil)
     }
 
-    /// Live-only coverage is not aggregation coverage: with no CSV/HK-app
-    /// rows, the HK-direct values must stay authoritative and no
-    /// opportunistic nadir may appear — identical outcome to an empty
-    /// SwiftData table.
-    @Test("Live-only rows create no preferred or opportunistic coverage")
-    func liveOnlyRowsAreInvisibleToAggregation() async throws {
+    /// Live-only coverage — no CSV/HK-app rows for the night at all — has
+    /// nothing to double-count against, so the live rows are promoted into
+    /// the preferred (oximeter) tier and override the HK-direct avg/nadir.
+    /// They still never enter the opportunistic partition (they aren't
+    /// Apple Watch data). The instant a CSV/HK-app row exists for the same
+    /// night, this promotion stops (see
+    /// `liveRowsDoNotShiftOvernightAggregates`) — `preferred` is rebuilt
+    /// from scratch every aggregation pass, so a live-promoted night can't
+    /// linger stale once a "real" record supersedes it.
+    @Test("Live-only rows are promoted to the preferred tier when nothing else covers the night")
+    func liveOnlyRowsPromoteToPreferredTier() async throws {
         let container = try TestHelpers.makeFullContainer()
         let context = ModelContext(container)
         let mock = MockHealthKitDataSource()
@@ -502,10 +507,63 @@ struct SnapshotAggregatorSourcePrecedenceTests {
         try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
 
         let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
-        // HK-direct values retained — the 0.85 live rows moved nothing.
-        #expect(abs((snap?.spo2NadirOvernight ?? 0) - 94.0) < 0.001)
-        #expect(abs((snap?.spo2Avg ?? 0) - 96.0) < 0.001)
+        // Promoted from the live rows, not the HK-direct 94.0/96.0.
+        #expect(abs((snap?.spo2NadirOvernight ?? 0) - 85.0) < 0.001)
+        #expect(abs((snap?.spo2Avg ?? 0) - 85.0) < 0.001)
+        #expect(snap?.spo2AggregateBasis == .oximeter)
+        // Live rows still never masquerade as the Apple Watch line.
         #expect(snap?.spo2NadirOpportunistic == nil)
+    }
+
+    /// The 30 live-only samples in the test above are spaced 1s apart (~29s
+    /// monitored) — well under `minMonitoredDurationForOvernightStats`
+    /// (300s) — so avg/nadir promote (no duration gate on that path) but
+    /// T90/desats stay at whatever `aggregateDay`'s sufficient HK-direct
+    /// pass already computed, mirroring `sparsePreferredKeepsHKDirectT90Desats`
+    /// (same HK setup, but "preferred" is live-only samples instead of CSV).
+    @Test("Live-only promotion still respects the T90/desats sufficiency gate")
+    func liveOnlyPromotionKeepsHKDirectT90WhenSparse() async throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let mock = MockHealthKitDataSource()
+        await mock.setMinimum(.oxygenSaturation, value: 0.88)
+        // Sufficient HK-direct overnight coverage: 60 × 10s samples (600s
+        // monitored ≥ 300s, count ≥ 30), 20 of them below 0.90 → T90 > 0.
+        var hkSamples: [QuantitySample] = []
+        for i in 0..<60 {
+            let start = overnightAnchor.addingTimeInterval(Double(i) * 10)
+            hkSamples.append(QuantitySample(
+                start: start, end: start.addingTimeInterval(10),
+                value: i < 20 ? 0.88 : 0.95
+            ))
+        }
+        await mock.setQuantitySamples(.oxygenSaturation, hkSamples)
+
+        // Only 30 live-BLE samples spaced 1s apart (~29s monitored) — well
+        // below `minMonitoredDurationForOvernightStats`.
+        seedOvernightSpO2(
+            bundle: EMAYRealtimeService.liveSourceBundleID,
+            count: 30,
+            value: 0.85,
+            in: context,
+            startingAt: overnightAnchor.addingTimeInterval(3600)
+        )
+        try context.save()
+
+        try await makeAggregator(mock: mock, context: context).aggregateDay(referenceDate)
+
+        let snap = try context.fetch(FetchDescriptor<HealthSnapshot>()).first
+        // Nadir promoted from the live rows (no duration gate on this path).
+        #expect(abs((snap?.spo2NadirOvernight ?? 0) - 85.0) < 0.001)
+        // T90/desats KEPT from the sufficient HK-direct computation — the
+        // sparse live subset can't replace them, and must not nil them.
+        #expect((snap?.spo2TimeBelow90Min ?? 0) >= 3)
+        #expect(snap?.spo2DesatsCount != nil)
+        // Same divergence disclosure as the CSV sparse-coverage case: nadir
+        // came from the oximeter (here: live) subset, T90/desats from mixed
+        // HK-direct.
+        #expect(snap?.spo2AggregateBasis == .oximeter)
+        #expect(snap?.spo2BurdenBasis == .mixed)
     }
 
     // F-023: sparse preferred coverage must not discard the HK-direct
