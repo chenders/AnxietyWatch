@@ -4,6 +4,7 @@ import SwiftData
 struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(PolarHRMService.self) private var polarService
+    @Environment(EMAYRealtimeService.self) private var emayService
     @EnvironmentObject private var pipelineService: KitPipelineService
     // All six of these queries are bounded to a 30-day window in init() below
     // (AnxietyEntry, MedicationDose, HealthSnapshot, CPAPSession,
@@ -94,6 +95,9 @@ struct DashboardView: View {
                     // 3. Polar HRV start-session (always visible when paired per Q4)
                     if polarService.isPaired {
                         HRVSessionCardView(service: polarService)
+                    }
+                    if emayService.isFullAppDemoSimulated {
+                        EMAYLiveCardView()
                     }
 
                     // 4. Last Anxiety (spine signal)
@@ -272,6 +276,7 @@ struct DashboardView: View {
     DashboardView()
         .modelContainer(container)
         .environment(PolarHRMService(modelContext: ModelContext(container)))
+        .environment(EMAYRealtimeService(modelContext: ModelContext(container)))
         .environment(RecordingPresentationCoordinator())
 }
 #endif

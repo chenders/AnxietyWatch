@@ -88,6 +88,7 @@ struct AnxietyWatchApp: App {
     // MARK: - Existing services (during Phase 2A dual-write)
 
     @State private var coordinator: HealthDataCoordinator?
+    @State private var demoDeviceSession: FullAppDemoDeviceSession
     @State private var polarService: PolarHRMService
     @State private var emayService: EMAYRealtimeService
     @State private var monitoringCoordinator: CNSMonitoringCoordinator
@@ -126,11 +127,21 @@ struct AnxietyWatchApp: App {
             UserDefaults.standard.set("Polar H10 Demo", forKey: PolarHRMService.pairedNameKey)
         }
 #endif
-        let polar = PolarHRMService(modelContext: ModelContext(sharedModelContainer))
+        let demoDevices = FullAppDemoDeviceSession()
+        _demoDeviceSession = State(initialValue: demoDevices)
+        let polar = PolarHRMService(
+            modelContext: ModelContext(sharedModelContainer),
+            demoSession: demoDevices
+        )
         _polarService = State(initialValue: polar)
-        _liveActivityCoordinator = State(initialValue: LiveActivityCoordinator(polarService: polar))
+        _liveActivityCoordinator = State(initialValue: demoDevices.isEnabled
+            ? nil
+            : LiveActivityCoordinator(polarService: polar))
 
-        let emay = EMAYRealtimeService(modelContext: ModelContext(sharedModelContainer))
+        let emay = EMAYRealtimeService(
+            modelContext: ModelContext(sharedModelContainer),
+            demoSession: demoDevices
+        )
         _emayService = State(initialValue: emay)
 
         _monitoringCoordinator = State(initialValue: CNSMonitoringCoordinator(
@@ -149,6 +160,7 @@ struct AnxietyWatchApp: App {
             ContentView()
                 .environment(polarService)
                 .environment(emayService)
+                .environment(demoDeviceSession)
                 .environment(monitoringCoordinator)
                 .environment(recordingPresentation)
                 .environmentObject(pipelineService)
@@ -158,15 +170,17 @@ struct AnxietyWatchApp: App {
                     }
                 }
                 .task {
-                    // ── AnxietyWatchKit bootstrap ──────────────────────
-                    // Must happen before any sync or trigger DDL.
-                    await bootstrapKit()
-                    // ── v3 Pipeline service ────────────────────────────
-                    // BLE actors + SensorRouter + CNS coordinator + ViewModel.
-                    await pipelineService.start()
+                    // Full-app demo devices are hardware-free. Do not start
+                    // either BLE pipeline (legacy or v3) in that mode.
+                    if !demoDeviceSession.isEnabled {
+                        // ── AnxietyWatchKit bootstrap ──────────────────
+                        await bootstrapKit()
+                        // ── v3 Pipeline service ────────────────────────
+                        await pipelineService.start()
 #if targetEnvironment(simulator)
-                    pipelineService.seedDemoVitals()
+                        pipelineService.seedDemoVitals()
 #endif
+                    }
                     // ── Existing launch logic ─────────────────────────
                     await existingLaunchSetup()
                 }
@@ -304,17 +318,26 @@ struct AnxietyWatchApp: App {
                 Log.sync.error("[autoRestore] failed: \(error, privacy: .public)")
             }
         }
-        if SeedDemoMode.isActive {
+        if SeedDemoMode.isActive || FullAppDemoMode.isActive {
             DemoSeeder.seedIfNeeded(container: sharedModelContainer)
-            emayService.applyDemoStreamingState()
+            if SeedDemoMode.isActive && !FullAppDemoMode.isActive {
+                emayService.applyDemoStreamingState()
+            }
         }
         #endif
+        // Demo fixtures are the only intentional writes in this mode. Skip
+        // production connectivity, recovery, HealthKit setup, sync, and
+        // notification scheduling after they have been installed.
+        if demoDeviceSession.isEnabled { return }
+
         PhoneConnectivityManager.shared.modelContainer = sharedModelContainer
         PhoneConnectivityManager.shared.activate()
 
-        polarService.recoverInFlightSessionIfNeeded()
-        emayService.startIfContinuousModeEnabled()
-        monitoringCoordinator.handleLaunch()
+        if !demoDeviceSession.isEnabled {
+            polarService.recoverInFlightSessionIfNeeded()
+            emayService.startIfContinuousModeEnabled()
+            monitoringCoordinator.handleLaunch()
+        }
 
         let context = ModelContext(sharedModelContainer)
         try? SyncService.backfillMedicationLinks(modelContext: context)

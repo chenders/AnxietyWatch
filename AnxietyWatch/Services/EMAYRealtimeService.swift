@@ -338,6 +338,8 @@ final class EMAYRealtimeService: NSObject {
     /// app init and owned for the service's (= app's) lifetime; everything
     /// that touches it runs on the main actor.
     @ObservationIgnored private let modelContext: ModelContext
+    @ObservationIgnored private let demoSession: FullAppDemoDeviceSession?
+    @ObservationIgnored private var demoUpdateTask: Task<Void, Never>?
     /// Buffers the ~1 Hz stream into per-minute means; flushed on TERMINAL
     /// teardown via `resetConnectionState(flushPartialBucket: true)` and on
     /// stale-stream timeout — transient auto-reconnect disconnects keep the
@@ -353,10 +355,24 @@ final class EMAYRealtimeService: NSObject {
     @ObservationIgnored private var isDemoStreaming = false
 #endif
 
-    init(modelContext: ModelContext) {
+    init(modelContext: ModelContext, demoSession: FullAppDemoDeviceSession? = nil) {
         self.modelContext = modelContext
-        self.continuousModeEnabled = Self.isContinuousModeEnabled(defaults: .standard)
+        self.demoSession = demoSession?.isEnabled == true ? demoSession : nil
+        self.continuousModeEnabled = self.demoSession != nil
+            ? true
+            : Self.isContinuousModeEnabled(defaults: .standard)
         super.init()
+        if let demoSession = self.demoSession {
+            applyFullAppDemoSnapshot(demoSession)
+            demoUpdateTask = Task { @MainActor [weak self, weak demoSession] in
+                while !Task.isCancelled, let self, let demoSession {
+                    try? await Task.sleep(for: .seconds(1))
+                    demoSession.refresh()
+                    self.applyFullAppDemoSnapshot(demoSession)
+                }
+            }
+            return
+        }
         // `queue: nil` → CoreBluetooth dispatches delegate callbacks on the
         // MAIN queue. CB requires every `central.*` call to be serialized on
         // the queue the manager was constructed with; since we drive it from
@@ -453,6 +469,7 @@ final class EMAYRealtimeService: NSObject {
     /// not be knocked back to `.scanning` (dropping the connection) just
     /// because the user opened the screen.
     func start() {
+        guard demoSession == nil else { return }
         guard !status.isActiveSession else { return }
         wantScan = true
         if let notReady = Self.startupStatus(for: central.state) {
@@ -469,6 +486,7 @@ final class EMAYRealtimeService: NSObject {
     /// `willRestoreState` already re-armed monitoring, `start()`'s
     /// active-session guard makes this a no-op.
     func startIfContinuousModeEnabled() {
+        guard demoSession == nil else { return }
         guard continuousModeEnabled else { return }
         start()
     }
@@ -479,6 +497,7 @@ final class EMAYRealtimeService: NSObject {
     /// Stop with the toggle left on stops only the current session; the
     /// toggle re-arms monitoring at the next launch.)
     func setContinuousMode(_ enabled: Bool) {
+        guard demoSession == nil else { return }
         continuousModeEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: Self.continuousModeKey)
         if enabled {
@@ -492,6 +511,7 @@ final class EMAYRealtimeService: NSObject {
     /// disconnect below — the device stops streaming on disconnect regardless)
     /// and tear down cleanly.
     func stop() {
+        guard demoSession == nil else { return }
         wantScan = false
         if let peripheral, let writeChar {
             peripheral.writeValue(Data(EMAYProtocol.stopRealtime), for: writeChar, type: .withResponse)
@@ -514,6 +534,19 @@ final class EMAYRealtimeService: NSObject {
         // peripheral reference.
         resetConnectionState()
         status = .idle
+    }
+
+    var isFullAppDemoSimulated: Bool { demoSession != nil }
+    var fullAppDemoElapsed: TimeInterval? { demoSession?.elapsed }
+
+    private func applyFullAppDemoSnapshot(_ demo: FullAppDemoDeviceSession) {
+        status = .streaming
+        latestReading = EMAYReading(
+            spo2: demo.emaySpO2,
+            pulseRate: demo.emayPulse,
+            timestamp: demo.clock.now
+        )
+        lastReadingAt = demo.clock.now
     }
 
 #if DEBUG

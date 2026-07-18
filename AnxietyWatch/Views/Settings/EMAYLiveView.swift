@@ -32,7 +32,17 @@ struct EMAYLiveView: View {
 
     var body: some View {
         List {
-            Section { statusRow }
+            Section {
+                statusRow
+                if service.isFullAppDemoSimulated, let elapsed = service.fullAppDemoElapsed {
+                    LabeledContent("Source", value: FullAppDemoDeviceSession.emayName)
+                    LabeledContent(
+                        "Streaming for",
+                        value: RecordingFormatters.formatElapsed(elapsed)
+                    )
+                    .accessibilityIdentifier("demo.emay.live.duration")
+                }
+            }
 
             Section("Live reading") {
                 LabeledContent {
@@ -52,10 +62,15 @@ struct EMAYLiveView: View {
             }
 
             Section {
-                Button {
-                    isRunning ? service.stop() : service.start()
-                } label: {
-                    Label(isRunning ? "Stop" : "Start", systemImage: isRunning ? "stop.circle" : "play.circle")
+                if service.isFullAppDemoSimulated {
+                    Label("Simulated stream — controls disabled", systemImage: "testtube.2")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Button {
+                        isRunning ? service.stop() : service.start()
+                    } label: {
+                        Label(isRunning ? "Stop" : "Start", systemImage: isRunning ? "stop.circle" : "play.circle")
+                    }
                 }
             } footer: {
                 Text("Put a finger on the sensor; values stream about once a second while connected. "
@@ -64,6 +79,7 @@ struct EMAYLiveView: View {
 
             Section {
                 Toggle("Continuous streaming", isOn: continuousStreaming)
+                    .disabled(service.isFullAppDemoSimulated)
             } footer: {
                 Text("Keeps listening for the oximeter and records whenever it's in range, "
                     + "including in the background and across app restarts. Uses more battery. "
@@ -72,11 +88,15 @@ struct EMAYLiveView: View {
         }
         .navigationTitle("EMAY Oximeter")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { service.start() }
+        .onAppear {
+            if !service.isFullAppDemoSimulated { service.start() }
+        }
         .onDisappear {
             // In continuous mode the session deliberately outlives this
             // screen — only an explicit Stop or the toggle ends it.
-            if !service.continuousModeEnabled { service.stop() }
+            if !service.isFullAppDemoSimulated && !service.continuousModeEnabled {
+                service.stop()
+            }
         }
     }
 
