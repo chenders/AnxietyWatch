@@ -90,15 +90,21 @@ jobs:
         env:
           SIM_NAME: ${{ steps.dest.outputs.sim_name }}
         run: |
-          # SWIFT_TREAT_WARNINGS_AS_ERRORS=YES enforces the "zero warnings"
-          # policy in CLAUDE.md — any new compiler warning fails CI.
+          # Check warnings after the build instead of passing
+          # SWIFT_TREAT_WARNINGS_AS_ERRORS globally. Xcode 26 otherwise adds
+          # -warnings-as-errors to packages such as GRDB that intentionally use
+          # -suppress-warnings, and Swift rejects the conflicting options.
+          set -o pipefail
           xcodebuild test \
             -scheme AnxietyWatch \
             -destination "platform=iOS Simulator,name=$SIM_NAME" \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             -enableCodeCoverage YES \
-            -resultBundlePath TestResults.xcresult \
-            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+            -resultBundlePath TestResults.xcresult 2>&1 | tee "$RUNNER_TEMP/ios-test.log"
+          if grep -E '(^|:) warning:' "$RUNNER_TEMP/ios-test.log"; then
+            echo "::error::Compiler warnings are not permitted"
+            exit 1
+          fi
 
       - name: Report coverage
         if: always()
@@ -110,8 +116,12 @@ jobs:
 
       - name: Build watchOS app
         run: |
+          set -o pipefail
           xcodebuild build \
             -scheme "AnxietyWatch Watch App" \
             -destination 'generic/platform=watchOS Simulator' \
-            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
-            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" 2>&1 | tee "$RUNNER_TEMP/watch-build.log"
+          if grep -E '(^|:) warning:' "$RUNNER_TEMP/watch-build.log"; then
+            echo "::error::Compiler warnings are not permitted"
+            exit 1
+          fi
