@@ -7,6 +7,10 @@ struct SettingsView: View {
     @State private var rebuildProgress = 0
     @State private var rebuildTotal = 0
     @State private var showRebuildConfirmation = false
+#if DEBUG
+    @State private var demoOuraPresented = false
+    @State private var demoCNSPresented = false
+#endif
 
     var body: some View {
         NavigationStack {
@@ -42,16 +46,20 @@ struct SettingsView: View {
                     } label: {
                         Label("CNS Monitoring", systemImage: "waveform.path.ecg.rectangle")
                     }
+                    NavigationLink {
+                        OuraSettingsView()
+                    } label: {
+                        Label("Oura Ring", systemImage: "circle.hexagongrid.fill")
+                    }
                 } header: {
                     Text("Data Sources")
                 } footer: {
                     Text(
-                        "Anxiety Watch reads from these sources to correlate symptoms with physiological "
-                            + "signals. It never writes back. CNS Monitoring arms an overnight respiratory-"
-                            + "depression watch after a benzodiazepine/opioid dose or on demand; arming it "
-                            + "auto-starts the EMAY oximeter session without touching your EMAY continuous-"
-                            + "streaming toggle above. Phase 2 detects and discloses; loud alerting "
-                            + "(klaxon/haptics) lands in Phase 3."
+                        "Anxiety Watch reads from these sources to correlate symptoms with physiological signals. "
+                            + "It never writes back. CNS Monitoring arms an overnight respiratory-depression watch "
+                            + "after a benzodiazepine/opioid dose or on demand; arming it auto-starts the EMAY "
+                            + "oximeter session without touching your EMAY continuous-streaming toggle above. "
+                            + "Phase 2 detects and discloses; loud alerting (klaxon/haptics) lands in Phase 3."
                     )
                 }
 
@@ -121,7 +129,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    LabeledContent("Version", value: BuildVersion.commitHash)
+                    LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0")
                     Link(destination: URL(string: "https://github.com/chenders/AnxietyWatch")!) {
                         Label("Source Code", systemImage: "chevron.left.forwardslash.chevron.right")
                     }
@@ -132,6 +140,27 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+#if DEBUG
+            .navigationDestination(isPresented: $demoOuraPresented) {
+                OuraSettingsView()
+            }
+            .navigationDestination(isPresented: $demoCNSPresented) {
+                CNSMonitoringDemoView()
+            }
+            .task {
+                let arguments = ProcessInfo.processInfo.arguments
+                guard arguments.contains("-demoOuraSequence")
+                        || arguments.contains("-demoCNSSequence") else { return }
+                // Let Settings remain visible long enough to establish where
+                // the feature lives before following the matching visible row.
+                try? await Task.sleep(for: .seconds(3))
+                if arguments.contains("-demoCNSSequence") {
+                    demoCNSPresented = true
+                } else {
+                    demoOuraPresented = true
+                }
+            }
+#endif
         }
     }
 

@@ -41,6 +41,9 @@ struct MedicationsHubView: View {
                 recentDosesSection
                 notCurrentlyTakingSection
             }
+#if DEBUG
+            .demoAutoScroll("medications", stops: 1, initialDelay: .seconds(3), pause: .seconds(2), step: 500)
+#endif
             .navigationTitle("Medications")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {

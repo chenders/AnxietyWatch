@@ -330,7 +330,7 @@ struct TrendsView: View {
                         }
                     }
 
-                    Picker("Source", selection: $sourceFilter) {
+                    Picker("Anxiety Source", selection: $sourceFilter) {
                         ForEach(SourceFilter.allCases, id: \.self) { filter in
                             Text(filter.rawValue).tag(filter)
                         }
@@ -396,6 +396,7 @@ struct TrendsView: View {
                         )
                     } else {
                         AnxietySeverityChart(entries: entries, dateRange: dateRange)
+                        OuraTrendsSection(start: ws.start, end: ws.end)
                         // HRV cards grouped together. SDNN trend now overlays
                         // Polar overnight aggregates onto the existing HK line;
                         // RMSSD and HF Power are Polar-only sibling cards in
@@ -480,6 +481,9 @@ struct TrendsView: View {
                 }
                 .padding(.vertical)
             }
+#if DEBUG
+            .demoAutoScroll("trends", stops: 8, initialDelay: .seconds(4), pause: .seconds(2.2), step: 505)
+#endif
             .navigationTitle("Trends")
             .simultaneousGesture(
                 DragGesture(minimumDistance: 50)

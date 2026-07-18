@@ -90,12 +90,20 @@ struct HRVSessionCardView: View {
 
     @ViewBuilder
     private func header(for state: PolarHRMState) -> some View {
-        HStack {
-            Label("Polar H10", systemImage: "heart.text.square.fill")
-                .font(.headline)
-                .foregroundStyle(.primary)
-            Spacer()
-            statusBadge(for: state.status)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Label("Polar H10", systemImage: "heart.text.square.fill")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Spacer()
+                statusBadge(for: state.status)
+            }
+            if service.isFullAppDemoSimulated {
+                Text("Simulated · \(RecordingFormatters.formatElapsed(state.sessionElapsed)) elapsed")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("demo.polar.dashboard.provenance")
+            }
         }
     }
 
@@ -166,13 +174,15 @@ struct HRVSessionCardView: View {
             }
             .buttonStyle(.bordered)
             Spacer()
-            Button(role: .destructive) {
-                service.stopSession()
-            } label: {
-                Label("Stop", systemImage: "stop.circle.fill")
+            if !service.isFullAppDemoSimulated {
+                Button(role: .destructive) {
+                    service.stopSession()
+                } label: {
+                    Label("Stop", systemImage: "stop.circle.fill")
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
             }
-            .buttonStyle(.bordered)
-            .tint(.red)
         }
     }
 

@@ -4,6 +4,8 @@ import SwiftData
 struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(PolarHRMService.self) private var polarService
+    @Environment(EMAYRealtimeService.self) private var emayService
+    @EnvironmentObject private var pipelineService: KitPipelineService
     // All six of these queries are bounded to a 30-day window in init() below
     // (AnxietyEntry, MedicationDose, HealthSnapshot, CPAPSession,
     // ClinicalLabResult, SleepStageEvent) — each can grow unbounded, and the
@@ -19,6 +21,10 @@ struct DashboardView: View {
     @Query private var recentSleepEvents: [SleepStageEvent]
 
     @State private var vm = DashboardViewModel()
+#if DEBUG
+    @State private var demoLabsPresented = false
+    @State private var demoSequence = DemoVideoSequence.shared
+#endif
     private let barometer = BarometerService.shared
 
     init() {
@@ -71,6 +77,11 @@ struct DashboardView: View {
                     // 1. Alerts strip
                     AlertsSectionView(snapshots: recentSnapshots, vm: vm)
 
+                    // 1.5 v3 Pipeline monitoring card (BLE live vitals)
+                    if let monitor = pipelineService.monitoring {
+                        DashboardMonitoringCard(monitor: monitor)
+                    }
+
                     // 2. Smart Summary "What changed today"
                     SmartSummaryCard(summary: vm.smartSummary(
                         snapshots: recentSnapshots,
@@ -78,9 +89,15 @@ struct DashboardView: View {
                         lastAnxiety: recentEntries.first
                     ))
 
+                    // Oura Cloud daily context is distinct from HealthKit and BLE.
+                    OuraDailyContextCard()
+
                     // 3. Polar HRV start-session (always visible when paired per Q4)
                     if polarService.isPaired {
                         HRVSessionCardView(service: polarService)
+                    }
+                    if emayService.isFullAppDemoSimulated {
+                        EMAYLiveCardView()
                     }
 
                     // 4. Last Anxiety (spine signal)
@@ -113,7 +130,26 @@ struct DashboardView: View {
                 }
                 .padding()
             }
+#if DEBUG
+            .demoAutoScroll("dashboard", stops: 4, step: 500)
+#endif
             .navigationTitle("Dashboard")
+#if DEBUG
+            .navigationDestination(isPresented: $demoLabsPresented) {
+                LabResultsView().equatable()
+            }
+            .task(id: demoSequence.completedProfiles) {
+                guard ProcessInfo.processInfo.arguments.contains("-demoLabsAndSongs"),
+                      demoSequence.completedProfiles.contains("dashboard") else { return }
+                // The Dashboard has programmatically scrolled to its Care row;
+                // now follow the same navigation destination as that row.
+                try? await Task.sleep(for: .seconds(2))
+                demoLabsPresented = true
+                try? await Task.sleep(for: .seconds(6))
+                demoLabsPresented = false
+                demoSequence.labsViewed = true
+            }
+#endif
             .task {
                 // Compute immediately from cached @Query data — no async, no blocking
                 vm.computeBaselines(from: recentSnapshots)
@@ -240,6 +276,7 @@ struct DashboardView: View {
     DashboardView()
         .modelContainer(container)
         .environment(PolarHRMService(modelContext: ModelContext(container)))
+        .environment(EMAYRealtimeService(modelContext: ModelContext(container)))
         .environment(RecordingPresentationCoordinator())
 }
 #endif

@@ -52,19 +52,29 @@ struct LabResultsView: View, Equatable {
     // MARK: - Row View
 
     private func labResultRow(_ result: ClinicalLabResult, definition: LabTestRegistry.TestDefinition) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(definition.shortName)
                     .font(.body)
                 Text(result.effectiveDate.formatted(.dateTime.month(.abbreviated).day().year()))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let source = result.sourceName {
+                    Text(source)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             Spacer()
-            Text(formattedValue(result.value) + " " + result.unit)
-                .font(.body.bold())
-                .foregroundStyle(statusColor(for: result))
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(formattedValue(result.value) + " " + result.unit)
+                    .font(.body.bold().monospacedDigit())
+                Text(statusLabel(for: result))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(statusColor(for: result))
+            }
         }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Helpers
@@ -86,10 +96,15 @@ struct LabResultsView: View, Equatable {
         return orderedCodes.compactMap { latest[$0] }
     }
 
+    private func statusLabel(for result: ClinicalLabResult) -> String {
+        guard let range = LabTestRegistry.applicableRange(for: result) else { return "No range supplied" }
+        if let low = range.low, result.value < low { return "Below lab range" }
+        if let high = range.high, result.value > high { return "Above lab range" }
+        return "Within lab range"
+    }
+
     private func statusColor(for result: ClinicalLabResult) -> Color {
-        // No trusted range (lab omitted its reference range AND reported a
-        // unit the registry's fixed-unit range doesn't apply to) → neutral,
-        // never a wrong LOW/HIGH from a cross-unit comparison (F-008).
+        // Color supplements, rather than replaces, the adjacent status text.
         guard let range = LabTestRegistry.applicableRange(for: result) else { return .secondary }
         if let low = range.low, result.value < low { return .orange }
         if let high = range.high, result.value > high { return .red }

@@ -16,6 +16,14 @@ struct PolarSettingsView: View {
                     // still on disk (and startSession would still connect).
                     let displayName = state.pairedDeviceName ?? "Polar H10"
                     LabeledContent("Paired", value: displayName)
+                    if polarService.isFullAppDemoSimulated {
+                        LabeledContent("Source", value: "Simulated")
+                        LabeledContent(
+                            "Recording for",
+                            value: RecordingFormatters.formatElapsed(state.sessionElapsed)
+                        )
+                        .accessibilityIdentifier("demo.polar.settings.duration")
+                    }
                     switch state.status {
                     case .recording, .connecting:
                         Button {
@@ -23,10 +31,12 @@ struct PolarSettingsView: View {
                         } label: {
                             Label("Resume Live View", systemImage: "waveform.path.ecg")
                         }
-                        Button(role: .destructive) {
-                            polarService.stopSession()
-                        } label: {
-                            Label("Stop Session", systemImage: "stop.circle.fill")
+                        if !polarService.isFullAppDemoSimulated {
+                            Button(role: .destructive) {
+                                polarService.stopSession()
+                            } label: {
+                                Label("Stop Session", systemImage: "stop.circle.fill")
+                            }
                         }
                     case .bluetoothOff:
                         Label("Bluetooth Off", systemImage: "antenna.radiowaves.left.and.right.slash")

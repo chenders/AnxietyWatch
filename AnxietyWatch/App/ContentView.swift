@@ -1,4 +1,9 @@
 import SwiftUI
+import AnxietyWatchKit
+
+private enum AppTab: String, Hashable {
+    case dashboard, journal, medications, trends, settings
+}
 
 struct ContentView: View {
     /// Held just to forward to the live session sheet — its `.state`
@@ -8,23 +13,54 @@ struct ContentView: View {
     /// CLAUDE.md). `RecordingStatusPill` scopes its own observation.
     @Environment(PolarHRMService.self) private var polarService
     @Environment(RecordingPresentationCoordinator.self) private var presentation
+    @State private var selectedTab: AppTab
+#if DEBUG
+    @State private var demoSequence = DemoVideoSequence.shared
+#endif
+    private let screenshotOuraService = OuraService()
 
+    init() {
+        let args = ProcessInfo.processInfo.arguments
+        let requested = args.firstIndex(of: "-screenshotTab").flatMap { index in
+            args.indices.contains(index + 1) ? AppTab(rawValue: args[index + 1]) : nil
+        }
+        _selectedTab = State(initialValue: requested ?? .dashboard)
+    }
+
+    @ViewBuilder
     var body: some View {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("-screenshotOuraData") {
+            NavigationStack {
+                OuraDataDashboardView(service: screenshotOuraService)
+            }
+        } else if arguments.contains("-screenshotLabResults") {
+            NavigationStack {
+                LabResultsView()
+            }
+        } else if arguments.contains("-demoSongs") {
+            DemoSongsWalkthroughView()
+        } else {
+            mainTabs
+        }
+    }
+
+    private var mainTabs: some View {
         @Bindable var presentation = presentation
-        TabView {
-            Tab("Dashboard", systemImage: "heart.text.square") {
+        return TabView(selection: $selectedTab) {
+            Tab("Dashboard", systemImage: "heart.text.square", value: .dashboard) {
                 DashboardView()
             }
-            Tab("Journal", systemImage: "book") {
+            Tab("Journal", systemImage: "book", value: .journal) {
                 JournalListView()
             }
-            Tab("Medications", systemImage: "pills") {
+            Tab("Medications", systemImage: "pills", value: .medications) {
                 MedicationsHubView()
             }
-            Tab("Trends", systemImage: "chart.xyaxis.line") {
+            Tab("Trends", systemImage: "chart.xyaxis.line", value: .trends) {
                 TrendsView()
             }
-            Tab("Settings", systemImage: "gear") {
+            Tab("Settings", systemImage: "gear", value: .settings) {
                 SettingsView()
             }
         }
@@ -45,6 +81,33 @@ struct ContentView: View {
             HRVSessionLiveView(service: polarService)
         }
         #if DEBUG
+        .task {
+            let arguments = ProcessInfo.processInfo.arguments
+            guard arguments.contains("-demoOuraSequence")
+                    || arguments.contains("-demoCNSSequence") else { return }
+            // Begin on the app's home Dashboard before visibly moving to the
+            // Settings tab. The remaining route is driven by each destination.
+            try? await Task.sleep(for: .seconds(4))
+            selectedTab = .settings
+        }
+        .task(id: demoSequence.labsViewed) {
+            guard ProcessInfo.processInfo.arguments.contains("-demoLabsAndSongs"),
+                  demoSequence.labsViewed else { return }
+            // Return through the Dashboard navigation stack, then use the real
+            // Journal tab and its visible Songs segment.
+            try? await Task.sleep(for: .seconds(2))
+            selectedTab = .journal
+        }
+        .task(id: demoSequence.completedProfiles) {
+            guard ProcessInfo.processInfo.arguments.contains("-demoMainSequence") else { return }
+            if demoSequence.completedProfiles.contains("dashboard"), selectedTab == .dashboard {
+                try? await Task.sleep(for: .seconds(2)); selectedTab = .journal
+            } else if demoSequence.completedProfiles.contains("journal"), selectedTab == .journal {
+                try? await Task.sleep(for: .seconds(2)); selectedTab = .medications
+            } else if demoSequence.completedProfiles.contains("medications"), selectedTab == .medications {
+                try? await Task.sleep(for: .seconds(2)); selectedTab = .trends
+            }
+        }
         .modifier(DebugShakeCapture())
         #endif
     }

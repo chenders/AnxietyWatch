@@ -13,6 +13,12 @@ struct HRVSessionLiveView: View {
         NavigationStack {
             VStack(spacing: 32) {
                 statusBadge(for: state.status)
+                if service.isFullAppDemoSimulated {
+                    Label("Polar H10 (Simulated)", systemImage: "testtube.2")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("demo.polar.live.provenance")
+                }
 
                 VStack(spacing: 8) {
                     Text(state.currentHR.map { "\($0)" } ?? "—")
@@ -47,7 +53,8 @@ struct HRVSessionLiveView: View {
                 // section will offer recovery guidance) — tapping Stop in
                 // those states would just paper over the real status with
                 // .idle.
-                if state.status == .recording || state.status == .connecting {
+                if (state.status == .recording || state.status == .connecting)
+                    && !service.isFullAppDemoSimulated {
                     Button(role: .destructive) {
                         service.stopSession()
                         dismiss()

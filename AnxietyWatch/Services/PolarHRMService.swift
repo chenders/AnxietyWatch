@@ -69,6 +69,7 @@ final class PolarHRMService: NSObject {
 
     let state = PolarHRMState()
     private let modelContext: ModelContext
+    private let demoSession: FullAppDemoDeviceSession?
     private let log = Logger(subsystem: "AnxietyWatch", category: "PolarHRM")
 
     /// Optional live-sample tap for Phase 2's `CNSMonitoringCoordinator`.
@@ -110,9 +111,21 @@ final class PolarHRMService: NSObject {
 
     // MARK: - Init
 
-    init(modelContext: ModelContext) {
+    init(modelContext: ModelContext, demoSession: FullAppDemoDeviceSession? = nil) {
         self.modelContext = modelContext
+        self.demoSession = demoSession?.isEnabled == true ? demoSession : nil
         super.init()
+        if let demoSession = self.demoSession {
+            applyDemoSnapshot(demoSession)
+            elapsedTask = Task { @MainActor [weak self, weak demoSession] in
+                while !Task.isCancelled, let self, let demoSession {
+                    try? await Task.sleep(for: .seconds(1))
+                    demoSession.refresh()
+                    self.applyDemoSnapshot(demoSession)
+                }
+            }
+            return
+        }
         // Use `queue: nil` so CoreBluetooth dispatches delegate callbacks
         // to the main queue. CB requires every CBCentralManager call to be
         // serialized on the queue it was constructed with — driving it from
@@ -139,6 +152,15 @@ final class PolarHRMService: NSObject {
         UIDevice.current.isBatteryMonitoringEnabled = true
     }
 
+    private func applyDemoSnapshot(_ demo: FullAppDemoDeviceSession) {
+        state.status = .recording
+        state.pairedDeviceName = FullAppDemoDeviceSession.polarName
+        state.sessionStarted = demo.clock.deviceStartedAt
+        state.sessionElapsed = demo.elapsed
+        state.currentHR = demo.polarHeartRate
+        state.lastMinuteRMSSD = demo.polarRMSSD
+    }
+
     /// Current iPhone battery percentage (0–100). Returns 0 if monitoring
     /// hasn't yielded a reading yet (simulator, etc.) so sessions don't fail.
     private var currentBatteryPercent: Int {
@@ -148,9 +170,11 @@ final class PolarHRMService: NSObject {
 
     // MARK: - Pairing
 
-    var isPaired: Bool { pairedPeripheralUUID != nil }
+    var isPaired: Bool { demoSession != nil || pairedPeripheralUUID != nil }
+    var isFullAppDemoSimulated: Bool { demoSession != nil }
 
     var pairedPeripheralUUID: UUID? {
+        if demoSession != nil { return UUID(uuidString: "00000000-0000-0000-0000-000000000010") }
         guard let str = UserDefaults.standard.string(forKey: Self.pairedUUIDKey),
               let uuid = UUID(uuidString: str) else { return nil }
         return uuid
@@ -164,6 +188,7 @@ final class PolarHRMService: NSObject {
     }
 
     func unpair() {
+        guard demoSession == nil else { return }
         UserDefaults.standard.removeObject(forKey: Self.pairedUUIDKey)
         UserDefaults.standard.removeObject(forKey: Self.pairedNameKey)
         state.pairedDeviceName = nil
@@ -179,6 +204,7 @@ final class PolarHRMService: NSObject {
     // MARK: - Scan
 
     func startScan() {
+        guard demoSession == nil else { return }
         switch PolarBluetoothStateMapping.resolve(central.state) {
         case .proceed:
             break
@@ -211,6 +237,7 @@ final class PolarHRMService: NSObject {
     }
 
     func stopScan() {
+        guard demoSession == nil else { return }
         if central.isScanning { central.stopScan() }
         // Clear any pending-scan latch so dismissing the pairing view doesn't
         // trigger a background scan later when CB transitions to .poweredOn.
@@ -221,6 +248,7 @@ final class PolarHRMService: NSObject {
     // MARK: - Session lifecycle
 
     func startSession() {
+        guard demoSession == nil else { return }
         guard let uuid = pairedPeripheralUUID else {
             state.status = .error("No strap paired")
             return
@@ -252,6 +280,9 @@ final class PolarHRMService: NSObject {
     }
 
     func stopSession() {
+        // The simulated session is intentionally unstoppable: demo controls
+        // may be shown, but can never tear down hardware or persist a session.
+        guard demoSession == nil else { return }
         // Re-entry guard: a disconnect callback can race with the user tapping
         // Stop. Without this, two concurrent stops can both try to finalize.
         guard state.status != .idle else { return }
@@ -545,6 +576,7 @@ final class PolarHRMService: NSObject {
     /// they're presumed to be app-crash residue.
     @discardableResult
     func recoverInFlightSessionIfNeeded() -> Bool {
+        guard demoSession == nil else { return false }
         let staleCutoff = Date().addingTimeInterval(-24 * 3600)
         let now = Date()
         let polarSource = Self.sourceLabel

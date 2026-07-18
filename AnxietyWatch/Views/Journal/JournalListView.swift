@@ -10,6 +10,10 @@ struct JournalListView: View {
     @State private var showingAddEntry = false
     @State private var selectedSegment = 0
     @State private var journalLimit = JournalListView.pageSize
+#if DEBUG
+    @State private var demoSong: Song?
+    @Query(sort: \Song.updatedAt, order: .reverse) private var demoSongs: [Song]
+#endif
 
     var body: some View {
         NavigationStack {
@@ -45,6 +49,22 @@ struct JournalListView: View {
             .sheet(isPresented: $showingAddEntry) {
                 AddJournalEntryView()
             }
+#if DEBUG
+            .navigationDestination(item: $demoSong) { song in
+                SongDetailView(song: song)
+            }
+            .task {
+                guard ProcessInfo.processInfo.arguments.contains("-demoLabsAndSongs") else { return }
+                // Pause on Journal, switch its visible segmented control to
+                // Songs, then open the featured row's normal detail route.
+                try? await Task.sleep(for: .seconds(3))
+                selectedSegment = 1
+                try? await Task.sleep(for: .seconds(7))
+                demoSong = demoSongs.first {
+                    $0.title == "In the Air Tonight" && $0.artist == "Dead When I Found Her"
+                } ?? demoSongs.first
+            }
+#endif
         }
     }
 
@@ -92,6 +112,9 @@ private struct JournalEntriesList: View {
                 }
             }
         }
+#if DEBUG
+        .demoAutoScroll("journal", stops: 2, initialDelay: .seconds(3), pause: .seconds(2), step: 500)
+#endif
         .overlay {
             if entries.isEmpty {
                 ContentUnavailableView(
