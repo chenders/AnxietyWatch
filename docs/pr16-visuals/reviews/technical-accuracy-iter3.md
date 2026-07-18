@@ -1,6 +1,6 @@
 # Rendered technical accuracy review — iteration 3
 
-**Role:** Independent Technical Accuracy Critic  
+**Role:** Independent Technical Accuracy Critic
 **Verdict:** **ITERATE**
 
 Iteration 3 closes TA2-1 through TA2-5 in both the desktop and dedicated mobile architecture/provenance assets. The implementation claims are now correctly bounded: the package pipeline sequence is accurate, the complete Oura BLE limitation is present, iPhone and watch cache runtimes are separate, all three iPhone live sources visibly feed the router, and active legacy WatchConnectivity is distinguished from incomplete package migration on watchOS.
@@ -38,7 +38,7 @@ The canonical desktop and mobile rasters were inspected at intrinsic size. Every
 
 Both architecture renders now label the package lane:
 
-> `Package CNS processing`  
+> `Package CNS processing`
 > `event step → fusion → tier state`
 
 This matches the package coordinator connected to `KitPipelineService` and `SensorRouter`:
@@ -68,8 +68,8 @@ The diagram no longer imports the separate app-level `CNSQualityGate → CNSSeve
 
 The desktop architecture and both mobile technical diagrams state:
 
-> `Feature-gated; 16-byte shared key required.`  
-> `Physical Ring 5 protocol, decryption,`  
+> `Feature-gated; 16-byte shared key required.`
+> `Physical Ring 5 protocol, decryption,`
 > `and key validation not completed.`
 
 The desktop provenance card uses shorter wording (`16-byte shared key required` and `physical validation incomplete`), but the same rendered provenance asset’s footer explicitly states:
@@ -97,16 +97,16 @@ This is accurate. `OuraBLEProtocol.sharedKeyLength` is 16, and `OuraBLEKeyStore`
 
 The desktop architecture contains a standalone dashed card:
 
-> `Separate watch runtime`  
-> `Apple Health / HealthKit-only router`  
-> `→ complication feed and cache`  
+> `Separate watch runtime`
+> `Apple Health / HealthKit-only router`
+> `→ complication feed and cache`
 > `Not a direct continuation of the iPhone view model`
 
 The mobile architecture equivalently says:
 
-> `Watch HealthKit-only path`  
-> `Apple Health → SensorRouter`  
-> `→ complication feed and cache`  
+> `Watch HealthKit-only path`
+> `Apple Health → SensorRouter`
+> `→ complication feed and cache`
 > `Not an iPhone-view-model continuation`
 
 No arrow joins the iPhone monitoring view model to the watch cache. This accurately distinguishes:
@@ -150,8 +150,8 @@ The claim matches `KitPipelineService`, which constructs `PolarActor`, `EMAYActo
 
 Both architecture variants now state:
 
-> `Existing WatchConnectivity path is active;`  
-> `package peer transport is a foundation ...`  
+> `Existing WatchConnectivity path is active;`
+> `package peer transport is a foundation ...`
 > `watch migration is incomplete.`
 
 This removes the prior implication that legacy and package phone/watch transport are both complete end-to-end paths. The diagram also keeps `Existing app sync — pushes to personal server mirror` separate, with no WatchConnectivity-to-server connector.

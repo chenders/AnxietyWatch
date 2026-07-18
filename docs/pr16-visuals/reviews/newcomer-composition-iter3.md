@@ -4,7 +4,7 @@
 **Evaluation Target:** Iteration 3 Rendered Desktop and Mobile PNGs (`*-mobile.png`, `*.png`) in `docs/pr16-visuals/rendered/` and `reviews/renders-iter3/`.
 
 ## Executive Summary
-I have evaluated the rendered PNGs for Iteration 3, directly inspecting pixel dimensions and OCR output at actual and scaled review sizes (320px, 768px, 1024px, 1280px). This iteration introduces dedicated, stacked `-mobile` variants that successfully resolve the Iteration-2 narrow-width legibility blocker. 
+I have evaluated the rendered PNGs for Iteration 3, directly inspecting pixel dimensions and OCR output at actual and scaled review sizes (320px, 768px, 1024px, 1280px). This iteration introduces dedicated, stacked `-mobile` variants that successfully resolve the Iteration-2 narrow-width legibility blocker.
 
 The visual assets now maintain full comprehension and accessibility across both desktop and mobile viewports. The factual corrections regarding pipeline stages and Oura BLE limitations are visually prominent. Every asset earns its place in the PR description, providing clear, hierarchical, and accessible guidance to a newcomer.
 
