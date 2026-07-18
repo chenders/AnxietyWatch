@@ -1,3 +1,4 @@
+// swiftlint:disable line_length
 import Charts
 import SwiftUI
 import AnxietyWatchKit
@@ -202,3 +203,5 @@ struct OuraTrendsSection: View {
 
     init(start: Date, end: Date) { self.start = start; self.end = end }
 }
+
+// swiftlint:enable line_length

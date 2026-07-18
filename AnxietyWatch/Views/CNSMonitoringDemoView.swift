@@ -117,7 +117,10 @@ struct CNSMonitoringDemoView: View {
                             Label("Highest-tier alert triggered", systemImage: "speaker.wave.3.fill")
                                 .font(.headline)
                                 .foregroundStyle(.red)
-                            Text("Wake the person and check breathing. Call emergency services if they are difficult to wake, breathing is slow or stopped, or lips appear blue or gray.")
+                            Text(
+                                "Wake the person and check breathing. Call emergency services if they are difficult "
+                                    + "to wake, breathing is slow or stopped, or lips appear blue or gray."
+                            )
                             Text("This demo does not provide medical diagnosis and did not send a real notification.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)

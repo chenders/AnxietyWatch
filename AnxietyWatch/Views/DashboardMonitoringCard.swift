@@ -3,11 +3,11 @@ import AnxietyWatchKit
 
 public struct DashboardMonitoringCard: View {
     private var monitor: MonitoringViewModel
-    
+
     public init(monitor: MonitoringViewModel) {
         self.monitor = monitor
     }
-    
+
     public var body: some View {
         HStack(spacing: 16) {
             // Vitals Section
@@ -18,7 +18,7 @@ public struct DashboardMonitoringCard: View {
                     value: monitor.latestHR,
                     unit: "bpm"
                 )
-                
+
                 vitalRow(
                     icon: "lungs.fill",
                     color: .blue,
@@ -27,21 +27,21 @@ public struct DashboardMonitoringCard: View {
                 )
             }
             .frame(width: 80, alignment: .leading)
-            
+
             Divider()
-            
+
             // Tier and Fusion section
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("STATUS")
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(.secondary)
-                    
+
                     Spacer()
-                    
+
                     tierBadge(tier: monitor.alertTier, isIdle: monitor.isIdle)
                 }
-                
+
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("RISK SCORE")
@@ -52,7 +52,7 @@ public struct DashboardMonitoringCard: View {
                             .font(.caption.bold())
                             .contentTransition(.numericText())
                     }
-                    
+
                     ProgressView(value: monitor.fusionScore, total: 1.0)
                         .tint(progressColor(for: monitor.fusionScore))
                         .animation(.spring(response: 0.3), value: monitor.fusionScore)
@@ -70,7 +70,7 @@ public struct DashboardMonitoringCard: View {
                 #endif
         }
     }
-    
+
     @ViewBuilder
     private func vitalRow(icon: String, color: Color, value: Int?, unit: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -78,7 +78,7 @@ public struct DashboardMonitoringCard: View {
                 .foregroundStyle(color)
                 .font(.caption)
                 .frame(width: 16)
-            
+
             if let value = value, !monitor.isIdle {
                 Text("\(value)")
                     .font(.headline.monospacedDigit())
@@ -94,14 +94,14 @@ public struct DashboardMonitoringCard: View {
         }
         .animation(.default, value: value)
     }
-    
+
     @ViewBuilder
     private func tierBadge(tier: AlertTier, isIdle: Bool) -> some View {
         Text(isIdle ? "IDLE" : "\(tier)")
             .font(.caption2.bold())
             .foregroundStyle(.gray)
     }
-    
+
     private func progressColor(for score: Double) -> Color {
         if monitor.isIdle { return .gray.opacity(0.5) }
         if score < 0.3 { return .green }

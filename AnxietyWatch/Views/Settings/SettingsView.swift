@@ -54,7 +54,13 @@ struct SettingsView: View {
                 } header: {
                     Text("Data Sources")
                 } footer: {
-                    Text("Anxiety Watch reads from these sources to correlate symptoms with physiological signals. It never writes back. CNS Monitoring arms an overnight respiratory-depression watch after a benzodiazepine/opioid dose or on demand; arming it auto-starts the EMAY oximeter session without touching your EMAY continuous-streaming toggle above. Phase 2 detects and discloses; loud alerting (klaxon/haptics) lands in Phase 3.")
+                    Text(
+                        "Anxiety Watch reads from these sources to correlate symptoms with physiological signals. "
+                            + "It never writes back. CNS Monitoring arms an overnight respiratory-depression watch "
+                            + "after a benzodiazepine/opioid dose or on demand; arming it auto-starts the EMAY "
+                            + "oximeter session without touching your EMAY continuous-streaming toggle above. "
+                            + "Phase 2 detects and discloses; loud alerting (klaxon/haptics) lands in Phase 3."
+                    )
                 }
 
                 Section {

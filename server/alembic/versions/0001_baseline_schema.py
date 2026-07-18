@@ -79,7 +79,7 @@ def downgrade():
     op.execute("DROP TABLE IF EXISTS medication_definitions CASCADE")
     op.execute("DROP TABLE IF EXISTS anxiety_entries CASCADE")
     op.execute("DROP TABLE IF EXISTS api_keys CASCADE")
-    
+
     # Tables added in later migrations but present in schema.sql for fresh DBs:
     op.execute("DROP TABLE IF EXISTS oura_daily CASCADE")
     op.execute("DROP TABLE IF EXISTS oura_sleep CASCADE")

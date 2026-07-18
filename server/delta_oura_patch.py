@@ -1,9 +1,11 @@
 import base64
 import time
 import psycopg2.extras
+from psycopg2 import sql
 import hmac
 import hashlib
 import os
+
 
 def apply_patch(app, get_db, require_api_key):
     def _base64_to_bytes(s):
@@ -33,18 +35,19 @@ def apply_patch(app, get_db, require_api_key):
         table_cursors = data.get("table_cursors", {})
         db = get_db()
         cur = db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        
+
         resp_rows = {"samples": [], "sample_tombstones": [], "sync_log": []}
         next_cursors = {"samples": {"perNode": {}}, "sample_tombstones": {"perNode": {}}, "sync_log": {"perNode": {}}}
-        batch_size = data.get("max_batch_bytes", 1000) # simplified limit logic
-        if batch_size > 5000: batch_size = 5000
-        
+        batch_size = data.get("max_batch_bytes", 1000)  # simplified limit logic
+        if batch_size > 5000:
+            batch_size = 5000
+
         tables_map = {
-            "samples": "samples", 
-            "sample_tombstones": "sample_tombstones", 
+            "samples": "samples",
+            "sample_tombstones": "sample_tombstones",
             "sync_log": "delta_sync_log"
         }
-        
+
         for table_key, table_name in tables_map.items():
             t_cursor = table_cursors.get(table_key, {}).get("perNode", {})
             norm_cursor = {}
@@ -53,52 +56,57 @@ def apply_patch(app, get_db, require_api_key):
             elif isinstance(t_cursor, list):
                 for i in range(0, len(t_cursor), 2):
                     norm_cursor[t_cursor[i]] = t_cursor[i+1]
-                    
+
             known_nodes = []
             for node_b64, clk in norm_cursor.items():
                 node_bytes = _base64_to_bytes(node_b64)
                 known_nodes.append(node_bytes)
                 pt = clk.get("physical", 0)
                 lc = clk.get("logical", 0)
-                
-                cur.execute(f"""
-                    SELECT * FROM {table_name} 
-                    WHERE node_id = %s AND (hlc_physical > %s OR (hlc_physical = %s AND hlc_logical > %s))
+
+                query = sql.SQL("""
+                    SELECT * FROM {}
+                    WHERE node_id = %s
+                      AND (hlc_physical > %s OR (hlc_physical = %s AND hlc_logical > %s))
                     ORDER BY hlc_physical, hlc_logical
                     LIMIT %s
-                """, (node_bytes, pt, pt, lc, batch_size))
-                
+                """).format(sql.Identifier(table_name))
+                cur.execute(query, (node_bytes, pt, pt, lc, batch_size))
+
                 rows = cur.fetchall()
                 for r in rows:
                     r['node_id'] = _bytes_to_base64(r['node_id'])
                     if 'extra' in r and r['extra'] is not None:
                         r['extra'] = _bytes_to_base64(r['extra'])
                     resp_rows[table_key].append(r)
-            
+
+            table_identifier = sql.Identifier(table_name)
             if known_nodes:
-                cur.execute(f"""
-                    SELECT * FROM {table_name}
+                query = sql.SQL("""
+                    SELECT * FROM {}
                     WHERE node_id != ALL(%s)
                     ORDER BY hlc_physical, hlc_logical
                     LIMIT %s
-                """, (known_nodes, batch_size))
+                """).format(table_identifier)
+                cur.execute(query, (known_nodes, batch_size))
             else:
-                cur.execute(f"""
-                    SELECT * FROM {table_name}
+                query = sql.SQL("""
+                    SELECT * FROM {}
                     ORDER BY hlc_physical, hlc_logical
                     LIMIT %s
-                """, (batch_size,))
-                
+                """).format(table_identifier)
+                cur.execute(query, (batch_size,))
+
             boot_rows = cur.fetchall()
             for r in boot_rows:
                 r['node_id'] = _bytes_to_base64(r['node_id'])
                 if 'extra' in r and r['extra'] is not None:
                     r['extra'] = _bytes_to_base64(r['extra'])
                 resp_rows[table_key].append(r)
-                
+
             for node_b64, clk in norm_cursor.items():
                 next_cursors[table_key]["perNode"][node_b64] = clk
-                
+
             for r in resp_rows[table_key]:
                 n_b64 = r['node_id']
                 pt = r['hlc_physical']
@@ -106,7 +114,7 @@ def apply_patch(app, get_db, require_api_key):
                 curr = next_cursors[table_key]["perNode"].get(n_b64, {"physical": 0, "logical": 0})
                 if pt > curr["physical"] or (pt == curr["physical"] and lc > curr["logical"]):
                     next_cursors[table_key]["perNode"][n_b64] = {"physical": pt, "logical": lc}
-            
+
         return jsonify({
             "rows": resp_rows,
             "next_cursor": next_cursors,
@@ -120,14 +128,15 @@ def apply_patch(app, get_db, require_api_key):
         from flask import request, jsonify
         data = request.get_json(silent=True) or {}
         rows = data.get("rows", {})
-        
+
         db = get_db()
         cur = db.cursor()
-        
+
         ack_cursors = {"samples": {"perNode": {}}, "sample_tombstones": {"perNode": {}}, "sync_log": {"perNode": {}}}
-        
+
         def update_ack(table_key, node_b64, pt, lc):
-            if not node_b64: return
+            if not node_b64:
+                return
             curr = ack_cursors[table_key]["perNode"].get(node_b64, {"physical": 0, "logical": 0})
             if pt > curr["physical"] or (pt == curr["physical"] and lc > curr["logical"]):
                 ack_cursors[table_key]["perNode"][node_b64] = {"physical": pt, "logical": lc}
@@ -144,13 +153,16 @@ def apply_patch(app, get_db, require_api_key):
                     node_id = EXCLUDED.node_id
             """, (
                 r.get("source"), r.get("type"), r.get("timestamp"), r.get("value"),
-                _base64_to_bytes(r.get("extra")), r.get("hlc_physical"), r.get("hlc_logical"), _base64_to_bytes(r.get("node_id"))
+                _base64_to_bytes(r.get("extra")), r.get("hlc_physical"), r.get(
+                    "hlc_logical"), _base64_to_bytes(r.get("node_id"))
             ))
             update_ack("samples", r.get("node_id"), r.get("hlc_physical"), r.get("hlc_logical"))
-            
+
         for r in rows.get("sample_tombstones", []):
             cur.execute("""
-                INSERT INTO sample_tombstones (source, type, ts_start, ts_end, hlc_physical, hlc_logical, node_id, dropped_row_count, reason)
+                INSERT INTO sample_tombstones
+                    (source, type, ts_start, ts_end, hlc_physical, hlc_logical,
+                     node_id, dropped_row_count, reason)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (source, type, ts_start, hlc_physical, hlc_logical, node_id) DO NOTHING
             """, (
@@ -159,7 +171,7 @@ def apply_patch(app, get_db, require_api_key):
                 r.get("dropped_row_count"), r.get("reason")
             ))
             update_ack("sample_tombstones", r.get("node_id"), r.get("hlc_physical"), r.get("hlc_logical"))
-            
+
         for r in rows.get("sync_log", []):
             cur.execute("""
                 INSERT INTO delta_sync_log (table_name, row_pk, hlc_physical, hlc_logical, node_id, operation)
@@ -174,7 +186,7 @@ def apply_patch(app, get_db, require_api_key):
                 _base64_to_bytes(r.get("node_id")), r.get("operation")
             ))
             update_ack("sync_log", r.get("node_id"), r.get("hlc_physical"), r.get("hlc_logical"))
-            
+
         db.commit()
         return jsonify({
             "ack_cursor": ack_cursors,
@@ -206,9 +218,8 @@ def apply_patch(app, get_db, require_api_key):
 
         event_data = request.get_json(silent=True) or {}
         app.logger.info(f"Oura webhook received: {event_data}")
-        
+
         # Worker implementation stub (background worker for token refresh & fetch)
         # Typically enqueues an asynchronous task to pull the actual data from the API
-        
-        return jsonify({"status": "ok"}), 200
 
+        return jsonify({"status": "ok"}), 200

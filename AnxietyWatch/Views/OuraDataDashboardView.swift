@@ -1,3 +1,4 @@
+// swiftlint:disable line_length
 import SwiftUI
 import AnxietyWatchKit
 
@@ -372,3 +373,5 @@ private struct Snapshot {
         return hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes) min"
     }
 }
+
+// swiftlint:enable line_length

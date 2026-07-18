@@ -62,7 +62,11 @@ enum RestoreMigrationGate {
         // Automated simulator demos have no real server to restore from. Keep
         // the production decision path testable for ordinary simulator runs.
         let arguments = ProcessInfo.processInfo.arguments
-        if arguments.contains("-seedDemoData") || arguments.contains("-screenshotOuraData") || arguments.contains("-screenshotLabResults") || arguments.contains("-screenshotTab") || arguments.contains("-demoSongs") || arguments.contains("-demoLabsAndSongs") {
+        let automatedDemoArguments = [
+            "-seedDemoData", "-screenshotOuraData", "-screenshotLabResults",
+            "-screenshotTab", "-demoSongs", "-demoLabsAndSongs"
+        ]
+        if automatedDemoArguments.contains(where: arguments.contains) {
             if !defaults.bool(forKey: decisionResolvedKey) {
                 defaults.set(true, forKey: decisionResolvedKey)
             }

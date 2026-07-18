@@ -1,3 +1,4 @@
+// swiftlint:disable line_length
 #if DEBUG
 import Foundation
 import SwiftData
@@ -221,26 +222,26 @@ enum DemoSeeder {
         }
 
         let rows: [(Int, Int, Int, String, [String], Song?, String?)] = [
-            (0, 9, 3, "A little keyed up before the first meeting. A short task list helped.", ["work","morning"], nil, nil),
-            (1, 16, 5, "Several messages arrived at once and I felt scattered.", ["work","overloaded"], nil, nil),
-            (1, 17, 5, "The chorus from In the Air Tonight has been looping since lunch.", ["work","song-stuck"], inTheAir, "Dead When I Found Her cover; chorus repeating."),
-            (3, 22, 4, "Tired but still mentally rehearsing tomorrow.", ["sleep","anticipation"], nil, nil),
-            (5, 10, 2, "Quiet morning. Slept longer and feel more settled.", ["weekend","sleep"], nil, nil),
-            (8, 15, 6, "Presentation ended, but the physical tension lingered.", ["work","presentation"], nil, nil),
-            (8, 16, 5, "Shoulders feel less tight. Still a little distracted.", ["follow-up","work"], nil, nil),
-            (12, 8, 4, "Rushed start after waking later than planned.", ["morning","sleep"], nil, nil),
-            (12, 13, 3, "The same rhythm returned while making lunch.", ["song-stuck","midday"], mezzanine, "First Mezzanine recurrence this week."),
-            (16, 18, 2, "A walk helped me shift out of work mode.", ["walk","evening"], nil, nil),
-            (20, 21, 4, "Thinking about the upcoming week more than I want to.", ["anticipation","sleep"], nil, nil),
-            (24, 10, 6, "Hard to focus while switching between several small tasks.", ["work","focus"], stack, "A phrase from the song interrupted focus."),
-            (24, 11, 4, "Follow-up: attention is steadier, though I still feel restless.", ["follow-up","work"], nil, nil),
-            (29, 14, 3, "A short song fragment is stuck after hearing a similar melody.", ["song-stuck","music"], trickyKid, "Short fragment repeated for about 20 minutes."),
-            (34, 13, 1, "Relaxed afternoon doing ordinary errands.", ["weekend","errands"], man, "Pleasant, low-intensity recurrence."),
-            (40, 20, 7, "Busy day without much downtime. Thoughts feel crowded.", ["work","fatigue","evening"], nil, nil),
-            (40, 21, 5, "Follow-up: less intense, but still reviewing the day.", ["follow-up","fatigue"], nil, nil),
-            (47, 8, 3, "Woke earlier than expected. Mild tension, no clear trigger.", ["sleep","morning"], nil, nil),
-            (48, 9, 4, "That same chorus returned again this morning.", ["song-stuck","recurrence"], inTheAir, "Second logged recurrence, several weeks later."),
-            (55, 17, 2, "Prepared a few things for tomorrow and feel reasonably settled.", ["planning","evening"], nil, nil)
+            (0, 9, 3, "A little keyed up before the first meeting. A short task list helped.", ["work", "morning"], nil, nil),
+            (1, 16, 5, "Several messages arrived at once and I felt scattered.", ["work", "overloaded"], nil, nil),
+            (1, 17, 5, "The chorus from In the Air Tonight has been looping since lunch.", ["work", "song-stuck"], inTheAir, "Dead When I Found Her cover; chorus repeating."),
+            (3, 22, 4, "Tired but still mentally rehearsing tomorrow.", ["sleep", "anticipation"], nil, nil),
+            (5, 10, 2, "Quiet morning. Slept longer and feel more settled.", ["weekend", "sleep"], nil, nil),
+            (8, 15, 6, "Presentation ended, but the physical tension lingered.", ["work", "presentation"], nil, nil),
+            (8, 16, 5, "Shoulders feel less tight. Still a little distracted.", ["follow-up", "work"], nil, nil),
+            (12, 8, 4, "Rushed start after waking later than planned.", ["morning", "sleep"], nil, nil),
+            (12, 13, 3, "The same rhythm returned while making lunch.", ["song-stuck", "midday"], mezzanine, "First Mezzanine recurrence this week."),
+            (16, 18, 2, "A walk helped me shift out of work mode.", ["walk", "evening"], nil, nil),
+            (20, 21, 4, "Thinking about the upcoming week more than I want to.", ["anticipation", "sleep"], nil, nil),
+            (24, 10, 6, "Hard to focus while switching between several small tasks.", ["work", "focus"], stack, "A phrase from the song interrupted focus."),
+            (24, 11, 4, "Follow-up: attention is steadier, though I still feel restless.", ["follow-up", "work"], nil, nil),
+            (29, 14, 3, "A short song fragment is stuck after hearing a similar melody.", ["song-stuck", "music"], trickyKid, "Short fragment repeated for about 20 minutes."),
+            (34, 13, 1, "Relaxed afternoon doing ordinary errands.", ["weekend", "errands"], man, "Pleasant, low-intensity recurrence."),
+            (40, 20, 7, "Busy day without much downtime. Thoughts feel crowded.", ["work", "fatigue", "evening"], nil, nil),
+            (40, 21, 5, "Follow-up: less intense, but still reviewing the day.", ["follow-up", "fatigue"], nil, nil),
+            (47, 8, 3, "Woke earlier than expected. Mild tension, no clear trigger.", ["sleep", "morning"], nil, nil),
+            (48, 9, 4, "That same chorus returned again this morning.", ["song-stuck", "recurrence"], inTheAir, "Second logged recurrence, several weeks later."),
+            (55, 17, 2, "Prepared a few things for tomorrow and feel reasonably settled.", ["planning", "evening"], nil, nil)
         ]
         for (daysAgo, hour, severity, note, tags, song, occurrenceNote) in rows {
             let base = cal.date(byAdding: .day, value: -daysAgo, to: cal.startOfDay(for: .now))!
@@ -257,16 +258,16 @@ enum DemoSeeder {
     }
 
     private static func seedLabResults(_ ctx: ModelContext, cal: Calendar) {
-        let values: [(String,String,Double,String,Double,Double)] = [
-            ("3016-3","Thyroid Stimulating Hormone",1.62,"mIU/L",0.4,4.0),
-            ("3024-7","Free Thyroxine",1.18,"ng/dL",0.8,1.8),
-            ("14979-9","Vitamin D, 25-Hydroxy",38,"ng/mL",30,100),
-            ("2132-9","Vitamin B12",472,"pg/mL",200,900),
-            ("2601-3","Magnesium",2.0,"mg/dL",1.7,2.2),
-            ("2276-4","Ferritin",64,"ng/mL",30,300),
-            ("2345-7","Fasting Glucose",94,"mg/dL",70,100),
-            ("4548-4","Hemoglobin A1c",5.2,"%",0,5.7),
-            ("30522-7","High-Sensitivity CRP",0.8,"mg/L",0,3.0)
+        let values: [(String, String, Double, String, Double, Double)] = [
+            ("3016-3", "Thyroid Stimulating Hormone", 1.62, "mIU/L", 0.4, 4.0),
+            ("3024-7", "Free Thyroxine", 1.18, "ng/dL", 0.8, 1.8),
+            ("14979-9", "Vitamin D, 25-Hydroxy", 38, "ng/mL", 30, 100),
+            ("2132-9", "Vitamin B12", 472, "pg/mL", 200, 900),
+            ("2601-3", "Magnesium", 2.0, "mg/dL", 1.7, 2.2),
+            ("2276-4", "Ferritin", 64, "ng/mL", 30, 300),
+            ("2345-7", "Fasting Glucose", 94, "mg/dL", 70, 100),
+            ("4548-4", "Hemoglobin A1c", 5.2, "%", 0, 5.7),
+            ("30522-7", "High-Sensitivity CRP", 0.8, "mg/L", 0, 3.0)
         ]
         for (i, row) in values.enumerated() {
             ctx.insert(ClinicalLabResult(loincCode: row.0, testName: row.1, value: row.2, unit: row.3,
@@ -425,3 +426,5 @@ enum DemoSeeder {
     }
 }
 #endif
+
+// swiftlint:enable line_length
