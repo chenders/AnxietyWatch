@@ -97,7 +97,7 @@ public struct DashboardMonitoringCard: View {
 
     @ViewBuilder
     private func tierBadge(tier: AlertTier, isIdle: Bool) -> some View {
-        Text(isIdle ? "IDLE" : "\(tier)")
+        Text(verbatim: isIdle ? "IDLE" : String(describing: tier))
             .font(.caption2.bold())
             .foregroundStyle(.gray)
     }
