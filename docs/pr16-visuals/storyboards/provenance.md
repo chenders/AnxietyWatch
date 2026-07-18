@@ -9,11 +9,11 @@
 - Header: title plus thesis.
 - Left half: **Production / imported source lanes**, each a separate labeled card:
   - Oura Cloud — daily summaries and wellness metrics.
-  - Apple Health — HealthKit bridge/import path.
+  - Apple Health — HealthKit read/import source.
   - Polar H10 — hardware sensor path.
   - EMAY Oximeter — hardware/import path.
   - CPAP — imported/session data.
-- Center vertical boundary: “source-aware presentation” with a legend that every metric carries provenance; include “Oura BLE: feature-gated, key provisioning required, Ring 5 behavior hardware-dependent.”
+- Center vertical boundary: “source-aware presentation” with a legend that selected surfaces carry provenance; include “Oura BLE: feature-gated, 16-byte key required, Ring 5 behavior hardware-dependent.”
 - Right top: **Full-app demo device session** box: “Polar H10 (Simulated)” and “EMAY Oximeter (Simulated)”; badges: deterministic, hardware-free, persistence-free. An exclusion list says: does not activate production BLE, open a production `SensorSession`, write HealthKit, or persist demo observations as real readings.
 - Right bottom: **CNS monitoring demo** box: “Clear → Watch → Confirm → Klaxon (demo tier progression).” Exclusion list says: does not arm production monitoring, send a real notification/alert, or provide diagnosis.
 - Bottom footer: “All shown values are fictional/deterministic for review.”

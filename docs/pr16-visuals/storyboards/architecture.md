@@ -1,6 +1,6 @@
 # Storyboard A — integrated architecture/data flow
 
-**Format:** Accessible static SVG, landscape, responsive viewBox (1600×900).
+**Format:** Accessible static SVG, landscape desktop variant with responsive viewBox (1600×1280) and a dedicated stacked mobile variant.
 **Purpose:** Give a newcomer a correct one-glance map of boundaries and direction.
 **Thesis:** “Distinct sources converge on a shared processing layer; storage, device transport, and server sync are separate paths.”
 

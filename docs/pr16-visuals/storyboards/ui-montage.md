@@ -4,19 +4,17 @@
 **Purpose:** Let a newcomer see the breadth and coherence of the dark-mode redesign without implying a finished full-app walkthrough.
 **Thesis:** “The redesign is a coherent set of source-aware, dark-mode surfaces—not a claim that every planned route is complete.”
 
-## Included panels (minimum six)
+## Included panels (four-panel)
 
 1. Dashboard — orientation and daily overview.
 2. Oura data — source/provenance header visible where possible.
 3. Trends — chart and metric presentation.
 4. Journal — journal anchor and contextual relationship.
-5. Settings / source controls — configuration and provenance affordances.
-6. CNS demo boundary — only if the crop makes “Demo simulation only” readable; otherwise use the provenance aid instead and avoid duplicating the same caution.
 
 ## Layout
 
 - Header with title, one-line thesis, and “representative surfaces” badge.
-- 2×3 grid at desktop; single column at narrow widths.
+- 2×2 grid at desktop; single column at narrow widths.
 - Each panel has a caption below the crop, not overlaid on health data.
 - A small footer says: “Fictional/deterministic simulator content. Comprehensive walkthrough coordinator and remaining route choreography remain follow-up work.”
 - Do not include raw video playback, a carousel, or an undifferentiated gallery.
@@ -32,7 +30,7 @@
 
 - `<title>`: “Representative AnxietyWatch v3 dark-mode surfaces”.
 - `<desc>` names each panel and the montage’s scope boundary.
-- Each panel has a visible caption and an accessible label; text alternative lists the six surfaces in order.
+- Each panel has a visible caption and an accessible label; text alternative lists the four surfaces in order.
 - Captions must be understandable without color or screenshot detail.
 
 ## Factual constraints
