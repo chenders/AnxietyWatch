@@ -23,6 +23,7 @@ extension HealthKitAccessState {
         case .notRequested: "heart.slash.fill"
         case .likelyRevoked: "exclamationmark.triangle.fill"
         case .noDataYet: "circle.dashed"
+        case .unavailable: "xmark.circle"
         }
     }
 
@@ -32,6 +33,7 @@ extension HealthKitAccessState {
         case .notRequested: "Access not granted"
         case .likelyRevoked: "Not receiving data"
         case .noDataYet: "No data yet"
+        case .unavailable: "HealthKit unavailable"
         }
     }
 
@@ -45,6 +47,8 @@ extension HealthKitAccessState {
             "Access may have been revoked. Re-enable the types in iOS Settings, then rebuild history."
         case .noDataYet:
             "No recent health data to read yet."
+        case .unavailable:
+            "Health data isn't available on this device."
         }
     }
 
@@ -52,7 +56,7 @@ extension HealthKitAccessState {
         switch self {
         case .receiving: .positive
         case .notRequested, .likelyRevoked: .warning
-        case .noDataYet: .neutral
+        case .noDataYet, .unavailable: .neutral
         }
     }
 }

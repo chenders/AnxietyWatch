@@ -9,6 +9,7 @@ import UIKit
 struct AppleHealthSettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var result: HealthKitAccessDiagnostic.Result?
     @State private var checking = false
@@ -18,11 +19,11 @@ struct AppleHealthSettingsView: View {
         Form {
             Section("Status") {
                 statusRow
-                // Probe rows are shown only once authorization is determined.
-                // While `.notRequested`, the probes are intentionally NOT run
-                // (reads would error code 5), so rendering "—" here would imply
-                // "checked, nothing there" rather than "not checked yet."
-                if let result, result.state != .notRequested {
+                // Probe rows are shown only when the probes actually ran. For
+                // `.notRequested` (reads would error code 5) and `.unavailable`
+                // (no store to read) they are skipped, so rendering "—" here
+                // would imply "checked, nothing there" rather than "not checked."
+                if let result, result.state != .notRequested, result.state != .unavailable {
                     probeRow("Steps", present: result.stepsPresent)
                     probeRow("Resting Heart Rate", present: result.restingHRPresent)
                     probeRow("Sleep", present: result.sleepPresent)
@@ -35,7 +36,8 @@ struct AppleHealthSettingsView: View {
                 } label: {
                     Label("Request HealthKit Access", systemImage: "heart.fill")
                 }
-                .disabled(requesting)
+                // Requesting access is a no-op when HealthKit is unavailable.
+                .disabled(requesting || result?.state == .unavailable)
 
                 Button {
                     if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -54,6 +56,12 @@ struct AppleHealthSettingsView: View {
         .navigationTitle("Apple Health")
         .navigationBarTitleDisplayMode(.inline)
         .task { await refresh() }
+        .onChange(of: scenePhase) { _, phase in
+            // Re-run the diagnostic when returning to the app — e.g. after the
+            // user toggled access in iOS Settings via the deep link below, which
+            // would otherwise leave the panel showing stale results.
+            if phase == .active { Task { await refresh() } }
+        }
     }
 
     // MARK: - Rows

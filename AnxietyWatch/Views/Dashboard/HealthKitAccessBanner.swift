@@ -83,6 +83,13 @@ struct HealthKitAccessBanner: View {
     }
 
     private func check() async {
+        // Don't surface the banner when HealthKit is unavailable (unsupported
+        // device / restricted) — tapping it can't help, since requesting access
+        // is a no-op there. Only a pending request on an available store does.
+        guard await HealthKitManager.shared.isHealthDataAvailable() else {
+            needsRequest = false
+            return
+        }
         needsRequest = await HealthKitManager.shared.authorizationNeedsRequest()
     }
 

@@ -24,6 +24,12 @@ actor MockHealthKitDataSource: HealthKitDataSource {
         authorizationNeedsRequestResult = value
     }
 
+    /// Defaults to true so existing tests (which assume a normal device) are
+    /// unaffected; set false to exercise the unavailable/restricted path.
+    var healthDataAvailable = true
+    func isHealthDataAvailable() async -> Bool { healthDataAvailable }
+    func setHealthDataAvailable(_ value: Bool) { healthDataAvailable = value }
+
     var averageResults: [HKQuantityTypeIdentifier: Double] = [:]
     var minimumResults: [HKQuantityTypeIdentifier: Double] = [:]
     var cumulativeResults: [HKQuantityTypeIdentifier: Double] = [:]

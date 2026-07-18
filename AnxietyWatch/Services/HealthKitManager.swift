@@ -11,6 +11,8 @@ actor HealthKitManager: HealthKitDataSource {
         HKHealthStore.isHealthDataAvailable()
     }
 
+    func isHealthDataAvailable() async -> Bool { isAvailable }
+
     // MARK: - Read Types
 
     /// `nonisolated static` so `HealthKitManagerReadTypesTests` can assert on the

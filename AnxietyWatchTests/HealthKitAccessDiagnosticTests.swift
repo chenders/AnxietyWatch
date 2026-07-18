@@ -56,7 +56,9 @@ struct HealthKitAccessDiagnosticTests {
 
     @Test("Status presentation is total, non-empty, and correctly tinted per state")
     func statusPresentationMapping() {
-        let allStates: [HealthKitAccessState] = [.receiving, .notRequested, .likelyRevoked, .noDataYet]
+        let allStates: [HealthKitAccessState] = [
+            .receiving, .notRequested, .likelyRevoked, .noDataYet, .unavailable
+        ]
         for state in allStates {
             #expect(!state.statusSymbolName.isEmpty)
             #expect(!state.statusTitle.isEmpty)
@@ -66,6 +68,7 @@ struct HealthKitAccessDiagnosticTests {
         #expect(HealthKitAccessState.notRequested.statusTint == .warning)
         #expect(HealthKitAccessState.likelyRevoked.statusTint == .warning)
         #expect(HealthKitAccessState.noDataYet.statusTint == .neutral)
+        #expect(HealthKitAccessState.unavailable.statusTint == .neutral)
     }
 
     @Test("notRequested and likelyRevoked are visually distinguishable by icon")
@@ -159,6 +162,24 @@ struct HealthKitAccessDiagnosticTests {
         let result = await diag.run(now: now, hadRecentHistory: false)
         #expect(!result.stepsPresent)
         #expect(result.state == .noDataYet)
+    }
+
+    @Test("Runner reports unavailable when HealthKit is not available on the device")
+    func runnerUnavailable() async {
+        let mock = MockHealthKitDataSource()
+        await mock.setHealthDataAvailable(false)
+        // Unavailable dominates even a pending gate and present probe data — the
+        // user can't fix it by granting access, so it must not read as notRequested.
+        await mock.setAuthorizationNeedsRequest(true)
+        await mock.setCumulative(.stepCount, value: 5000)
+        let diag = HealthKitAccessDiagnostic(source: mock)
+        let result = await diag.run(now: now, hadRecentHistory: true)
+        #expect(result.state == .unavailable)
+    }
+
+    @Test("Unavailable does not show the Dashboard banner")
+    func unavailableHidesBanner() {
+        #expect(!HealthKitAccessState.unavailable.showsDashboardBanner)
     }
 
     // MARK: - History helper

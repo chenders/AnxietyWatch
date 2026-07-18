@@ -26,6 +26,12 @@ enum HealthKitAccessState: Sendable, Equatable {
     /// A legitimately empty / brand-new store — do NOT alarm the user.
     case noDataYet
 
+    /// HealthKit is not available on this device (unsupported hardware or a
+    /// restriction). Distinct from `.notRequested`: requesting access can't
+    /// fix it, so the banner stays hidden and Settings says so plainly rather
+    /// than misclassifying it as "access not granted."
+    case unavailable
+
     /// Whether the proactive Dashboard banner should appear for this state.
     /// Deliberately scoped to `.notRequested` only — the sole unambiguous,
     /// zero-false-positive state (the auth gate is pending, so a prompt is
@@ -77,8 +83,16 @@ struct HealthKitAccessDiagnostic: Sendable {
     private static let probeWindowDays = 3
 
     func run(now: Date, hadRecentHistory: Bool) async -> Result {
-        // A pending request dominates: reads would all error with code 5, so
-        // don't bother probing — report the gate state and let the caller
+        // HealthKit unavailable (unsupported device / restricted) dominates
+        // everything: no read can succeed and no prompt can help, so report it
+        // as its own state rather than "not requested" or "no data."
+        if await !source.isHealthDataAvailable() {
+            return Result(state: .unavailable, stepsPresent: false,
+                          restingHRPresent: false, sleepPresent: false)
+        }
+
+        // A pending request dominates the rest: reads would all error with code
+        // 5, so don't bother probing — report the gate state and let the caller
         // prompt. This also matches what the Settings panel should show.
         if await source.authorizationNeedsRequest() {
             return Result(state: .notRequested, stepsPresent: false,
