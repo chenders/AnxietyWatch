@@ -103,7 +103,7 @@ struct HealthKitAccessDiagnostic: Sendable {
     private static let probeWindowDays = 14
 
     func run(now: Date, hadRecentHistory: Bool,
-             watchPaired: Bool, graceElapsed: Bool) async -> Result {
+             watchPaired: Bool, graceElapsed: Bool, needsRequest: Bool) async -> Result {
         if await !source.isHealthDataAvailable() {
             return Result(state: .unavailable, stepsPresent: false, restingHRPresent: false,
                           sleepPresent: false, heartRatePresent: false)
@@ -114,7 +114,6 @@ struct HealthKitAccessDiagnostic: Sendable {
         // return nothing (HealthKit reports unauthorized reads as "no data"), so
         // the evaluator still returns `.notRequested` — the early-return only
         // saved four cheap queries, at the cost of the false-positive we now fix.
-        let needsRequest = await source.authorizationNeedsRequest()
 
         let windowStart = Calendar.current.date(
             byAdding: .day, value: -Self.probeWindowDays, to: now) ?? now

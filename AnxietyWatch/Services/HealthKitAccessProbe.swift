@@ -30,14 +30,16 @@ enum HealthKitAccessProbe {
         let paired = watchPaired ?? (WCSession.isSupported() && WCSession.default.isPaired)
 
         // Grace: stamp first-authorized once auth is determined, then check age.
+        let needsRequest = await actualSource.authorizationNeedsRequest()
         var graceElapsed = false
-        if await !actualSource.authorizationNeedsRequest() {
+        if !needsRequest {
             let firstAuth = HealthKitGraceGate.recordFirstAuthorizedIfNeeded(now: now, defaults: actualDefaults)
             graceElapsed = HealthKitGraceGate.hasElapsed(firstAuthorizedAt: firstAuth, now: now)
         }
 
         return await HealthKitAccessDiagnostic(source: actualSource).run(
             now: now, hadRecentHistory: hadHistory,
-            watchPaired: paired, graceElapsed: graceElapsed)
+            watchPaired: paired, graceElapsed: graceElapsed,
+            needsRequest: needsRequest)
     }
 }

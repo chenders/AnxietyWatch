@@ -3,14 +3,11 @@ import SwiftData
 import UIKit
 
 /// Proactive Dashboard banner that surfaces the silent HealthKit
-/// read-authorization freeze. It appears **only** when authorization has never
-/// resolved (`.notRequested`) — the state in which every ingestion path
+/// read-authorization freeze. It appears when authorization has never
+/// resolved (`.notRequested`) or when data abruptly stopped without explanation
+/// (`.likelyRevoked`). These are the states in which every ingestion path
 /// (aggregate, backfill, Rebuild All History) reads nothing while iOS Settings
-/// still shows "Health Data — On." That is the exact state both prior
-/// production incidents were in (2026-07-13, 2026-07-18), and the only state
-/// with zero false-positive risk: a prompt is always correct when the sheet has
-/// never resolved. `.likelyRevoked` is deliberately left to Settings → Apple
-/// Health — see `HealthKitAccessState.showsDashboardBanner` and the design doc.
+/// still shows "Health Data — On."
 ///
 /// Self-contained: it owns the one-shot `needsRequest` probe and runs it in its
 /// own `.task` (plus a `scenePhase`-active refresh — the reliable "user granted
