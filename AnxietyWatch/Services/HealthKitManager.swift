@@ -75,26 +75,44 @@ actor HealthKitManager: HealthKitDataSource {
 
     // MARK: - Authorization
 
+    /// Persisted flag: have we ever *presented* the HealthKit authorization
+    /// request in this install? Read authorization can't be introspected
+    /// (Apple hides it for privacy), and `getRequestStatusForAuthorization`
+    /// stays `.shouldRequest` indefinitely after a partial grant — so we can't
+    /// use either to know "did we already ask." We record it ourselves. Once
+    /// set, the Dashboard banner routes repeat taps to Settings rather than
+    /// re-invoking `requestAuthorization`, which would otherwise re-present the
+    /// slow, black `com.apple.HealthPrivacyService` host with nothing to change.
+    private static let didRequestAuthorizationKey = "didRequestHealthKitAuthorization_v1"
+
+    static var hasEverRequestedAuthorization: Bool {
+        UserDefaults.standard.bool(forKey: didRequestAuthorizationKey)
+    }
+
     func requestAuthorization() async throws {
         guard isAvailable else { return }
+        // Record the ask *before* presenting: the system UI may be dismissed or
+        // the call interrupted, but from our side the sheet was offered once.
+        UserDefaults.standard.set(true, forKey: Self.didRequestAuthorizationKey)
         try await healthStore.requestAuthorization(toShare: [], read: Self.allReadTypes)
     }
 
-    /// True when the read-authorization sheet has never been presented for
-    /// this app's read set (`.shouldRequest`). A bundle-ID change makes iOS
-    /// treat the app as brand-new, so this flips back to true even for a
-    /// store full of restored data — the state in which every read errors
-    /// with code 5 (authorizationNotDetermined) and the nil-coercion in the
-    /// query layer would otherwise present "unauthorized" as "no data".
+    /// Wraps `getRequestStatusForAuthorization`, which answers only *"would a
+    /// sheet appear if I requested"* — i.e. asked-vs-never-asked — **not**
+    /// *"is read access granted"* (Apple hides read grants for privacy; see the
+    /// diagnostic design doc). `!= .unnecessary` therefore means "not-yet-asked
+    /// **or** a partial grant left some type unresolved." A bundle-ID change
+    /// makes iOS treat the app as brand-new, flipping this back to true.
+    ///
+    /// **Important:** a `true` value does *not* prove reads fail — verified
+    /// on-device 2026-07-19 that a partial grant keeps this `true` while other
+    /// types read real data. Callers must not treat it as "receiving"; the
+    /// `HealthKitAccessDiagnostic` probe (actual data reads) is authoritative
+    /// and outranks this gate (`evaluateHealthKitAccess`). This value is still
+    /// the correct signal for *whether to offer the first request*.
     ///
     /// **Fails closed**: `.unknown`, a thrown status error, and unavailable
-    /// HealthKit all return true. A false negative here silently reproduces
-    /// the incident this gate exists for (the sheet is never shown, backfill
-    /// burns its one-shot flag against an unauthorized store, and the
-    /// aggregator writes nils over restored values), whereas a false
-    /// positive merely skips the HealthKit block for one pass and re-asks —
-    /// callers retrigger on every launch/observer fire, and re-presenting
-    /// the sheet is a system no-op once the user has answered.
+    /// HealthKit all return true (offer the request rather than silently skip).
     func authorizationNeedsRequest() async -> Bool {
         guard isAvailable else { return true }
         do {

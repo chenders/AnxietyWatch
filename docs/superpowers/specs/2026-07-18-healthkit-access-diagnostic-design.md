@@ -80,7 +80,7 @@ trivially and exhaustively unit-testable.
 ```swift
 enum HealthKitAccessState: Sendable, Equatable {
     case receiving      // reads are returning data — all good
-    case notRequested   // auth gate says "pending" — reads will fail (THE incident)
+    case notRequested   // auth gate pending AND no data reads back → prompt (THE incident)
     case likelyRevoked  // reads empty across the board, but we HAD recent data → grants dropped
     case noDataYet      // reads empty and we never had data → new/empty store, do NOT alarm
 }
@@ -90,8 +90,8 @@ func evaluateHealthKitAccess(
     probeReturnedValue: Bool,
     hadRecentHistory: Bool
 ) -> HealthKitAccessState {
+    if probeReturnedValue { return .receiving }   // ← revised: a real read wins
     if needsRequest       { return .notRequested }
-    if probeReturnedValue { return .receiving }
     if hadRecentHistory   { return .likelyRevoked }
     return .noDataYet
 }
@@ -99,6 +99,50 @@ func evaluateHealthKitAccess(
 
 `hadRecentHistory` is what separates a revoke-mid-use freeze from a brand-new empty
 store — it kills the false positive.
+
+### Precedence revision (2026-07-19): a real read outranks the gate
+
+The original order put `needsRequest` first, on the assumption that
+`getRequestStatusForAuthorization != .unnecessary` reliably means "reads will
+fail." **On-device measurement disproved that.** On a healthy *full* grant the
+gate correctly returns `.unnecessary` (needsRequest=false) — but on a **partial**
+grant (any requested read type left unresolved, e.g. two newer iOS-17 types not
+toggled, or an interrupted sheet) the gate stays `.shouldRequest`
+(needsRequest=true) **indefinitely**, even while every other type reads real
+data. Verified on a physical iPhone: `getRequestStatus=shouldRequest` alongside
+`steps/HR/sleep` all present.
+
+Under the old order that stranded the user on `.notRequested` — a permanent
+"Apple Health isn't connected" banner *and* (because `SnapshotAggregator` /
+`backfillIfNeeded` gate on the same `authorizationNeedsRequest()`) a permanent
+reduced-pass that skips HealthKit — i.e. the gate could *manufacture* the very
+freeze it exists to detect.
+
+Fix: **check the data-presence probe first.** A successful read of a
+foreign-source sample positively proves read access (Design Principle #1 — this
+app is read-only, so every readable sample is Watch/iPhone-authored), which is
+strictly stronger evidence than the ask-status flag. This flips exactly one
+combination — `(needsRequest: true, probeReturnedValue: true)` → now `.receiving`
+instead of `.notRequested`; the targeted freeze (`needsRequest: true`, probe
+empty) is unchanged. This matches how the strongest reference implementation,
+Stanford's `SpeziHealthKit`, models it: it exposes only `isAuthorized(toWrite:)`
+and a read-side `didAskForAuthorization(toRead:)` explicitly documented as *"does
+**not** imply the user actually granted access; it just means the user was
+asked"* — never an `isAuthorized(toRead:)`, because none can exist.
+
+Two companion changes shipped alongside:
+
+- **`run()` now probes unconditionally.** It previously early-returned
+  `.notRequested` before reading (and, latently, passed a hardcoded
+  `needsRequest: false` into the evaluator). It now captures the gate, always
+  runs the probe, and passes the real `needsRequest` through — so the reordered
+  precedence actually takes effect.
+- **One-shot request.** `HealthKitManager` persists a
+  `didRequestHealthKitAuthorization_v1` flag on the first `requestAuthorization`.
+  The banner requests in place only on a genuinely first-ever ask; every later
+  tap routes to iOS Settings instead of re-invoking `requestAuthorization`, which
+  measurement showed re-presents the slow, black `com.apple.HealthPrivacyService`
+  host (~10 s first time, ~1 s thereafter) with nothing to change.
 
 ## Probe (async runner)
 
@@ -117,8 +161,10 @@ the injectable `HealthKitDataSource` protocol (so it is fully mockable):
   field** (e.g. `restingHeartRate`, `steps`, `sleepDurationMin`). Passed into the
   evaluator so the pure core stays dependency-free.
 
-The banner-critical `.notRequested` verdict depends **only** on the auth gate, not
-the probe, so it is robust regardless of probe-window nuances.
+`.notRequested` now fires only when the auth gate is pending **and** the probe
+reads nothing (see "Precedence revision 2026-07-19"). A positive probe always
+wins — a partial grant that still reads data resolves to `.receiving`, never
+stranding the banner or the ingestion gate.
 
 ## Surfaces
 

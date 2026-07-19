@@ -86,16 +86,21 @@ struct HealthKitAccessBanner: View {
     }
 
     private func handleTap() async {
-        if state == .notRequested {
+        // First-ever ask (`.notRequested` and we've never presented the sheet):
+        // request in place — one-tap recovery for a genuinely fresh install.
+        // Every other case routes to iOS Settings: re-invoking
+        // `requestAuthorization` can't change a decision the user already made
+        // and only re-presents the slow, black `HealthPrivacyService` host
+        // (measured 2026-07-19). A partial grant that left the ask-status stuck
+        // at `.shouldRequest` is fixed by toggling types in Settings, not by
+        // re-asking. `.likelyRevoked` is likewise a Settings fix.
+        if state == .notRequested && !HealthKitManager.hasEverRequestedAuthorization {
             requesting = true
             try? await HealthKitManager.shared.requestAuthorization()
             await refresh()
             requesting = false
-        } else {
-            // .likelyRevoked — re-requesting is a no-op, route to iOS Settings.
-            if let url = URL(string: UIApplication.openSettingsURLString) {
-                openURL(url)
-            }
+        } else if let url = URL(string: UIApplication.openSettingsURLString) {
+            openURL(url)
         }
     }
 }
