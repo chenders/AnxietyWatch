@@ -86,9 +86,17 @@ def insert_therapy_session(db, bridge_id, start_utc, end_utc=None, mode=None,
 @as11_bp.route("/live", methods=["GET"])
 @require_api_key
 def get_live():
+    try:
+        raw_limit = request.args.get("limit")
+        limit = 1000 if raw_limit is None else int(raw_limit)
+        if limit < 1:
+            return jsonify({"error": "limit must be a positive integer"}), 400
+        limit = min(limit, 10000)
+    except ValueError:
+        return jsonify({"error": "limit must be a positive integer"}), 400
+
     db = get_db()
     try:
-        limit = min(request.args.get("limit", 1000, type=int), 10000)
         with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT id, bridge_id, ts_utc, channel, value, unit, ingest_ts_utc, session_id
@@ -107,9 +115,17 @@ def get_live():
 @as11_bp.route("/sessions", methods=["GET"])
 @require_api_key
 def get_sessions():
+    try:
+        raw_limit = request.args.get("limit")
+        limit = 50 if raw_limit is None else int(raw_limit)
+        if limit < 1:
+            return jsonify({"error": "limit must be a positive integer"}), 400
+        limit = min(limit, 500)
+    except ValueError:
+        return jsonify({"error": "limit must be a positive integer"}), 400
+
     db = get_db()
     try:
-        limit = min(request.args.get("limit", 50, type=int), 500)
         with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT id, bridge_id, start_utc, end_utc, mode, set_pressure,
