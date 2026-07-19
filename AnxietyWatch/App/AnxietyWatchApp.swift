@@ -164,7 +164,7 @@ struct AnxietyWatchApp: App {
                 .environment(monitoringCoordinator)
                 .environment(recordingPresentation)
                 .environmentObject(pipelineService)
-                .overlay {
+                .overlay(alignment: .bottom) {
                     if let coordinator {
                         BackfillOverlay(coordinator: coordinator)
                     }
@@ -510,8 +510,8 @@ private struct BackfillOverlay: View {
             }
             .padding(24)
             .background(.ultraThinMaterial, in: .rect(cornerRadius: 16))
-            .padding(40)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .padding(.horizontal, 40)
+            .padding(.bottom, 50)
             .allowsHitTesting(false)
         }
     }
@@ -533,9 +533,14 @@ enum AppGroup {
         ) {
             return url
         }
-#if targetEnvironment(simulator)
-        // Simulator may not have the App Group provisioned — fall back
-        // to a synthetic directory under the app's container.
+#if DEBUG
+        // The App Group may not be provisioned (simulator, or a device debug
+        // build whose provisioning profile lacks the group entitlement). Rather
+        // than crash on launch — which blocks all on-device debugging — fall
+        // back to a synthetic directory under the app's own container. Release
+        // device builds still hard-fail below so a real entitlement/profile
+        // misconfiguration can never ship silently.
+        Log.data.notice("AppGroup: '\(identifier, privacy: .public)' NOT provisioned — using per-app fallback container (DEBUG only)")
         let fallback = FileManager.default
             .urls(for: .documentDirectory, in: .userDomainMask)[0]
             .deletingLastPathComponent()

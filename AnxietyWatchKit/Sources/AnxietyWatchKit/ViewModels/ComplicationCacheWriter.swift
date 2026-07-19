@@ -40,10 +40,13 @@ public actor ComplicationCacheWriter {
         } else if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier) {
             self.containerURL = url
         } else {
-#if targetEnvironment(simulator)
-            // Simulator may lack the App Group entitlement. Fall back to
-            // a temp directory for development — complication won't update
-            // on the watch face, but the pipeline still works.
+#if DEBUG
+            // The App Group may be missing (simulator, or a device debug build
+            // whose provisioning profile lacks the group entitlement). Fall back
+            // to a temp directory for development — the complication won't update
+            // on the watch face, but the pipeline still works and, crucially,
+            // the app can launch on-device for debugging instead of crashing.
+            // Release device builds still hard-fail below.
             self.containerURL = URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("ComplicationSimFallback")
             try? FileManager.default.createDirectory(at: self.containerURL, withIntermediateDirectories: true)

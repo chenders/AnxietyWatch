@@ -33,30 +33,48 @@ enum HealthKitAccessState: Sendable, Equatable {
     case unavailable
 
     /// Whether the proactive Dashboard banner should appear for this state.
-    /// Deliberately scoped to `.notRequested` only — the sole unambiguous,
-    /// zero-false-positive state (the auth gate is pending, so a prompt is
-    /// always correct). `.likelyRevoked` is intentionally excluded from the
-    /// banner and surfaced only in Settings → Apple Health, because it can't be
-    /// distinguished from a genuine multi-day no-data stretch. Changing this
-    /// widens the banner's false-positive surface — see the design doc's
-    /// approved scope decision before editing.
+    /// Scoped to `.notRequested` and `.likelyRevoked`. While `.likelyRevoked`
+    /// carries a small false-positive risk (a genuine 14-day stretch of zero
+    /// Watch wear across all metrics), surfacing it proactively is preferred
+    /// over a silent freeze, as it routes the user to Settings to fix broken
+    /// read access.
     var showsDashboardBanner: Bool {
-        self == .notRequested
+        self == .notRequested || self == .likelyRevoked
     }
 }
 
 /// Pure classifier — no HealthKit, no SwiftData — so the decision logic is
-/// exhaustively unit-testable in isolation. Precedence is deliberate: a pending
-/// request dominates (reads can't be trusted), then observed data, then the
-/// revoked-vs-empty disambiguation carried by `hadRecentHistory`.
+/// exhaustively unit-testable in isolation.
+///
+/// **Precedence (revised 2026-07-19): a successful data read outranks the
+/// ask-status gate.** A read from a foreign-source sample positively proves
+/// read access is granted (Design Principle #1: this app is read-only, so every
+/// readable sample is Watch/iPhone-authored, never our own write). That ground
+/// truth is stronger than `needsRequest`, which is derived from
+/// `getRequestStatusForAuthorization` — a flag that answers only "would a sheet
+/// appear if I ask," not "is read granted." Verified on-device 2026-07-19: a
+/// **full** grant flips that flag to `.unnecessary` (needsRequest=false), but a
+/// **partial** grant — any requested type left unresolved — leaves it at
+/// `.shouldRequest` (needsRequest=true) *indefinitely*, even while other types
+/// read real data. Checking the probe first means such a partial grant resolves
+/// to `.receiving` rather than stranding both the Dashboard banner and the
+/// `SnapshotAggregator`/`backfill` reduced-pass gate on a store that is, in
+/// fact, readable.
+///
+/// This only changes the `(needsRequest: true, probeReturnedValue: true)` case
+/// (now `.receiving` instead of `.notRequested`); every other combination —
+/// including the freeze the diagnostic targets (`needsRequest: true`, probe
+/// empty → `.notRequested`) — is unchanged.
 func evaluateHealthKitAccess(
     needsRequest: Bool,
     probeReturnedValue: Bool,
-    hadRecentHistory: Bool
+    hadRecentHistory: Bool,
+    watchPaired: Bool,
+    graceElapsed: Bool
 ) -> HealthKitAccessState {
-    if needsRequest { return .notRequested }
     if probeReturnedValue { return .receiving }
-    if hadRecentHistory { return .likelyRevoked }
+    if needsRequest { return .notRequested }
+    if hadRecentHistory && watchPaired && graceElapsed { return .likelyRevoked }
     return .noDataYet
 }
 
@@ -73,57 +91,58 @@ struct HealthKitAccessDiagnostic: Sendable {
         let stepsPresent: Bool
         let restingHRPresent: Bool
         let sleepPresent: Bool
+        let heartRatePresent: Bool
     }
 
     /// Rolling window for the presence probe. Wider than a single day so an
     /// early-morning check (before today's sleep / resting HR have landed)
-    /// doesn't read as "no data." Steps in particular come from the iPhone
-    /// pedometer too, so a non-zero 3-day step count is present for anyone
-    /// carrying their phone — the strongest single "reads work" signal.
-    private static let probeWindowDays = 3
+    /// doesn't read as "no data." The 14-day window reduces false positives
+    /// for occasional Watch wearers. Steps in particular come from the iPhone
+    /// pedometer too, so a non-zero 14-day step count is present for almost
+    /// anyone carrying their phone — the strongest single "reads work" signal.
+    private static let probeWindowDays = 14
 
-    func run(now: Date, hadRecentHistory: Bool) async -> Result {
-        // HealthKit unavailable (unsupported device / restricted) dominates
-        // everything: no read can succeed and no prompt can help, so report it
-        // as its own state rather than "not requested" or "no data."
+    func run(now: Date, hadRecentHistory: Bool,
+             watchPaired: Bool, graceElapsed: Bool, needsRequest: Bool) async -> Result {
         if await !source.isHealthDataAvailable() {
-            return Result(state: .unavailable, stepsPresent: false,
-                          restingHRPresent: false, sleepPresent: false)
+            return Result(state: .unavailable, stepsPresent: false, restingHRPresent: false,
+                          sleepPresent: false, heartRatePresent: false)
         }
+        // Capture the gate but do NOT early-return on it: run the presence probe
+        // unconditionally so a *partial* grant that still reads data resolves to
+        // `.receiving`. On a genuinely unauthorized store the probe reads just
+        // return nothing (HealthKit reports unauthorized reads as "no data"), so
+        // the evaluator still returns `.notRequested` — the early-return only
+        // saved four cheap queries, at the cost of the false-positive we now fix.
 
-        // A pending request dominates the rest: reads would all error with code
-        // 5, so don't bother probing — report the gate state and let the caller
-        // prompt. This also matches what the Settings panel should show.
-        if await source.authorizationNeedsRequest() {
-            return Result(state: .notRequested, stepsPresent: false,
-                          restingHRPresent: false, sleepPresent: false)
-        }
-
-        // Calendar-based window (not `now - N*86400`) so it stays correct
-        // across DST transitions — see the date-arithmetic pitfall in CLAUDE.md.
         let windowStart = Calendar.current.date(
-            byAdding: .day, value: -Self.probeWindowDays, to: now
-        ) ?? now
+            byAdding: .day, value: -Self.probeWindowDays, to: now) ?? now
 
         let steps = (try? await source.cumulativeQuantity(
             .stepCount, unit: .count(), start: windowStart, end: now)) ?? nil
         let restingHR = (try? await source.averageQuantity(
             .restingHeartRate, unit: .count().unitDivided(by: .minute()),
             start: windowStart, end: now)) ?? nil
+        let heartRate = (try? await source.averageQuantity(
+            .heartRate, unit: .count().unitDivided(by: .minute()),
+            start: windowStart, end: now)) ?? nil
         let sleep = (try? await source.querySleepAnalysis(
             start: windowStart, end: now)) ?? SleepData()
 
         let stepsPresent = (steps ?? 0) > 0
         let restingHRPresent = restingHR != nil
+        let heartRatePresent = heartRate != nil
         let sleepPresent = sleep.totalMinutes > 0
 
         let state = evaluateHealthKitAccess(
-            needsRequest: false,
-            probeReturnedValue: stepsPresent || restingHRPresent || sleepPresent,
-            hadRecentHistory: hadRecentHistory
+            needsRequest: needsRequest,
+            probeReturnedValue: stepsPresent || restingHRPresent || heartRatePresent || sleepPresent,
+            hadRecentHistory: hadRecentHistory,
+            watchPaired: watchPaired,
+            graceElapsed: graceElapsed
         )
-        return Result(state: state, stepsPresent: stepsPresent,
-                      restingHRPresent: restingHRPresent, sleepPresent: sleepPresent)
+        return Result(state: state, stepsPresent: stepsPresent, restingHRPresent: restingHRPresent,
+                      sleepPresent: sleepPresent, heartRatePresent: heartRatePresent)
     }
 }
 

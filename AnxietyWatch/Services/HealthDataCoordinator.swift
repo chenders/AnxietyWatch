@@ -101,6 +101,7 @@ final class HealthDataCoordinator {
     /// that button remains as the manual re-request path.
     /// Internal (not private) so tests can drive it directly.
     func requestAuthorizationIfNeeded() async {
+        guard !HealthKitManager.hasEverRequestedAuthorization else { return }
         guard await healthKit.authorizationNeedsRequest() else { return }
         do {
             try await healthKit.requestAuthorization()
@@ -129,7 +130,9 @@ final class HealthDataCoordinator {
         // permanently skips the real backfill once the user grants access —
         // the post-bundle-rename incident. Leaving the flag unset means the
         // first launch after authorization runs the genuine backfill.
-        guard await !healthKit.authorizationNeedsRequest() else { return }
+        let accessResult = await HealthKitAccessProbe.currentResult(
+            modelContext: ModelContext(modelContainer), source: healthKit)
+        guard accessResult.state != .notRequested else { return }
 
         let calendar = Calendar.current
 

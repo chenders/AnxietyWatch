@@ -24,32 +24,59 @@ struct HealthKitAccessDiagnosticTests {
 
     // MARK: - Pure evaluator (exhaustive truth table + precedence)
 
-    @Test("notRequested wins even when probe data and history are present")
-    func notRequestedTakesPrecedence() {
+    @Test("A positive probe outranks the pending gate (partial-grant fix)")
+    func probePresenceOverridesPendingGate() {
+        // Revised precedence (2026-07-19): a successful read proves access is
+        // granted, so it wins over `needsRequest`, which stays `true` after a
+        // *partial* grant even while data flows. This is the only combination
+        // whose verdict changed — it is now `.receiving`, not `.notRequested`.
         #expect(evaluateHealthKitAccess(
-            needsRequest: true, probeReturnedValue: true, hadRecentHistory: true
+            needsRequest: true, probeReturnedValue: true, hadRecentHistory: true,
+            watchPaired: true, graceElapsed: true
+        ) == .receiving)
+    }
+
+    @Test("notRequested when the gate is pending AND no data reads back")
+    func notRequestedWhenGatePendingAndProbeEmpty() {
+        // The freeze the diagnostic targets is unchanged: gate pending + probe
+        // empty still resolves to `.notRequested` regardless of history/pairing.
+        #expect(evaluateHealthKitAccess(
+            needsRequest: true, probeReturnedValue: false, hadRecentHistory: true,
+            watchPaired: true, graceElapsed: true
+        ) == .notRequested)
+        #expect(evaluateHealthKitAccess(
+            needsRequest: true, probeReturnedValue: false, hadRecentHistory: false,
+            watchPaired: false, graceElapsed: false
         ) == .notRequested)
     }
 
     @Test("receiving when a probe returned a value and auth is determined")
     func receivingWhenProbePresent() {
         #expect(evaluateHealthKitAccess(
-            needsRequest: false, probeReturnedValue: true, hadRecentHistory: false
+            needsRequest: false, probeReturnedValue: true, hadRecentHistory: false,
+            watchPaired: false, graceElapsed: false
         ) == .receiving)
     }
 
-    @Test("likelyRevoked when reads are empty but we had recent data")
-    func likelyRevokedWhenEmptyWithHistory() {
+    @Test("likelyRevoked only when history AND paired AND grace elapsed (all-of)")
+    func likelyRevokedRequiresAllOf() {
         #expect(evaluateHealthKitAccess(
-            needsRequest: false, probeReturnedValue: false, hadRecentHistory: true
+            needsRequest: false, probeReturnedValue: false, hadRecentHistory: true,
+            watchPaired: true, graceElapsed: true
         ) == .likelyRevoked)
     }
 
-    @Test("noDataYet when reads are empty and we never had data")
-    func noDataYetWhenEmptyNoHistory() {
+    @Test("any missing corroborating signal degrades to noDataYet")
+    func missingSignalIsNoDataYet() {
         #expect(evaluateHealthKitAccess(
-            needsRequest: false, probeReturnedValue: false, hadRecentHistory: false
-        ) == .noDataYet)
+            needsRequest: false, probeReturnedValue: false, hadRecentHistory: true,
+            watchPaired: false, graceElapsed: true) == .noDataYet)
+        #expect(evaluateHealthKitAccess(
+            needsRequest: false, probeReturnedValue: false, hadRecentHistory: true,
+            watchPaired: true, graceElapsed: false) == .noDataYet)
+        #expect(evaluateHealthKitAccess(
+            needsRequest: false, probeReturnedValue: false, hadRecentHistory: false,
+            watchPaired: true, graceElapsed: true) == .noDataYet)
     }
 
     // MARK: - Status presentation mapping
@@ -79,23 +106,41 @@ struct HealthKitAccessDiagnosticTests {
 
     // MARK: - Dashboard banner scope (approved decision: notRequested only)
 
-    @Test("Dashboard banner fires only for notRequested")
-    func bannerScopeIsNotRequestedOnly() {
+    @Test("Dashboard banner fires for notRequested and likelyRevoked, nothing else")
+    func bannerScopeIsNotRequestedOrRevoked() {
         #expect(HealthKitAccessState.notRequested.showsDashboardBanner)
+        #expect(HealthKitAccessState.likelyRevoked.showsDashboardBanner)
         #expect(!HealthKitAccessState.receiving.showsDashboardBanner)
-        #expect(!HealthKitAccessState.likelyRevoked.showsDashboardBanner)
         #expect(!HealthKitAccessState.noDataYet.showsDashboardBanner)
+        #expect(!HealthKitAccessState.unavailable.showsDashboardBanner)
     }
 
     // MARK: - Async runner (probe over HealthKitDataSource)
 
-    @Test("Runner reports notRequested when the auth gate is pending, even with data")
-    func runnerNotRequestedDominatesProbe() async {
+    @Test("Runner reports receiving when the gate is pending but data reads back (partial grant)")
+    func runnerReceivingWhenGatePendingButDataPresent() async {
+        // Real-world partial grant: `getRequestStatusForAuthorization` stays
+        // `.shouldRequest` (needsRequest == true), yet steps read back. The
+        // runner must probe unconditionally and report `.receiving`, not strand
+        // the banner/ingestion on `.notRequested`.
         let mock = MockHealthKitDataSource()
         await mock.setAuthorizationNeedsRequest(true)
-        await mock.setCumulative(.stepCount, value: 5000)  // present, but gate dominates
+        await mock.setCumulative(.stepCount, value: 5000)
         let diag = HealthKitAccessDiagnostic(source: mock)
-        let result = await diag.run(now: now, hadRecentHistory: true)
+        let result = await diag.run(now: now, hadRecentHistory: true,
+                                     watchPaired: true, graceElapsed: true)
+        #expect(result.state == .receiving)
+        #expect(result.stepsPresent)
+    }
+
+    @Test("Runner reports notRequested when the gate is pending and no data reads back")
+    func runnerNotRequestedWhenGatePendingAndProbeEmpty() async {
+        let mock = MockHealthKitDataSource()
+        await mock.setAuthorizationNeedsRequest(true)
+        // No probe values set → all reads empty (the genuine unauthorized/fresh case).
+        let diag = HealthKitAccessDiagnostic(source: mock)
+        let result = await diag.run(now: now, hadRecentHistory: true,
+                                     watchPaired: true, graceElapsed: true)
         #expect(result.state == .notRequested)
     }
 
@@ -105,7 +150,8 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setAuthorizationNeedsRequest(false)
         await mock.setCumulative(.stepCount, value: 3200)
         let diag = HealthKitAccessDiagnostic(source: mock)
-        let result = await diag.run(now: now, hadRecentHistory: false)
+        let result = await diag.run(now: now, hadRecentHistory: false,
+                                     watchPaired: true, graceElapsed: true)
         #expect(result.state == .receiving)
         #expect(result.stepsPresent)
     }
@@ -116,7 +162,8 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setAuthorizationNeedsRequest(false)
         await mock.setAverage(.restingHeartRate, value: 58)
         let diag = HealthKitAccessDiagnostic(source: mock)
-        let result = await diag.run(now: now, hadRecentHistory: false)
+        let result = await diag.run(now: now, hadRecentHistory: false,
+                                     watchPaired: true, graceElapsed: true)
         #expect(result.state == .receiving)
         #expect(result.restingHRPresent)
     }
@@ -127,7 +174,8 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setAuthorizationNeedsRequest(false)
         await mock.setSleep(SleepData(totalMinutes: 400))
         let diag = HealthKitAccessDiagnostic(source: mock)
-        let result = await diag.run(now: now, hadRecentHistory: false)
+        let result = await diag.run(now: now, hadRecentHistory: false,
+                                     watchPaired: true, graceElapsed: true)
         #expect(result.state == .receiving)
         #expect(result.sleepPresent)
     }
@@ -137,7 +185,8 @@ struct HealthKitAccessDiagnosticTests {
         let mock = MockHealthKitDataSource()
         await mock.setAuthorizationNeedsRequest(false)  // no probe data set → all empty
         let diag = HealthKitAccessDiagnostic(source: mock)
-        let result = await diag.run(now: now, hadRecentHistory: true)
+        let result = await diag.run(now: now, hadRecentHistory: true,
+                                     watchPaired: true, graceElapsed: true)
         #expect(result.state == .likelyRevoked)
         #expect(!result.stepsPresent)
         #expect(!result.restingHRPresent)
@@ -149,7 +198,8 @@ struct HealthKitAccessDiagnosticTests {
         let mock = MockHealthKitDataSource()
         await mock.setAuthorizationNeedsRequest(false)
         let diag = HealthKitAccessDiagnostic(source: mock)
-        let result = await diag.run(now: now, hadRecentHistory: false)
+        let result = await diag.run(now: now, hadRecentHistory: false,
+                                     watchPaired: true, graceElapsed: true)
         #expect(result.state == .noDataYet)
     }
 
@@ -159,7 +209,8 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setAuthorizationNeedsRequest(false)
         await mock.setCumulative(.stepCount, value: 0)
         let diag = HealthKitAccessDiagnostic(source: mock)
-        let result = await diag.run(now: now, hadRecentHistory: false)
+        let result = await diag.run(now: now, hadRecentHistory: false,
+                                     watchPaired: true, graceElapsed: true)
         #expect(!result.stepsPresent)
         #expect(result.state == .noDataYet)
     }
@@ -173,8 +224,21 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setAuthorizationNeedsRequest(true)
         await mock.setCumulative(.stepCount, value: 5000)
         let diag = HealthKitAccessDiagnostic(source: mock)
-        let result = await diag.run(now: now, hadRecentHistory: true)
+        let result = await diag.run(now: now, hadRecentHistory: true,
+                                     watchPaired: true, graceElapsed: true)
         #expect(result.state == .unavailable)
+    }
+
+    @Test("Runner reports receiving from heart rate alone")
+    func runnerReceivingFromHeartRate() async {
+        let mock = MockHealthKitDataSource()
+        await mock.setAuthorizationNeedsRequest(false)
+        await mock.setAverage(.heartRate, value: 64)
+        let diag = HealthKitAccessDiagnostic(source: mock)
+        let result = await diag.run(now: now, hadRecentHistory: false,
+                                    watchPaired: true, graceElapsed: true)
+        #expect(result.state == .receiving)
+        #expect(result.heartRatePresent)
     }
 
     @Test("Unavailable does not show the Dashboard banner")

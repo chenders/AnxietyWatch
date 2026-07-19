@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 470" font-family="-apple-system, Segoe UI, Roboto, sans-serif">
+  <defs>
+    <linearGradient id="mirror" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#58a6ff" stop-opacity="0.15"/>
+      <stop offset="0.5" stop-color="#58a6ff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#58a6ff" stop-opacity="0.15"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="940" height="470" rx="18" fill="#0d1117"/>
+  <text x="34" y="52" fill="#e6edf3" font-size="26" font-weight="700">Why we can&#39;t just &#8220;check if READ is granted&#8221;</text>
+  <text x="34" y="82" fill="#8b949e" font-size="16">iOS is a one-way mirror: you can send a request through, but you can never see the answer.</text>
+
+  <!-- App side -->
+  <g transform="translate(60,150)">
+    <rect x="0" y="0" width="150" height="250" rx="14" fill="#161b22" stroke="#30363d" stroke-width="2"/>
+    <text x="75" y="34" fill="#e6edf3" font-size="15" font-weight="700" text-anchor="middle">Your app</text>
+    <text x="75" y="54" fill="#8b949e" font-size="12" text-anchor="middle">(read-only)</text>
+    <circle cx="75" cy="120" r="26" fill="#0b0f14" stroke="#58a6ff" stroke-width="2"/>
+    <circle cx="66" cy="115" r="4" fill="#58a6ff"/><circle cx="84" cy="115" r="4" fill="#58a6ff"/>
+    <path d="M62 130 Q75 140 88 130" stroke="#58a6ff" stroke-width="2" fill="none"/>
+  </g>
+
+  <!-- Mirror -->
+  <g transform="translate(455,140)">
+    <rect x="0" y="0" width="30" height="270" rx="4" fill="url(#mirror)" stroke="#58a6ff" stroke-width="1"/>
+    <text x="15" y="300" fill="#58a6ff" font-size="12" text-anchor="middle">one-way mirror</text>
+  </g>
+
+  <!-- Data vault side -->
+  <g transform="translate(720,150)">
+    <rect x="0" y="0" width="160" height="250" rx="14" fill="#0b1f16" stroke="#238636" stroke-width="2"/>
+    <text x="80" y="34" fill="#3fb950" font-size="15" font-weight="700" text-anchor="middle">Health data</text>
+    <text x="80" y="120" font-size="34" text-anchor="middle">&#128274;</text>
+    <text x="80" y="160" fill="#8b949e" font-size="12" text-anchor="middle">HR &#183; sleep &#183; steps</text>
+    <text x="80" y="176" fill="#8b949e" font-size="12" text-anchor="middle">(Watch / iPhone)</text>
+  </g>
+
+  <!-- Attempts -->
+  <g transform="translate(215,175)">
+    <!-- A1 bounces -->
+    <path d="M0 0 H232" stroke="#f85149" stroke-width="2.5"/>
+    <path d="M232 0 L210 -12" stroke="#f85149" stroke-width="2.5"/>
+    <text x="0" y="-10" fill="#e6edf3" font-size="12.5" font-weight="600">authorizationStatus(for:)</text>
+    <text x="250" y="4" fill="#f85149" font-size="16">&#10007;</text>
+    <text x="270" y="4" fill="#8b949e" font-size="11.5">tells you WRITE status only</text>
+  </g>
+  <g transform="translate(215,235)">
+    <!-- A2 bounces -->
+    <path d="M0 0 H232" stroke="#f85149" stroke-width="2.5"/>
+    <path d="M232 0 L210 12" stroke="#f85149" stroke-width="2.5"/>
+    <text x="0" y="-10" fill="#e6edf3" font-size="12.5" font-weight="600">getRequestStatusForAuthorization</text>
+    <text x="250" y="4" fill="#f85149" font-size="16">&#10007;</text>
+    <text x="270" y="4" fill="#8b949e" font-size="11.5">only &#8220;were you asked?&#8221; &#183; sticks on partial grant</text>
+  </g>
+  <g transform="translate(215,300)">
+    <!-- A3 passes through -->
+    <path d="M0 0 H505" stroke="#3fb950" stroke-width="2.5"/>
+    <path d="M497 -8 L513 0 L497 8 Z" fill="#3fb950"/>
+    <circle cx="150" cy="0" r="5" fill="#3fb950"><animate attributeName="cx" values="0;505" dur="2.4s" repeatCount="indefinite"/></circle>
+    <text x="0" y="-10" fill="#e6edf3" font-size="12.5" font-weight="600">read a foreign-source sample</text>
+    <text x="200" y="26" fill="#3fb950" font-size="11.5">&#10003; any success &#8658; READ is granted &#160;&#160;&#183;&#160;&#160; &#9888; but silence is ambiguous</text>
+  </g>
+  <text x="34" y="452" fill="#6e7681" font-size="12.5">So the classifier is built on the only thing that answers the question: a real read. (Same conclusion Stanford&#39;s SpeziHealthKit reached &#8212; it exposes no isAuthorized(toRead:).)</text>
+</svg>
