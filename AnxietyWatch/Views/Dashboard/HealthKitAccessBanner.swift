@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Proactive Dashboard banner that surfaces the silent HealthKit
 /// read-authorization freeze. It appears **only** when authorization has never
@@ -19,37 +20,43 @@ import SwiftUI
 /// reserves no `VStack` spacing while access is fine.
 struct HealthKitAccessBanner: View {
     @Environment(\.scenePhase) private var scenePhase
-    @State private var needsRequest = false
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.openURL) private var openURL
+    @State private var state: HealthKitAccessState = .receiving
     @State private var requesting = false
 
     var body: some View {
-        // Route through the tested scope property rather than an inline check,
-        // so the "banner on .notRequested only" decision has one enforced home.
-        let state: HealthKitAccessState = needsRequest ? .notRequested : .receiving
         Group {
             if state.showsDashboardBanner {
                 bannerButton
             }
         }
-        .task { await check() }
+        .task { await refresh() }
         .onChange(of: scenePhase) { _, phase in
-            // Re-probe on foreground: if the user granted access in iOS Settings
-            // and returned, the banner clears itself.
-            if phase == .active { Task { await check() } }
+            if phase == .active { Task { await refresh() } }
         }
     }
 
     private var bannerButton: some View {
         Button {
-            Task { await grantAccess() }
+            Task { await handleTap() }
         } label: {
             bannerLabel
         }
         .buttonStyle(.plain)
         .disabled(requesting)
-        .accessibilityLabel("Apple Health isn't connected")
-        .accessibilityHint("Anxiety Watch hasn't been granted access to your health "
-                           + "data. Activate to grant access.")
+        .accessibilityLabel(title)
+        .accessibilityHint(detail)
+    }
+
+    private var title: String {
+        state == .notRequested ? "Apple Health isn't connected" : "We're not seeing your health data"
+    }
+
+    private var detail: String {
+        state == .notRequested
+            ? "Anxiety Watch hasn't been granted access to your health data, so Trends and Dashboard stay empty. Tap to grant access."
+            : "Trends and Dashboard look empty. Health access may have been turned off. Tap to check your permissions."
     }
 
     private var bannerLabel: some View {
@@ -58,22 +65,14 @@ struct HealthKitAccessBanner: View {
                 .font(.title3)
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Apple Health isn't connected")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.primary)
-                Text("Anxiety Watch hasn't been granted access to your health data, so "
-                     + "Trends and Dashboard stay empty. Tap to grant access.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(title).font(.subheadline.bold()).foregroundStyle(.primary)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
             }
             Spacer(minLength: 0)
-            if requesting {
-                ProgressView()
-            } else {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
+            if requesting { ProgressView() } else {
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
         }
@@ -82,23 +81,21 @@ struct HealthKitAccessBanner: View {
         .background(Color.orange.opacity(0.12), in: .rect(cornerRadius: 12))
     }
 
-    private func check() async {
-        // Don't surface the banner when HealthKit is unavailable (unsupported
-        // device / restricted) — tapping it can't help, since requesting access
-        // is a no-op there. Only a pending request on an available store does.
-        guard await HealthKitManager.shared.isHealthDataAvailable() else {
-            needsRequest = false
-            return
-        }
-        needsRequest = await HealthKitManager.shared.authorizationNeedsRequest()
+    private func refresh() async {
+        state = await HealthKitAccessProbe.currentResult(modelContext: modelContext).state
     }
 
-    private func grantAccess() async {
-        requesting = true
-        // For `.notRequested` this presents the system sheet directly; a granted
-        // response flips the gate to `.unnecessary` and the banner disappears.
-        try? await HealthKitManager.shared.requestAuthorization()
-        await check()
-        requesting = false
+    private func handleTap() async {
+        if state == .notRequested {
+            requesting = true
+            try? await HealthKitManager.shared.requestAuthorization()
+            await refresh()
+            requesting = false
+        } else {
+            // .likelyRevoked — re-requesting is a no-op, route to iOS Settings.
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                openURL(url)
+            }
+        }
     }
 }
