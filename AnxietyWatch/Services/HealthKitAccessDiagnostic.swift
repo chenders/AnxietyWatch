@@ -33,13 +33,11 @@ enum HealthKitAccessState: Sendable, Equatable {
     case unavailable
 
     /// Whether the proactive Dashboard banner should appear for this state.
-    /// Deliberately scoped to `.notRequested` only — the sole unambiguous,
-    /// zero-false-positive state (the auth gate is pending, so a prompt is
-    /// always correct). `.likelyRevoked` is intentionally excluded from the
-    /// banner and surfaced only in Settings → Apple Health, because it can't be
-    /// distinguished from a genuine multi-day no-data stretch. Changing this
-    /// widens the banner's false-positive surface — see the design doc's
-    /// approved scope decision before editing.
+    /// Scoped to `.notRequested` and `.likelyRevoked`. While `.likelyRevoked`
+    /// carries a small false-positive risk (a genuine 14-day stretch of zero
+    /// Watch wear across all metrics), surfacing it proactively is preferred
+    /// over a silent freeze, as it routes the user to Settings to fix broken
+    /// read access.
     var showsDashboardBanner: Bool {
         self == .notRequested || self == .likelyRevoked
     }
@@ -98,9 +96,10 @@ struct HealthKitAccessDiagnostic: Sendable {
 
     /// Rolling window for the presence probe. Wider than a single day so an
     /// early-morning check (before today's sleep / resting HR have landed)
-    /// doesn't read as "no data." Steps in particular come from the iPhone
-    /// pedometer too, so a non-zero 3-day step count is present for anyone
-    /// carrying their phone — the strongest single "reads work" signal.
+    /// doesn't read as "no data." The 14-day window reduces false positives
+    /// for occasional Watch wearers. Steps in particular come from the iPhone
+    /// pedometer too, so a non-zero 14-day step count is present for almost
+    /// anyone carrying their phone — the strongest single "reads work" signal.
     private static let probeWindowDays = 14
 
     func run(now: Date, hadRecentHistory: Bool,

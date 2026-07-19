@@ -150,12 +150,14 @@ Two companion changes shipped alongside:
 the injectable `HealthKitDataSource` protocol (so it is fully mockable):
 
 - `needsRequest = await source.authorizationNeedsRequest()`
-- `probeReturnedValue` — true if **any** of these over a **rolling ~72h window**
-  (not just today, to avoid early-morning "data hasn't landed yet" flakiness):
+- `probeReturnedValue` — true if **any** of these over a **rolling 14-day window**
+  (not just today, to avoid early-morning "data hasn't landed yet" flakiness,
+  and long enough to accommodate occasional Watch wearers):
   - cumulative `stepCount` > 0  (steps come from the iPhone pedometer too, so this
     is present for anyone carrying their phone — the strongest single signal)
   - average `restingHeartRate` non-nil
   - `querySleepAnalysis` total asleep > 0
+  - average `heartRate` non-nil
 - `hadRecentHistory` — computed by a small `HealthKitHistoryProbe` helper that counts
   `HealthSnapshot` rows in the last 30 days with **any non-nil HealthKit-derived
   field** (e.g. `restingHeartRate`, `steps`, `sleepDurationMin`). Passed into the
@@ -181,11 +183,11 @@ stranding the banner or the ingestion gate.
 2. **Dashboard banner** (`HealthKitAccessBanner`, new) — a dedicated banner
    **separate from the physiological `AlertsStrip`** (whose categories are
    autonomic/sleep/environment — a plumbing failure is not a physiological signal).
-   - Fires **only** for `.notRequested` (per approved decision — zero false-positive
-     risk; would have caught both prior incidents).
-   - Tap → presents the HealthKit authorization sheet in place (`requestAuthorization`),
-     then re-probes; a granted response flips the gate and the banner clears itself.
-     (One-tap recovery, rather than navigating to the Settings panel.)
+   - Fires for `.notRequested` and `.likelyRevoked` (proactive surfacing of broken read access).
+   - Tap → on the very first tap, presents the HealthKit authorization sheet in place
+     (`requestAuthorization`), then re-probes. Later taps deep link to iOS Settings,
+     as repeat calls to `requestAuthorization` just spin up the slow `HealthPrivacyService`
+     process with no user action available.
    - Self-contained child view: owns its `@State` and probes in its own `.task`
      (plus a `scenePhase`-active refresh), so observation is scoped to the banner and
      a probe result never invalidates the whole dashboard body (the documented

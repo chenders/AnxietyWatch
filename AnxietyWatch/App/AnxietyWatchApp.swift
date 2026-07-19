@@ -165,7 +165,7 @@ struct AnxietyWatchApp: App {
                 .environment(recordingPresentation)
                 .environmentObject(pipelineService)
                 .overlay(alignment: .bottom) {
-                    if let coordinator, coordinator.isBackfilling {
+                    if let coordinator {
                         BackfillOverlay(coordinator: coordinator)
                     }
                 }
