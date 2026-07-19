@@ -165,9 +165,16 @@ struct SnapshotAggregator {
         // authorization sheet is still unanswered. After the sheet has been
         // answered (even with everything denied), reads legitimately return
         // empty and full aggregation semantics apply.
-        let accessResult = await HealthKitAccessProbe.currentResult(
-            modelContext: modelContext, source: healthKit)
-        let healthKitAuthorizationPending = accessResult.state == .notRequested
+        let healthKitAuthorizationPending: Bool
+        if await !healthKit.authorizationNeedsRequest() {
+            // Full grant (or full denial): the sheet has been answered.
+            // Fast-path bypasses the diagnostic's heavy queries.
+            healthKitAuthorizationPending = false
+        } else {
+            let accessResult = await HealthKitAccessProbe.currentResult(
+                modelContext: modelContext, source: healthKit)
+            healthKitAuthorizationPending = accessResult.state == .notRequested
+        }
 
         #if DEBUG && targetEnvironment(simulator)
         // Skip aggregation when the app was launched with

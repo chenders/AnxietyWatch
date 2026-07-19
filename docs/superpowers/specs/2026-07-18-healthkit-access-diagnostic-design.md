@@ -29,7 +29,8 @@ surfaces it.
 ## Goal
 
 Make the invisible auth/read failure **visible** and **one-tap recoverable**,
-without crying wolf on a store that is legitimately empty.
+reducing false positives to ensure high confidence when we proactively surface
+issues in the Dashboard.
 
 ## Non-goals (YAGNI)
 
@@ -159,7 +160,7 @@ the injectable `HealthKitDataSource` protocol (so it is fully mockable):
   - `querySleepAnalysis` total asleep > 0
   - average `heartRate` non-nil
 - `hadRecentHistory` — computed by a small `HealthKitHistoryProbe` helper that counts
-  `HealthSnapshot` rows in the last 30 days with **any non-nil HealthKit-derived
+  `HealthSnapshot` rows in the last 14 days with **any non-nil HealthKit-derived
   field** (e.g. `restingHeartRate`, `steps`, `sleepDurationMin`). Passed into the
   evaluator so the pure core stays dependency-free.
 
