@@ -1,5 +1,7 @@
 
 import logging
+import hashlib
+from functools import wraps
 from flask import Blueprint, jsonify, request, current_app
 import psycopg2.extras
 
@@ -10,6 +12,31 @@ as11_bp = Blueprint("as11", __name__, url_prefix="/api/cpap/as11")
 
 def get_db():
     return current_app.get_db()
+
+
+def require_api_key(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return jsonify({"error": "Missing Authorization header"}), 401
+
+        token = auth[7:]
+        key_hash = hashlib.sha256(token.encode()).hexdigest()
+
+        db = get_db()
+        with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, is_active FROM api_keys WHERE key_hash = %s",
+                (key_hash,),
+            )
+            row = cur.fetchone()
+
+        if not row or not row["is_active"]:
+            return jsonify({"error": "Invalid or revoked API key"}), 401
+
+        return f(*args, **kwargs)
+    return decorated
 
 
 def insert_stream_sample(db, bridge_id, ts_utc, channel, value, unit=None, session_id=None):
@@ -57,11 +84,8 @@ def insert_therapy_session(db, bridge_id, start_utc, end_utc=None, mode=None,
 
 
 @as11_bp.route("/live", methods=["GET"])
+@require_api_key
 def get_live():
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        return jsonify({"error": "Unauthorized"}), 401
-
     db = get_db()
     try:
         limit = min(request.args.get("limit", 1000, type=int), 10000)
@@ -81,11 +105,8 @@ def get_live():
 
 
 @as11_bp.route("/sessions", methods=["GET"])
+@require_api_key
 def get_sessions():
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        return jsonify({"error": "Unauthorized"}), 401
-
     db = get_db()
     try:
         limit = min(request.args.get("limit", 50, type=int), 500)
@@ -93,7 +114,7 @@ def get_sessions():
             cur.execute("""
                 SELECT id, bridge_id, start_utc, end_utc, mode, set_pressure,
                        min_pressure, max_pressure, median_pressure, p95_leak, ahi,
-                       event_counts, mask_on_fraction, source, settings_snapshot, created_a
+                       event_counts, mask_on_fraction, source, settings_snapshot, created_at
                 FROM as11_therapy_session
                 ORDER BY start_utc DESC
                 LIMIT %s
