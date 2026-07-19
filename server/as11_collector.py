@@ -62,13 +62,13 @@ class AS11Collector:
             res = await self._send_request(method, params, version=version)
             self.method_versions[method] = version
             return res
-        except Exception as e:
+        except Exception:
             if version == "2.0":
                 logger.warning(f"Method {method} failed with 2.0, trying 1.0")
                 res = await self._send_request(method, params, version="1.0")
                 self.method_versions[method] = "1.0"
                 return res
-            raise e
+            raise
 
     async def _read_loop(self):
         try:
