@@ -24,32 +24,41 @@ struct HealthKitAccessDiagnosticTests {
 
     // MARK: - Pure evaluator (exhaustive truth table + precedence)
 
-    @Test("notRequested wins even when probe data and history are present")
+    @Test("notRequested wins over everything")
     func notRequestedTakesPrecedence() {
         #expect(evaluateHealthKitAccess(
-            needsRequest: true, probeReturnedValue: true, hadRecentHistory: true
+            needsRequest: true, probeReturnedValue: true, hadRecentHistory: true,
+            watchPaired: true, graceElapsed: true
         ) == .notRequested)
     }
 
     @Test("receiving when a probe returned a value and auth is determined")
     func receivingWhenProbePresent() {
         #expect(evaluateHealthKitAccess(
-            needsRequest: false, probeReturnedValue: true, hadRecentHistory: false
+            needsRequest: false, probeReturnedValue: true, hadRecentHistory: false,
+            watchPaired: false, graceElapsed: false
         ) == .receiving)
     }
 
-    @Test("likelyRevoked when reads are empty but we had recent data")
-    func likelyRevokedWhenEmptyWithHistory() {
+    @Test("likelyRevoked only when history AND paired AND grace elapsed (all-of)")
+    func likelyRevokedRequiresAllOf() {
         #expect(evaluateHealthKitAccess(
-            needsRequest: false, probeReturnedValue: false, hadRecentHistory: true
+            needsRequest: false, probeReturnedValue: false, hadRecentHistory: true,
+            watchPaired: true, graceElapsed: true
         ) == .likelyRevoked)
     }
 
-    @Test("noDataYet when reads are empty and we never had data")
-    func noDataYetWhenEmptyNoHistory() {
+    @Test("any missing corroborating signal degrades to noDataYet")
+    func missingSignalIsNoDataYet() {
         #expect(evaluateHealthKitAccess(
-            needsRequest: false, probeReturnedValue: false, hadRecentHistory: false
-        ) == .noDataYet)
+            needsRequest: false, probeReturnedValue: false, hadRecentHistory: true,
+            watchPaired: false, graceElapsed: true) == .noDataYet)
+        #expect(evaluateHealthKitAccess(
+            needsRequest: false, probeReturnedValue: false, hadRecentHistory: true,
+            watchPaired: true, graceElapsed: false) == .noDataYet)
+        #expect(evaluateHealthKitAccess(
+            needsRequest: false, probeReturnedValue: false, hadRecentHistory: false,
+            watchPaired: true, graceElapsed: true) == .noDataYet)
     }
 
     // MARK: - Status presentation mapping
@@ -79,12 +88,13 @@ struct HealthKitAccessDiagnosticTests {
 
     // MARK: - Dashboard banner scope (approved decision: notRequested only)
 
-    @Test("Dashboard banner fires only for notRequested")
-    func bannerScopeIsNotRequestedOnly() {
+    @Test("Dashboard banner fires for notRequested and likelyRevoked, nothing else")
+    func bannerScopeIsNotRequestedOrRevoked() {
         #expect(HealthKitAccessState.notRequested.showsDashboardBanner)
+        #expect(HealthKitAccessState.likelyRevoked.showsDashboardBanner)
         #expect(!HealthKitAccessState.receiving.showsDashboardBanner)
-        #expect(!HealthKitAccessState.likelyRevoked.showsDashboardBanner)
         #expect(!HealthKitAccessState.noDataYet.showsDashboardBanner)
+        #expect(!HealthKitAccessState.unavailable.showsDashboardBanner)
     }
 
     // MARK: - Async runner (probe over HealthKitDataSource)

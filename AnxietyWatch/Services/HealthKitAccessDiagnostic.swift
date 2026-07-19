@@ -41,7 +41,7 @@ enum HealthKitAccessState: Sendable, Equatable {
     /// widens the banner's false-positive surface — see the design doc's
     /// approved scope decision before editing.
     var showsDashboardBanner: Bool {
-        self == .notRequested
+        self == .notRequested || self == .likelyRevoked
     }
 }
 
@@ -52,11 +52,13 @@ enum HealthKitAccessState: Sendable, Equatable {
 func evaluateHealthKitAccess(
     needsRequest: Bool,
     probeReturnedValue: Bool,
-    hadRecentHistory: Bool
+    hadRecentHistory: Bool,
+    watchPaired: Bool,
+    graceElapsed: Bool
 ) -> HealthKitAccessState {
     if needsRequest { return .notRequested }
     if probeReturnedValue { return .receiving }
-    if hadRecentHistory { return .likelyRevoked }
+    if hadRecentHistory && watchPaired && graceElapsed { return .likelyRevoked }
     return .noDataYet
 }
 
