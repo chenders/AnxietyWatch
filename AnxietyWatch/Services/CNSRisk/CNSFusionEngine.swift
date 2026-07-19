@@ -8,7 +8,7 @@ struct CNSFusionEngine {
     let thresholds: CNSThresholds
 
     func fuse(_ assessments: [CNSSignalAssessment], as11State: AS11StreamState = .streamingOK) -> CNSRiskAssessment {
-        let usable = assessments.filter { $0.confidence >= thresholds.minimumAssessableConfidence }
+        var usable = assessments.filter { $0.confidence >= thresholds.minimumAssessableConfidence }
 
         // Handling AS11 stream states for faults and pauses
         if as11State == .bridgeDown || as11State == .streamStalled {
@@ -32,15 +32,15 @@ struct CNSFusionEngine {
             }
         }
 
-        guard !usable.isEmpty else { return .insufficientData }
-
-        var primary = usable.filter { $0.kind == .spo2 || $0.kind == .respiratoryRate }
-
         // "make SpO2 escalation require stream health + mask-on"
         if as11State != .streamingOK {
             // If AS11 is not streaming OK, we cannot trust AS11 SpO2 for escalation.
-            primary = primary.filter { !($0.source == .as11Bridge && $0.kind == .spo2) }
+            usable = usable.filter { !($0.source == .as11Bridge && $0.kind == .spo2) }
         }
+
+        guard !usable.isEmpty else { return .insufficientData }
+
+        let primary = usable.filter { $0.kind == .spo2 || $0.kind == .respiratoryRate }
 
         let corroborating = usable.filter { $0.kind == .heartRate || $0.kind == .hrv }
 
