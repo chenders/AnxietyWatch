@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 350">
+  <defs>
+    <style>
+      .bg { fill: transparent; }
+      .source-box { fill: #f2f2f7; stroke: #c7c7cc; stroke-width: 2; rx: 12; ry: 12; }
+      .pipeline-box { fill: #007aff; rx: 12; ry: 12; }
+      .pipeline-box-dark { fill: #5856d6; rx: 12; ry: 12; }
+      .text-title { fill: #1c1c1e; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 600; text-anchor: middle; }
+      .text-pipeline { fill: #ffffff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 600; text-anchor: middle; }
+      .text-sub { fill: #e5e5ea; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 400; text-anchor: middle; }
+      .text-source-sub { fill: #8e8e93; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 400; text-anchor: middle; }
+      .line { stroke: #c7c7cc; stroke-width: 3; fill: none; }
+      .arrow { fill: #c7c7cc; }
+      .shadow { filter: drop-shadow(0px 4px 8px rgba(0,0,0,0.1)); }
+      
+      @media (prefers-color-scheme: dark) {
+        .source-box { fill: #1c1c1e; stroke: #3a3a3c; }
+        .text-title { fill: #f2f2f7; }
+        .text-source-sub { fill: #aeaeb2; }
+        .line { stroke: #48484a; }
+        .arrow { fill: #48484a; }
+      }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" class="arrow" />
+    </marker>
+  </defs>
+
+  <rect width="100%" height="100%" class="bg" />
+
+  <!-- Data Sources -->
+  <g class="shadow" transform="translate(40, 40)">
+    <rect width="160" height="50" class="source-box" />
+    <text x="80" y="22" class="text-title">Apple Watch</text>
+    <text x="80" y="40" class="text-source-sub">HRV, Sleep Stages</text>
+  </g>
+
+  <g class="shadow" transform="translate(40, 110)">
+    <rect width="160" height="50" class="source-box" />
+    <text x="80" y="22" class="text-title">Polar H10</text>
+    <text x="80" y="40" class="text-source-sub">Beat-to-Beat HRV</text>
+  </g>
+
+  <g class="shadow" transform="translate(40, 180)">
+    <rect width="160" height="50" class="source-box" />
+    <text x="80" y="22" class="text-title">EMAY Oximeter</text>
+    <text x="80" y="40" class="text-source-sub">Overnight SpO₂</text>
+  </g>
+
+  <g class="shadow" transform="translate(40, 250)">
+    <rect width="160" height="50" class="source-box" />
+    <text x="80" y="22" class="text-title">AS11 Bridge</text>
+    <text x="80" y="40" class="text-source-sub">Live CPAP Flow</text>
+  </g>
+
+  <!-- Pipeline Stages -->
+  <g class="shadow" transform="translate(280, 135)">
+    <rect width="160" height="70" class="pipeline-box" />
+    <text x="80" y="32" class="text-pipeline">CNSQualityGate</text>
+    <text x="80" y="52" class="text-sub">Confidence &amp; Outliers</text>
+  </g>
+
+  <g class="shadow" transform="translate(480, 135)">
+    <rect width="160" height="70" class="pipeline-box" />
+    <text x="80" y="32" class="text-pipeline">CNSSeverityScorer</text>
+    <text x="80" y="52" class="text-sub">Baseline Deviations</text>
+  </g>
+
+  <g class="shadow" transform="translate(680, 80)">
+    <rect width="160" height="70" class="pipeline-box-dark" />
+    <text x="80" y="32" class="text-pipeline">CNSFusionEngine</text>
+    <text x="80" y="52" class="text-sub">Multi-Sensor Arbitration</text>
+  </g>
+
+  <g class="shadow" transform="translate(680, 190)">
+    <rect width="160" height="70" class="pipeline-box-dark" />
+    <text x="80" y="32" class="text-pipeline">CNSAlertTierMachine</text>
+    <text x="80" y="52" class="text-sub">Hysteretic State</text>
+  </g>
+
+  <!-- Connectors -->
+  <!-- Sources to Quality Gate -->
+  <path d="M 200 65 C 240 65, 240 170, 272 170" class="line" marker-end="url(#arrowhead)" />
+  <path d="M 200 135 C 240 135, 240 170, 272 170" class="line" marker-end="url(#arrowhead)" />
+  <path d="M 200 205 C 240 205, 240 170, 272 170" class="line" marker-end="url(#arrowhead)" />
+  <path d="M 200 275 C 240 275, 240 170, 272 170" class="line" marker-end="url(#arrowhead)" />
+
+  <!-- Pipeline Linear -->
+  <line x1="440" y1="170" x2="472" y2="170" class="line" marker-end="url(#arrowhead)" />
+  <path d="M 640 170 C 660 170, 660 115, 672 115" class="line" marker-end="url(#arrowhead)" />
+  <path d="M 760 150 L 760 182" class="line" marker-end="url(#arrowhead)" />
+
+</svg>

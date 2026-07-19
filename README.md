@@ -69,8 +69,10 @@ For some people, tracking health data can increase anxiety rather than reduce it
 | **Physiological insights** | Correlation engine that identifies which health metrics (HRV, sleep, steps, CPAP, barometric pressure) most influence your anxiety, with scatter plots and per-metric breakdowns |
 | **HealthKit integration** | 25+ data types (HRV, sleep stages, heart rate, SpO2, activity, blood pressure, walking metrics, daylight exposure, physical effort, AFib burden, and more) with personal rolling baselines and per-sample source attribution |
 | **Polar H10 chest strap** | Optional Bluetooth pairing for beat-to-beat HRV at much higher fidelity than the Apple Watch. Per-minute RMSSD/SDNN/pNN50 plus frequency-domain LF/HF, background recording, state restoration, raw RR-interval archive synced to the server. See [docs/POLAR_H10.md](docs/POLAR_H10.md) |
+| **Oura Ring** | Oura Cloud API integration for daily Readiness, Sleep, Resilience, and Cardiovascular Age scores. Distinct from HealthKit, surfacing proprietary Oura summaries directly in the dashboard and trends. |
 | **CPAP import** | AirSense 11 SD card — AHI, leak rates, usage hours via on-device OSCAR CSV auto-detection (single- and multi-session-night exports); self-hosted sync server parses EDF files for leak rate percentiles; CPAP metrics feed into daily health snapshots and the correlation engine |
-| **Overnight pulse oximetry** | Share an [EMAY SleepO2](https://emayinc.com/) CSV into the app from the iOS share sheet — per-second SpO2 + pulse rate land as `QuantityHealthSample` rows that dedupe against HealthKit samples written under the matching bundle ID (one EMAY app-version case-sensitivity caveat documented in the per-feature doc). See [docs/EMAY_OXIMETER.md](docs/EMAY_OXIMETER.md) |
+| **AirSense 11 Bridge** | Optional continuous streaming adapter (Aircannect) for live 25Hz flow/pressure waveforms and 1Hz leak/SpO2/HR from a connected AirSense 11 CPAP, enabling real-time fault detection (e.g., mask off) during CNS monitoring. |
+| **EMAY Pulse Oximetry** | Live Bluetooth SpO2 and pulse rate streaming with continuous background support, plus CSV import from the iOS share sheet for overnight sessions. Land as `QuantityHealthSample` rows that dedupe against HealthKit samples. See [docs/EMAY_OXIMETER.md](docs/EMAY_OXIMETER.md) |
 | **CNS-depression early-warning detection (in progress)** | An internal engine that scores SpO2, respiratory rate, heart rate, and HRV against your own rolling baselines to flag a trend toward dangerous CNS depression (opioid/benzodiazepine over-sedation). Phase 1 (severity scoring, cross-sensor fusion, hysteretic alert-tier state machine) and Phase 2 (dose-window arming off a logged benzo/opioid dose, the EMAY/Polar sensor pipeline, per-device fallback detection, and a minimal Settings → "CNS Monitoring" arm/status surface) are merged and unit-tested; there is still no user-facing alarm (no klaxon, no haptics, no dashboard indicator) — that lands in Phase 3. It is designed as an **early-warning aid only** — never an overdose rescue or a medical device — runs entirely on-device, and will never place an automated emergency call |
 | **Earworm capture** | Tag a journal entry with the song stuck in your head; the sync server proxies Genius and Musixmatch for lyrics and album art |
 | **Prescription management** | Manual prescription records with OCR label scanning, pharmacy search with call logging |
@@ -79,6 +81,13 @@ For some people, tracking health data can increase anxiety rather than reduce it
 | **Optional server-side AI** | Admin-only page on *your own* sync server can call Claude against a chosen date range for plain-language summaries, data-quality flags, and conflict analysis. Opt-in per request; requires your own Anthropic API key set in your server's environment |
 
 All health data stays on your device. No cloud service, no third-party SDKs, no analytics, no telemetry. See [docs/FEATURES.md](docs/FEATURES.md) for the full breakdown of every data source, the HealthKit data types table, and how personal baselines work.
+
+<div align="center">
+  <img src="docs/diagrams/cns_pipeline.svg" width="800" alt="CNS Detection Pipeline showing Data Sources feeding into Quality Gate, Severity Scorer, Fusion Engine, and Alert Tier Machine" />
+  <br/>
+  <sub><em>The CNS-depression early-warning pipeline fuses inputs from multiple hardware sources into a single alert state machine.</em></sub>
+</div>
+<br/>
 
 > **Verification needs hardware.** Several pieces of this stack can't be tested end-to-end in the iOS Simulator: Polar H10 pairing needs a real BLE peripheral (CoreBluetooth doesn't simulate), CPAP import needs an actual AirSense 11 SD card, EMAY import needs a SleepO2 device's CSV export, watch-side sensor capture needs a real Apple Watch that supports `CMBatchedSensorManager.isAccelerometerSupported` (tested on Ultra 3; not gated on that model specifically). The simulator covers everything else.
 
