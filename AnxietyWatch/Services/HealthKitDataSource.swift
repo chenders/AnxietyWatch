@@ -54,6 +54,11 @@ protocol HealthKitDataSource: Sendable {
     /// pass is recoverable (callers retrigger constantly); writing nils over
     /// real data is not.
     func authorizationNeedsRequest() async -> Bool
+    /// True when HealthKit is present on this device (false on unsupported
+    /// hardware or when restricted). Distinct from authorization: an
+    /// unavailable store can't be resolved by requesting access, so callers
+    /// must not present it as "access not granted."
+    func isHealthDataAvailable() async -> Bool
     /// Present the system read-authorization sheet. No-op after the user has
     /// responded once (HealthKit only ever shows it once per app).
     func requestAuthorization() async throws

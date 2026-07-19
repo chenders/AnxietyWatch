@@ -74,6 +74,11 @@ struct DashboardView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    // 0. HealthKit access banner — self-contained; only shows
+                    // when authorization has never resolved (every read is
+                    // silently failing). Renders nothing otherwise.
+                    HealthKitAccessBanner()
+
                     // 1. Alerts strip
                     AlertsSectionView(snapshots: recentSnapshots, vm: vm)
 
