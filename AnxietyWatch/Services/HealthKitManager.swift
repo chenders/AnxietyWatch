@@ -93,7 +93,7 @@ actor HealthKitManager: HealthKitDataSource {
         guard isAvailable else { return }
         // Record the ask *before* presenting: the system UI may be dismissed or
         // the call interrupted, but from our side the sheet was offered once.
-        UserDefaults.standard.set(true, forKey: Self.didRequestAuthorizationKey)
+        UserDefaults.standard.set(true, forKey: HealthKitManager.didRequestAuthorizationKey)
         try await healthStore.requestAuthorization(toShare: [], read: Self.allReadTypes)
     }
 

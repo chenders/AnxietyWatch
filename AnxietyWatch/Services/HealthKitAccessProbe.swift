@@ -12,9 +12,12 @@ enum HealthKitAccessProbe {
         modelContext: ModelContext,
         now: Date = Date(),
         watchPaired: Bool? = nil,
-        source: HealthKitDataSource = HealthKitManager.shared,
-        defaults: UserDefaults = UserDefaults(suiteName: AppGroup.identifier) ?? .standard
+        source: HealthKitDataSource? = nil,
+        defaults: UserDefaults? = nil
     ) async -> HealthKitAccessDiagnostic.Result {
+        let actualSource = source ?? HealthKitManager.shared
+        let actualDefaults = defaults ?? UserDefaults(suiteName: AppGroup.identifier) ?? .standard
+
         // Recent history — single-clause, date-bounded fetch.
         let cutoff = Calendar.current.date(
             byAdding: .day, value: -HealthKitHistoryProbe.defaultWindowDays, to: now) ?? now
@@ -28,12 +31,12 @@ enum HealthKitAccessProbe {
 
         // Grace: stamp first-authorized once auth is determined, then check age.
         var graceElapsed = false
-        if await !source.authorizationNeedsRequest() {
-            let firstAuth = HealthKitGraceGate.recordFirstAuthorizedIfNeeded(now: now, defaults: defaults)
+        if await !actualSource.authorizationNeedsRequest() {
+            let firstAuth = HealthKitGraceGate.recordFirstAuthorizedIfNeeded(now: now, defaults: actualDefaults)
             graceElapsed = HealthKitGraceGate.hasElapsed(firstAuthorizedAt: firstAuth, now: now)
         }
 
-        return await HealthKitAccessDiagnostic(source: source).run(
+        return await HealthKitAccessDiagnostic(source: actualSource).run(
             now: now, hadRecentHistory: hadHistory,
             watchPaired: paired, graceElapsed: graceElapsed)
     }

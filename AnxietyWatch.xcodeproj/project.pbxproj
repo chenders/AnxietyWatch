@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		832C392C300B9C85002F3B7C /* AnxietyWatchKit in Frameworks */ = {isa = PBXBuildFile; productRef = AWK002 /* AnxietyWatchKit */; };
+		832C392D300B9C85002F3B7C /* AnxietyWatchKit in Frameworks */ = {isa = PBXBuildFile; productRef = AWK002 /* AnxietyWatchKit */; };
 		833536172F6D0C0100B45286 /* AnxietyWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 8335360D2F6D0BFF00B45286 /* AnxietyWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		839563792F6D2DF3002DA90A /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 839563782F6D2DF3002DA90A /* WidgetKit.framework */; };
 		8395637B2F6D2DF3002DA90A /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8395637A2F6D2DF3002DA90A /* SwiftUI.framework */; };
@@ -190,6 +192,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				832C392C300B9C85002F3B7C /* AnxietyWatchKit in Frameworks */,
 				83EE00022F6E300000B45286 /* ActivityKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -198,6 +201,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				832C392D300B9C85002F3B7C /* AnxietyWatchKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -434,10 +438,10 @@
 				Base,
 			);
 			mainGroup = 833535F02F6D0B3D00B45286;
-			packageReferences = (
-				AWK001 /* AnxietyWatchKit */,
-			);
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AWK001 /* XCLocalSwiftPackageReference "AnxietyWatchKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 833535FA2F6D0B3D00B45286 /* Products */;
 			projectDirPath = "";
@@ -1051,7 +1055,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		AWK001 /* AnxietyWatchKit */ = {
+		AWK001 /* XCLocalSwiftPackageReference "AnxietyWatchKit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = AnxietyWatchKit;
 		};
@@ -1060,7 +1064,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		AWK002 /* AnxietyWatchKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AWK001 /* AnxietyWatchKit */;
+			package = AWK001 /* XCLocalSwiftPackageReference "AnxietyWatchKit" */;
 			productName = AnxietyWatchKit;
 		};
 /* End XCSwiftPackageProductDependency section */

@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import UIKit
 
 /// Proactive Dashboard banner that surfaces the silent HealthKit
