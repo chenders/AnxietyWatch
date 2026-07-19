@@ -119,6 +119,7 @@ struct CNSMonitoringView: View {
         case .emayOximeter: "EMAY Oximeter"
         case .polarH10: "Polar H10"
         case .appleWatch: "Apple Watch"
+        case .as11Bridge: "AS11 Bridge"
         }
     }
 

@@ -27,29 +27,14 @@ struct SettingsView: View {
                         Label("Health Records", systemImage: "cross.case.fill")
                     }
                     NavigationLink {
-                        CPAPListView().equatable()
+                        DevicesSettingsView()
                     } label: {
-                        Label("CPAP", systemImage: "bed.double.fill")
-                    }
-                    NavigationLink {
-                        PolarSettingsView()
-                    } label: {
-                        Label("Polar H10", systemImage: "heart.text.square")
-                    }
-                    NavigationLink {
-                        EMAYLiveView()
-                    } label: {
-                        Label("EMAY Oximeter (Live)", systemImage: "lungs.fill")
+                        Label("Devices", systemImage: "dot.radiowaves.left.and.right")
                     }
                     NavigationLink {
                         CNSMonitoringView()
                     } label: {
                         Label("CNS Monitoring", systemImage: "waveform.path.ecg.rectangle")
-                    }
-                    NavigationLink {
-                        OuraSettingsView()
-                    } label: {
-                        Label("Oura Ring", systemImage: "circle.hexagongrid.fill")
                     }
                 } header: {
                     Text("Data Sources")

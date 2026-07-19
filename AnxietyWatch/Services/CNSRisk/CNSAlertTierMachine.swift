@@ -67,24 +67,37 @@ struct CNSAlertTierMachine {
 
     @discardableResult
     mutating func ingest(_ assessment: CNSRiskAssessment, at now: Date) -> CNSAlertTier {
-        guard case .assessed(let score, let contributions) = assessment else {
-            // No data: hold the tier, surface can't-assess, and discard any
+        switch assessment {
+        case .assessed(let score, let contributions):
+            canAssess = true
+            // Whether a primary signal (SpO₂ / respiratory rate) actually
+            // informed this score. Only the signal class that can raise the
+            // alarm may earn reassurance or contradict a rise in progress.
+            let primaryInformed = contributions.contains {
+                $0.kind == .spo2 || $0.kind == .respiratoryRate
+            }
+
+            advanceRise(score: score, primaryInformed: primaryInformed, at: now)
+            advanceClear(score: score, primaryInformed: primaryInformed, at: now)
+            return tier
+
+        case .monitoringPaused:
+            // "monitoring paused" (e.g. mask off / large leak) -> mechanical, suppress physiological alarm.
+            // We hold the tier (do not escalate), and we set canAssess = false because
+            // we cannot accurately assess physiological state while the mask is off.
+            // We optionally could downgrade the tier, but holding is safer than clearing.
+            canAssess = false
+            resetClearCandidate()
+            resetRiseCandidate() // Suppress any rising candidate
+            return tier
+
+        case .monitoringDegraded, .insufficientData:
+            // No data / bridge down: hold the tier, surface can't-assess, and discard any
             // progress toward clearing — silence must never read as safety.
             canAssess = false
             resetClearCandidate()
             return tier
         }
-        canAssess = true
-        // Whether a primary signal (SpO₂ / respiratory rate) actually
-        // informed this score. Only the signal class that can raise the
-        // alarm may earn reassurance or contradict a rise in progress.
-        let primaryInformed = contributions.contains {
-            $0.kind == .spo2 || $0.kind == .respiratoryRate
-        }
-
-        advanceRise(score: score, primaryInformed: primaryInformed, at: now)
-        advanceClear(score: score, primaryInformed: primaryInformed, at: now)
-        return tier
     }
 
     private mutating func advanceRise(score: Double, primaryInformed: Bool, at now: Date) {

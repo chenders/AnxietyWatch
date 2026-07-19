@@ -636,7 +636,7 @@ final class CNSMonitoringCoordinator {
             let riskScore: Double?
             let contributions: [CNSContributionRecord]
             switch assessment {
-            case .insufficientData:
+            case .insufficientData, .monitoringDegraded, .monitoringPaused:
                 riskScore = nil
                 contributions = []
             case .assessed(let score, let assessmentContributions):
@@ -957,6 +957,7 @@ final class CNSMonitoringCoordinator {
         case .emayOximeter: return "EMAY oximeter"
         case .polarH10: return "Polar H10"
         case .appleWatch: return "Apple Watch"
+        case .as11Bridge: return "AS11 Bridge"
         }
     }
 
