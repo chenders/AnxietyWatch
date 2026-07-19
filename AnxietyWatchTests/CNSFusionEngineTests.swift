@@ -143,7 +143,32 @@ struct CNSFusionEngineTests {
         #expect(score >= thresholds.klaxonThreshold - thresholds.aloneModeThresholdDelta)
     }
 
-    @Test("Contributions echo the assessments that were actually counted")
+    @Test("AS11 bridge down with no other data yields monitoring degraded")
+    func bridgeDownNoData() {
+        #expect(engine.fuse([], as11State: .bridgeDown) == .monitoringDegraded(reason: "BRIDGE_DOWN"))
+    }
+
+    @Test("AS11 mask off leak suppresses physiological alarm")
+    func maskOffLeakSuppresses() {
+        let maskOff = [
+            assessment(kind: .spo2, source: .as11Bridge, severity: 0.8, confidence: 0.9)
+        ]
+        #expect(engine.fuse(maskOff, as11State: .maskOffLeak) == .monitoringPaused(reason: "MASK_OFF_LEAK"))
+    }
+
+    @Test("AS11 stalled stream strips AS11 SpO2 from primary but allows other data")
+    func streamStalledStripsAS11Primary() {
+        let assessments = [
+            assessment(kind: .spo2, source: .as11Bridge, severity: 1.0, confidence: 0.9), // Should be stripped
+            assessment(kind: .heartRate, source: .polarH10, severity: 0.9, confidence: 0.95) // Should remain as corroborating
+        ]
+        guard case .assessed(let score, _) = engine.fuse(assessments, as11State: .streamStalled) else {
+            Issue.record("expected .assessed"); return
+        }
+        // Since primary is empty (AS11 SpO2 was stripped) and we only have corroborating, it stays below confirm
+        #expect(score > 0)
+        #expect(score < thresholds.confirmThreshold)
+    }
     func contributionsEchoed() {
         // Contributions = the assessments the score actually consumed (post
         // confidence filter), for UI attribution and the tier machine's

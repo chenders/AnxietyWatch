@@ -1,3 +1,4 @@
+import datetime
 import asyncio
 import json
 import time
@@ -120,7 +121,7 @@ class MockAS11Bridge:
         cycle_count = 0
         try:
             while True:
-                now_str = time.strftime('%Y-%m-%dT%H:%M:%S.%fZ', time.gmtime())
+                now_str = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
                 # High frequency data (25 Hz)
                 samples = []

@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger("test_aircannect_mock")
 
 
-async def test_integration():
+async def manual_integration_harness():
     # Start the mock bridge
     bridge = MockAS11Bridge(host='127.0.0.1', port=39011)
     await bridge.start()
@@ -44,4 +44,4 @@ async def test_integration():
     logger.info("Test complete!")
 
 if __name__ == '__main__':
-    asyncio.run(test_integration())
+    asyncio.run(manual_integration_harness())

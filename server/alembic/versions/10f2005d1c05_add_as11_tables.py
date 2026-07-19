@@ -6,6 +6,7 @@ Create Date: 2026-07-19 03:27:14.629227
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = '10f2005d1c05'
@@ -28,10 +29,10 @@ def upgrade():
         sa.Column('median_pressure', sa.Float(), nullable=True),
         sa.Column('p95_leak', sa.Float(), nullable=True),
         sa.Column('ahi', sa.Float(), nullable=True),
-        sa.Column('event_counts', sa.JSON(), nullable=True),
+        sa.Column('event_counts', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column('mask_on_fraction', sa.Float(), nullable=True),
         sa.Column('source', sa.String(), nullable=False),
-        sa.Column('settings_snapshot', sa.JSON(), nullable=True),
+        sa.Column('settings_snapshot', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.PrimaryKeyConstraint('id')
     )

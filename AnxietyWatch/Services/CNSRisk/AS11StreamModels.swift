@@ -15,7 +15,8 @@ struct AS11StreamPayload: Decodable, Sendable {
 extension AS11StreamState {
     init(from string: String?) {
         guard let string = string, let state = AS11StreamState(rawValue: string) else {
-            self = .streamingOK
+            // Fail safe: unknown/omitted state is treated as stalled rather than blindly trusted
+            self = .streamStalled
             return
         }
         self = state

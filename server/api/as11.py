@@ -58,9 +58,13 @@ def insert_therapy_session(db, bridge_id, start_utc, end_utc=None, mode=None,
 
 @as11_bp.route("/live", methods=["GET"])
 def get_live():
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+        
     db = get_db()
     try:
-        limit = request.args.get("limit", 1000, type=int)
+        limit = min(request.args.get("limit", 1000, type=int), 10000)
         with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT id, bridge_id, ts_utc, channel, value, unit, ingest_ts_utc, session_id
@@ -72,14 +76,19 @@ def get_live():
 
         return jsonify({"samples": samples})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error fetching AS11 live samples: {e}")
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @as11_bp.route("/sessions", methods=["GET"])
 def get_sessions():
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return jsonify({"error": "Unauthorized"}), 401
+        
     db = get_db()
     try:
-        limit = request.args.get("limit", 50, type=int)
+        limit = min(request.args.get("limit", 50, type=int), 500)
         with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT id, bridge_id, start_utc, end_utc, mode, set_pressure,
@@ -93,4 +102,5 @@ def get_sessions():
 
         return jsonify({"sessions": sessions})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"Error fetching AS11 sessions: {e}")
+        return jsonify({"error": "Internal server error"}), 500
