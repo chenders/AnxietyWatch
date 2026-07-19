@@ -2967,3 +2967,37 @@ def test_paged_total_is_returned_only_on_the_first_page(client):
     assert first["total"] == 5
     assert "total" not in later, "total must not be recomputed on every page"
     assert len(later["quantityHealthSamples"]) == 2
+
+# ---------------------------------------------------------------------------
+# AS11 endpoints
+# ---------------------------------------------------------------------------
+
+def test_as11_live_unauthorized(client):
+    response = client.get("/api/cpap/as11/live")
+    assert response.status_code == 401
+    assert response.json["error"] == "Unauthorized"
+
+def test_as11_sessions_unauthorized(client):
+    response = client.get("/api/cpap/as11/sessions")
+    assert response.status_code == 401
+    assert response.json["error"] == "Unauthorized"
+
+def test_as11_live_authorized_empty(client):
+    response = client.get("/api/cpap/as11/live", headers=auth_header())
+    assert response.status_code == 200
+    assert "samples" in response.json
+
+def test_as11_sessions_authorized_empty(client):
+    response = client.get("/api/cpap/as11/sessions", headers=auth_header())
+    assert response.status_code == 200
+    assert "sessions" in response.json
+
+
+def test_as11_live_limit_clamped(client):
+    response = client.get("/api/cpap/as11/live?limit=999999", headers=auth_header())
+    assert response.status_code == 200
+
+def test_as11_sessions_limit_clamped(client):
+    response = client.get("/api/cpap/as11/sessions?limit=999999", headers=auth_header())
+    assert response.status_code == 200
+
