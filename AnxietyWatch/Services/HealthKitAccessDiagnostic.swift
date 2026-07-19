@@ -75,6 +75,7 @@ struct HealthKitAccessDiagnostic: Sendable {
         let stepsPresent: Bool
         let restingHRPresent: Bool
         let sleepPresent: Bool
+        let heartRatePresent: Bool
     }
 
     /// Rolling window for the presence probe. Wider than a single day so an
@@ -82,50 +83,47 @@ struct HealthKitAccessDiagnostic: Sendable {
     /// doesn't read as "no data." Steps in particular come from the iPhone
     /// pedometer too, so a non-zero 3-day step count is present for anyone
     /// carrying their phone — the strongest single "reads work" signal.
-    private static let probeWindowDays = 3
+    private static let probeWindowDays = 14
 
-    func run(now: Date, hadRecentHistory: Bool) async -> Result {
-        // HealthKit unavailable (unsupported device / restricted) dominates
-        // everything: no read can succeed and no prompt can help, so report it
-        // as its own state rather than "not requested" or "no data."
+    func run(now: Date, hadRecentHistory: Bool,
+             watchPaired: Bool, graceElapsed: Bool) async -> Result {
         if await !source.isHealthDataAvailable() {
-            return Result(state: .unavailable, stepsPresent: false,
-                          restingHRPresent: false, sleepPresent: false)
+            return Result(state: .unavailable, stepsPresent: false, restingHRPresent: false,
+                          sleepPresent: false, heartRatePresent: false)
         }
-
-        // A pending request dominates the rest: reads would all error with code
-        // 5, so don't bother probing — report the gate state and let the caller
-        // prompt. This also matches what the Settings panel should show.
         if await source.authorizationNeedsRequest() {
-            return Result(state: .notRequested, stepsPresent: false,
-                          restingHRPresent: false, sleepPresent: false)
+            return Result(state: .notRequested, stepsPresent: false, restingHRPresent: false,
+                          sleepPresent: false, heartRatePresent: false)
         }
 
-        // Calendar-based window (not `now - N*86400`) so it stays correct
-        // across DST transitions — see the date-arithmetic pitfall in CLAUDE.md.
         let windowStart = Calendar.current.date(
-            byAdding: .day, value: -Self.probeWindowDays, to: now
-        ) ?? now
+            byAdding: .day, value: -Self.probeWindowDays, to: now) ?? now
 
         let steps = (try? await source.cumulativeQuantity(
             .stepCount, unit: .count(), start: windowStart, end: now)) ?? nil
         let restingHR = (try? await source.averageQuantity(
             .restingHeartRate, unit: .count().unitDivided(by: .minute()),
             start: windowStart, end: now)) ?? nil
+        let heartRate = (try? await source.averageQuantity(
+            .heartRate, unit: .count().unitDivided(by: .minute()),
+            start: windowStart, end: now)) ?? nil
         let sleep = (try? await source.querySleepAnalysis(
             start: windowStart, end: now)) ?? SleepData()
 
         let stepsPresent = (steps ?? 0) > 0
         let restingHRPresent = restingHR != nil
+        let heartRatePresent = heartRate != nil
         let sleepPresent = sleep.totalMinutes > 0
 
         let state = evaluateHealthKitAccess(
             needsRequest: false,
-            probeReturnedValue: stepsPresent || restingHRPresent || sleepPresent,
-            hadRecentHistory: hadRecentHistory
+            probeReturnedValue: stepsPresent || restingHRPresent || heartRatePresent || sleepPresent,
+            hadRecentHistory: hadRecentHistory,
+            watchPaired: watchPaired,
+            graceElapsed: graceElapsed
         )
-        return Result(state: state, stepsPresent: stepsPresent,
-                      restingHRPresent: restingHRPresent, sleepPresent: sleepPresent)
+        return Result(state: state, stepsPresent: stepsPresent, restingHRPresent: restingHRPresent,
+                      sleepPresent: sleepPresent, heartRatePresent: heartRatePresent)
     }
 }
 
