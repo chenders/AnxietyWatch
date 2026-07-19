@@ -1,5 +1,3 @@
-from as11_collector import AS11Collector
-from mock_aircannect import MockAS11Bridge
 import asyncio
 import logging
 import sys
@@ -7,6 +5,9 @@ import os
 
 # Add the server directory to python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from as11_collector import AS11Collector  # noqa: E402
+from mock_aircannect import MockAS11Bridge  # noqa: E402
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")

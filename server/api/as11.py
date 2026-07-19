@@ -61,7 +61,7 @@ def get_live():
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         return jsonify({"error": "Unauthorized"}), 401
-        
+
     db = get_db()
     try:
         limit = min(request.args.get("limit", 1000, type=int), 10000)
@@ -85,7 +85,7 @@ def get_sessions():
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         return jsonify({"error": "Unauthorized"}), 401
-        
+
     db = get_db()
     try:
         limit = min(request.args.get("limit", 50, type=int), 500)
@@ -93,7 +93,7 @@ def get_sessions():
             cur.execute("""
                 SELECT id, bridge_id, start_utc, end_utc, mode, set_pressure,
                        min_pressure, max_pressure, median_pressure, p95_leak, ahi,
-                       event_counts, mask_on_fraction, source, settings_snapshot, created_at
+                       event_counts, mask_on_fraction, source, settings_snapshot, created_a
                 FROM as11_therapy_session
                 ORDER BY start_utc DESC
                 LIMIT %s

@@ -18,7 +18,7 @@ depends_on = None
 def upgrade():
     op.create_table(
         'as11_therapy_session',
-        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('id', sa.Integer(), primary_key=True),
         sa.Column('bridge_id', sa.String(), nullable=False),
         sa.Column('start_utc', sa.DateTime(timezone=True), nullable=False),
         sa.Column('end_utc', sa.DateTime(timezone=True), nullable=True),
@@ -34,13 +34,13 @@ def upgrade():
         sa.Column('source', sa.String(), nullable=False),
         sa.Column('settings_snapshot', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.PrimaryKeyConstraint('id')
+        if_not_exists=True
     )
-    op.create_index('idx_as11_therapy_session_start', 'as11_therapy_session', ['start_utc'])
+    op.create_index('idx_as11_therapy_session_start', 'as11_therapy_session', ['start_utc'], if_not_exists=True)
 
     op.create_table(
         'as11_stream_sample',
-        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('id', sa.Integer(), primary_key=True),
         sa.Column('bridge_id', sa.String(), nullable=False),
         sa.Column('ts_utc', sa.DateTime(timezone=True), nullable=False),
         sa.Column('channel', sa.String(), nullable=False),
@@ -54,13 +54,13 @@ def upgrade():
                 'as11_therapy_session.id',
                 ondelete='SET NULL'),
             nullable=True),
-        sa.PrimaryKeyConstraint('id')
+        if_not_exists=True
     )
-    op.create_index('idx_as11_stream_sample_ts', 'as11_stream_sample', ['ts_utc'])
+    op.create_index('idx_as11_stream_sample_ts', 'as11_stream_sample', ['ts_utc'], if_not_exists=True)
 
 
 def downgrade():
-    op.drop_index('idx_as11_stream_sample_ts', table_name='as11_stream_sample')
-    op.drop_table('as11_stream_sample')
-    op.drop_index('idx_as11_therapy_session_start', table_name='as11_therapy_session')
-    op.drop_table('as11_therapy_session')
+    op.drop_index('idx_as11_stream_sample_ts', table_name='as11_stream_sample', if_exists=True)
+    op.drop_table('as11_stream_sample', if_exists=True)
+    op.drop_index('idx_as11_therapy_session_start', table_name='as11_therapy_session', if_exists=True)
+    op.drop_table('as11_therapy_session', if_exists=True)
