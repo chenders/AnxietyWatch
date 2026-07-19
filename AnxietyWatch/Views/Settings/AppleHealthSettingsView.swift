@@ -26,6 +26,7 @@ struct AppleHealthSettingsView: View {
                 if let result, result.state != .notRequested, result.state != .unavailable {
                     probeRow("Steps", present: result.stepsPresent)
                     probeRow("Resting Heart Rate", present: result.restingHRPresent)
+                    probeRow("Heart Rate", present: result.heartRatePresent)
                     probeRow("Sleep", present: result.sleepPresent)
                 }
             }
@@ -108,19 +109,7 @@ struct AppleHealthSettingsView: View {
     private func refresh() async {
         checking = true
         defer { checking = false }
-        let now = Date()
-        // Single-clause, date-bounded fetch (avoids the unbounded-@Query and
-        // compound-#Predicate pitfalls). Calendar-based cutoff is DST-safe.
-        let cutoff = Calendar.current.date(
-            byAdding: .day, value: -HealthKitHistoryProbe.defaultWindowDays, to: now
-        ) ?? now
-        let descriptor = FetchDescriptor<HealthSnapshot>(
-            predicate: #Predicate { $0.date >= cutoff }
-        )
-        let snapshots = (try? modelContext.fetch(descriptor)) ?? []
-        let hadHistory = HealthKitHistoryProbe.hadRecentHealthKitData(in: snapshots, now: now)
-        let diagnostic = HealthKitAccessDiagnostic(source: HealthKitManager.shared)
-        result = await diagnostic.run(now: now, hadRecentHistory: hadHistory)
+        result = await HealthKitAccessProbe.currentResult(modelContext: modelContext)
     }
 
     private func requestAccess() async {
