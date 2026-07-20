@@ -11,15 +11,23 @@ import SwiftUI
 struct CNSMonitoringView: View {
     @Environment(CNSMonitoringCoordinator.self) private var coordinator
     @State private var fallbackConfig = CNSDeviceFallbackConfig.load(from: .standard)
+    @State private var permission: CNSNotifyPermission?
 
     var body: some View {
         List {
             armingSection
+            if coordinator.currentTier >= .confirm && coordinator.isMonitoring {
+                alarmActionSection
+            }
             statusSection
+            permissionSection
             fallbackSection
         }
         .navigationTitle("CNS Monitoring")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            permission = await CNSCriticalAlertPermission().currentStatus()
+        }
     }
 
     // MARK: - Arm / disarm / companion
@@ -73,10 +81,25 @@ struct CNSMonitoringView: View {
 
     // MARK: - Status
 
+    private var alarmActionSection: some View {
+        Section {
+            SlideToAcknowledgeView(title: "Slide to acknowledge alarm") {
+                // To acknowledge, we stop monitoring (the user's deliberate intervention)
+                coordinator.disarm()
+            }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
+            .padding(.vertical, 8)
+        }
+    }
+
     private var statusSection: some View {
         Section {
             Text(coordinator.statusLine)
-            LabeledContent("Tier", value: tierText)
+            Text(CNSMonitoringViewHelpers.alarmStateSubtitle(isMonitoring: coordinator.isMonitoring, tier: coordinator.currentTier))
+                .font(.caption)
+                .foregroundColor(coordinator.currentTier >= .confirm ? .red : .secondary)
+            LabeledContent("Tier", value: CNSMonitoringViewHelpers.tierText(coordinator.currentTier))
             LabeledContent("Reporting", value: reportingSourcesText)
             LabeledContent("Active triggers", value: activeTriggersText)
             if coordinator.activeTriggers.contains(.doseWindow), let expiry = coordinator.doseWindowExpiry {
@@ -86,15 +109,23 @@ struct CNSMonitoringView: View {
             }
         } header: {
             Text("Status")
+        } footer: {
+            Text("If you force-quit the app or reboot your phone, monitoring will stop until you reopen the app.")
         }
     }
 
-    private var tierText: String {
-        switch coordinator.currentTier {
-        case .clear: "Clear"
-        case .watch: "Watch"
-        case .confirm: "Confirm"
-        case .klaxon: "Klaxon"
+    private var permissionSection: some View {
+        Section {
+            LabeledContent("Status", value: CNSMonitoringViewHelpers.permissionStatusLabel(permission))
+            if permission != .criticalGranted {
+                Button("Request Critical Alerts") {
+                    Task {
+                        permission = await CNSCriticalAlertPermission().requestIfNeeded()
+                    }
+                }
+            }
+        } header: {
+            Text("Alarm Permissions")
         }
     }
 
