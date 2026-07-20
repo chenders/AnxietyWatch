@@ -501,7 +501,7 @@ final class CNSMonitoringCoordinator {
         updateDeviceStates(newSamples: [sample], at: timestamp)
         guard isMonitoring, self.session != nil else { return }
         let (assessment, tier) = pipeline.process(
-            samples: sampleBuffer, baselines: baselines, as11State: latestAS11State(), at: timestamp
+            samples: sampleBuffer, baselines: baselines, as11State: currentAS11State(), at: timestamp
         )
         self.pipeline = pipeline
         currentTier = tier
