@@ -148,6 +148,7 @@ final class CNSMonitoringCoordinator {
     private let latestEMAYReading: () -> EMAYReading?
     private let latestPolarHR: () -> Int?
     private let latestPolarRMSSD: () -> Double?
+    private let latestAS11State: () -> AS11StreamState
     private let notificationPoster: CNSMonitoringNotificationPosting
     private let defaults: UserDefaults
     /// `false` in tests: suppresses the real `Task`-based tick loop so tests
@@ -232,6 +233,7 @@ final class CNSMonitoringCoordinator {
         latestEMAYReading: @escaping () -> EMAYReading?,
         latestPolarHR: @escaping () -> Int?,
         latestPolarRMSSD: @escaping () -> Double?,
+        latestAS11State: @escaping () -> AS11StreamState = { .streamingOK },
         notificationPoster: CNSMonitoringNotificationPosting,
         defaults: UserDefaults = .standard,
         enableTickLoop: Bool = true,
@@ -243,6 +245,7 @@ final class CNSMonitoringCoordinator {
         self.latestEMAYReading = latestEMAYReading
         self.latestPolarHR = latestPolarHR
         self.latestPolarRMSSD = latestPolarRMSSD
+        self.latestAS11State = latestAS11State
         self.notificationPoster = notificationPoster
         self.defaults = defaults
         self.enableTickLoop = enableTickLoop
@@ -420,7 +423,12 @@ final class CNSMonitoringCoordinator {
         )
         sampleBuffer.removeAll { $0.timestamp < trimBefore }
 
-        let (assessment, tier) = pipeline.process(samples: sampleBuffer, baselines: baselines, at: now)
+        let (assessment, tier) = pipeline.process(
+            samples: sampleBuffer, 
+            baselines: baselines, 
+            as11State: latestAS11State(), 
+            at: now
+        )
         self.pipeline = pipeline
         currentTier = tier
         canAssess = pipeline.canAssess
