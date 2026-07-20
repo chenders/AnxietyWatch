@@ -10,35 +10,22 @@ struct CNSFusionEngine {
     func fuse(_ assessments: [CNSSignalAssessment], as11State: AS11StreamState = .streamingOK) -> CNSRiskAssessment {
         var usable = assessments.filter { $0.confidence >= thresholds.minimumAssessableConfidence }
 
-        // Handling AS11 stream states for faults and pauses
-        if as11State == .bridgeDown || as11State == .streamStalled {
-            // If the bridge is down but we have usable data from elsewhere, we can proceed.
-            // If we have no data, it's a monitoring degraded state rather than simply insufficient data.
-            if usable.isEmpty {
-                return .monitoringDegraded(reason: as11State.rawValue)
-            }
-        }
-
-        if as11State == .maskOffLeak {
-            // Mechanical reason for missing or bad data (e.g., mask off).
-            // We suppress physiological alarms if AS11 was a primary contributor
-            // or if we simply have no data.
-            // A conservative approach: if mask is off, the monitoring is paused.
-            // We might still evaluate non-AS11 sensors if they exist, but typical CPAP
-            // users rely on the mask-on state for accurate SpO2 if integrated.
-            // The instructions say: "suppress physiological alarm, optionally a low-priority 'monitoring paused'".
-            if usable.isEmpty || usable.allSatisfy({ $0.source == .as11Bridge }) {
-                return .monitoringPaused(reason: as11State.rawValue)
-            }
-        }
-
-        // "make SpO2 escalation require stream health + mask-on"
+        // A fault invalidates every AS11 channel, not only SpO₂. Strip first
+        // so AS11-only input resolves to the observable fault state rather
+        // than falling through to generic insufficient data.
         if as11State != .streamingOK {
-            // If AS11 is not streaming OK, we cannot trust AS11 SpO2 for escalation.
-            usable = usable.filter { !($0.source == .as11Bridge && $0.kind == .spo2) }
+            usable.removeAll { $0.source == .as11Bridge }
         }
-
-        guard !usable.isEmpty else { return .insufficientData }
+        if usable.isEmpty {
+            switch as11State {
+            case .bridgeDown, .streamStalled:
+                return .monitoringDegraded(reason: as11State.rawValue)
+            case .maskOffLeak:
+                return .monitoringPaused(reason: as11State.rawValue)
+            case .streamingOK:
+                return .insufficientData
+            }
+        }
 
         let primary = usable.filter { $0.kind == .spo2 || $0.kind == .respiratoryRate }
 

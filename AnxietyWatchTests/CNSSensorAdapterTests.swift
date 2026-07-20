@@ -62,6 +62,34 @@ struct CNSSensorAdapterTests {
         #expect(samples.isEmpty)
     }
 
+    // MARK: - AS11
+
+    @Test(
+        "AS11 emits only present SpO2 and HR fields",
+        arguments: [
+            (spo2: 94.0 as Double?, hr: 61.0 as Double?, expectedKinds: [CNSSignalKind.spo2, .heartRate]),
+            (spo2: 94.0 as Double?, hr: nil, expectedKinds: [CNSSignalKind.spo2]),
+            (spo2: nil, hr: 61.0 as Double?, expectedKinds: [CNSSignalKind.heartRate]),
+            (spo2: nil, hr: nil, expectedKinds: [])
+        ]
+    )
+    func as11PresentAndAbsentFields(
+        spo2: Double?, hr: Double?, expectedKinds: [CNSSignalKind]
+    ) {
+        let payload = AS11StreamPayload(
+            id: "fictional-as11", bridgeId: "test-bridge", timestampUTC: t0,
+            pressure: nil, flow: nil, leak: nil, spo2: spo2, hr: hr,
+            state: AS11StreamState.streamingOK.rawValue
+        )
+
+        let samples = CNSSensorAdapters.samples(from: payload)
+
+        #expect(samples.map(\.kind) == expectedKinds)
+        #expect(samples.allSatisfy { $0.source == .as11Bridge && $0.timestamp == t0 })
+        #expect(samples.first { $0.kind == .spo2 }?.value == spo2)
+        #expect(samples.first { $0.kind == .heartRate }?.value == hr)
+    }
+
     // MARK: - Polar
 
     @Test("Polar HR 62 yields one heartRate/polarH10 sample with no PI")

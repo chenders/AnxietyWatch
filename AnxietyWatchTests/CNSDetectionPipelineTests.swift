@@ -33,6 +33,24 @@ struct CNSDetectionPipelineTests {
         return (pipeline, tier, firstKlaxon)
     }
 
+    @Test("Pipeline threads AS11 fault state through fusion and tier hold")
+    func as11FaultStateIntegration() {
+        let as11Samples = SyntheticTraceFactory.constant(
+            kind: .spo2, source: .as11Bridge, value: 82,
+            start: t0.addingTimeInterval(-59), duration: 59
+        )
+        var pipeline = CNSDetectionPipeline(thresholds: thresholds, companionPresent: false)
+
+        let (assessment, tier) = pipeline.process(
+            samples: as11Samples, baselines: .none,
+            as11State: .bridgeDown, at: t0
+        )
+
+        #expect(assessment == .monitoringDegraded(reason: AS11StreamState.bridgeDown.rawValue))
+        #expect(tier == .clear)
+        #expect(pipeline.canAssess == false)
+    }
+
     @Test("EMAY-only decline into overdose territory reaches klaxon")
     func emayOnlyOverdoseReachesKlaxon() {
         // SpO2 falls 96 -> 82 over 10 minutes, then holds at 82 for 5 more.
