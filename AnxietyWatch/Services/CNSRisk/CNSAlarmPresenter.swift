@@ -125,12 +125,58 @@ struct PhoneWatchHapticSender: WatchHapticSending {
 }
 
 @MainActor
-struct ForegroundAlarmAudioPlayer: AlarmAudioPlaying {
+final class ForegroundAlarmAudioPlayer: AlarmAudioPlaying {
+    private static var engine: AVAudioEngine?
+    private static var playerNode: AVAudioPlayerNode?
+
     func playKlaxon() {
+        guard Self.engine == nil else { return }  // already playing
+
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default)
         try? session.setActive(true)
-        // Foreground audio asset playback is supplied by the app alarm UI;
-        // activating `.playback` here ensures that audio bypasses silent mode.
+
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
+
+        let toneDuration: Float = 0.25
+        let silenceDuration: Float = 0.15
+        let frameCount = AVAudioFrameCount((toneDuration + silenceDuration) * Float(format.sampleRate))
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return }
+        buffer.frameLength = frameCount
+
+        let channels = UnsafeBufferPointer(start: buffer.floatChannelData, count: Int(format.channelCount))
+        let toneFrames = Int(toneDuration * Float(format.sampleRate))
+        let totalFrames = Int(frameCount)
+        let highFreq: Float = 1500
+        let lowFreq: Float = 900
+        let amplitude: Float = 0.6
+
+        for frame in 0..<totalFrames {
+            let t = Float(frame) / Float(format.sampleRate)
+            let freq = frame < toneFrames ? (frame % 2 == 0 ? highFreq : lowFreq) : 0
+            let sample = sin(2.0 * .pi * freq * t) * amplitude
+            for channel in 0..<Int(format.channelCount) {
+                channels[channel][frame] = sample
+            }
+        }
+
+        engine.attach(player)
+        engine.connect(player, to: engine.mainMixerNode, format: format)
+        player.scheduleBuffer(buffer, at: nil, options: .loops, completionHandler: nil)
+
+        try? engine.start()
+        player.play()
+
+        Self.engine = engine
+        Self.playerNode = player
+    }
+
+    static func stopKlaxon() {
+        playerNode?.stop()
+        engine?.stop()
+        playerNode = nil
+        engine = nil
     }
 }
