@@ -31,8 +31,8 @@ class MockAS11Bridge:
             try:
                 writer.close()
                 await writer.wait_closed()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(f"Ignored error closing client writer: {exc}")
         self.clients.clear()
 
     async def handle_client(self, reader, writer):
@@ -111,8 +111,8 @@ class MockAS11Bridge:
             writer.close()
             try:
                 await writer.wait_closed()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(f"Ignored error awaiting client writer close: {exc}")
 
     async def stream_data(self, writer):
         logger.info("Started streaming data to client")
@@ -144,19 +144,19 @@ class MockAS11Bridge:
                 if cycle_count % 25 == 0:
                     samples.append({
                         "channel": "spo2",
-                        "value": random.randint(95, 100),
+                        "value": random.randint(95, 100),  # nosec B311 mock data
                         "unit": "%",
                         "ts_utc": now_str
                     })
                     samples.append({
                         "channel": "hr",
-                        "value": random.randint(60, 80),
+                        "value": random.randint(60, 80),  # nosec B311 mock data
                         "unit": "bpm",
                         "ts_utc": now_str
                     })
                     samples.append({
                         "channel": "leak",
-                        "value": random.uniform(0.0, 5.0),
+                        "value": random.uniform(0.0, 5.0),  # nosec B311 mock data
                         "unit": "L/min",
                         "ts_utc": now_str
                     })

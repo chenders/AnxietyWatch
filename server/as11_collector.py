@@ -173,8 +173,8 @@ class AS11Collector:
                     self.writer.close()
                     try:
                         await self.writer.wait_closed()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug(f"Ignored error awaiting writer close: {exc}")
 
             if self.running:
                 logger.info(f"Reconnecting in {backoff} seconds...")
@@ -188,5 +188,5 @@ class AS11Collector:
             self.writer.close()
             try:
                 await self.writer.wait_closed()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(f"Ignored error awaiting writer close: {exc}")

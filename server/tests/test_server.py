@@ -3015,7 +3015,7 @@ def test_as11_live_limit_clamped(client):
 
     response = client.get("/api/cpap/as11/live?limit=-1", headers=auth_header())
     assert response.status_code == 400
-    
+
     response = client.get("/api/cpap/as11/live?limit=abc", headers=auth_header())
     assert response.status_code == 400
 
@@ -3026,6 +3026,6 @@ def test_as11_sessions_limit_clamped(client):
 
     response = client.get("/api/cpap/as11/sessions?limit=-1", headers=auth_header())
     assert response.status_code == 400
-    
+
     response = client.get("/api/cpap/as11/sessions?limit=abc", headers=auth_header())
     assert response.status_code == 400

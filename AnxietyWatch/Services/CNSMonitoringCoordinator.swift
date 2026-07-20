@@ -424,9 +424,9 @@ final class CNSMonitoringCoordinator {
         sampleBuffer.removeAll { $0.timestamp < trimBefore }
 
         let (assessment, tier) = pipeline.process(
-            samples: sampleBuffer, 
-            baselines: baselines, 
-            as11State: latestAS11State(), 
+            samples: sampleBuffer,
+            baselines: baselines,
+            as11State: latestAS11State(),
             at: now
         )
         self.pipeline = pipeline
