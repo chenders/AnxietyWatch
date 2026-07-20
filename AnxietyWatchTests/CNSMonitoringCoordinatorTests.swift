@@ -989,6 +989,27 @@ struct CNSMonitoringCoordinatorTests {
         #expect(coordinator.currentTier == .klaxon)
     }
 
+    @Test("Monitoring session connects and disconnects the AS11 stream")
+    func monitoringSessionOwnsAS11ConnectionLifecycle() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let source = MockAS11StreamSource()
+        let coordinator = makeCoordinator(
+            context: context,
+            now: { self.t0 },
+            as11Source: source,
+            poster: NotificationPosterSpy(),
+            defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        #expect(source.connectCallCount == 1)
+        #expect(source.disconnectCallCount == 0)
+
+        coordinator.disarm()
+        #expect(source.connectCallCount == 1)
+        #expect(source.disconnectCallCount == 1)
+    }
+
     // MARK: - disarm() always wins
 
     @Test("disarm() ends monitoring with .manual even when other triggers are active")

@@ -17,6 +17,8 @@ final class MockAS11StreamSource: AS11StreamSource {
     var state: AS11StreamState
     var samples: [AS11StreamPayload]
     var lastFrameAt: Date?
+    private(set) var connectCallCount = 0
+    private(set) var disconnectCallCount = 0
 
     private let now: () -> Date
     private let staleTimeout: TimeInterval
@@ -47,8 +49,13 @@ final class MockAS11StreamSource: AS11StreamSource {
         samples
     }
 
-    func connect() {}
-    func disconnect() {}
+    func connect() {
+        connectCallCount += 1
+    }
+
+    func disconnect() {
+        disconnectCallCount += 1
+    }
 }
 
 /// Foreground WebSocket source. Network receive code feeds `ingest`; cursor,

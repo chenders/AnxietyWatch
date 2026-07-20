@@ -880,14 +880,11 @@ final class CNSMonitoringCoordinator {
         try? modelContext.save()
         session = newSession
 
-        // EMAY is the only primary-capable (continuous SpO2) source
-        // regardless of which trigger armed monitoring — start it
-        // alongside every new session, not just manual arms, so the tick
-        // loop's first poll has a session to read from. Idempotent/no-op
-        // if a session (incl. the user's own continuous-mode session) is
-        // already active; see the property's doc comment for why this can
-        // never fight `setContinuousMode`.
+        // Start both primary-capable live sources for every new monitoring
+        // session. Each transport is idempotent, and an unavailable AS11
+        // connection remains fail-closed as `.streamStalled`.
         emayStartHook()
+        as11Source?.connect()
 
         // Fix item 1: arm the dead-man's-switch immediately — don't wait for
         // the first 10s persist-cadence boundary, or a death in the first
@@ -911,6 +908,7 @@ final class CNSMonitoringCoordinator {
         // closure) is what checks the continuous-streaming toggle; this
         // coordinator stays ignorant of EMAY specifics.
         emayStopHook?()
+        as11Source?.disconnect()
 
         // Fix item 1: the dead-man's-switch is only meaningful WHILE
         // monitoring — a deliberate end (any reason) must not leave a
