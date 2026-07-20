@@ -52,8 +52,8 @@ struct CNSAlarmPresenter {
     }
 
     /// Arms the dead-man's switch with the loudest notification level the
-    /// user granted. Standard/denied authorization cannot schedule an audible
-    /// fallback; the existing watch-first klaxon path remains independent.
+    /// user granted. When denied, the OS blocks notification delivery entirely;
+    /// the existing watch-first klaxon path remains independent.
     func scheduleMonitoringStopped(permission: CNSNotifyPermission, at fireDate: Date) {
         let level: UNNotificationInterruptionLevel
         let criticalSound: Bool
