@@ -174,11 +174,10 @@ final class CNSMonitoringCoordinator {
     /// teardown (most of them) never have to supply one.
     private let emayStopHook: (() -> Void)?
     private let criticalPermissionRequest: () -> Void
-    private let pipelineFactory: (Bool) -> any CNSDetectionProcessing
 
     // MARK: - Session-scoped state (reset in `startNewSession`/`endSession`)
 
-    private var pipeline: (any CNSDetectionProcessing)?
+    private var pipeline: CNSDetectionPipeline?
     private var session: MonitoringSession?
     private var sampleBuffer: [CNSSignalSample] = []
     private var baselines: CNSBaselines = .none
@@ -241,10 +240,7 @@ final class CNSMonitoringCoordinator {
         enableTickLoop: Bool = true,
         emayStartHook: @escaping () -> Void = {},
         emayStopHook: (() -> Void)? = nil,
-        criticalPermissionRequest: @escaping () -> Void = {},
-        pipelineFactory: @escaping (Bool) -> any CNSDetectionProcessing = {
-            CNSDetectionPipeline(thresholds: .standard, companionPresent: $0)
-        }
+        criticalPermissionRequest: @escaping () -> Void = {}
     ) {
         self.modelContext = modelContext
         self.now = now
@@ -258,7 +254,6 @@ final class CNSMonitoringCoordinator {
         self.emayStartHook = emayStartHook
         self.emayStopHook = emayStopHook
         self.criticalPermissionRequest = criticalPermissionRequest
-        self.pipelineFactory = pipelineFactory
     }
 
     /// Production convenience init: wires the real `EMAYRealtimeService` /
@@ -300,18 +295,8 @@ final class CNSMonitoringCoordinator {
                 Task { _ = await CNSCriticalAlertPermission().requestIfNeeded() }
             }
         )
-        emayService.onLiveSample = { [weak self] reading in
-            guard let self else { return }
-            for sample in CNSSensorAdapters.samples(from: reading) {
-                self.handleRestoredSample(sample)
-            }
-        }
-        polarService.onLiveSample = { [weak self] heartRate, timestamp in
-            guard let self else { return }
-            self.noteLivePolarSample(at: timestamp)
-            for sample in CNSSensorAdapters.samples(polarHR: heartRate, at: timestamp) {
-                self.handleRestoredSample(sample)
-            }
+        polarService.onLiveSample = { [weak self] _, timestamp in
+            self?.noteLivePolarSample(at: timestamp)
         }
     }
 
@@ -421,30 +406,6 @@ final class CNSMonitoringCoordinator {
         startNewSession(companionPresent: false, at: now)
     }
 
-    /// Event-driven entry point used by CoreBluetooth delivery, including
-    /// state-restored background sessions where the 1 Hz task is suspended.
-    /// The ordinary pipeline remains the sole decision maker, preserving its
-    /// primary-informed escalation/clearing rules. Missing or invalid sensor
-    /// values never reach this method because the adapters emit no sample.
-    func handleRestoredSample(_ sample: CNSSignalSample) {
-        guard isMonitoring, let pipeline, let session else { return }
-        if !sampleBuffer.contains(sample) {
-            sampleBuffer.append(sample)
-        }
-        let timestamp = sample.timestamp
-        let trimBefore = timestamp.addingTimeInterval(
-            -(CNSThresholds.standard.gateWindowSeconds + CNSMonitoringConstants.bufferTrimSlackSeconds)
-        )
-        sampleBuffer.removeAll { $0.timestamp < trimBefore }
-        updateDeviceStates(newSamples: [sample], at: timestamp)
-        guard isMonitoring, self.session != nil else { return }
-        let (assessment, tier) = pipeline.process(samples: sampleBuffer, baselines: baselines, at: timestamp)
-        currentTier = tier
-        canAssess = pipeline.canAssess
-        persistIfDue(assessment: assessment, tier: tier, at: timestamp, into: session)
-        updateStatusLine()
-    }
-
     // MARK: - Tick
 
     /// Drives one iteration of the monitoring loop at `now`. Not part of the
@@ -457,7 +418,7 @@ final class CNSMonitoringCoordinator {
         // Contract 5: dose-window expiry is independent of manual/adHoc
         // triggers and can end the session outright if it was the only one.
         evaluateDoseWindowExpiry(at: now)
-        guard isMonitoring, let pipeline, let session else { return }
+        guard isMonitoring, var pipeline, let session else { return }
 
         let newSamples = collectSamples(at: now)
         updateDeviceStates(newSamples: newSamples, at: now)
@@ -476,6 +437,7 @@ final class CNSMonitoringCoordinator {
             as11State: latestAS11State(),
             at: now
         )
+        self.pipeline = pipeline
         currentTier = tier
         canAssess = pipeline.canAssess
         reportingSources = Set(CNSSignalSource.allCases.filter { source in
@@ -757,7 +719,7 @@ final class CNSMonitoringCoordinator {
     private func startNewSession(companionPresent: Bool, at now: Date) {
         self.companionPresent = companionPresent
         isMonitoring = true
-        pipeline = pipelineFactory(companionPresent)
+        pipeline = CNSDetectionPipeline(thresholds: .standard, companionPresent: companionPresent)
         baselines = loadBaselines()
         sampleBuffer = []
         lastPersistAt = nil
