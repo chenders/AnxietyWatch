@@ -9,7 +9,7 @@ struct CNSAlertTierMachineTests {
     private let thresholds = CNSThresholds.standard
     private let t0 = Date(timeIntervalSince1970: 1_750_000_000)
 
-    private func machine(companionPresent: Bool = false) -> CNSAlertTierMachine {
+    private func machine(companionPresent: Bool = true) -> CNSAlertTierMachine {
         CNSAlertTierMachine(thresholds: thresholds, companionPresent: companionPresent)
     }
 
@@ -120,6 +120,32 @@ struct CNSAlertTierMachineTests {
         #expect(feed(&alone, score: 0.28, seconds: 70) == .watch)
         var accompanied = machine(companionPresent: true)
         #expect(feed(&accompanied, score: 0.28, seconds: 70) == .clear)
+    }
+
+    @Test("Alone mode shortens the sustain window to escalate faster")
+    func aloneModeFastEscalation() {
+        // 0.95 saturates thresholds for both, isolating the sustain timing.
+        var alone = machine(companionPresent: false)
+        // In alone mode, watch uses aloneModeRiseSustainSeconds (45s).
+        // Candidate starts at t=0. 45s elapsed at t=45. (46 ticks)
+        let aloneTier = feed(&alone, score: 0.95, seconds: 46)
+        #expect(aloneTier == .watch)
+
+        var accompanied = machine(companionPresent: true)
+        // With companion, watch needs riseSustainSeconds (60s).
+        let accompaniedTier = feed(&accompanied, score: 0.95, seconds: 46)
+        #expect(accompaniedTier == .clear)
+
+        // Continue alone mode to confirm.
+        // Candidate for confirm starts at t=46.
+        // Needs 45s => escalates at t=91.
+        _ = feed(&alone, score: 0.95, seconds: 46, startingAt: 46)
+        #expect(alone.tier == .confirm)
+
+        // Candidate for klaxon starts at t=92.
+        // Needs 15s => escalates at t=107.
+        let aloneKlaxonTier = feed(&alone, score: 0.95, seconds: 16, startingAt: 92)
+        #expect(aloneKlaxonTier == .klaxon)
     }
 
     @Test("A data gap inside a rise window restarts the sustain — no escalation on bracketing evidence")
@@ -296,8 +322,8 @@ struct CNSAlertTierMachineTests {
         // Flip run: identical trajectory, alone up through watch and partway
         // into the confirm rise-sustain window, then flip to companion
         // present and keep driving with the same score.
-        let flipSecond = 90
-        #expect(flipSecond > 60)             // after watch is reached
+        let flipSecond = 70
+        #expect(flipSecond > 45)             // after alone watch is reached (t=45)
         #expect(flipSecond < controlConfirm) // before confirm would arrive
 
         var flipped = machine(companionPresent: false)
@@ -308,7 +334,7 @@ struct CNSAlertTierMachineTests {
                 let canAssessBeforeFlip = flipped.canAssess
                 flipped.setCompanionPresent(true)
                 // The flip instant itself must not perturb tier/canAssess —
-                // it only changes the threshold context for future compares.
+                // it only changes the threshold/sustain context for future compares.
                 #expect(flipped.tier == tierBeforeFlip)
                 #expect(flipped.tier == .watch)
                 #expect(flipped.canAssess == canAssessBeforeFlip)
@@ -322,11 +348,10 @@ struct CNSAlertTierMachineTests {
         }
         let flippedConfirm = try #require(flippedConfirmSecond)
 
-        // Saturating score => the alone/companion threshold delta never
-        // gates this trajectory, so confirm must arrive at EXACTLY the same
-        // second as the no-flip control. A naive re-init-on-flip
-        // implementation would instead restart the sustain clock at
-        // `flipSecond` and land ~30s later.
-        #expect(flippedConfirm == controlConfirm)
+        // The flip mid-sustain extends the target duration from 45s to 60s.
+        // The candidate started at t=46. 60s elapsed is t=106.
+        // A naive re-init-on-flip implementation would instead restart the sustain clock at
+        // `flipSecond` (70) and land 60s later (at 130).
+        #expect(flippedConfirm == 106)
     }
 }

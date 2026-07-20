@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftData
+import UIKit
 import UserNotifications
 
 /// Notification-posting seam (spec asymmetry rule: degradation/ending is
@@ -48,7 +49,10 @@ struct UNUserNotificationCenterPoster: CNSMonitoringNotificationPosting {
         content.title = title
         content.body = body
         content.sound = .default
-        let interval = max(fireDate.timeIntervalSinceNow, 1)
+        let interval = max(
+            fireDate.timeIntervalSinceNow,
+            CNSMonitoringConstants.minimumNotificationDelay
+        )
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
         UNUserNotificationCenter.current().add(request)
@@ -173,10 +177,14 @@ final class CNSMonitoringCoordinator {
     /// toggle. Optional/`nil` default: tests that don't care about EMAY
     /// teardown (most of them) never have to supply one.
     private let emayStopHook: (() -> Void)?
+    private let criticalPermissionRequest: () -> Void
+    private let watchdogScheduler: (Date) -> Void
+    private let alarmPresentation: (CNSAlertTier) -> Void
+    private let pipelineFactory: @MainActor (Bool) -> any CNSDetectionProcessing
 
     // MARK: - Session-scoped state (reset in `startNewSession`/`endSession`)
 
-    private var pipeline: CNSDetectionPipeline?
+    private var pipeline: (any CNSDetectionProcessing)?
     private var session: MonitoringSession?
     private var sampleBuffer: [CNSSignalSample] = []
     private var baselines: CNSBaselines = .none
@@ -238,7 +246,13 @@ final class CNSMonitoringCoordinator {
         defaults: UserDefaults = .standard,
         enableTickLoop: Bool = true,
         emayStartHook: @escaping () -> Void = {},
-        emayStopHook: (() -> Void)? = nil
+        emayStopHook: (() -> Void)? = nil,
+        criticalPermissionRequest: @escaping () -> Void = {},
+        watchdogScheduler: ((Date) -> Void)? = nil,
+        alarmPresentation: @escaping (CNSAlertTier) -> Void = { _ in },
+        pipelineFactory: @escaping @MainActor (Bool) -> any CNSDetectionProcessing = {
+            CNSDetectionPipeline(thresholds: .standard, companionPresent: $0)
+        }
     ) {
         self.modelContext = modelContext
         self.now = now
@@ -251,6 +265,17 @@ final class CNSMonitoringCoordinator {
         self.enableTickLoop = enableTickLoop
         self.emayStartHook = emayStartHook
         self.emayStopHook = emayStopHook
+        self.criticalPermissionRequest = criticalPermissionRequest
+        self.watchdogScheduler = watchdogScheduler ?? { fireDate in
+            notificationPoster.schedule(
+                identifier: CNSMonitoringConstants.deadMansSwitchNotificationID,
+                title: "CNS monitoring may have stopped",
+                body: "Monitoring may have been interrupted. Reopen AnxietyWatch to check its status.",
+                at: fireDate
+            )
+        }
+        self.alarmPresentation = alarmPresentation
+        self.pipelineFactory = pipelineFactory
     }
 
     /// Production convenience init: wires the real `EMAYRealtimeService` /
@@ -287,16 +312,68 @@ final class CNSMonitoringCoordinator {
                 // it on, the EMAY session outlives CNS monitoring by design.
                 guard let emayService, !emayService.continuousModeEnabled else { return }
                 emayService.stop()
+            },
+            criticalPermissionRequest: {
+                Task { _ = await CNSCriticalAlertPermission().requestIfNeeded() }
+            },
+            watchdogScheduler: { fireDate in
+                // Never leave the watchdog unarmed while the asynchronous
+                // permission lookup runs. The presenter replaces this request
+                // under the same stable identifier with Critical/Time-Sensitive
+                // content as soon as settings arrive.
+                UNUserNotificationCenterPoster().schedule(
+                    identifier: CNSMonitoringConstants.deadMansSwitchNotificationID,
+                    title: "CNS monitoring may have stopped",
+                    body: "Monitoring may have been interrupted. Reopen AnxietyWatch to check its status.",
+                    at: fireDate
+                )
+                Task {
+                    let permission = await CNSCriticalAlertPermission().currentStatus()
+                    await MainActor.run {
+                        CNSAlarmPresenter(
+                            notify: UserNotificationPoster(),
+                            haptic: PhoneWatchHapticSender(),
+                            audio: ForegroundAlarmAudioPlayer()
+                        ).scheduleMonitoringStopped(permission: permission, at: fireDate)
+                    }
+                }
+            },
+            alarmPresentation: { tier in
+                Task {
+                    let permission = await CNSCriticalAlertPermission().currentStatus()
+                    await MainActor.run {
+                        CNSAlarmPresenter(
+                            notify: UserNotificationPoster(),
+                            haptic: PhoneWatchHapticSender(),
+                            audio: ForegroundAlarmAudioPlayer()
+                        ).present(
+                            tier: tier,
+                            permission: permission,
+                            appActive: UIApplication.shared.applicationState == .active
+                        )
+                    }
+                }
             }
         )
-        polarService.onLiveSample = { [weak self] _, timestamp in
-            self?.noteLivePolarSample(at: timestamp)
+        emayService.onLiveSample = { [weak self] reading in
+            guard let self else { return }
+            for sample in CNSSensorAdapters.samples(from: reading) {
+                self.handleRestoredSample(sample)
+            }
+        }
+        polarService.onLiveSample = { [weak self] heartRate, timestamp in
+            guard let self else { return }
+            self.noteLivePolarSample(at: timestamp)
+            for sample in CNSSensorAdapters.samples(polarHR: heartRate, at: timestamp) {
+                self.handleRestoredSample(sample)
+            }
         }
     }
 
     // MARK: - Public control surface
 
     func armManually(companionPresent: Bool) {
+        criticalPermissionRequest()
         let now = self.now()
         if isMonitoring {
             activeTriggers.insert(.manual)
@@ -313,6 +390,7 @@ final class CNSMonitoringCoordinator {
     /// default-to-alone rule doesn't apply — a pre-arm companion marking
     /// carries into the session instead of silently snapping back to alone.
     func armAdHoc() {
+        criticalPermissionRequest()
         let now = self.now()
         if isMonitoring {
             activeTriggers.insert(.adHoc)
@@ -348,6 +426,7 @@ final class CNSMonitoringCoordinator {
     /// evaluated per-tick in `evaluateDoseWindowExpiry`, not here.
     func doseLogged(_ dose: MedicationDose) {
         guard let drugClass = classify(dose) else { return }
+        criticalPermissionRequest()
         let now = self.now()
 
         var doses = loadPersistedDoses(at: now)
@@ -394,8 +473,37 @@ final class CNSMonitoringCoordinator {
         cachedDoses = nil
         let doses = loadPersistedDoses(at: now)
         guard refreshDoseWindowExpiry(doses: doses, at: now) != nil else { return }
+        criticalPermissionRequest()
         activeTriggers = [.doseWindow]
         startNewSession(companionPresent: false, at: now)
+    }
+
+    /// Event-driven entry point used by CoreBluetooth delivery, including
+    /// state-restored background sessions where the 1 Hz task is suspended.
+    /// The ordinary pipeline remains the sole decision maker, preserving its
+    /// primary-informed escalation/clearing rules. Missing or invalid sensor
+    /// values never reach this method because the adapters emit no sample.
+    func handleRestoredSample(_ sample: CNSSignalSample) {
+        guard isMonitoring, var pipeline, let session else { return }
+        if !sampleBuffer.contains(sample) {
+            sampleBuffer.append(sample)
+        }
+        let timestamp = sample.timestamp
+        let trimBefore = timestamp.addingTimeInterval(
+            -(CNSThresholds.standard.gateWindowSeconds + CNSMonitoringConstants.bufferTrimSlackSeconds)
+        )
+        sampleBuffer.removeAll { $0.timestamp < trimBefore }
+        updateDeviceStates(newSamples: [sample], at: timestamp)
+        guard isMonitoring, self.session != nil else { return }
+        let (assessment, tier) = pipeline.process(
+            samples: sampleBuffer, baselines: baselines, as11State: latestAS11State(), at: timestamp
+        )
+        self.pipeline = pipeline
+        currentTier = tier
+        canAssess = pipeline.canAssess
+        refreshReportingSources(sessionStart: session.startedAt, at: timestamp)
+        persistIfDue(assessment: assessment, tier: tier, at: timestamp, into: session)
+        updateStatusLine()
     }
 
     // MARK: - Tick
@@ -417,7 +525,9 @@ final class CNSMonitoringCoordinator {
         // A device-loss transition may have just ended the session.
         guard isMonitoring, self.session != nil else { return }
 
-        sampleBuffer.append(contentsOf: newSamples)
+        for sample in newSamples where !sampleBuffer.contains(sample) {
+            sampleBuffer.append(sample)
+        }
         let trimBefore = now.addingTimeInterval(
             -(CNSThresholds.standard.gateWindowSeconds + CNSMonitoringConstants.bufferTrimSlackSeconds)
         )
@@ -432,12 +542,7 @@ final class CNSMonitoringCoordinator {
         self.pipeline = pipeline
         currentTier = tier
         canAssess = pipeline.canAssess
-        reportingSources = Set(CNSSignalSource.allCases.filter { source in
-            CNSDeviceStateMatrix.state(
-                lastSample: lastSampleBySource[source], sessionStart: session.startedAt, now: now,
-                wasEverReporting: wasEverReportingBySource[source] ?? false
-            ) == .reporting
-        })
+        refreshReportingSources(sessionStart: session.startedAt, at: now)
 
         persistIfDue(assessment: assessment, tier: tier, at: now, into: session)
 
@@ -658,10 +763,9 @@ final class CNSMonitoringCoordinator {
             try? modelContext.save()
             lastPersistAt = now
         }
-        // Architecture seam for Phase 3: tier-edge is the hook point for
-        // klaxon/haptic escalation and alone-mode fast-escalation UI (spec
-        // §5.3/§14.4) — Phase 2 only persists the edge; it triggers no
-        // alerting itself.
+        if tier == .klaxon, previousObservedTier != .klaxon {
+            alarmPresentation(tier)
+        }
         previousObservedTier = tier
     }
 
@@ -673,14 +777,17 @@ final class CNSMonitoringCoordinator {
     /// and the previously-scheduled notification fires on schedule — the
     /// one disclosure path that does NOT depend on the tick loop staying
     /// alive.
+    private func refreshReportingSources(sessionStart: Date, at now: Date) {
+        reportingSources = Set(CNSSignalSource.allCases.filter { source in
+            CNSDeviceStateMatrix.state(
+                lastSample: lastSampleBySource[source], sessionStart: sessionStart, now: now,
+                wasEverReporting: wasEverReportingBySource[source] ?? false
+            ) == .reporting
+        })
+    }
+
     private func scheduleDeadMansSwitch(at now: Date) {
-        notificationPoster.schedule(
-            identifier: CNSMonitoringConstants.deadMansSwitchNotificationID,
-            title: "CNS monitoring may have stopped",
-            body: "Monitoring may have been interrupted (the app may have been suspended or closed). "
-                + "Reopen AnxietyWatch to check its status.",
-            at: now.addingTimeInterval(CNSMonitoringConstants.deadMansSwitchInterval)
-        )
+        watchdogScheduler(now.addingTimeInterval(CNSMonitoringConstants.deadMansSwitchInterval))
     }
 
     private func evaluateDoseWindowExpiry(at now: Date) {
@@ -711,7 +818,7 @@ final class CNSMonitoringCoordinator {
     private func startNewSession(companionPresent: Bool, at now: Date) {
         self.companionPresent = companionPresent
         isMonitoring = true
-        pipeline = CNSDetectionPipeline(thresholds: .standard, companionPresent: companionPresent)
+        pipeline = pipelineFactory(companionPresent)
         baselines = loadBaselines()
         sampleBuffer = []
         lastPersistAt = nil
@@ -794,7 +901,10 @@ final class CNSMonitoringCoordinator {
 
     private func applyCompanionPresent(_ present: Bool, at now: Date) {
         companionPresent = present
-        pipeline?.setCompanionPresent(present)
+        if var pipeline {
+            pipeline.setCompanionPresent(present)
+            self.pipeline = pipeline
+        }
         if let session {
             session.companionPresent = present
             var log = session.companionLog

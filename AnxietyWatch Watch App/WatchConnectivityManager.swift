@@ -2,6 +2,7 @@ import Foundation
 import os
 import SwiftData
 import WatchConnectivity
+import WatchKit
 import WidgetKit
 
 /// Watch-side connectivity. Sends anxiety entries to iPhone, receives stats via applicationContext.
@@ -221,6 +222,10 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
         Task { @MainActor in self.loadContext() }
     }
 
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        Task { @MainActor in self.applyIncomingData(message) }
+    }
+
     nonisolated func session(
         _ session: WCSession,
         didReceiveApplicationContext applicationContext: [String: Any]
@@ -261,10 +266,23 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate {
 
     @MainActor
     private func applyIncomingData(_ data: [String: Any]) {
+        if data["type"] as? String == "cnsKlaxonHaptic" {
+            playKlaxonHaptics()
+            return
+        }
         if let v = data[SharedData.Key.lastAnxiety] as? Int { lastAnxiety = v }
         if let v = data[SharedData.Key.hrvAvg] as? Double { hrvAvg = v }
         if let v = data[SharedData.Key.restingHR] as? Double { restingHR = v }
         pendingRandomCheckIn = data[SharedData.Key.pendingRandomCheckIn] as? Bool ?? pendingRandomCheckIn
         pushToWidget()
+    }
+
+    private func playKlaxonHaptics() {
+        Task { @MainActor in
+            for _ in 0..<3 {
+                WKInterfaceDevice.current().play(.failure)
+                try? await Task.sleep(for: .milliseconds(600))
+            }
+        }
     }
 }

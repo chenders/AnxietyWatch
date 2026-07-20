@@ -8,6 +8,8 @@ import AnxietyWatchKit
 
 @main
 struct AnxietyWatchApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     /// Versioned key for one-time medication reactivation fixup.
     private static let reactivateMedsKey = "didFixReactivateMeds_v1"
 

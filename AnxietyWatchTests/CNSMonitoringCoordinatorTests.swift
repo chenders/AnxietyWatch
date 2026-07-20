@@ -104,6 +104,132 @@ struct CNSMonitoringCoordinatorTests {
         return med
     }
 
+    @Test("Restored BLE samples run through the detection pipeline immediately")
+    func restoredSampleRunsPipeline() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let poster = NotificationPosterSpy()
+        let pipeline = DetectionPipelineSpy(result: (.insufficientData, .watch))
+        let coordinator = CNSMonitoringCoordinator(
+            modelContext: context,
+            now: { self.t0 },
+            latestEMAYReading: { nil },
+            latestPolarHR: { nil },
+            latestPolarRMSSD: { nil },
+            notificationPoster: poster,
+            defaults: makeDefaults(),
+            enableTickLoop: false,
+            pipelineFactory: { _ in pipeline }
+        )
+        coordinator.armManually(companionPresent: false)
+        let sample = CNSSignalSample(
+            kind: .spo2, source: .emayOximeter, value: 92, timestamp: t0
+        )
+
+        coordinator.handleRestoredSample(sample)
+
+        #expect(pipeline.processCallCount == 1)
+        #expect(pipeline.lastSamples == [sample])
+        #expect(coordinator.currentTier == .watch)
+    }
+
+    @Test("Restored primary sample refreshes reporting-source disclosure")
+    func restoredSampleRefreshesReportingSources() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let pipeline = DetectionPipelineSpy(result: (.insufficientData, .clear))
+        let coordinator = CNSMonitoringCoordinator(
+            modelContext: context,
+            now: { self.t0 },
+            latestEMAYReading: { nil },
+            latestPolarHR: { nil },
+            latestPolarRMSSD: { nil },
+            notificationPoster: NotificationPosterSpy(),
+            defaults: makeDefaults(),
+            enableTickLoop: false,
+            pipelineFactory: { _ in pipeline }
+        )
+        coordinator.armManually(companionPresent: false)
+
+        coordinator.handleRestoredSample(CNSSignalSample(
+            kind: .spo2, source: .emayOximeter, value: 92, timestamp: t0
+        ))
+
+        #expect(coordinator.reportingSources.contains(.emayOximeter))
+    }
+
+    @Test("Klaxon tier edge invokes the alarm path exactly once")
+    func klaxonTierEdgeInvokesAlarm() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let pipeline = DetectionPipelineSpy(result: (.insufficientData, .klaxon))
+        var presentedTiers: [CNSAlertTier] = []
+        let coordinator = CNSMonitoringCoordinator(
+            modelContext: context,
+            now: { self.t0 },
+            latestEMAYReading: { nil },
+            latestPolarHR: { nil },
+            latestPolarRMSSD: { nil },
+            notificationPoster: NotificationPosterSpy(),
+            defaults: makeDefaults(),
+            enableTickLoop: false,
+            alarmPresentation: { presentedTiers.append($0) },
+            pipelineFactory: { _ in pipeline }
+        )
+        coordinator.armManually(companionPresent: false)
+        let sample = CNSSignalSample(
+            kind: .spo2, source: .emayOximeter, value: 82, timestamp: t0
+        )
+
+        coordinator.handleRestoredSample(sample)
+        coordinator.handleRestoredSample(sample)
+
+        #expect(presentedTiers == [.klaxon])
+    }
+
+    @Test("Restored sample followed by polling does not duplicate physiological evidence")
+    func restoredAndPolledSampleIsDeduplicated() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let reading = EMAYReading(spo2: 92, pulseRate: nil, timestamp: t0)
+        let pipeline = DetectionPipelineSpy(result: (.insufficientData, .clear))
+        let coordinator = CNSMonitoringCoordinator(
+            modelContext: context,
+            now: { self.t0 },
+            latestEMAYReading: { reading },
+            latestPolarHR: { nil },
+            latestPolarRMSSD: { nil },
+            notificationPoster: NotificationPosterSpy(),
+            defaults: makeDefaults(),
+            enableTickLoop: false,
+            pipelineFactory: { _ in pipeline }
+        )
+        coordinator.armManually(companionPresent: false)
+        let sample = try #require(CNSSensorAdapters.samples(from: reading).first)
+
+        coordinator.handleRestoredSample(sample)
+        coordinator.tick(at: t0)
+
+        #expect(pipeline.lastSamples.filter { $0 == sample }.count == 1)
+    }
+
+    private final class DetectionPipelineSpy: CNSDetectionProcessing {
+        let result: (assessment: CNSRiskAssessment, tier: CNSAlertTier)
+        private(set) var processCallCount = 0
+        private(set) var lastSamples: [CNSSignalSample] = []
+
+        init(result: (assessment: CNSRiskAssessment, tier: CNSAlertTier)) {
+            self.result = result
+        }
+
+        var canAssess: Bool { false }
+        func setCompanionPresent(_ present: Bool) {}
+        func process(
+            samples: [CNSSignalSample], baselines: CNSBaselines, as11State: AS11StreamState, at now: Date
+        )
+            -> (assessment: CNSRiskAssessment, tier: CNSAlertTier) {
+            processCallCount += 1
+            lastSamples = samples
+            return result
+        }
+    }
+
     // MARK: - Contract 1: tick loop
 
     @Test("Tick loop: reads sensors via injected providers each tick and updates currentTier/canAssess as the pipeline processes")
