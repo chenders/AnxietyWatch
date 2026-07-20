@@ -65,6 +65,8 @@ enum CNSMonitoringConstants {
     /// BLE-event-driven background monitoring and Critical Alerts are Phase
     /// 3 scope (§15).
     static let deadMansSwitchInterval: TimeInterval = 90
+    /// `UNTimeIntervalNotificationTrigger` requires a positive delay.
+    static let minimumNotificationDelay: TimeInterval = 1
     static let deadMansSwitchNotificationID = "cns.monitoring.deadMansSwitch"
 
     /// `CNSMonitoringCoordinator`'s rolling sample buffer keeps samples back to

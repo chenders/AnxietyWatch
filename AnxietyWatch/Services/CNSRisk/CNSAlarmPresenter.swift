@@ -4,6 +4,7 @@ import UserNotifications
 @MainActor
 protocol NotificationPosting {
     func post(_ content: UNNotificationContent)
+    func schedule(_ content: UNNotificationContent, at fireDate: Date)
 }
 
 @MainActor
@@ -48,6 +49,28 @@ struct CNSAlarmPresenter {
         }
     }
 
+    /// Arms the dead-man's switch with the loudest notification level the
+    /// user granted. Standard/denied authorization cannot schedule an audible
+    /// fallback; the existing watch-first klaxon path remains independent.
+    func scheduleMonitoringStopped(permission: CNSNotifyPermission, at fireDate: Date) {
+        let level: UNNotificationInterruptionLevel
+        let criticalSound: Bool
+        switch permission {
+        case .criticalGranted:
+            level = .critical
+            criticalSound = true
+        case .timeSensitiveOnly:
+            level = .timeSensitive
+            criticalSound = false
+        case .standardOnly, .denied:
+            level = .active
+            criticalSound = false
+        }
+        notify.schedule(Self.monitoringStoppedContent(
+            interruptionLevel: level, criticalSound: criticalSound
+        ), at: fireDate)
+    }
+
     private static func notificationContent(
         interruptionLevel: UNNotificationInterruptionLevel,
         criticalSound: Bool
@@ -59,12 +82,35 @@ struct CNSAlarmPresenter {
         content.sound = criticalSound ? .defaultCritical : .default
         return content
     }
+
+    private static func monitoringStoppedContent(
+        interruptionLevel: UNNotificationInterruptionLevel,
+        criticalSound: Bool
+    ) -> UNNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = "CNS monitoring may have stopped"
+        content.body = "Monitoring may have been interrupted. Reopen AnxietyWatch to check its status."
+        content.interruptionLevel = interruptionLevel
+        content.sound = criticalSound ? .defaultCritical : .default
+        return content
+    }
 }
 
 @MainActor
 struct UserNotificationPoster: NotificationPosting {
     func post(_ content: UNNotificationContent) {
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    func schedule(_ content: UNNotificationContent, at fireDate: Date) {
+        let interval = max(fireDate.timeIntervalSinceNow, CNSMonitoringConstants.minimumNotificationDelay)
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: CNSMonitoringConstants.deadMansSwitchNotificationID,
+            content: content,
+            trigger: trigger
+        )
         UNUserNotificationCenter.current().add(request)
     }
 }

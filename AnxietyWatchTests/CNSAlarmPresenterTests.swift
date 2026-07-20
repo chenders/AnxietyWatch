@@ -33,6 +33,37 @@ struct CNSAlarmPresenterTests {
         #expect(haptic.sendCount == 1)
     }
 
+    @Test("Watchdog uses the highest available scheduled interruption level")
+    func watchdogPresentation() {
+        let notification = NotificationPostingSpy()
+        let presenter = CNSAlarmPresenter(
+            notify: notification, haptic: WatchHapticSpy(), audio: AlarmAudioSpy()
+        )
+        let fireDate = Date(timeIntervalSince1970: 1_750_000_090)
+
+        presenter.scheduleMonitoringStopped(permission: .criticalGranted, at: fireDate)
+
+        #expect(notification.scheduled.count == 1)
+        #expect(notification.scheduled[0].content.interruptionLevel == .critical)
+        #expect(notification.scheduled[0].content.sound != nil)
+        #expect(notification.scheduled[0].fireDate == fireDate)
+    }
+
+    @Test("Watchdog falls back to Time-Sensitive rather than stopping silently")
+    func watchdogFallback() {
+        let notification = NotificationPostingSpy()
+        let presenter = CNSAlarmPresenter(
+            notify: notification, haptic: WatchHapticSpy(), audio: AlarmAudioSpy()
+        )
+
+        presenter.scheduleMonitoringStopped(
+            permission: .timeSensitiveOnly, at: Date(timeIntervalSince1970: 1_750_000_090)
+        )
+
+        #expect(notification.scheduled.count == 1)
+        #expect(notification.scheduled[0].content.interruptionLevel == .timeSensitive)
+    }
+
     @Test("Denied notification permission remains watch-first and plays foreground audio")
     func deniedForegroundPresentation() {
         let notification = NotificationPostingSpy()
@@ -50,8 +81,17 @@ struct CNSAlarmPresenterTests {
 
 @MainActor
 private final class NotificationPostingSpy: NotificationPosting {
+    struct Scheduled {
+        let content: UNNotificationContent
+        let fireDate: Date
+    }
+
     private(set) var contents: [UNNotificationContent] = []
+    private(set) var scheduled: [Scheduled] = []
     func post(_ content: UNNotificationContent) { contents.append(content) }
+    func schedule(_ content: UNNotificationContent, at fireDate: Date) {
+        scheduled.append(Scheduled(content: content, fireDate: fireDate))
+    }
 }
 
 @MainActor

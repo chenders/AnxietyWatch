@@ -174,6 +174,7 @@ final class CNSMonitoringCoordinator {
     /// teardown (most of them) never have to supply one.
     private let emayStopHook: (() -> Void)?
     private let criticalPermissionRequest: () -> Void
+    private let watchdogScheduler: (Date) -> Void
     private let pipelineFactory: @MainActor (Bool) -> any CNSDetectionProcessing
 
     // MARK: - Session-scoped state (reset in `startNewSession`/`endSession`)
@@ -242,6 +243,7 @@ final class CNSMonitoringCoordinator {
         emayStartHook: @escaping () -> Void = {},
         emayStopHook: (() -> Void)? = nil,
         criticalPermissionRequest: @escaping () -> Void = {},
+        watchdogScheduler: ((Date) -> Void)? = nil,
         pipelineFactory: @escaping @MainActor (Bool) -> any CNSDetectionProcessing = {
             CNSDetectionPipeline(thresholds: .standard, companionPresent: $0)
         }
@@ -258,6 +260,14 @@ final class CNSMonitoringCoordinator {
         self.emayStartHook = emayStartHook
         self.emayStopHook = emayStopHook
         self.criticalPermissionRequest = criticalPermissionRequest
+        self.watchdogScheduler = watchdogScheduler ?? { fireDate in
+            notificationPoster.schedule(
+                identifier: CNSMonitoringConstants.deadMansSwitchNotificationID,
+                title: "CNS monitoring may have stopped",
+                body: "Monitoring may have been interrupted. Reopen AnxietyWatch to check its status.",
+                at: fireDate
+            )
+        }
         self.pipelineFactory = pipelineFactory
     }
 
@@ -298,6 +308,28 @@ final class CNSMonitoringCoordinator {
             },
             criticalPermissionRequest: {
                 Task { _ = await CNSCriticalAlertPermission().requestIfNeeded() }
+            },
+            watchdogScheduler: { fireDate in
+                // Never leave the watchdog unarmed while the asynchronous
+                // permission lookup runs. The presenter replaces this request
+                // under the same stable identifier with Critical/Time-Sensitive
+                // content as soon as settings arrive.
+                UNUserNotificationCenterPoster().schedule(
+                    identifier: CNSMonitoringConstants.deadMansSwitchNotificationID,
+                    title: "CNS monitoring may have stopped",
+                    body: "Monitoring may have been interrupted. Reopen AnxietyWatch to check its status.",
+                    at: fireDate
+                )
+                Task {
+                    let permission = await CNSCriticalAlertPermission().currentStatus()
+                    await MainActor.run {
+                        CNSAlarmPresenter(
+                            notify: UserNotificationPoster(),
+                            haptic: PhoneWatchHapticSender(),
+                            audio: ForegroundAlarmAudioPlayer()
+                        ).scheduleMonitoringStopped(permission: permission, at: fireDate)
+                    }
+                }
             }
         )
         emayService.onLiveSample = { [weak self] reading in
@@ -724,13 +756,7 @@ final class CNSMonitoringCoordinator {
     /// one disclosure path that does NOT depend on the tick loop staying
     /// alive.
     private func scheduleDeadMansSwitch(at now: Date) {
-        notificationPoster.schedule(
-            identifier: CNSMonitoringConstants.deadMansSwitchNotificationID,
-            title: "CNS monitoring may have stopped",
-            body: "Monitoring may have been interrupted (the app may have been suspended or closed). "
-                + "Reopen AnxietyWatch to check its status.",
-            at: now.addingTimeInterval(CNSMonitoringConstants.deadMansSwitchInterval)
-        )
+        watchdogScheduler(now.addingTimeInterval(CNSMonitoringConstants.deadMansSwitchInterval))
     }
 
     private func evaluateDoseWindowExpiry(at now: Date) {
