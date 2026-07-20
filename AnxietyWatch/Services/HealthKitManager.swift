@@ -83,7 +83,7 @@ actor HealthKitManager: HealthKitDataSource {
     /// set, the Dashboard banner routes repeat taps to Settings rather than
     /// re-invoking `requestAuthorization`, which would otherwise re-present the
     /// slow, black `com.apple.HealthPrivacyService` host with nothing to change.
-    private static let didRequestAuthorizationKey = "didRequestHealthKitAuthorization_v1"
+    private nonisolated static let didRequestAuthorizationKey = "didRequestHealthKitAuthorization_v1"
 
     static var hasEverRequestedAuthorization: Bool {
         UserDefaults.standard.bool(forKey: didRequestAuthorizationKey)
