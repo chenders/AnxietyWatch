@@ -1,3 +1,4 @@
+import time
 import json
 import hashlib
 from flask import Blueprint, request, current_app
@@ -47,36 +48,53 @@ def as11_ws_handler(ws):
         return
 
     since = request.args.get("since")
+    try:
+        last_id = int(since) if since else 0
+    except ValueError:
+        last_id = 0
 
-    db = get_db()
+    while True:
+        db = get_db()
 
-    query = """
-        SELECT id, bridge_id, ts_utc, channel, value, unit, ingest_ts_utc, session_id
-        FROM as11_stream_sample
-    """
-    params = []
+        with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, bridge_id, ts_utc, channel, value, unit, ingest_ts_utc, session_id
+                FROM as11_stream_sample
+                WHERE id > %s
+                ORDER BY id ASC LIMIT 1000
+            """, (last_id,))
+            samples = cur.fetchall()
 
-    if since:
-        query += " WHERE id > %s"
-        params.append(since)
+            cur.execute("SELECT MAX(ts_utc) AS max_ts FROM as11_stream_sample")
+            row = cur.fetchone()
+            latest_ts = row['max_ts'] if row else None
 
-    query += " ORDER BY id ASC LIMIT 1000"
+        if samples:
+            last_id = max(s['id'] for s in samples)
+            for s in samples:
+                if isinstance(s['ts_utc'], datetime):
+                    s['ts_utc'] = s['ts_utc'].astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+                if isinstance(s['ingest_ts_utc'], datetime):
+                    s['ingest_ts_utc'] = s['ingest_ts_utc'].astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
-    with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(query, tuple(params))
-        samples = cur.fetchall()
+        state = "STREAM_STALLED"
+        now_utc = datetime.now(timezone.utc)
+        if latest_ts:
+            if (now_utc - latest_ts).total_seconds() <= 15:
+                state = "STREAMING_OK"
+        response = {
+            "samples": samples,
+            "state": state
+        }
 
-    for s in samples:
-        if isinstance(s['ts_utc'], datetime):
-            s['ts_utc'] = s['ts_utc'].astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-        if isinstance(s['ingest_ts_utc'], datetime):
-            s['ingest_ts_utc'] = s['ingest_ts_utc'].astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        try:
+            ws.send(json.dumps(response))
+        except Exception:
+            break
 
-    response = {
-        "samples": samples,
-        "state": "STREAMING_OK"
-    }
-    ws.send(json.dumps(response))
+        # Optional: listen for client messages to handle ping/pong or close
+        # but time.sleep is simpler if we just push.
+        time.sleep(2.0)
 
 
 @sock.route('/api/cpap/as11/ws')

@@ -2,8 +2,7 @@ import json
 from datetime import datetime, timezone
 from api.as11 import insert_stream_sample
 from api.as11_ws import as11_ws_handler
-from tests.test_server import app, _init_db  # noqa: F401
-
+from tests.test_server import app, _clean_tables, _init_db  # noqa: F401
 
 
 class MockWebSocket:
@@ -15,6 +14,8 @@ class MockWebSocket:
 
     def send(self, data):
         self.sent.append(data)
+        if len(self.sent) >= 1:
+            raise Exception('Break loop')
 
     def receive(self):
         return None
@@ -34,7 +35,7 @@ def test_as11_ws_auth_rejected(app):
         assert ws.close_code == 1008
 
 
-def test_as11_ws_with_valid_token_and_since_cursor(app):
+def test_as11_ws_with_valid_token_and_since_cursor(app, _clean_tables):
     """A WS client with a valid Bearer token receives buffered rows and state,
     and a `since` cursor replays newer rows."""
 
@@ -74,3 +75,19 @@ def test_as11_ws_with_valid_token_and_since_cursor(app):
         ids = [s["id"] for s in data["samples"]]
         assert sample1_id not in ids
         assert sample2_id in ids
+
+
+def test_as11_ws_stalled_state(app, _clean_tables):
+    from datetime import timedelta
+    with app.app_context():
+        db = app.get_db()
+        sample1_id = insert_stream_sample(db, "br-1", datetime.now(timezone.utc) - timedelta(seconds=20), "SPO2", 98.0)
+
+    from tests.test_server import auth_header
+    headers = auth_header()
+
+    with app.test_request_context(f'/api/cpap/as11/ws?since={sample1_id}', headers=headers):
+        ws = MockWebSocket()
+        as11_ws_handler(ws)
+        data = json.loads(ws.sent[0])
+        assert data["state"] == "STREAM_STALLED"
