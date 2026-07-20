@@ -30,7 +30,7 @@ struct CNSAlarmChannelPolicyTests {
         #expect(!channels.isEmpty)
     }
 
-    @Test("Klaxon without notification permission still uses watch haptics")
+    @Test("Klaxon without elevated permission still uses standard notification and haptics")
     func klaxonNotificationDenied() {
         let channels = CNSAlarmChannelPolicy.channels(
             tier: .klaxon,
@@ -39,7 +39,7 @@ struct CNSAlarmChannelPolicyTests {
             appActive: false
         )
 
-        #expect(channels == [.watchHaptic])
+        #expect(channels == [.watchHaptic, .standardNotification])
     }
 
     @Test("Active klaxon adds foreground channels")

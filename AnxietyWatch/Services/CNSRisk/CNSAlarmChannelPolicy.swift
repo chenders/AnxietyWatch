@@ -4,6 +4,7 @@ nonisolated enum CNSAlarmChannel: Sendable {
     case watchHaptic
     case criticalNotification
     case timeSensitiveNotification
+    case standardNotification
     case foregroundAudio
     case inAppBanner
 }
@@ -22,6 +23,8 @@ nonisolated struct CNSAlarmChannelPolicy {
             channels.insert(.criticalNotification)
         } else if timeSensitiveGranted {
             channels.insert(.timeSensitiveNotification)
+        } else {
+            channels.insert(.standardNotification)
         }
         if appActive {
             channels.insert(.foregroundAudio)

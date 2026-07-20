@@ -33,6 +33,22 @@ struct CNSAlarmPresenterTests {
         #expect(haptic.sendCount == 1)
     }
 
+    @Test("Standard permission still posts an active fallback notification")
+    func standardFallbackPresentation() {
+        let notification = NotificationPostingSpy()
+        let haptic = WatchHapticSpy()
+        let presenter = CNSAlarmPresenter(
+            notify: notification, haptic: haptic, audio: AlarmAudioSpy()
+        )
+
+        presenter.present(tier: .klaxon, permission: .standardOnly, appActive: false)
+
+        #expect(notification.contents.count == 1)
+        #expect(notification.contents[0].interruptionLevel == .active)
+        #expect(notification.contents[0].sound != nil)
+        #expect(haptic.sendCount == 1)
+    }
+
     @Test("Watchdog uses the highest available scheduled interruption level")
     func watchdogPresentation() {
         let notification = NotificationPostingSpy()

@@ -426,6 +426,7 @@ final class CNSMonitoringCoordinator {
     /// evaluated per-tick in `evaluateDoseWindowExpiry`, not here.
     func doseLogged(_ dose: MedicationDose) {
         guard let drugClass = classify(dose) else { return }
+        criticalPermissionRequest()
         let now = self.now()
 
         var doses = loadPersistedDoses(at: now)
@@ -472,6 +473,7 @@ final class CNSMonitoringCoordinator {
         cachedDoses = nil
         let doses = loadPersistedDoses(at: now)
         guard refreshDoseWindowExpiry(doses: doses, at: now) != nil else { return }
+        criticalPermissionRequest()
         activeTriggers = [.doseWindow]
         startNewSession(companionPresent: false, at: now)
     }

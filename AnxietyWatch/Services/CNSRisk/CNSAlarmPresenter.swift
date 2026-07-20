@@ -43,6 +43,8 @@ struct CNSAlarmPresenter {
             notify.post(Self.notificationContent(interruptionLevel: .critical, criticalSound: true))
         } else if channels.contains(.timeSensitiveNotification) {
             notify.post(Self.notificationContent(interruptionLevel: .timeSensitive, criticalSound: false))
+        } else if channels.contains(.standardNotification) {
+            notify.post(Self.notificationContent(interruptionLevel: .active, criticalSound: false))
         }
         if channels.contains(.foregroundAudio) {
             audio.playKlaxon()
