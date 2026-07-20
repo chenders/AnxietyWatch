@@ -65,7 +65,10 @@ def create_app(test_config=None):
 
     # Register AS11 CPAP blueprint
     from api.as11 import as11_bp
+    from api.as11_ws import as11_ws_bp, sock
+    sock.init_app(app)
     app.register_blueprint(as11_bp)
+    app.register_blueprint(as11_ws_bp)
 
     # -----------------------------------------------------------------------
     # Jinja2 template filters for Claude API text formatting
