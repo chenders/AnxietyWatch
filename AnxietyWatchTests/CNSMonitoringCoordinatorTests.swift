@@ -237,7 +237,7 @@ struct CNSMonitoringCoordinatorTests {
     @Test("Coordinator preserves authoritative AS11 state and collects AS11 samples")
     func as11SourceStateAndSamplesReachCoordinator() throws {
         let context = ModelContext(try TestHelpers.makeFullContainer())
-        var currentTime = t0
+        let currentTime = t0
         let payload = AS11StreamPayload(
             id: "as11-1", bridgeId: "test-bridge", timestampUTC: t0,
             pressure: nil, flow: nil, leak: nil, spo2: 94, hr: 61,
@@ -346,6 +346,33 @@ struct CNSMonitoringCoordinatorTests {
 
         #expect(!coordinator.isMonitoring)
         #expect(poster.posts.contains { $0.identifier == CNSMonitoringConstants.endedNotificationID })
+    }
+
+    @Test(
+        "Persisted can't-assess records retain the authoritative AS11 fault reason",
+        arguments: [
+            AS11StreamState.bridgeDown,
+            AS11StreamState.streamStalled,
+            AS11StreamState.maskOffLeak
+        ]
+    )
+    func persistedRecordRetainsAS11FaultReason(state: AS11StreamState) throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let source = MockAS11StreamSource(
+            state: state, samples: [], lastFrameAt: t0,
+            now: { t0 }, staleTimeout: 120
+        )
+        let coordinator = makeCoordinator(
+            context: context, now: { t0 }, as11Source: source,
+            poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        coordinator.tick(at: t0)
+
+        let record = try #require(context.fetch(FetchDescriptor<CNSRiskSampleRecord>()).first)
+        #expect(record.assessmentReason == state.rawValue)
+        #expect(record.canAssess == false)
     }
 
     // MARK: - Contract 1: tick loop

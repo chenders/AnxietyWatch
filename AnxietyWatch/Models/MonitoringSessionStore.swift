@@ -17,6 +17,7 @@ enum MonitoringSessionStore {
         riskScore: Double?,
         tier: CNSAlertTier,
         canAssess: Bool,
+        assessmentReason: String? = nil,
         contributions: [CNSContributionRecord] = [],
         into session: MonitoringSession,
         context: ModelContext
@@ -25,7 +26,8 @@ enum MonitoringSessionStore {
             timestamp: timestamp,
             riskScore: riskScore,
             tier: tier.rawValue,
-            canAssess: canAssess
+            canAssess: canAssess,
+            assessmentReason: assessmentReason
         )
         record.contributions = contributions
         record.session = session

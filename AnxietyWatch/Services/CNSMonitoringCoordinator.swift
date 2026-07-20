@@ -775,18 +775,26 @@ final class CNSMonitoringCoordinator {
         }
         if persistDue || tierIncreased {
             let riskScore: Double?
+            let assessmentReason: String?
             let contributions: [CNSContributionRecord]
             switch assessment {
-            case .insufficientData, .monitoringDegraded, .monitoringPaused:
+            case .insufficientData:
                 riskScore = nil
+                assessmentReason = nil
+                contributions = []
+            case .monitoringDegraded(let reason), .monitoringPaused(let reason):
+                riskScore = nil
+                assessmentReason = reason
                 contributions = []
             case .assessed(let score, let assessmentContributions):
                 riskScore = score
+                assessmentReason = nil
                 contributions = assessmentContributions.map(CNSContributionRecord.init(assessment:))
             }
             MonitoringSessionStore.insertSample(
                 timestamp: now, riskScore: riskScore, tier: tier, canAssess: canAssess,
-                contributions: contributions, into: session, context: modelContext
+                assessmentReason: assessmentReason, contributions: contributions,
+                into: session, context: modelContext
             )
             try? modelContext.save()
             lastPersistAt = now
