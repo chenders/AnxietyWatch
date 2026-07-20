@@ -40,14 +40,21 @@ struct CNSDeviceFallbackConfig: Codable, Equatable {
         case notifyOnly
     }
 
-    /// Losing the only continuous SpO₂ source is the dangerous silent-gap
-    /// case (§7) — the loudest default is deliberate, not an oversight.
+    /// Losing a continuous SpO₂ source can create a dangerous silent gap
+    /// (§7) — the loudest defaults are deliberate, not an oversight.
     var emay: Action
+    var as11: Action
     var polar: Action
     var appleWatch: Action
 
-    init(emay: Action = .klaxon, polar: Action = .notifyOnly, appleWatch: Action = .notifyOnly) {
+    init(
+        emay: Action = .klaxon,
+        as11: Action = .klaxon,
+        polar: Action = .notifyOnly,
+        appleWatch: Action = .notifyOnly
+    ) {
         self.emay = emay
+        self.as11 = as11
         self.polar = polar
         self.appleWatch = appleWatch
     }
@@ -60,12 +67,13 @@ struct CNSDeviceFallbackConfig: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         emay = try container.decodeIfPresent(Action.self, forKey: .emay) ?? .klaxon
+        as11 = try container.decodeIfPresent(Action.self, forKey: .as11) ?? .klaxon
         polar = try container.decodeIfPresent(Action.self, forKey: .polar) ?? .notifyOnly
         appleWatch = try container.decodeIfPresent(Action.self, forKey: .appleWatch) ?? .notifyOnly
     }
 
     private enum CodingKeys: String, CodingKey {
-        case emay, polar, appleWatch
+        case emay, as11, polar, appleWatch
     }
 
     private static let defaultsKey = "cns.deviceFallbackConfig"
@@ -93,19 +101,10 @@ struct CNSDeviceFallbackConfig: Codable, Equatable {
 /// `isOnlyPrimarySource` is caller-computed (Task 6's coordinator): whether
 /// the source under evaluation is the only currently-present PRIMARY-CAPABLE
 /// (continuous SpO₂) source — NOT whether it is the only source present.
-/// Only `.emayOximeter` is primary-capable (plan decision 5 — Polar has no
-/// primary kind; Apple Watch SpO₂ is periodic spot-checks, not continuous),
-/// which collapses the flag to a fixed per-source rule. Task 6's correct
-/// computation, in one sentence: `isOnlyPrimarySource` is `true` exactly
-/// when `source == .emayOximeter`.
-///
-/// - Evaluating `.emayOximeter`: because no other source can stand in as
-///   primary, "the only primary-capable source" reduces to "EMAY is
-///   present" — effectively ALWAYS TRUE when EMAY itself is the source
-///   under evaluation.
-/// - Evaluating `.polarH10` / `.appleWatch`: always `false`. Passing `true`
-///   for these is the benign misuse direction — it merely over-escalates a
-///   corroborating dropout to `.endMonitoring`.
+/// EMAY and AS11 are primary-capable continuous SpO₂ sources; Polar has no
+/// primary kind, and Apple Watch SpO₂ is periodic spot-checks. The caller
+/// must set `isOnlyPrimarySource` only when the source under evaluation is
+/// the sole currently-present member of `primaryCapableSources`.
 ///
 /// The DANGEROUS misuse is the mirror: conflating "only source present"
 /// with "only primary-capable source present" and passing `false` for EMAY
@@ -118,6 +117,7 @@ struct CNSDeviceFallbackConfig: Codable, Equatable {
 /// decision function should never crash on a caller bug — so this contract
 /// is enforced entirely at the call site: get the flag right there.
 enum CNSDeviceStateMatrix {
+    static let primaryCapableSources: Set<CNSSignalSource> = [.emayOximeter, .as11Bridge]
 
     /// The §7 enumerated matrix. Inputs: per-source state + whether that
     /// source is the ONLY present primary-capable (continuous SpO₂) source.
@@ -126,7 +126,7 @@ enum CNSDeviceStateMatrix {
     /// - `.absentFromStart` → `.ignorable` for corroborating-only sources
     ///   (`.polarH10`, `.appleWatch`) — the spec's own worked example: "H10
     ///   absent from start on a Watch+EMAY night is fine." `.degradeDisclosed`
-    ///   for `.emayOximeter` — arming without the primary source is allowed
+    ///   for primary-capable sources — arming without a primary source is allowed
     ///   but must be disclosed (decision 5's minimum-bar guardrail).
     /// - `.idle` / `.diedMidSession` → `.endMonitoring` when
     ///   `isOnlyPrimarySource` (the dangerous silent gap: nothing else
@@ -141,7 +141,7 @@ enum CNSDeviceStateMatrix {
         case .reporting:
             return .ignorable
         case .absentFromStart:
-            return source == .emayOximeter ? .degradeDisclosed : .ignorable
+            return primaryCapableSources.contains(source) ? .degradeDisclosed : .ignorable
         case .idle, .diedMidSession:
             return isOnlyPrimarySource ? .endMonitoring : .degradeDisclosed
         }

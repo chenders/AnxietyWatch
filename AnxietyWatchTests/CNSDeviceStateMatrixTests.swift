@@ -56,6 +56,19 @@ struct CNSDeviceStateMatrixTests {
         #expect(result == .degradeDisclosed)
     }
 
+    @Test("absentFromStart: AS11 is primary-capable, so its absence is disclosed rather than ignored")
+    func absentFromStartAS11IsDegradeDisclosed() {
+        let result = CNSDeviceStateMatrix.classify(
+            source: .as11Bridge, state: .absentFromStart, isOnlyPrimarySource: false
+        )
+        #expect(result == .degradeDisclosed)
+    }
+
+    @Test("The primary-capable source set contains both continuous SpO₂ sources and no corroborating-only source")
+    func primaryCapableSourcesAreEMAYAndAS11() {
+        #expect(CNSDeviceStateMatrix.primaryCapableSources == [.emayOximeter, .as11Bridge])
+    }
+
     // MARK: - classify: idle / diedMidSession
 
     @Test(
@@ -191,6 +204,7 @@ struct CNSDeviceStateMatrixTests {
         let defaults = makeDefaults()
         let config = CNSDeviceFallbackConfig.load(from: defaults)
         #expect(config.emay == .klaxon)
+        #expect(config.as11 == .klaxon)
         #expect(config.polar == .notifyOnly)
         #expect(config.appleWatch == .notifyOnly)
     }
@@ -198,7 +212,9 @@ struct CNSDeviceStateMatrixTests {
     @Test("A saved, non-default config round-trips exactly through the same suite")
     func savedConfigRoundTrips() throws {
         let defaults = makeDefaults()
-        let saved = CNSDeviceFallbackConfig(emay: .gentleAlarm, polar: .klaxon, appleWatch: .notifyOnly)
+        let saved = CNSDeviceFallbackConfig(
+            emay: .gentleAlarm, as11: .gentleAlarm, polar: .klaxon, appleWatch: .notifyOnly
+        )
         saved.save(to: defaults)
         let loaded = CNSDeviceFallbackConfig.load(from: defaults)
         #expect(loaded == saved)
@@ -215,6 +231,7 @@ struct CNSDeviceStateMatrixTests {
 
         let loaded = CNSDeviceFallbackConfig.load(from: defaults)
         #expect(loaded.emay == .gentleAlarm)
+        #expect(loaded.as11 == .klaxon)
         #expect(loaded.polar == .notifyOnly)
         #expect(loaded.appleWatch == .notifyOnly)
     }
