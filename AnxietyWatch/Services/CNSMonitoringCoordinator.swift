@@ -152,7 +152,7 @@ final class CNSMonitoringCoordinator {
     private let latestEMAYReading: () -> EMAYReading?
     private let latestPolarHR: () -> Int?
     private let latestPolarRMSSD: () -> Double?
-    private let latestAS11State: () -> AS11StreamState
+    private let as11Source: AS11StreamSource?
     private let notificationPoster: CNSMonitoringNotificationPosting
     private let defaults: UserDefaults
     /// `false` in tests: suppresses the real `Task`-based tick loop so tests
@@ -211,6 +211,9 @@ final class CNSMonitoringCoordinator {
     /// window `PolarHRMService` keeps `state.currentHR` populated for) is
     /// never re-emitted as if it just arrived.
     private var lastEmittedPolarHRArrivalTime: Date?
+    /// Server ids already admitted during this monitoring session. A cursor
+    /// resync may replay overlap; those rows must enter the pipeline once.
+    private var collectedAS11SampleIDs: Set<String> = []
     private var tickTask: Task<Void, Never>?
     /// In-memory cache of the persisted `[LoggedCNSDose]` list, so
     /// `evaluateDoseWindowExpiry` (called every 1 Hz tick, potentially for a
@@ -241,7 +244,7 @@ final class CNSMonitoringCoordinator {
         latestEMAYReading: @escaping () -> EMAYReading?,
         latestPolarHR: @escaping () -> Int?,
         latestPolarRMSSD: @escaping () -> Double?,
-        latestAS11State: @escaping () -> AS11StreamState = { .streamingOK },
+        as11Source: AS11StreamSource? = nil,
         notificationPoster: CNSMonitoringNotificationPosting,
         defaults: UserDefaults = .standard,
         enableTickLoop: Bool = true,
@@ -259,7 +262,7 @@ final class CNSMonitoringCoordinator {
         self.latestEMAYReading = latestEMAYReading
         self.latestPolarHR = latestPolarHR
         self.latestPolarRMSSD = latestPolarRMSSD
-        self.latestAS11State = latestAS11State
+        self.as11Source = as11Source
         self.notificationPoster = notificationPoster
         self.defaults = defaults
         self.enableTickLoop = enableTickLoop
@@ -296,13 +299,15 @@ final class CNSMonitoringCoordinator {
     convenience init(
         modelContext: ModelContext,
         emayService: EMAYRealtimeService,
-        polarService: PolarHRMService
+        polarService: PolarHRMService,
+        as11Source: AS11StreamSource
     ) {
         self.init(
             modelContext: modelContext,
             latestEMAYReading: { [weak emayService] in emayService?.latestReading },
             latestPolarHR: { [weak polarService] in polarService?.state.currentHR },
             latestPolarRMSSD: { [weak polarService] in polarService?.state.lastMinuteRMSSD },
+            as11Source: as11Source,
             notificationPoster: UNUserNotificationCenterPoster(),
             emayStartHook: { [weak emayService] in emayService?.start() },
             emayStopHook: { [weak emayService] in
@@ -536,7 +541,7 @@ final class CNSMonitoringCoordinator {
         let (assessment, tier) = pipeline.process(
             samples: sampleBuffer,
             baselines: baselines,
-            as11State: latestAS11State(),
+            as11State: currentAS11State(),
             at: now
         )
         self.pipeline = pipeline
@@ -558,7 +563,19 @@ final class CNSMonitoringCoordinator {
         }
         samples.append(contentsOf: collectPolarHRSample())
         samples.append(contentsOf: collectPolarRMSSDSample(at: now))
+        if let as11Source {
+            for payload in as11Source.latestSamples()
+            where collectedAS11SampleIDs.insert(payload.id).inserted {
+                samples.append(contentsOf: CNSSensorAdapters.samples(from: payload))
+            }
+        }
         return samples
+    }
+
+    /// Exposes the exact state supplied by the server while fresh. An absent
+    /// source and the source's stale-frame policy both mean can't assess.
+    func currentAS11State() -> AS11StreamState {
+        as11Source?.latestState ?? .streamStalled
     }
 
     /// Fix item 2 (IMPORTANT — Polar liveness from packet arrival, not cached
@@ -833,6 +850,7 @@ final class CNSMonitoringCoordinator {
         disclosedDegradedSources = []
         lastPolarHRArrivalTime = nil
         lastEmittedPolarHRArrivalTime = nil
+        collectedAS11SampleIDs = []
 
         let newSession = MonitoringSession(
             startedAt: now,
@@ -895,6 +913,7 @@ final class CNSMonitoringCoordinator {
         disclosedDegradedSources = []
         lastPolarHRArrivalTime = nil
         lastEmittedPolarHRArrivalTime = nil
+        collectedAS11SampleIDs = []
         doseWindowExpiry = nil
         updateStatusLine()
     }

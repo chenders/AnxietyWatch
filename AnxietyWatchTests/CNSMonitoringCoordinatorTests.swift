@@ -73,6 +73,7 @@ struct CNSMonitoringCoordinatorTests {
         emayReading: @escaping () -> EMAYReading? = { nil },
         polarHR: @escaping () -> Int? = { nil },
         polarRMSSD: @escaping () -> Double? = { nil },
+        as11Source: AS11StreamSource? = nil,
         poster: CNSMonitoringNotificationPosting,
         defaults: UserDefaults,
         emayStartHook: @escaping () -> Void = {},
@@ -84,6 +85,7 @@ struct CNSMonitoringCoordinatorTests {
             latestEMAYReading: emayReading,
             latestPolarHR: polarHR,
             latestPolarRMSSD: polarRMSSD,
+            as11Source: as11Source,
             notificationPoster: poster,
             defaults: defaults,
             enableTickLoop: false,
@@ -228,6 +230,35 @@ struct CNSMonitoringCoordinatorTests {
             lastSamples = samples
             return result
         }
+    }
+
+    // MARK: - AS11 source wiring
+
+    @Test("Coordinator preserves authoritative AS11 state and collects AS11 samples")
+    func as11SourceStateAndSamplesReachCoordinator() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        var currentTime = t0
+        let payload = AS11StreamPayload(
+            id: "as11-1", bridgeId: "test-bridge", timestampUTC: t0,
+            pressure: nil, flow: nil, leak: nil, spo2: 94, hr: 61,
+            state: AS11StreamState.bridgeDown.rawValue
+        )
+        let source = MockAS11StreamSource(
+            state: .bridgeDown, samples: [payload], lastFrameAt: t0,
+            now: { currentTime }, staleTimeout: 120
+        )
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime },
+            emayReading: { EMAYReading(spo2: 96, pulseRate: 62, timestamp: currentTime) },
+            as11Source: source,
+            poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        coordinator.tick(at: currentTime)
+
+        #expect(coordinator.currentAS11State() == .bridgeDown)
+        #expect(coordinator.reportingSources.contains(.as11Bridge))
     }
 
     // MARK: - Contract 1: tick loop
