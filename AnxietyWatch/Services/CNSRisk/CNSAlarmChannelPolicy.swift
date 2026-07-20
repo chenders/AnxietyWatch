@@ -1,6 +1,6 @@
 import Foundation
 
-enum CNSAlarmChannel: Sendable {
+nonisolated enum CNSAlarmChannel: Sendable {
     case watchHaptic
     case criticalNotification
     case timeSensitiveNotification
@@ -8,7 +8,7 @@ enum CNSAlarmChannel: Sendable {
     case inAppBanner
 }
 
-struct CNSAlarmChannelPolicy {
+nonisolated struct CNSAlarmChannelPolicy {
     nonisolated static func channels(
         tier: CNSAlertTier,
         criticalGranted: Bool,

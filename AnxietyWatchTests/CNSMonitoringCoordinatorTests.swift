@@ -132,6 +132,58 @@ struct CNSMonitoringCoordinatorTests {
         #expect(coordinator.currentTier == .watch)
     }
 
+    @Test("Restored primary sample refreshes reporting-source disclosure")
+    func restoredSampleRefreshesReportingSources() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let pipeline = DetectionPipelineSpy(result: (.insufficientData, .clear))
+        let coordinator = CNSMonitoringCoordinator(
+            modelContext: context,
+            now: { self.t0 },
+            latestEMAYReading: { nil },
+            latestPolarHR: { nil },
+            latestPolarRMSSD: { nil },
+            notificationPoster: NotificationPosterSpy(),
+            defaults: makeDefaults(),
+            enableTickLoop: false,
+            pipelineFactory: { _ in pipeline }
+        )
+        coordinator.armManually(companionPresent: false)
+
+        coordinator.handleRestoredSample(CNSSignalSample(
+            kind: .spo2, source: .emayOximeter, value: 92, timestamp: t0
+        ))
+
+        #expect(coordinator.reportingSources.contains(.emayOximeter))
+    }
+
+    @Test("Klaxon tier edge invokes the alarm path exactly once")
+    func klaxonTierEdgeInvokesAlarm() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let pipeline = DetectionPipelineSpy(result: (.insufficientData, .klaxon))
+        var presentedTiers: [CNSAlertTier] = []
+        let coordinator = CNSMonitoringCoordinator(
+            modelContext: context,
+            now: { self.t0 },
+            latestEMAYReading: { nil },
+            latestPolarHR: { nil },
+            latestPolarRMSSD: { nil },
+            notificationPoster: NotificationPosterSpy(),
+            defaults: makeDefaults(),
+            enableTickLoop: false,
+            alarmPresentation: { presentedTiers.append($0) },
+            pipelineFactory: { _ in pipeline }
+        )
+        coordinator.armManually(companionPresent: false)
+        let sample = CNSSignalSample(
+            kind: .spo2, source: .emayOximeter, value: 82, timestamp: t0
+        )
+
+        coordinator.handleRestoredSample(sample)
+        coordinator.handleRestoredSample(sample)
+
+        #expect(presentedTiers == [.klaxon])
+    }
+
     @Test("Restored sample followed by polling does not duplicate physiological evidence")
     func restoredAndPolledSampleIsDeduplicated() throws {
         let context = ModelContext(try TestHelpers.makeFullContainer())

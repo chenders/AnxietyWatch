@@ -1,14 +1,14 @@
 import UserNotifications
 
 protocol NotificationSettingsShape {
-    var authorizationStatus: UNAuthorizationStatus { get }
-    var criticalAlertSetting: UNNotificationSetting { get }
-    var timeSensitiveSetting: UNNotificationSetting { get }
+    nonisolated var authorizationStatus: UNAuthorizationStatus { get }
+    nonisolated var criticalAlertSetting: UNNotificationSetting { get }
+    nonisolated var timeSensitiveSetting: UNNotificationSetting { get }
 }
 
 extension UNNotificationSettings: NotificationSettingsShape {}
 
-enum CNSNotifyPermission: Equatable, Sendable {
+nonisolated enum CNSNotifyPermission: Equatable, Sendable {
     case criticalGranted
     case timeSensitiveOnly
     case standardOnly

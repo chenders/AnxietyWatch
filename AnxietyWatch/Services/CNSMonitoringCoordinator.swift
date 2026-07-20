@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftData
+import UIKit
 import UserNotifications
 
 /// Notification-posting seam (spec asymmetry rule: degradation/ending is
@@ -48,7 +49,10 @@ struct UNUserNotificationCenterPoster: CNSMonitoringNotificationPosting {
         content.title = title
         content.body = body
         content.sound = .default
-        let interval = max(fireDate.timeIntervalSinceNow, 1)
+        let interval = max(
+            fireDate.timeIntervalSinceNow,
+            CNSMonitoringConstants.minimumNotificationDelay
+        )
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: interval, repeats: false)
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
         UNUserNotificationCenter.current().add(request)
@@ -175,6 +179,7 @@ final class CNSMonitoringCoordinator {
     private let emayStopHook: (() -> Void)?
     private let criticalPermissionRequest: () -> Void
     private let watchdogScheduler: (Date) -> Void
+    private let alarmPresentation: (CNSAlertTier) -> Void
     private let pipelineFactory: @MainActor (Bool) -> any CNSDetectionProcessing
 
     // MARK: - Session-scoped state (reset in `startNewSession`/`endSession`)
@@ -244,6 +249,7 @@ final class CNSMonitoringCoordinator {
         emayStopHook: (() -> Void)? = nil,
         criticalPermissionRequest: @escaping () -> Void = {},
         watchdogScheduler: ((Date) -> Void)? = nil,
+        alarmPresentation: @escaping (CNSAlertTier) -> Void = { _ in },
         pipelineFactory: @escaping @MainActor (Bool) -> any CNSDetectionProcessing = {
             CNSDetectionPipeline(thresholds: .standard, companionPresent: $0)
         }
@@ -268,6 +274,7 @@ final class CNSMonitoringCoordinator {
                 at: fireDate
             )
         }
+        self.alarmPresentation = alarmPresentation
         self.pipelineFactory = pipelineFactory
     }
 
@@ -328,6 +335,22 @@ final class CNSMonitoringCoordinator {
                             haptic: PhoneWatchHapticSender(),
                             audio: ForegroundAlarmAudioPlayer()
                         ).scheduleMonitoringStopped(permission: permission, at: fireDate)
+                    }
+                }
+            },
+            alarmPresentation: { tier in
+                Task {
+                    let permission = await CNSCriticalAlertPermission().currentStatus()
+                    await MainActor.run {
+                        CNSAlarmPresenter(
+                            notify: UserNotificationPoster(),
+                            haptic: PhoneWatchHapticSender(),
+                            audio: ForegroundAlarmAudioPlayer()
+                        ).present(
+                            tier: tier,
+                            permission: permission,
+                            appActive: UIApplication.shared.applicationState == .active
+                        )
                     }
                 }
             }
@@ -476,6 +499,7 @@ final class CNSMonitoringCoordinator {
         self.pipeline = pipeline
         currentTier = tier
         canAssess = pipeline.canAssess
+        refreshReportingSources(sessionStart: session.startedAt, at: timestamp)
         persistIfDue(assessment: assessment, tier: tier, at: timestamp, into: session)
         updateStatusLine()
     }
@@ -516,12 +540,7 @@ final class CNSMonitoringCoordinator {
         self.pipeline = pipeline
         currentTier = tier
         canAssess = pipeline.canAssess
-        reportingSources = Set(CNSSignalSource.allCases.filter { source in
-            CNSDeviceStateMatrix.state(
-                lastSample: lastSampleBySource[source], sessionStart: session.startedAt, now: now,
-                wasEverReporting: wasEverReportingBySource[source] ?? false
-            ) == .reporting
-        })
+        refreshReportingSources(sessionStart: session.startedAt, at: now)
 
         persistIfDue(assessment: assessment, tier: tier, at: now, into: session)
 
@@ -742,10 +761,9 @@ final class CNSMonitoringCoordinator {
             try? modelContext.save()
             lastPersistAt = now
         }
-        // Architecture seam for Phase 3: tier-edge is the hook point for
-        // klaxon/haptic escalation and alone-mode fast-escalation UI (spec
-        // §5.3/§14.4) — Phase 2 only persists the edge; it triggers no
-        // alerting itself.
+        if tier == .klaxon, previousObservedTier != .klaxon {
+            alarmPresentation(tier)
+        }
         previousObservedTier = tier
     }
 
@@ -757,6 +775,15 @@ final class CNSMonitoringCoordinator {
     /// and the previously-scheduled notification fires on schedule — the
     /// one disclosure path that does NOT depend on the tick loop staying
     /// alive.
+    private func refreshReportingSources(sessionStart: Date, at now: Date) {
+        reportingSources = Set(CNSSignalSource.allCases.filter { source in
+            CNSDeviceStateMatrix.state(
+                lastSample: lastSampleBySource[source], sessionStart: sessionStart, now: now,
+                wasEverReporting: wasEverReportingBySource[source] ?? false
+            ) == .reporting
+        })
+    }
+
     private func scheduleDeadMansSwitch(at now: Date) {
         watchdogScheduler(now.addingTimeInterval(CNSMonitoringConstants.deadMansSwitchInterval))
     }
