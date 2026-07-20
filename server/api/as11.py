@@ -1,6 +1,7 @@
 
 import logging
 import hashlib
+from datetime import timezone
 from functools import wraps
 from flask import Blueprint, jsonify, request, current_app, g
 import psycopg2.extras
@@ -116,6 +117,10 @@ def get_live():
             """, (limit,))
             samples = cur.fetchall()
 
+        for s in samples:
+            for k in ["ts_utc", "ingest_ts_utc"]:
+                if s.get(k) and hasattr(s[k], "isoformat"):
+                    s[k] = s[k].astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         return jsonify({"samples": samples})
     except Exception as e:
         logger.error(f"Error fetching AS11 live samples: {e}")
@@ -147,6 +152,10 @@ def get_sessions():
             """, (limit,))
             sessions = cur.fetchall()
 
+        for s in sessions:
+            for k in ["start_utc", "end_utc", "created_at"]:
+                if s.get(k) and hasattr(s[k], "isoformat"):
+                    s[k] = s[k].astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         return jsonify({"sessions": sessions})
     except Exception as e:
         logger.error(f"Error fetching AS11 sessions: {e}")
