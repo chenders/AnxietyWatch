@@ -125,18 +125,20 @@ generic `.insufficientData` instead of `.monitoringDegraded(reason:)`. Fix: re-c
 after stripping, or strip before the degraded check. (Inert today because the tier machine
 treats both identically — but it defeats the fault classification this feature adds.)
 
-### 7.4 `.monitoringPaused` rise-candidate reset — DECISION REQUIRED
-The two reviewers **disagreed**. `CNSAlertTierMachine.ingest`'s `.monitoringPaused` branch calls
-`resetRiseCandidate()` (unlike `.monitoringDegraded`/`.insufficientData`, which rely on the
-`sustainMaxGapSeconds` gap guard). Medical-accuracy reviewer: correct deliberate asymmetry
-(mask-off is a genuine mechanical suppression). Swift reviewer: discards escalation progress on a
-brief mask-slip *during a real desaturation*, restarting the klaxon sustain timer from zero —
-against the fail-safe bias. **Resolve here** (this is where `.monitoringPaused` first becomes
-reachable): pick one, document the rationale in-code and in the parent design doc (§14.2/§11), and
-add a test. Recommendation to weigh: align `.monitoringPaused` with the gap-guarded
-`.insufficientData` path (do **not** force-reset) so a brief mask slip during desat doesn't delay
-the alarm — the medical reviewer's "mask-off data is irrelevant" argument holds for *new* data
-but the *existing* rise progress reflects a real pre-slip desaturation.
+### 7.4 `.monitoringPaused` rise-candidate reset — DECIDED (maintainer, 2026-07-20)
+The two #23 reviewers disagreed; the maintainer resolved it. `CNSAlertTierMachine.ingest`'s
+`.monitoringPaused` branch currently calls `resetRiseCandidate()` (unlike
+`.monitoringDegraded`/`.insufficientData`, which rely on the `sustainMaxGapSeconds` gap guard).
+Medical-accuracy reviewer: correct deliberate asymmetry (mask-off is a genuine mechanical
+suppression). Swift reviewer: discards escalation progress on a brief mask-slip *during a real
+desaturation*, restarting the klaxon sustain timer from zero — against the fail-safe bias.
+
+**Decision: do NOT reset.** Align `.monitoringPaused` with the gap-guarded `.insufficientData`
+path (remove the `resetRiseCandidate()` call; rely on `advanceRise`'s `sustainMaxGapSeconds`
+guard). The *existing* rise progress reflects a real pre-slip desaturation, and a brief mask slip
+must not delay the alarm — the fail-safe bias wins. Implement in plan B Task 8; document the
+rationale in-code and add an `## Implementation notes (post-merge)` line to the parent design doc
+(§14.2/§11); add a test covering both `.monitoringPaused` and `.monitoringDegraded`.
 
 ### 7.5 Thread the fault `reason` into observability (Should-Address)
 `.monitoringDegraded(reason:)` / `.monitoringPaused(reason:)` carry `"BRIDGE_DOWN"` /
