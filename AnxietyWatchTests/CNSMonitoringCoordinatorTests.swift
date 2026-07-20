@@ -132,6 +132,31 @@ struct CNSMonitoringCoordinatorTests {
         #expect(coordinator.currentTier == .watch)
     }
 
+    @Test("Restored sample followed by polling does not duplicate physiological evidence")
+    func restoredAndPolledSampleIsDeduplicated() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let reading = EMAYReading(spo2: 92, pulseRate: nil, timestamp: t0)
+        let pipeline = DetectionPipelineSpy(result: (.insufficientData, .clear))
+        let coordinator = CNSMonitoringCoordinator(
+            modelContext: context,
+            now: { self.t0 },
+            latestEMAYReading: { reading },
+            latestPolarHR: { nil },
+            latestPolarRMSSD: { nil },
+            notificationPoster: NotificationPosterSpy(),
+            defaults: makeDefaults(),
+            enableTickLoop: false,
+            pipelineFactory: { _ in pipeline }
+        )
+        coordinator.armManually(companionPresent: false)
+        let sample = try #require(CNSSensorAdapters.samples(from: reading).first)
+
+        coordinator.handleRestoredSample(sample)
+        coordinator.tick(at: t0)
+
+        #expect(pipeline.lastSamples.filter { $0 == sample }.count == 1)
+    }
+
     private final class DetectionPipelineSpy: CNSDetectionProcessing {
         let result: (assessment: CNSRiskAssessment, tier: CNSAlertTier)
         private(set) var processCallCount = 0

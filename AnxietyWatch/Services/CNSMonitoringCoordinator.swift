@@ -499,7 +499,9 @@ final class CNSMonitoringCoordinator {
         // A device-loss transition may have just ended the session.
         guard isMonitoring, self.session != nil else { return }
 
-        sampleBuffer.append(contentsOf: newSamples)
+        for sample in newSamples where !sampleBuffer.contains(sample) {
+            sampleBuffer.append(sample)
+        }
         let trimBefore = now.addingTimeInterval(
             -(CNSThresholds.standard.gateWindowSeconds + CNSMonitoringConstants.bufferTrimSlackSeconds)
         )
