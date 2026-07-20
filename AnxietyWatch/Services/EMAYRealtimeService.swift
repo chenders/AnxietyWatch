@@ -318,6 +318,10 @@ final class EMAYRealtimeService: NSObject {
     /// detect a stalled stream. A consumer can also read
     /// `latestReading?.timestamp` for freshness.
     private(set) var lastReadingAt: Date?
+    /// Live packet tap used by CNS monitoring. State-restored CoreBluetooth
+    /// notifications traverse the same delegate path, so background samples
+    /// reach the on-device detection pipeline without a wall-clock tick.
+    var onLiveSample: ((EMAYReading) -> Void)?
 
     @ObservationIgnored private var central: CBCentralManager!
     @ObservationIgnored private var peripheral: CBPeripheral?
@@ -1056,6 +1060,7 @@ extension EMAYRealtimeService: CBPeripheralDelegate {
             if let reading = EMAYProtocol.parseReading(value, at: Date()) {
                 self.latestReading = reading
                 self.lastReadingAt = reading.timestamp  // any valid frame = stream alive
+                self.onLiveSample?(reading)
                 if self.status != .streaming { self.status = .streaming }
                 // Feed the per-minute downsampler; a reading that completes a
                 // minute returns that minute's means, persisted immediately so

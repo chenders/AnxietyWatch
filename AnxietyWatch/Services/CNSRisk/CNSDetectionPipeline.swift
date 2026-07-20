@@ -4,7 +4,15 @@ import Foundation
 /// fusion → tier machine — behind one call. Phase 2's `CNSRiskMonitor`
 /// owns one instance per monitoring session and calls `process` on every
 /// update tick with its rolling sample buffer.
-struct CNSDetectionPipeline {
+protocol CNSDetectionProcessing {
+    var canAssess: Bool { get }
+    mutating func setCompanionPresent(_ present: Bool)
+    mutating func process(
+        samples: [CNSSignalSample], baselines: CNSBaselines, as11State: AS11StreamState, at now: Date
+    ) -> (assessment: CNSRiskAssessment, tier: CNSAlertTier)
+}
+
+struct CNSDetectionPipeline: CNSDetectionProcessing {
     private let thresholds: CNSThresholds
     private let fusion: CNSFusionEngine
     private var tierMachine: CNSAlertTierMachine

@@ -104,6 +104,55 @@ struct CNSMonitoringCoordinatorTests {
         return med
     }
 
+    @Test("Restored BLE samples run through the detection pipeline immediately")
+    func restoredSampleRunsPipeline() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let poster = NotificationPosterSpy()
+        let pipeline = DetectionPipelineSpy(result: (.insufficientData, .watch))
+        let coordinator = CNSMonitoringCoordinator(
+            modelContext: context,
+            now: { self.t0 },
+            latestEMAYReading: { nil },
+            latestPolarHR: { nil },
+            latestPolarRMSSD: { nil },
+            notificationPoster: poster,
+            defaults: makeDefaults(),
+            enableTickLoop: false,
+            pipelineFactory: { _ in pipeline }
+        )
+        coordinator.armManually(companionPresent: false)
+        let sample = CNSSignalSample(
+            kind: .spo2, source: .emayOximeter, value: 92, timestamp: t0
+        )
+
+        coordinator.handleRestoredSample(sample)
+
+        #expect(pipeline.processCallCount == 1)
+        #expect(pipeline.lastSamples == [sample])
+        #expect(coordinator.currentTier == .watch)
+    }
+
+    private final class DetectionPipelineSpy: CNSDetectionProcessing {
+        let result: (assessment: CNSRiskAssessment, tier: CNSAlertTier)
+        private(set) var processCallCount = 0
+        private(set) var lastSamples: [CNSSignalSample] = []
+
+        init(result: (assessment: CNSRiskAssessment, tier: CNSAlertTier)) {
+            self.result = result
+        }
+
+        var canAssess: Bool { false }
+        func setCompanionPresent(_ present: Bool) {}
+        func process(
+            samples: [CNSSignalSample], baselines: CNSBaselines, as11State: AS11StreamState, at now: Date
+        )
+            -> (assessment: CNSRiskAssessment, tier: CNSAlertTier) {
+            processCallCount += 1
+            lastSamples = samples
+            return result
+        }
+    }
+
     // MARK: - Contract 1: tick loop
 
     @Test("Tick loop: reads sensors via injected providers each tick and updates currentTier/canAssess as the pipeline processes")
