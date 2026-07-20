@@ -94,6 +94,15 @@ struct CNSAlertTierMachine {
         case .monitoringDegraded, .insufficientData:
             // No data / bridge down: hold the tier, surface can't-assess, and discard any
             // progress toward clearing — silence must never read as safety.
+            //
+            // The rise candidate is deliberately NOT reset here. `advanceRise`'s
+            // `sustainMaxGapSeconds` gap guard (via `riseCandidateLastQualifyingAt`,
+            // stamped only on qualifying `.assessed` ticks) already invalidates a
+            // sustain window that spans a too-long gap, so wiping progress here would
+            // only DELAY a legitimate escalation after a brief blip — the wrong
+            // direction for a fail-safe alarm. Mirrors the corroborating-only path in
+            // `advanceRise`. (`.monitoringPaused` above resets on purpose: mask-off is
+            // a deliberate mechanical suppression, not an ambiguous data gap.)
             canAssess = false
             resetClearCandidate()
             return tier

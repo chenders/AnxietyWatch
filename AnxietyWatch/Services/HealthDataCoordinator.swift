@@ -101,7 +101,11 @@ final class HealthDataCoordinator {
     /// that button remains as the manual re-request path.
     /// Internal (not private) so tests can drive it directly.
     func requestAuthorizationIfNeeded() async {
-        guard !HealthKitManager.hasEverRequestedAuthorization else { return }
+        // Read the "already presented the sheet" flag from the injected
+        // `defaults` (== `.standard` in production), NOT the process-global
+        // `HealthKitManager.hasEverRequestedAuthorization`, so tests with an
+        // isolated suite are deterministic under the parallel test runner.
+        guard !defaults.bool(forKey: HealthKitManager.didRequestAuthorizationKey) else { return }
         guard await healthKit.authorizationNeedsRequest() else { return }
         do {
             try await healthKit.requestAuthorization()
