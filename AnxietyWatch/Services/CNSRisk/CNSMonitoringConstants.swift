@@ -79,6 +79,11 @@ enum CNSMonitoringConstants {
     /// only widens what's KEPT, never what the gate/scorer actually consider.
     static let bufferTrimSlackSeconds: TimeInterval = 10
 
+    /// Maximum time an AS11 server frame remains authoritative. Once this
+    /// expires the app must report a stalled stream (can't assess), never
+    /// infer health from an open socket or the last successful state.
+    static let as11FrameStaleTimeout: TimeInterval = 15
+
     // MARK: - §14.1 benzo+opioid synergy
 
     /// One leg of the UNION synergy-pairing rule: a benzodiazepine dose and

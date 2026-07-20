@@ -2,6 +2,8 @@ import Foundation
 
 /// Incoming raw payload from the AS11 bridge backend.
 struct AS11StreamPayload: Decodable, Sendable {
+    /// Server-owned cursor and deduplication key.
+    let id: String
     let bridgeId: String
     let timestampUTC: Date
     let pressure: Double?
