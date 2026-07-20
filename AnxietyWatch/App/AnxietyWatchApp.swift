@@ -146,13 +146,29 @@ struct AnxietyWatchApp: App {
         )
         _emayService = State(initialValue: emay)
 
+        let as11URL = Self.as11WebSocketURL()
+        let as11Source = AS11WebSocketClient(baseURL: as11URL)
         _monitoringCoordinator = State(initialValue: CNSMonitoringCoordinator(
             modelContext: ModelContext(sharedModelContainer),
             emayService: emay,
-            polarService: polar
+            polarService: polar,
+            as11Source: as11Source
         ))
 
         UNUserNotificationCenter.current().delegate = notificationDelegate
+    }
+
+    private static func as11WebSocketURL() -> URL {
+        let configured = UserDefaults.standard.string(forKey: "syncServerURL") ?? ""
+        guard var components = URLComponents(string: configured),
+              components.host != nil else {
+            return URL(string: "wss://sync.anxietywatch.com/api/cpap/as11/ws")!
+        }
+        components.scheme = components.scheme == "http" ? "ws" : "wss"
+        components.path = "/api/cpap/as11/ws"
+        components.query = nil
+        components.fragment = nil
+        return components.url ?? URL(string: "wss://sync.anxietywatch.com/api/cpap/as11/ws")!
     }
 
     // MARK: - Body

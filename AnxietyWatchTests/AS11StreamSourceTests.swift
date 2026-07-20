@@ -53,6 +53,25 @@ struct AS11StreamSourceTests {
             .queryItems?.first(where: { $0.name == "since" })?.value == "42")
     }
 
+    @Test("Real server frames decode ISO-8601 timestamps with fractional seconds")
+    func decodesServerFrame() throws {
+        let client = AS11WebSocketClient(
+            baseURL: URL(string: "wss://example.invalid/api/cpap/as11/ws")!, now: { self.now }
+        )
+        let frame = Data(
+            """
+            {"state":"BRIDGE_DOWN","samples":[{"id":7,"bridge_id":"test-bridge",\
+            "ts_utc":"2025-06-15T15:06:40.123456Z","channel":"SPO2","value":93.0}]}
+            """.utf8
+        )
+
+        try client.ingestFrameData(frame, receivedAt: now)
+
+        #expect(client.latestState == .bridgeDown)
+        #expect(client.latestSamples().first?.id == "7")
+        #expect(client.latestSamples().first?.spo2 == 93)
+    }
+
     @Test("Overlapping resync frames deduplicate samples by server id")
     func overlappingFramesDeduplicate() {
         let client = AS11WebSocketClient(
