@@ -83,7 +83,13 @@ actor HealthKitManager: HealthKitDataSource {
     /// set, the Dashboard banner routes repeat taps to Settings rather than
     /// re-invoking `requestAuthorization`, which would otherwise re-present the
     /// slow, black `com.apple.HealthPrivacyService` host with nothing to change.
-    private static let didRequestAuthorizationKey = "didRequestHealthKitAuthorization_v1"
+    /// Internal (not private) so `HealthDataCoordinator` can read the flag from
+    /// its injected `defaults` store instead of process-global `.standard` —
+    /// in production `defaults` IS `.standard`, so behaviour is identical, but
+    /// tests inject an isolated suite so the auth gate doesn't consult global
+    /// state a concurrently-running test (or the host app's own launch-time
+    /// request) may have set.
+    nonisolated static let didRequestAuthorizationKey = "didRequestHealthKitAuthorization_v1"
 
     static var hasEverRequestedAuthorization: Bool {
         UserDefaults.standard.bool(forKey: didRequestAuthorizationKey)

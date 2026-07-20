@@ -63,6 +63,10 @@ def create_app(test_config=None):
     from admin import admin_bp
     app.register_blueprint(admin_bp)
 
+    # Register AS11 CPAP blueprint
+    from api.as11 import as11_bp
+    app.register_blueprint(as11_bp)
+
     # -----------------------------------------------------------------------
     # Jinja2 template filters for Claude API text formatting
     # -----------------------------------------------------------------------

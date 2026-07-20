@@ -43,6 +43,33 @@ struct HealthKitAuthGateTests {
         #expect(await mock.authorizationRequestCount == 1)
     }
 
+    @Test("Auth gate reads the injected defaults, not process-global state")
+    func requestGateIsIsolatedFromGlobalFlag() async throws {
+        // Reproduces the parallel-runner flake: another test (or the host app's
+        // own launch-time request) sets the process-global "already asked" flag
+        // in `.standard`. The coordinator must consult its INJECTED defaults, so
+        // an isolated suite that never set the flag still requests.
+        let globalKey = HealthKitManager.didRequestAuthorizationKey
+        let previous = UserDefaults.standard.object(forKey: globalKey)
+        UserDefaults.standard.set(true, forKey: globalKey)
+        defer {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: globalKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: globalKey)
+            }
+        }
+
+        let container = try TestHelpers.makeFullContainer()
+        let mock = MockHealthKitDataSource()
+        await mock.setAuthorizationNeedsRequest(true)
+        let coordinator = HealthDataCoordinator(
+            modelContainer: container, healthKit: mock, defaults: isolatedDefaults()
+        )
+        await coordinator.requestAuthorizationIfNeeded()
+        #expect(await mock.authorizationRequestCount == 1)
+    }
+
     @Test("Does not re-request once authorization has been determined")
     func skipsWhenAlreadyDetermined() async throws {
         let container = try TestHelpers.makeFullContainer()

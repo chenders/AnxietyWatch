@@ -128,7 +128,7 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setCumulative(.stepCount, value: 5000)
         let diag = HealthKitAccessDiagnostic(source: mock)
         let result = await diag.run(now: now, hadRecentHistory: true,
-                                     watchPaired: true, graceElapsed: true)
+                                     watchPaired: true, graceElapsed: true, needsRequest: true)
         #expect(result.state == .receiving)
         #expect(result.stepsPresent)
     }
@@ -140,7 +140,7 @@ struct HealthKitAccessDiagnosticTests {
         // No probe values set → all reads empty (the genuine unauthorized/fresh case).
         let diag = HealthKitAccessDiagnostic(source: mock)
         let result = await diag.run(now: now, hadRecentHistory: true,
-                                     watchPaired: true, graceElapsed: true)
+                                     watchPaired: true, graceElapsed: true, needsRequest: true)
         #expect(result.state == .notRequested)
     }
 
@@ -151,7 +151,7 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setCumulative(.stepCount, value: 3200)
         let diag = HealthKitAccessDiagnostic(source: mock)
         let result = await diag.run(now: now, hadRecentHistory: false,
-                                     watchPaired: true, graceElapsed: true)
+                                     watchPaired: true, graceElapsed: true, needsRequest: false)
         #expect(result.state == .receiving)
         #expect(result.stepsPresent)
     }
@@ -163,7 +163,7 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setAverage(.restingHeartRate, value: 58)
         let diag = HealthKitAccessDiagnostic(source: mock)
         let result = await diag.run(now: now, hadRecentHistory: false,
-                                     watchPaired: true, graceElapsed: true)
+                                     watchPaired: true, graceElapsed: true, needsRequest: false)
         #expect(result.state == .receiving)
         #expect(result.restingHRPresent)
     }
@@ -175,7 +175,7 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setSleep(SleepData(totalMinutes: 400))
         let diag = HealthKitAccessDiagnostic(source: mock)
         let result = await diag.run(now: now, hadRecentHistory: false,
-                                     watchPaired: true, graceElapsed: true)
+                                     watchPaired: true, graceElapsed: true, needsRequest: false)
         #expect(result.state == .receiving)
         #expect(result.sleepPresent)
     }
@@ -186,7 +186,7 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setAuthorizationNeedsRequest(false)  // no probe data set → all empty
         let diag = HealthKitAccessDiagnostic(source: mock)
         let result = await diag.run(now: now, hadRecentHistory: true,
-                                     watchPaired: true, graceElapsed: true)
+                                     watchPaired: true, graceElapsed: true, needsRequest: false)
         #expect(result.state == .likelyRevoked)
         #expect(!result.stepsPresent)
         #expect(!result.restingHRPresent)
@@ -199,7 +199,7 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setAuthorizationNeedsRequest(false)
         let diag = HealthKitAccessDiagnostic(source: mock)
         let result = await diag.run(now: now, hadRecentHistory: false,
-                                     watchPaired: true, graceElapsed: true)
+                                     watchPaired: true, graceElapsed: true, needsRequest: false)
         #expect(result.state == .noDataYet)
     }
 
@@ -210,7 +210,7 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setCumulative(.stepCount, value: 0)
         let diag = HealthKitAccessDiagnostic(source: mock)
         let result = await diag.run(now: now, hadRecentHistory: false,
-                                     watchPaired: true, graceElapsed: true)
+                                     watchPaired: true, graceElapsed: true, needsRequest: false)
         #expect(!result.stepsPresent)
         #expect(result.state == .noDataYet)
     }
@@ -225,7 +225,7 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setCumulative(.stepCount, value: 5000)
         let diag = HealthKitAccessDiagnostic(source: mock)
         let result = await diag.run(now: now, hadRecentHistory: true,
-                                     watchPaired: true, graceElapsed: true)
+                                     watchPaired: true, graceElapsed: true, needsRequest: true)
         #expect(result.state == .unavailable)
     }
 
@@ -236,7 +236,7 @@ struct HealthKitAccessDiagnosticTests {
         await mock.setAverage(.heartRate, value: 64)
         let diag = HealthKitAccessDiagnostic(source: mock)
         let result = await diag.run(now: now, hadRecentHistory: false,
-                                    watchPaired: true, graceElapsed: true)
+                                    watchPaired: true, graceElapsed: true, needsRequest: false)
         #expect(result.state == .receiving)
         #expect(result.heartRatePresent)
     }

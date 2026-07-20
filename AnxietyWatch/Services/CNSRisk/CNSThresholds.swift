@@ -166,6 +166,9 @@ struct CNSThresholds: Sendable {
         case (.hrv, .polarH10): return 0.9
         case (.hrv, .appleWatch): return 0.6
         case (.hrv, .emayOximeter): return 0
+        case (.spo2, .as11Bridge): return 0.9   // continuous stream
+        case (.heartRate, .as11Bridge): return 0.8 // from CPAP/oximeter bridge
+        case (_, .as11Bridge): return 0         // AS11 bridge doesn't emit RR/HRV as CNSSignalSample directly
         }
     }
 

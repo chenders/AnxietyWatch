@@ -496,6 +496,7 @@ CREATE INDEX IF NOT EXISTS idx_delta_sync_log_hlc
 -- Oura Integration Tables
 -- -----------------------------------------------------------------------------
 
+
 CREATE TABLE IF NOT EXISTS oura_credentials (
     id SERIAL PRIMARY KEY,
     access_token BYTEA NOT NULL,
@@ -548,4 +549,45 @@ CREATE TABLE IF NOT EXISTS oura_daily (
     vo2_max DOUBLE PRECISION,
     document_id TEXT NOT NULL UNIQUE
 );
+
+-- -----------------------------------------------------------------------------
+-- AirSense 11 (aircannect) Integration Tables
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS as11_therapy_session (
+    id SERIAL PRIMARY KEY,
+    bridge_id TEXT NOT NULL,
+    start_utc TIMESTAMPTZ NOT NULL,
+    end_utc TIMESTAMPTZ,
+    mode TEXT,
+    set_pressure DOUBLE PRECISION,
+    min_pressure DOUBLE PRECISION,
+    max_pressure DOUBLE PRECISION,
+    median_pressure DOUBLE PRECISION,
+    p95_leak DOUBLE PRECISION,
+    ahi DOUBLE PRECISION,
+    event_counts JSONB,
+    mask_on_fraction DOUBLE PRECISION,
+    source TEXT NOT NULL,
+    settings_snapshot JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_as11_therapy_session_start
+    ON as11_therapy_session (start_utc DESC);
+
+CREATE TABLE IF NOT EXISTS as11_stream_sample (
+    id SERIAL PRIMARY KEY,
+    bridge_id TEXT NOT NULL,
+    ts_utc TIMESTAMPTZ NOT NULL,
+    channel TEXT NOT NULL,
+    value DOUBLE PRECISION NOT NULL,
+    unit TEXT,
+    ingest_ts_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    session_id INTEGER REFERENCES as11_therapy_session(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_as11_stream_sample_ts
+    ON as11_stream_sample (ts_utc DESC);
+
 

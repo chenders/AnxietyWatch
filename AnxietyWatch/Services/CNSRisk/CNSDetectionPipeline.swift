@@ -30,7 +30,7 @@ struct CNSDetectionPipeline {
     }
 
     mutating func process(
-        samples: [CNSSignalSample], baselines: CNSBaselines, at now: Date
+        samples: [CNSSignalSample], baselines: CNSBaselines, as11State: AS11StreamState = .streamingOK, at now: Date
     ) -> (assessment: CNSRiskAssessment, tier: CNSAlertTier) {
         // Trim to the gate window BEFORE grouping: the scorer medians every
         // sample it is handed, so feeding it the whole rolling buffer would
@@ -62,7 +62,7 @@ struct CNSDetectionPipeline {
                     verdict: verdict, baselines: baselines, thresholds: thresholds
                 )
             }
-        let assessment = fusion.fuse(assessments)
+        let assessment = fusion.fuse(assessments, as11State: as11State)
         let tier = tierMachine.ingest(assessment, at: now)
         return (assessment, tier)
     }

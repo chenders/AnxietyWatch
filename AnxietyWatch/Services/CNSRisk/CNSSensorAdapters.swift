@@ -57,4 +57,22 @@ enum CNSSensorAdapters {
             kind: .hrv, source: .polarH10, value: rmssd, timestamp: timestamp
         )]
     }
+
+    /// AS11 Bridge feed → SpO₂ and HR samples.
+    /// Pressure, flow, and leak are context channels and do not become `CNSSignalSample`s
+    /// but they influence the `AS11StreamState`.
+    static func samples(from payload: AS11StreamPayload) -> [CNSSignalSample] {
+        var result: [CNSSignalSample] = []
+        if let spo2 = payload.spo2 {
+            result.append(CNSSignalSample(
+                kind: .spo2, source: .as11Bridge, value: spo2, timestamp: payload.timestampUTC
+            ))
+        }
+        if let hr = payload.hr {
+            result.append(CNSSignalSample(
+                kind: .heartRate, source: .as11Bridge, value: hr, timestamp: payload.timestampUTC
+            ))
+        }
+        return result
+    }
 }

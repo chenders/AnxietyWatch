@@ -18,6 +18,7 @@ enum CNSSignalSource: CaseIterable, Sendable {
     case emayOximeter
     case polarH10
     case appleWatch
+    case as11Bridge
 }
 
 /// One normalized reading. Phase 2 sensor adapters construct these; nothing in
@@ -83,6 +84,8 @@ struct CNSSignalAssessment: Equatable, Sendable {
 /// nothing (spec §11: false reassurance is the worst outcome).
 enum CNSRiskAssessment: Equatable, Sendable {
     case insufficientData
+    case monitoringDegraded(reason: String) // e.g., bridge down, stream stalled
+    case monitoringPaused(reason: String)   // e.g., mask off / large leak
     case assessed(riskScore: Double, contributions: [CNSSignalAssessment])
 }
 
@@ -96,4 +99,13 @@ enum CNSAlertTier: Int, Comparable, CaseIterable, Sendable {
     static func < (lhs: CNSAlertTier, rhs: CNSAlertTier) -> Bool {
         lhs.rawValue < rhs.rawValue
     }
+}
+
+/// The state of the AS11 bridge feed (spec §6). Used to distinguish physiological
+/// events from monitoring-integrity faults or mechanical state (mask off).
+enum AS11StreamState: String, Sendable, Equatable {
+    case streamingOK = "STREAMING_OK"
+    case streamStalled = "STREAM_STALLED"
+    case bridgeDown = "BRIDGE_DOWN"
+    case maskOffLeak = "MASK_OFF_LEAK"
 }

@@ -89,3 +89,5 @@ def downgrade():
     op.execute("DROP TABLE IF EXISTS delta_sync_log CASCADE")
     op.execute("DROP TABLE IF EXISTS sample_tombstones CASCADE")
     op.execute("DROP TABLE IF EXISTS samples CASCADE")
+    op.execute("DROP TABLE IF EXISTS as11_stream_sample CASCADE")
+    op.execute("DROP TABLE IF EXISTS as11_therapy_session CASCADE")
