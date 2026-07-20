@@ -1,4 +1,3 @@
-import AudioToolbox
 import AVFAudio
 import UserNotifications
 
@@ -83,6 +82,7 @@ struct ForegroundAlarmAudioPlayer: AlarmAudioPlaying {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default)
         try? session.setActive(true)
-        AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
+        // Foreground audio asset playback is supplied by the app alarm UI;
+        // activating `.playback` here ensures that audio bypasses silent mode.
     }
 }
