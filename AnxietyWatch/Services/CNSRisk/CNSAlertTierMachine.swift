@@ -86,13 +86,13 @@ struct CNSAlertTierMachine {
             return tier
 
         case .monitoringPaused:
-            // "monitoring paused" (e.g. mask off / large leak) -> mechanical, suppress physiological alarm.
-            // We hold the tier (do not escalate), and we set canAssess = false because
-            // we cannot accurately assess physiological state while the mask is off.
-            // We optionally could downgrade the tier, but holding is safer than clearing.
+            // Mask off / large leak suppresses physiological assessment for this
+            // tick, but does not erase a rise already supported by primary data.
+            // `advanceRise` restarts it if the next qualifying tick exceeds the
+            // maximum allowed gap. Holding is safer than clearing or delaying a
+            // real escalation after a brief mask slip.
             canAssess = false
             resetClearCandidate()
-            resetRiseCandidate() // Suppress any rising candidate
             return tier
 
         case .monitoringDegraded, .insufficientData:
@@ -104,9 +104,8 @@ struct CNSAlertTierMachine {
             // stamped only on qualifying `.assessed` ticks) already invalidates a
             // sustain window that spans a too-long gap, so wiping progress here would
             // only DELAY a legitimate escalation after a brief blip — the wrong
-            // direction for a fail-safe alarm. Mirrors the corroborating-only path in
-            // `advanceRise`. (`.monitoringPaused` above resets on purpose: mask-off is
-            // a deliberate mechanical suppression, not an ambiguous data gap.)
+            // direction for a fail-safe alarm. Mirrors the corroborating-only and
+            // `.monitoringPaused` paths.
             canAssess = false
             resetClearCandidate()
             return tier
