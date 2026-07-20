@@ -138,6 +138,8 @@ class AS11Collector:
         max_backoff = 30.0
 
         while self.running:
+            read_task = None
+            watchdog_task = None
             try:
                 logger.info(f"Attempting connection to {self.host}:{self.port}...")
                 self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
@@ -163,12 +165,25 @@ class AS11Collector:
 
                 # Wait for disconnect
                 await read_task
-                watchdog_task.cancel()
 
             except Exception as e:
                 logger.error(f"Connection failed or interrupted: {e}")
             finally:
                 self.connected = False
+                # Cancel + await both loop tasks so a disconnect (or an
+                # exception mid-handshake) never leaks a pending task into the
+                # next reconnect iteration ("Task was destroyed but pending").
+                for task in (read_task, watchdog_task):
+                    if task is not None:
+                        task.cancel()
+                for task in (read_task, watchdog_task):
+                    if task is not None:
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception as exc:
+                            logger.debug(f"Ignored error awaiting task cancel: {exc}")
                 if self.writer:
                     self.writer.close()
                     try:

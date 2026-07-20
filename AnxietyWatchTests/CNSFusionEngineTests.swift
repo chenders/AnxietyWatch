@@ -169,6 +169,8 @@ struct CNSFusionEngineTests {
         #expect(score > 0)
         #expect(score < thresholds.confirmThreshold)
     }
+
+    @Test("Contributions echo the assessments that were actually counted")
     func contributionsEchoed() {
         // Contributions = the assessments the score actually consumed (post
         // confidence filter), for UI attribution and the tier machine's
