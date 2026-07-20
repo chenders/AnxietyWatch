@@ -15,6 +15,7 @@ Both projects share the server with no port conflicts:
 | Service | Host Port | Project |
 |---------|-----------|---------|
 | anxietywatch app | 8081 | anxietywatch |
+| anxietywatch ws | 8082 | anxietywatch |
 | anxietywatch postgres | 5439 | anxietywatch |
 
 ## Server-Side Setup
@@ -88,6 +89,7 @@ AnxietyWatch is LAN-only (no Cloudflare Tunnel). Open port 8081 for the iOS app,
 
 ```bash
 sudo ufw allow from 192.168.1.0/24 to any port 8081 proto tcp comment 'AnxietyWatch sync server (LAN only)'
+sudo ufw allow from 192.168.1.0/24 to any port 8082 proto tcp comment 'AnxietyWatch WS server (LAN only)'
 ```
 
 > **Note:** Docker published ports bypass UFW by default (Docker modifies iptables directly). This is safe if the server is on a private network behind a router with no port forwarding. If the server has a public IP, bind the compose port to a specific LAN interface IP instead of `0.0.0.0`.
@@ -263,6 +265,7 @@ docker compose -f /opt/anxietywatch/docker-compose.yml logs --tail=50
 
 # Check firewall
 sudo ufw status | grep 8081
+sudo ufw status | grep 8082
 
 # Test locally on server
 curl http://localhost:8081/health
