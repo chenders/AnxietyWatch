@@ -62,7 +62,11 @@ struct CNSAlertTierMachine {
     }
 
     private func sustainSeconds(toEnter tier: CNSAlertTier) -> TimeInterval {
-        tier == .klaxon ? thresholds.klaxonRiseSustainSeconds : thresholds.riseSustainSeconds
+        if companionPresent {
+            return tier == .klaxon ? thresholds.klaxonRiseSustainSeconds : thresholds.riseSustainSeconds
+        } else {
+            return tier == .klaxon ? thresholds.aloneModeKlaxonRiseSustainSeconds : thresholds.aloneModeRiseSustainSeconds
+        }
     }
 
     @discardableResult

@@ -237,8 +237,12 @@ struct CNSThresholds: Sendable {
     var aloneModeThresholdDelta: Double = 0.05
     /// Sustain required to RISE into watch/confirm (spec §3: ≥ ~60–90 s).
     var riseSustainSeconds: TimeInterval = 60
+    /// Alone-mode sustain required to RISE into watch/confirm (escalates sooner).
+    var aloneModeRiseSustainSeconds: TimeInterval = 45
     /// Sustain to escalate confirm → klaxon (shorter: danger already confirmed).
     var klaxonRiseSustainSeconds: TimeInterval = 30
+    /// Alone-mode sustain to escalate confirm → klaxon.
+    var aloneModeKlaxonRiseSustainSeconds: TimeInterval = 15
     /// Score must sit below (threshold − hysteresis) this long to FALL.
     var clearSustainSeconds: TimeInterval = 120
     var clearHysteresis: Double = 0.1
