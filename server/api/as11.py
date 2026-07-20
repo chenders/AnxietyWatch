@@ -2,7 +2,7 @@
 import logging
 import hashlib
 from functools import wraps
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request, current_app, g
 import psycopg2.extras
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,16 @@ def require_api_key(f):
         if not row or not row["is_active"]:
             return jsonify({"error": "Invalid or revoked API key"}), 401
 
+        # Mirror the main server's require_api_key so AS11 traffic is reflected
+        # in api_keys.last_used_at / request_count usage tracking.
+        with db.cursor() as cur:
+            cur.execute(
+                "UPDATE api_keys SET last_used_at = NOW(), request_count = request_count + 1 WHERE id = %s",
+                (row["id"],),
+            )
+        db.commit()
+
+        g.api_key_id = row["id"]
         return f(*args, **kwargs)
     return decorated
 

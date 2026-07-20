@@ -36,7 +36,8 @@ def upgrade():
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         if_not_exists=True
     )
-    op.create_index('idx_as11_therapy_session_start', 'as11_therapy_session', ['start_utc'], if_not_exists=True)
+    op.create_index('idx_as11_therapy_session_start', 'as11_therapy_session',
+                    [sa.text('start_utc DESC')], if_not_exists=True)
 
     op.create_table(
         'as11_stream_sample',
@@ -56,7 +57,8 @@ def upgrade():
             nullable=True),
         if_not_exists=True
     )
-    op.create_index('idx_as11_stream_sample_ts', 'as11_stream_sample', ['ts_utc'], if_not_exists=True)
+    op.create_index('idx_as11_stream_sample_ts', 'as11_stream_sample',
+                    [sa.text('ts_utc DESC')], if_not_exists=True)
 
 
 def downgrade():

@@ -3029,3 +3029,17 @@ def test_as11_sessions_limit_clamped(client):
 
     response = client.get("/api/cpap/as11/sessions?limit=abc", headers=auth_header())
     assert response.status_code == 400
+
+
+def test_as11_request_updates_key_usage(client, app):
+    """AS11 endpoints must track API-key usage like the main server decorator."""
+    client.get("/api/cpap/as11/live", headers=auth_header())
+    client.get("/api/cpap/as11/sessions", headers=auth_header())
+
+    with app.app_context():
+        db = app.get_db()
+        cur = db.cursor()
+        cur.execute("SELECT request_count, last_used_at FROM api_keys WHERE key_hash = %s", (TEST_API_KEY_HASH,))
+        row = cur.fetchone()
+        assert row[0] == 2
+        assert row[1] is not None
