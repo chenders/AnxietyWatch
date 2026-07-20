@@ -8,7 +8,8 @@ struct CNSMonitoringViewHelpersTests {
         #expect(CNSMonitoringViewHelpers.permissionStatusLabel(.criticalGranted) == "Critical Alerts enabled (bypasses mute)")
         #expect(CNSMonitoringViewHelpers.permissionStatusLabel(.timeSensitiveOnly) == "Time Sensitive only (Critical denied)")
         #expect(CNSMonitoringViewHelpers.permissionStatusLabel(.standardOnly) == "Standard only (Time Sensitive denied)")
-        #expect(CNSMonitoringViewHelpers.permissionStatusLabel(.denied) == "Notifications denied (Silent)")
+        #expect(CNSMonitoringViewHelpers.permissionStatusLabel(.notDetermined) == "Permission not yet requested")
+        #expect(CNSMonitoringViewHelpers.permissionStatusLabel(.denied) == "Notifications denied (haptics & audio still active in-app)")
     }
 
     @Test("Alarm state subtitle formats correctly")

@@ -45,5 +45,11 @@ struct SlideToAcknowledgeView: View {
             }
         }
         .frame(height: 50)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityHint("Swipe right to acknowledge the alarm")
+        .accessibilityAction {
+            onAcknowledge()
+        }
     }
 }

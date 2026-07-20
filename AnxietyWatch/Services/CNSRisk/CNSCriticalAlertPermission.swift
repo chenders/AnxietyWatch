@@ -12,6 +12,7 @@ nonisolated enum CNSNotifyPermission: Equatable, Sendable {
     case criticalGranted
     case timeSensitiveOnly
     case standardOnly
+    case notDetermined
     case denied
 }
 
@@ -24,15 +25,18 @@ actor CNSCriticalAlertPermission {
 
     nonisolated static func map(_ settings: some NotificationSettingsShape) -> CNSNotifyPermission {
         guard settings.authorizationStatus != .denied else { return .denied }
+        guard settings.authorizationStatus != .notDetermined else { return .notDetermined }
         if settings.criticalAlertSetting == .enabled {
             return .criticalGranted
         }
         if settings.timeSensitiveSetting == .enabled {
             return .timeSensitiveOnly
         }
-        return settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
-            ? .standardOnly
-            : .denied
+        if settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional {
+            return .standardOnly
+        }
+        // .ephemeral or any future status the SDK may add.
+        return .notDetermined
     }
 
     @discardableResult

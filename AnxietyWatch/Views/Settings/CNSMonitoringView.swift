@@ -117,7 +117,7 @@ struct CNSMonitoringView: View {
     private var permissionSection: some View {
         Section {
             LabeledContent("Status", value: CNSMonitoringViewHelpers.permissionStatusLabel(permission))
-            if permission != .criticalGranted {
+            if permission != .criticalGranted && permission != .denied {
                 Button("Request Critical Alerts") {
                     Task {
                         permission = await CNSCriticalAlertPermission().requestIfNeeded()

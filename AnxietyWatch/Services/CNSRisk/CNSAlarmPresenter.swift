@@ -64,7 +64,7 @@ struct CNSAlarmPresenter {
         case .timeSensitiveOnly:
             level = .timeSensitive
             criticalSound = false
-        case .standardOnly, .denied:
+        case .standardOnly, .notDetermined, .denied:
             level = .active
             criticalSound = false
         }

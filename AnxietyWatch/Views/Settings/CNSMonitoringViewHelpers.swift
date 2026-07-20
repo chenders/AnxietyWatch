@@ -10,8 +10,10 @@ enum CNSMonitoringViewHelpers {
             return "Time Sensitive only (Critical denied)"
         case .standardOnly:
             return "Standard only (Time Sensitive denied)"
+        case .notDetermined:
+            return "Permission not yet requested"
         case .denied:
-            return "Notifications denied (Silent)"
+            return "Notifications denied (haptics & audio still active in-app)"
         }
     }
 

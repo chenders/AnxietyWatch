@@ -7,7 +7,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         if let centrals = launchOptions?[.bluetoothCentrals] {
-            Log.health.notice("App launched in background via CoreBluetooth state restoration: \(String(describing: centrals), privacy: .public)")
+            Log.health.notice("App launched in background via CoreBluetooth state restoration: \(String(describing: centrals), privacy: .private)")
         }
         return true
     }
