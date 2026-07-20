@@ -635,10 +635,8 @@ final class CNSMonitoringCoordinator {
 
     /// Contract 6: derives each source's `CNSDeviceState`; on a TRANSITION
     /// into `.diedMidSession`/`.idle`, classifies via the matrix and acts.
-    /// `isOnlyPrimarySource` is fixed per-source (only EMAY is primary-
-    /// capable — the strengthened `CNSDeviceStateMatrix` contract, Task 5
-    /// review): `isOnlyPrimarySource = (source == .emayOximeter)`, regardless
-    /// of what else happens to be present.
+    /// A stopping primary is the only trustworthy primary when neither EMAY
+    /// nor a healthy, currently-reporting AS11 stream can cover its loss.
     private func updateDeviceStates(newSamples: [CNSSignalSample], at now: Date) {
         guard let session else { return }
         for source in CNSSignalSource.allCases {
@@ -663,7 +661,20 @@ final class CNSMonitoringCoordinator {
             previousDeviceStateBySource[source] = state
             guard previous != state, state == .diedMidSession || state == .idle else { continue }
 
-            let isOnlyPrimarySource = (source == .emayOximeter)
+            let otherReportingPrimaryExists = CNSDeviceStateMatrix.primaryCapableSources
+                .subtracting([source])
+                .contains { primarySource in
+                    let sourceIsTrustworthy = primarySource != .as11Bridge
+                        || currentAS11State() == .streamingOK
+                    return sourceIsTrustworthy && CNSDeviceStateMatrix.state(
+                        lastSample: lastSampleBySource[primarySource],
+                        sessionStart: session.startedAt,
+                        now: now,
+                        wasEverReporting: wasEverReportingBySource[primarySource] ?? false
+                    ) == .reporting
+                }
+            let isOnlyPrimarySource = CNSDeviceStateMatrix.primaryCapableSources.contains(source)
+                && !otherReportingPrimaryExists
             let classification = CNSDeviceStateMatrix.classify(
                 source: source, state: state, isOnlyPrimarySource: isOnlyPrimarySource
             )

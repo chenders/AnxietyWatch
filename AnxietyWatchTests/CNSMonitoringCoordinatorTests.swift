@@ -261,6 +261,93 @@ struct CNSMonitoringCoordinatorTests {
         #expect(coordinator.reportingSources.contains(.as11Bridge))
     }
 
+    @Test("AS11-only bridge death ends monitoring because AS11 is primary-capable")
+    func as11OnlyBridgeDeathEndsMonitoring() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        var currentTime = t0
+        let payload = AS11StreamPayload(
+            id: "as11-only-1", bridgeId: "test-bridge", timestampUTC: t0,
+            pressure: nil, flow: nil, leak: nil, spo2: 94, hr: 61,
+            state: AS11StreamState.streamingOK.rawValue
+        )
+        let source = MockAS11StreamSource(
+            state: .streamingOK, samples: [payload], lastFrameAt: t0,
+            now: { currentTime }, staleTimeout: 120
+        )
+        let poster = NotificationPosterSpy()
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, as11Source: source,
+            poster: poster, defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        coordinator.tick(at: currentTime)
+        currentTime = t0.addingTimeInterval(CNSThresholds.standard.gateWindowSeconds + 1)
+        coordinator.tick(at: currentTime)
+
+        #expect(!coordinator.isMonitoring)
+        #expect(poster.posts.contains { $0.identifier == CNSMonitoringConstants.endedNotificationID })
+    }
+
+    @Test("AS11 death degrades when EMAY remains a reporting primary source")
+    func as11DeathWithReportingEMAYDegrades() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        var currentTime = t0
+        let payload = AS11StreamPayload(
+            id: "as11-with-emay-1", bridgeId: "test-bridge", timestampUTC: t0,
+            pressure: nil, flow: nil, leak: nil, spo2: 94, hr: nil,
+            state: AS11StreamState.streamingOK.rawValue
+        )
+        let source = MockAS11StreamSource(
+            state: .streamingOK, samples: [payload], lastFrameAt: t0,
+            now: { currentTime }, staleTimeout: 120
+        )
+        let poster = NotificationPosterSpy()
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime },
+            emayReading: { EMAYReading(spo2: 96, pulseRate: 62, timestamp: currentTime) },
+            as11Source: source, poster: poster, defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        coordinator.tick(at: currentTime)
+        currentTime = t0.addingTimeInterval(CNSThresholds.standard.gateWindowSeconds + 1)
+        coordinator.tick(at: currentTime)
+
+        #expect(coordinator.isMonitoring)
+        #expect(poster.posts.contains { $0.identifier == CNSMonitoringConstants.degradedNotificationID })
+    }
+
+    @Test("Faulted AS11 cannot mask loss of the last trustworthy primary source")
+    func faultedAS11DoesNotMaskEMAYDeath() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        var currentTime = t0
+        var emayReading: EMAYReading? = EMAYReading(spo2: 96, pulseRate: 62, timestamp: t0)
+        let payload = AS11StreamPayload(
+            id: "as11-faulted-1", bridgeId: "test-bridge", timestampUTC: t0,
+            pressure: nil, flow: nil, leak: nil, spo2: 94, hr: nil,
+            state: AS11StreamState.maskOffLeak.rawValue
+        )
+        let source = MockAS11StreamSource(
+            state: .maskOffLeak, samples: [payload], lastFrameAt: t0,
+            now: { currentTime }, staleTimeout: 120
+        )
+        let poster = NotificationPosterSpy()
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, emayReading: { emayReading },
+            as11Source: source, poster: poster, defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        coordinator.tick(at: currentTime)
+        emayReading = nil
+        currentTime = t0.addingTimeInterval(CNSThresholds.standard.gateWindowSeconds + 1)
+        coordinator.tick(at: currentTime)
+
+        #expect(!coordinator.isMonitoring)
+        #expect(poster.posts.contains { $0.identifier == CNSMonitoringConstants.endedNotificationID })
+    }
+
     // MARK: - Contract 1: tick loop
 
     @Test("Tick loop: reads sensors via injected providers each tick and updates currentTier/canAssess as the pipeline processes")
