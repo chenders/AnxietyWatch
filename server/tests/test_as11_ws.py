@@ -2,6 +2,8 @@ import json
 from datetime import datetime, timezone
 from api.as11 import insert_stream_sample
 from api.as11_ws import as11_ws_handler
+from tests.test_server import app, _init_db  # noqa: F401
+
 
 
 class MockWebSocket:
