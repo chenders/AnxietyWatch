@@ -39,6 +39,28 @@ final class PhoneConnectivityManager: NSObject, WCSessionDelegate {
         try? WCSession.default.updateApplicationContext(context)
     }
 
+    // MARK: - CNS Klaxon
+
+    nonisolated static func klaxonHapticPayload() -> [String: Any] {
+        ["type": "cnsKlaxonHaptic"]
+    }
+
+    /// Immediate delivery is preferred; queued user info preserves the
+    /// watch-first warning when the watch is temporarily unreachable.
+    func sendKlaxonHaptic() {
+        guard WCSession.default.activationState == .activated,
+              WCSession.default.isPaired,
+              WCSession.default.isWatchAppInstalled else { return }
+        let payload = Self.klaxonHapticPayload()
+        if WCSession.default.isReachable {
+            WCSession.default.sendMessage(payload, replyHandler: nil) { _ in
+                WCSession.default.transferUserInfo(payload)
+            }
+        } else {
+            WCSession.default.transferUserInfo(payload)
+        }
+    }
+
     // MARK: - Check-In Context
 
     /// Update Watch applicationContext with pending check-in state.

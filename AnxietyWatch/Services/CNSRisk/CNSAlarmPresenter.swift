@@ -71,6 +71,13 @@ struct UserNotificationPoster: NotificationPosting {
 }
 
 @MainActor
+struct PhoneWatchHapticSender: WatchHapticSending {
+    func sendKlaxonHaptic() {
+        PhoneConnectivityManager.shared.sendKlaxonHaptic()
+    }
+}
+
+@MainActor
 struct ForegroundAlarmAudioPlayer: AlarmAudioPlaying {
     func playKlaxon() {
         let session = AVAudioSession.sharedInstance()
