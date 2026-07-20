@@ -26,13 +26,13 @@ final class MockAS11StreamSource: AS11StreamSource {
         samples: [AS11StreamPayload] = [],
         lastFrameAt: Date? = nil,
         now: @escaping () -> Date = Date.init,
-        staleTimeout: TimeInterval = CNSMonitoringConstants.as11FrameStaleTimeout
+        staleTimeout: TimeInterval? = nil
     ) {
         self.state = state
         self.samples = samples
         self.lastFrameAt = lastFrameAt
         self.now = now
-        self.staleTimeout = staleTimeout
+        self.staleTimeout = staleTimeout ?? CNSMonitoringConstants.as11FrameStaleTimeout
     }
 
     var latestState: AS11StreamState {
@@ -75,7 +75,7 @@ final class AS11WebSocketClient: AS11StreamSource {
     init(
         baseURL: URL,
         now: @escaping () -> Date = Date.init,
-        staleTimeout: TimeInterval = CNSMonitoringConstants.as11FrameStaleTimeout,
+        staleTimeout: TimeInterval? = nil,
         apiKey: @escaping () -> String = {
             UserDefaults.standard.string(forKey: "syncApiKey") ?? ""
         },
@@ -83,7 +83,7 @@ final class AS11WebSocketClient: AS11StreamSource {
     ) {
         self.baseURL = baseURL
         self.now = now
-        self.staleTimeout = staleTimeout
+        self.staleTimeout = staleTimeout ?? CNSMonitoringConstants.as11FrameStaleTimeout
         self.apiKey = apiKey
         self.session = session
     }
