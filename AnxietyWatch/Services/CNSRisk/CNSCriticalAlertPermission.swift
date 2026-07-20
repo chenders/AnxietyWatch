@@ -32,10 +32,12 @@ actor CNSCriticalAlertPermission {
         if settings.timeSensitiveSetting == .enabled {
             return .timeSensitiveOnly
         }
-        if settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional {
+        if settings.authorizationStatus == .authorized
+            || settings.authorizationStatus == .provisional
+            || settings.authorizationStatus == .ephemeral {
             return .standardOnly
         }
-        // .ephemeral or any future status the SDK may add.
+        // Any future status the SDK may add — treat with maximal paranoia.
         return .notDetermined
     }
 
