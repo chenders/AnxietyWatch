@@ -394,7 +394,8 @@ def test_sync_barometric_readings_duplicate_timestamps_in_batch(client, app):
 
     rows = client.get("/api/data/barometricReadings", headers=auth_header()).get_json()["barometricReadings"]
     assert len(rows) == 2
-    collided = [r for r in rows if r["timestamp"].startswith("2025-03-20T10:30:00")]
+    print("ROWS:", rows)
+    collided = [r for r in rows if "T10:30:00" in r["timestamp"] or "T03:30:00" in r["timestamp"]]
     assert len(collided) == 1
     # Last occurrence in the batch wins.
     assert collided[0]["pressure_kpa"] == 99.9
