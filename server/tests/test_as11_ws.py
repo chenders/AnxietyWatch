@@ -1,8 +1,9 @@
+# flake8: noqa: F811
 import json
 from datetime import datetime, timezone
 from api.as11 import insert_stream_sample
 from api.as11_ws import as11_ws_handler
-from tests.test_server import app, _clean_tables, _init_db  # noqa: F401
+from tests.test_server import app, _clean_tables, _init_db  # noqa: F401, F811
 
 
 class MockWebSocket:
