@@ -130,18 +130,18 @@ struct CNSAlertTierMachineTests {
         // Candidate starts at t=0. 45s elapsed at t=45. (46 ticks)
         let aloneTier = feed(&alone, score: 0.95, seconds: 46)
         #expect(aloneTier == .watch)
-        
+
         var accompanied = machine(companionPresent: true)
         // With companion, watch needs riseSustainSeconds (60s).
         let accompaniedTier = feed(&accompanied, score: 0.95, seconds: 46)
         #expect(accompaniedTier == .clear)
-        
+
         // Continue alone mode to confirm.
         // Candidate for confirm starts at t=46.
         // Needs 45s => escalates at t=91.
         _ = feed(&alone, score: 0.95, seconds: 46, startingAt: 46)
         #expect(alone.tier == .confirm)
-        
+
         // Candidate for klaxon starts at t=92.
         // Needs 15s => escalates at t=107.
         let aloneKlaxonTier = feed(&alone, score: 0.95, seconds: 16, startingAt: 92)

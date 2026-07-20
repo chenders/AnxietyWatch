@@ -89,7 +89,8 @@ struct CNSAlarmPresenterTests {
 
         presenter.present(tier: .klaxon, permission: .denied, appActive: true)
 
-        #expect(notification.contents.isEmpty)
+        #expect(notification.contents.count == 1)
+        #expect(notification.contents[0].interruptionLevel == .active)
         #expect(haptic.sendCount == 1)
         #expect(audio.playCount == 1)
     }
