@@ -345,3 +345,30 @@ def test_push_token_rejects_oversized_token(app, _clean_tables):  # noqa: F811
         with db.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM device_push_token")
             assert cur.fetchone()[0] == 0
+
+
+def test_samples_rejects_oversized_list(app, _clean_tables):  # noqa: F811
+    big = [{"ts_utc": REF.isoformat(), "channel": "SPO2", "value": NORMAL}
+           for _ in range(alert_channel.MAX_SAMPLES_PER_REQUEST + 1)]
+    with app.test_client() as client:
+        resp = client.post("/api/alert-channel/samples", headers=auth_header(),
+                           json={"session_id": "sess-big", "samples": big})
+        assert resp.status_code == 413
+
+
+def test_eval_failure_does_not_fail_the_upload(app, _clean_tables, monkeypatch):  # noqa: F811
+    """If backstop evaluation raises after the batch is buffered, the failure is
+    swallowed (logged) — the samples stay buffered and append returns normally,
+    so the upload doesn't 500 and the client doesn't retry-duplicate."""
+    def boom(*a, **k):
+        raise RuntimeError("eval boom")
+    monkeypatch.setattr(alert_channel.backstop, "evaluate", boom)
+    with app.app_context():
+        db = app.get_db()
+        now = REF + timedelta(seconds=SUSTAIN)
+        result = append_samples(db, "sess-eval", _low_run("sess-eval", 0, SUSTAIN), now, push=_Recorder())
+        assert result["buffered"] == SUSTAIN + 1
+        assert result["backstop_raised"] is False
+        with db.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM session_sample_buffer WHERE session_id = %s", ("sess-eval",))
+            assert cur.fetchone()[0] == SUSTAIN + 1

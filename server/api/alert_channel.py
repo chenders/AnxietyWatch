@@ -90,6 +90,12 @@ PUSH_CRITICAL = False
 # authenticated client can't bloat the registry with an oversized token.
 MAX_PUSH_TOKEN_LENGTH = 200
 
+# Bound the /samples payload: a real live-upload batch is a handful of samples
+# (a few KB). These cap parse/sort/DB work so an authenticated client can't
+# force an oversized-payload DoS.
+MAX_SAMPLES_PER_REQUEST = 1000
+MAX_SAMPLES_REQUEST_BYTES = 1_000_000
+
 
 def get_db():
     return current_app.get_db()
@@ -249,13 +255,15 @@ def _maybe_raise(db, session_id, kind, now, push):
 
 
 def append_samples(db, session_id, samples, now, push=None):
-    """Buffer ``samples`` for ``session_id`` and evaluate the backstop.
+    """Buffer ``samples`` for ``session_id``, then evaluate the backstop.
 
-    ``samples`` is an iterable of ``(ts_utc, channel, value)``. The batch and the
-    heartbeat-clear commit in a single transaction (a mid-batch failure rolls
-    back atomically, so a client retry does not duplicate rows). The backstop is
-    evaluated over the recent ts_utc-bounded window and raised idempotently.
-    ``now`` is injected; ``push`` defaults to the real APNs sender.
+    ``samples`` is an iterable of ``(ts_utc, channel, value)``. The batch insert
+    and heartbeat-clear commit atomically, so a failure DURING the insert rolls
+    back and the endpoint 500s before any commit (a retry is then clean). Once
+    the batch is buffered, backstop evaluation + push are BEST-EFFORT: a failure
+    there is logged and swallowed, not propagated, so it can't 500 the upload and
+    make the client retry (which could duplicate buffer rows) — the next append
+    re-evaluates. ``now`` is injected; ``push`` defaults to the real APNs sender.
     """
     if push is None:
         push = push_alert
@@ -275,36 +283,48 @@ def append_samples(db, session_id, samples, now, push=None):
             cur.execute("DELETE FROM alert_event WHERE session_id = %s AND kind = %s", (session_id, KIND_HEARTBEAT))
     db.commit()
 
-    window_start = now - timedelta(seconds=ALERT_EVAL_WINDOW_SECONDS)
-    with db.cursor() as cur:
-        cur.execute(
-            "SELECT ts_utc, channel, value FROM session_sample_buffer "
-            "WHERE session_id = %s AND ts_utc >= %s AND ts_utc <= %s",
-            (session_id, window_start, now),
-        )
-        window = [backstop.Sample(ts, channel, float(value)) for ts, channel, value in cur.fetchall()]
-
-    if samples and not window:
-        # Buffered samples but none fall in the recency window: the feed's
-        # timestamps are stale or clock-skewed relative to server time. Surface
-        # it rather than silently evaluating nothing (own-failure-visible).
-        logger.warning(
-            "alert-channel: buffered %d sample(s) but none within the %.0fs recency window (stale/clock-skew?)",
-            len(samples), ALERT_EVAL_WINDOW_SECONDS,
-        )
-
-    verdict = backstop.evaluate(window, now)
-    delivered, sent = (False, 0)
-    if verdict.raised:
-        delivered, sent = _maybe_raise(db, session_id, KIND_BACKSTOP, now, push)
-
-    return {
+    result = {
         "buffered": len(samples),
-        "backstop_raised": verdict.raised,
-        "alert_delivered": delivered,
-        "delivered_devices": sent,
+        "backstop_raised": False,
+        "alert_delivered": False,
+        "delivered_devices": 0,
         "last_ack_utc": now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
+
+    # Samples are durably buffered above. The backstop evaluation + push are a
+    # best-effort side effect: swallow any failure (logged) so it can't 500 the
+    # upload and make the client retry a batch that is already stored.
+    try:
+        window_start = now - timedelta(seconds=ALERT_EVAL_WINDOW_SECONDS)
+        with db.cursor() as cur:
+            cur.execute(
+                "SELECT ts_utc, channel, value FROM session_sample_buffer "
+                "WHERE session_id = %s AND ts_utc >= %s AND ts_utc <= %s",
+                (session_id, window_start, now),
+            )
+            window = [backstop.Sample(ts, channel, float(value)) for ts, channel, value in cur.fetchall()]
+
+        if samples and not window:
+            # Buffered samples but none fall in the recency window: the feed's
+            # timestamps are stale or clock-skewed relative to server time.
+            # Surface it rather than silently evaluating nothing.
+            logger.warning(
+                "alert-channel: buffered %d sample(s) but none within the %.0fs recency window (stale/clock-skew?)",
+                len(samples), ALERT_EVAL_WINDOW_SECONDS,
+            )
+
+        verdict = backstop.evaluate(window, now)
+        result["backstop_raised"] = verdict.raised
+        if verdict.raised:
+            delivered, sent = _maybe_raise(db, session_id, KIND_BACKSTOP, now, push)
+            result["alert_delivered"] = delivered
+            result["delivered_devices"] = sent
+    except Exception:
+        # Clear any aborted transaction; the buffered batch is already committed.
+        db.rollback()
+        logger.exception("alert-channel backstop evaluation failed for session=%s", session_id)
+
+    return result
 
 
 def run_heartbeat_sweep(db, now, push=None):
@@ -354,11 +374,16 @@ def _parse_ts(value):
 @alert_channel_bp.route("/samples", methods=["POST"])
 @require_api_key
 def post_samples():
+    if request.content_length and request.content_length > MAX_SAMPLES_REQUEST_BYTES:
+        return jsonify({"error": "request body too large"}), 413
+
     body = request.get_json(silent=True) or {}
     session_id = body.get("session_id")
     raw = body.get("samples")
     if not session_id or not isinstance(raw, list):
         return jsonify({"error": "session_id and samples[] are required"}), 400
+    if len(raw) > MAX_SAMPLES_PER_REQUEST:
+        return jsonify({"error": "too many samples in one request (max %d)" % MAX_SAMPLES_PER_REQUEST}), 413
 
     samples = []
     for item in raw:
