@@ -373,8 +373,9 @@ def test_samples_rejects_invalid_json(app, _clean_tables):  # noqa: F811
 
 
 def test_disarm_clears_session_and_prevents_heartbeat(app, _clean_tables):  # noqa: F811
-    """Disarm drops the session's buffer + alerts, so a subsequent sweep finds
-    no candidate and the no-data heartbeat can't false-fire for a clean stop."""
+    """Disarm drops the session's buffer (only), so a subsequent sweep finds no
+    candidate and the no-data heartbeat can't false-fire for a clean stop. The
+    alert_event delivery ledger is intentionally preserved."""
     push = _Recorder()
     with app.app_context():
         db = app.get_db()

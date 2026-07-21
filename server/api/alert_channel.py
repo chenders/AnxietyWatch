@@ -481,8 +481,9 @@ def post_push_token():
 def post_disarm():
     """Mark a monitoring session ended (the client calls this on disarm) so the
     no-data heartbeat doesn't fire a false "monitoring stopped" alert for a clean
-    stop. Drops the session's buffered samples and any pending alert rows — which
-    also bounds buffer growth for ended sessions."""
+    stop. Drops ONLY the session's buffered samples (removing it from heartbeat
+    candidacy and bounding growth); the alert_event delivery ledger is preserved
+    so /health keeps reporting the session's last delivered alert."""
     body = request.get_json(silent=True) or {}
     session_id = body.get("session_id")
     session_id = session_id.strip() if isinstance(session_id, str) else None

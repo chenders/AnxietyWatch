@@ -73,11 +73,12 @@ final class AlertChannelUploader: AlertChannelUploading {
     /// server buffer (a gap is indeterminate, never "safe"), never uploaded as a
     /// coerced value.
     static func wireSamples(from samples: [CNSSignalSample]) -> [[String: Any]] {
-        let formatter = ISO8601DateFormatter()
         return samples.compactMap { sample -> [String: Any]? in
             guard !sample.isArtifact else { return nil }
             return [
-                "ts_utc": formatter.string(from: sample.timestamp),
+                // Date.ISO8601Format() avoids allocating an ISO8601DateFormatter
+                // per call (this runs in the 1 Hz monitoring hot path).
+                "ts_utc": sample.timestamp.ISO8601Format(),
                 "source": sourceLabel(for: sample.source),
                 "channel": channelLabel(for: sample.kind),
                 "value": sample.value,
