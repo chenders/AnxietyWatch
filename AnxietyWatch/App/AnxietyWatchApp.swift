@@ -146,13 +146,35 @@ struct AnxietyWatchApp: App {
         )
         _emayService = State(initialValue: emay)
 
+        let as11URL = Self.as11WebSocketURL()
+        let as11Source = AS11WebSocketClient(baseURL: as11URL)
         _monitoringCoordinator = State(initialValue: CNSMonitoringCoordinator(
             modelContext: ModelContext(sharedModelContainer),
             emayService: emay,
-            polarService: polar
+            polarService: polar,
+            as11Source: as11Source
         ))
 
         UNUserNotificationCenter.current().delegate = notificationDelegate
+    }
+
+    private static func as11WebSocketURL() -> URL {
+        let configured = UserDefaults.standard.string(forKey: "syncServerURL") ?? ""
+        guard var components = URLComponents(string: configured),
+              components.host != nil else {
+            return URL(string: "wss://sync.anxietywatch.com/api/cpap/as11/ws")!
+        }
+        // Map to a WebSocket scheme without clobbering an explicit ws://
+        // (local/dev): http→ws, https/anything-else→wss, ws/wss preserved.
+        switch components.scheme {
+        case "http": components.scheme = "ws"
+        case "ws", "wss": break
+        default: components.scheme = "wss"
+        }
+        components.path = "/api/cpap/as11/ws"
+        components.query = nil
+        components.fragment = nil
+        return components.url ?? URL(string: "wss://sync.anxietywatch.com/api/cpap/as11/ws")!
     }
 
     // MARK: - Body
@@ -188,11 +210,13 @@ struct AnxietyWatchApp: App {
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
+                        monitoringCoordinator.sceneDidBecomeActive()
                         checkPendingFollowUp()
                         checkPendingRandomCheckIn()
                     }
                     // Spec §1.1 close flow: checkpoint + close on background.
                     if newPhase == .background {
+                        monitoringCoordinator.sceneDidEnterBackground()
                         saveCleanShutdownFlag()
                         Task {
                             await pipelineService.stop()

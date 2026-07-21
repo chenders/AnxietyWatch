@@ -179,6 +179,11 @@ A rolling **60 s** window is **indeterminate** ("can't assess" — never alert *
 - **Asymmetry rule:** *reassure* only on a fully-passing window; *escalate* only when the alarming trend persists ≥ 2 consecutive good windows (or one high-confidence window); a low-quality window that *can't rule out* danger surfaces as "can't assess," never "OK."
 *(Wearable-SpO₂ SQI/30 s precedent, PI/Bland-Altman study, Kubios <5% artifact, ISO 80601-2-61.)*
 
+**Implementation note (2026-07-20):** A `.monitoringPaused` tick holds the tier and resets any
+clearing candidate, but does not reset a rise candidate. As with degraded or insufficient data,
+the rise path's maximum-gap guard invalidates stale evidence; a brief mask slip must not restart
+a genuine desaturation's sustain timer from zero.
+
 ### 14.3 Sleep auto-detect as a gate — RESOLVED: do NOT rely on it
 iOS/HealthKit sleep is **retrospective** (category samples written *after* the session, surfacing minutes–hours later, sync only when iPhone unlocked) with **low wake-specificity** (~47–76%; over-calls sleep). There is **no real-time "asleep now" API** and no reliable onset signal. → **Default trigger = manual "going to sleep" toggle + the post-dose timer (14.1).** Auto-sleep is an *optional best-effort* layer only: Sleep Focus/Schedule as a soft "arm the monitor?" nudge, retrospective `sleepAnalysis` to annotate sessions — **never** the sole arming condition, and auto-signals may only *add* coverage, never withhold it.
 *(Apple HealthKit docs + independent PSG-validation studies.)*

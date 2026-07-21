@@ -17,6 +17,9 @@ final class CNSRiskSampleRecord {
     /// `CNSAlertTier.rawValue` at this instant.
     var tier: Int
     var canAssess: Bool
+    /// Authoritative reason for a can't-assess state, such as
+    /// `BRIDGE_DOWN`, `STREAM_STALLED`, or `MASK_OFF_LEAK`.
+    var assessmentReason: String?
     /// JSON-encoded `[CNSContributionRecord]` per-signal contributions —
     /// what Phase 3's 1-hour view renders as the per-signal breakdown.
     /// Decode via `contributions`.
@@ -28,6 +31,7 @@ final class CNSRiskSampleRecord {
         riskScore: Double? = nil,
         tier: Int,
         canAssess: Bool,
+        assessmentReason: String? = nil,
         contributionsData: Data? = nil,
         session: MonitoringSession? = nil
     ) {
@@ -36,6 +40,7 @@ final class CNSRiskSampleRecord {
         self.riskScore = riskScore
         self.tier = tier
         self.canAssess = canAssess
+        self.assessmentReason = assessmentReason
         self.contributionsData = contributionsData
         self.session = session
     }

@@ -148,6 +148,58 @@ struct CNSAlertTierMachineTests {
         #expect(aloneKlaxonTier == .klaxon)
     }
 
+    @Test("A brief monitoring pause preserves a rise candidate within the gap guard")
+    func briefMonitoringPausePreservesRiseCandidate() {
+        var m = machine()
+        _ = feed(&m, score: 0.5, seconds: 30)
+
+        let heldTier = m.ingest(
+            .monitoringPaused(reason: AS11StreamState.maskOffLeak.rawValue),
+            at: t0.addingTimeInterval(30)
+        )
+        #expect(heldTier == .clear)
+        #expect(m.canAssess == false)
+
+        let tier = feed(&m, score: 0.5, seconds: 31, startingAt: 31)
+        #expect(tier == .watch)
+        #expect(m.canAssess == true)
+    }
+
+    @Test("A monitoring pause beyond the gap guard restarts the rise sustain")
+    func longMonitoringPauseRestartsRiseCandidate() {
+        var m = machine()
+        _ = feed(&m, score: 0.5, seconds: 30)
+
+        for second in 30...36 {
+            _ = m.ingest(
+                .monitoringPaused(reason: AS11StreamState.maskOffLeak.rawValue),
+                at: t0.addingTimeInterval(Double(second))
+            )
+        }
+
+        let tooSoon = feed(&m, score: 0.5, seconds: 31, startingAt: 37)
+        #expect(tooSoon == .clear)
+        let tier = feed(&m, score: 0.5, seconds: 31, startingAt: 68)
+        #expect(tier == .watch)
+    }
+
+    @Test("A brief degraded tick preserves a rise candidate within the gap guard")
+    func briefMonitoringDegradationPreservesRiseCandidate() {
+        var m = machine()
+        _ = feed(&m, score: 0.5, seconds: 30)
+
+        let heldTier = m.ingest(
+            .monitoringDegraded(reason: AS11StreamState.bridgeDown.rawValue),
+            at: t0.addingTimeInterval(30)
+        )
+        #expect(heldTier == .clear)
+        #expect(m.canAssess == false)
+
+        let tier = feed(&m, score: 0.5, seconds: 31, startingAt: 31)
+        #expect(tier == .watch)
+        #expect(m.canAssess == true)
+    }
+
     @Test("A data gap inside a rise window restarts the sustain — no escalation on bracketing evidence")
     func dataGapDoesNotCountTowardRise() {
         var m = machine()

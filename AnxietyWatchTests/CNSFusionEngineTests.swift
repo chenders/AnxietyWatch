@@ -156,18 +156,53 @@ struct CNSFusionEngineTests {
         #expect(engine.fuse(maskOff, as11State: .maskOffLeak) == .monitoringPaused(reason: "MASK_OFF_LEAK"))
     }
 
+    @Test("AS11-only assessment under bridge fault remains observably degraded")
+    func bridgeFaultAfterStripIsDegraded() {
+        let as11Only = [
+            assessment(kind: .spo2, source: .as11Bridge, severity: 1.0, confidence: 0.95)
+        ]
+
+        #expect(
+            engine.fuse(as11Only, as11State: .bridgeDown)
+                == .monitoringDegraded(reason: AS11StreamState.bridgeDown.rawValue)
+        )
+    }
+
+    @Test("AS11 bridge fault strips AS11 heart rate while preserving other-source data")
+    func bridgeFaultStripsAllAS11Channels() {
+        let assessments = [
+            assessment(kind: .heartRate, source: .as11Bridge, severity: 1.0, confidence: 0.95),
+            assessment(kind: .heartRate, source: .polarH10, severity: 0.7, confidence: 0.95)
+        ]
+
+        guard case .assessed(let score, let contributions) = engine.fuse(
+            assessments, as11State: .bridgeDown
+        ) else {
+            Issue.record("expected other-source assessment")
+            return
+        }
+
+        #expect(score > 0)
+        #expect(contributions.count == 1)
+        #expect(contributions[0].source == .polarH10)
+        #expect(!contributions.contains { $0.source == .as11Bridge })
+    }
+
     @Test("AS11 stalled stream strips AS11 SpO2 from primary but allows other data")
     func streamStalledStripsAS11Primary() {
         let assessments = [
             assessment(kind: .spo2, source: .as11Bridge, severity: 1.0, confidence: 0.9), // Should be stripped
             assessment(kind: .heartRate, source: .polarH10, severity: 0.9, confidence: 0.95) // Should remain as corroborating
         ]
-        guard case .assessed(let score, _) = engine.fuse(assessments, as11State: .streamStalled) else {
+        guard case .assessed(let score, let contributions) = engine.fuse(
+            assessments, as11State: .streamStalled
+        ) else {
             Issue.record("expected .assessed"); return
         }
         // Since primary is empty (AS11 SpO2 was stripped) and we only have corroborating, it stays below confirm
         #expect(score > 0)
         #expect(score < thresholds.confirmThreshold)
+        #expect(!contributions.contains { $0.source == .as11Bridge })
     }
 
     @Test("Contributions echo the assessments that were actually counted")

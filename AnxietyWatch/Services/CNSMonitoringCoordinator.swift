@@ -152,7 +152,7 @@ final class CNSMonitoringCoordinator {
     private let latestEMAYReading: () -> EMAYReading?
     private let latestPolarHR: () -> Int?
     private let latestPolarRMSSD: () -> Double?
-    private let latestAS11State: () -> AS11StreamState
+    private let as11Source: AS11StreamSource?
     private let notificationPoster: CNSMonitoringNotificationPosting
     private let defaults: UserDefaults
     /// `false` in tests: suppresses the real `Task`-based tick loop so tests
@@ -211,6 +211,9 @@ final class CNSMonitoringCoordinator {
     /// window `PolarHRMService` keeps `state.currentHR` populated for) is
     /// never re-emitted as if it just arrived.
     private var lastEmittedPolarHRArrivalTime: Date?
+    /// Server ids already admitted during this monitoring session. A cursor
+    /// resync may replay overlap; those rows must enter the pipeline once.
+    private var collectedAS11SampleIDs: Set<String> = []
     private var tickTask: Task<Void, Never>?
     /// In-memory cache of the persisted `[LoggedCNSDose]` list, so
     /// `evaluateDoseWindowExpiry` (called every 1 Hz tick, potentially for a
@@ -241,7 +244,7 @@ final class CNSMonitoringCoordinator {
         latestEMAYReading: @escaping () -> EMAYReading?,
         latestPolarHR: @escaping () -> Int?,
         latestPolarRMSSD: @escaping () -> Double?,
-        latestAS11State: @escaping () -> AS11StreamState = { .streamingOK },
+        as11Source: AS11StreamSource? = nil,
         notificationPoster: CNSMonitoringNotificationPosting,
         defaults: UserDefaults = .standard,
         enableTickLoop: Bool = true,
@@ -259,7 +262,7 @@ final class CNSMonitoringCoordinator {
         self.latestEMAYReading = latestEMAYReading
         self.latestPolarHR = latestPolarHR
         self.latestPolarRMSSD = latestPolarRMSSD
-        self.latestAS11State = latestAS11State
+        self.as11Source = as11Source
         self.notificationPoster = notificationPoster
         self.defaults = defaults
         self.enableTickLoop = enableTickLoop
@@ -296,13 +299,15 @@ final class CNSMonitoringCoordinator {
     convenience init(
         modelContext: ModelContext,
         emayService: EMAYRealtimeService,
-        polarService: PolarHRMService
+        polarService: PolarHRMService,
+        as11Source: AS11StreamSource
     ) {
         self.init(
             modelContext: modelContext,
             latestEMAYReading: { [weak emayService] in emayService?.latestReading },
             latestPolarHR: { [weak polarService] in polarService?.state.currentHR },
             latestPolarRMSSD: { [weak polarService] in polarService?.state.lastMinuteRMSSD },
+            as11Source: as11Source,
             notificationPoster: UNUserNotificationCenterPoster(),
             emayStartHook: { [weak emayService] in emayService?.start() },
             emayStopHook: { [weak emayService] in
@@ -416,6 +421,19 @@ final class CNSMonitoringCoordinator {
         applyCompanionPresent(present, at: now())
     }
 
+    /// Foreground-only AS11 transport lifecycle. Monitoring state and the
+    /// server cursor survive backgrounding; the source remains fail-closed
+    /// until foreground reconnection produces a fresh authoritative frame.
+    func sceneDidBecomeActive() {
+        guard isMonitoring else { return }
+        as11Source?.connect()
+    }
+
+    func sceneDidEnterBackground() {
+        guard isMonitoring else { return }
+        as11Source?.suspend()
+    }
+
     /// Called from both dose-log sites (`MedicationsHubView.logDose`'s
     /// direct-insert path and `DoseAnxietyPromptView`'s prompt-confirm path)
     /// immediately after a `MedicationDose` is inserted. Classifies the dose,
@@ -496,7 +514,7 @@ final class CNSMonitoringCoordinator {
         updateDeviceStates(newSamples: [sample], at: timestamp)
         guard isMonitoring, self.session != nil else { return }
         let (assessment, tier) = pipeline.process(
-            samples: sampleBuffer, baselines: baselines, as11State: latestAS11State(), at: timestamp
+            samples: sampleBuffer, baselines: baselines, as11State: currentAS11State(), at: timestamp
         )
         self.pipeline = pipeline
         currentTier = tier
@@ -536,7 +554,7 @@ final class CNSMonitoringCoordinator {
         let (assessment, tier) = pipeline.process(
             samples: sampleBuffer,
             baselines: baselines,
-            as11State: latestAS11State(),
+            as11State: currentAS11State(),
             at: now
         )
         self.pipeline = pipeline
@@ -558,7 +576,24 @@ final class CNSMonitoringCoordinator {
         }
         samples.append(contentsOf: collectPolarHRSample())
         samples.append(contentsOf: collectPolarRMSSDSample(at: now))
+        if let as11Source {
+            let payloads = as11Source.latestSamples()
+            for payload in payloads where collectedAS11SampleIDs.insert(payload.id).inserted {
+                samples.append(contentsOf: CNSSensorAdapters.samples(from: payload))
+            }
+            // Bound the dedup set: once a sample ages out of the source's buffer
+            // it can never be re-returned (it precedes the resync cursor), so its
+            // id can be forgotten. Without this the set grows unbounded across an
+            // all-night session.
+            collectedAS11SampleIDs.formIntersection(payloads.map(\.id))
+        }
         return samples
+    }
+
+    /// Exposes the exact state supplied by the server while fresh. An absent
+    /// source and the source's stale-frame policy both mean can't assess.
+    func currentAS11State() -> AS11StreamState {
+        as11Source?.latestState ?? .streamStalled
     }
 
     /// Fix item 2 (IMPORTANT — Polar liveness from packet arrival, not cached
@@ -618,10 +653,8 @@ final class CNSMonitoringCoordinator {
 
     /// Contract 6: derives each source's `CNSDeviceState`; on a TRANSITION
     /// into `.diedMidSession`/`.idle`, classifies via the matrix and acts.
-    /// `isOnlyPrimarySource` is fixed per-source (only EMAY is primary-
-    /// capable — the strengthened `CNSDeviceStateMatrix` contract, Task 5
-    /// review): `isOnlyPrimarySource = (source == .emayOximeter)`, regardless
-    /// of what else happens to be present.
+    /// A stopping primary is the only trustworthy primary when neither EMAY
+    /// nor a healthy, currently-reporting AS11 stream can cover its loss.
     private func updateDeviceStates(newSamples: [CNSSignalSample], at now: Date) {
         guard let session else { return }
         for source in CNSSignalSource.allCases {
@@ -646,7 +679,20 @@ final class CNSMonitoringCoordinator {
             previousDeviceStateBySource[source] = state
             guard previous != state, state == .diedMidSession || state == .idle else { continue }
 
-            let isOnlyPrimarySource = (source == .emayOximeter)
+            let otherReportingPrimaryExists = CNSDeviceStateMatrix.primaryCapableSources
+                .subtracting([source])
+                .contains { primarySource in
+                    let sourceIsTrustworthy = primarySource != .as11Bridge
+                        || currentAS11State() == .streamingOK
+                    return sourceIsTrustworthy && CNSDeviceStateMatrix.state(
+                        lastSample: lastSampleBySource[primarySource],
+                        sessionStart: session.startedAt,
+                        now: now,
+                        wasEverReporting: wasEverReportingBySource[primarySource] ?? false
+                    ) == .reporting
+                }
+            let isOnlyPrimarySource = CNSDeviceStateMatrix.primaryCapableSources.contains(source)
+                && !otherReportingPrimaryExists
             let classification = CNSDeviceStateMatrix.classify(
                 source: source, state: state, isOnlyPrimarySource: isOnlyPrimarySource
             )
@@ -747,18 +793,26 @@ final class CNSMonitoringCoordinator {
         }
         if persistDue || tierIncreased {
             let riskScore: Double?
+            let assessmentReason: String?
             let contributions: [CNSContributionRecord]
             switch assessment {
-            case .insufficientData, .monitoringDegraded, .monitoringPaused:
+            case .insufficientData:
                 riskScore = nil
+                assessmentReason = nil
+                contributions = []
+            case .monitoringDegraded(let reason), .monitoringPaused(let reason):
+                riskScore = nil
+                assessmentReason = reason
                 contributions = []
             case .assessed(let score, let assessmentContributions):
                 riskScore = score
+                assessmentReason = nil
                 contributions = assessmentContributions.map(CNSContributionRecord.init(assessment:))
             }
             MonitoringSessionStore.insertSample(
                 timestamp: now, riskScore: riskScore, tier: tier, canAssess: canAssess,
-                contributions: contributions, into: session, context: modelContext
+                assessmentReason: assessmentReason, contributions: contributions,
+                into: session, context: modelContext
             )
             try? modelContext.save()
             lastPersistAt = now
@@ -833,6 +887,7 @@ final class CNSMonitoringCoordinator {
         disclosedDegradedSources = []
         lastPolarHRArrivalTime = nil
         lastEmittedPolarHRArrivalTime = nil
+        collectedAS11SampleIDs = []
 
         let newSession = MonitoringSession(
             startedAt: now,
@@ -843,14 +898,11 @@ final class CNSMonitoringCoordinator {
         try? modelContext.save()
         session = newSession
 
-        // EMAY is the only primary-capable (continuous SpO2) source
-        // regardless of which trigger armed monitoring — start it
-        // alongside every new session, not just manual arms, so the tick
-        // loop's first poll has a session to read from. Idempotent/no-op
-        // if a session (incl. the user's own continuous-mode session) is
-        // already active; see the property's doc comment for why this can
-        // never fight `setContinuousMode`.
+        // Start both primary-capable live sources for every new monitoring
+        // session. Each transport is idempotent, and an unavailable AS11
+        // connection remains fail-closed as `.streamStalled`.
         emayStartHook()
+        as11Source?.connect()
 
         // Fix item 1: arm the dead-man's-switch immediately — don't wait for
         // the first 10s persist-cadence boundary, or a death in the first
@@ -874,6 +926,7 @@ final class CNSMonitoringCoordinator {
         // closure) is what checks the continuous-streaming toggle; this
         // coordinator stays ignorant of EMAY specifics.
         emayStopHook?()
+        as11Source?.disconnect()
 
         // Fix item 1: the dead-man's-switch is only meaningful WHILE
         // monitoring — a deliberate end (any reason) must not leave a
@@ -896,6 +949,7 @@ final class CNSMonitoringCoordinator {
         disclosedDegradedSources = []
         lastPolarHRArrivalTime = nil
         lastEmittedPolarHRArrivalTime = nil
+        collectedAS11SampleIDs = []
         doseWindowExpiry = nil
         updateStatusLine()
     }

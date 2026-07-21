@@ -62,6 +62,71 @@ struct CNSSensorAdapterTests {
         #expect(samples.isEmpty)
     }
 
+    // MARK: - AS11
+
+    @Test(
+        "AS11 emits only present SpO2 and HR fields",
+        arguments: [
+            (spo2: 94.0 as Double?, hr: 61.0 as Double?, expectedKinds: [CNSSignalKind.spo2, .heartRate]),
+            (spo2: 94.0 as Double?, hr: nil, expectedKinds: [CNSSignalKind.spo2]),
+            (spo2: nil, hr: 61.0 as Double?, expectedKinds: [CNSSignalKind.heartRate]),
+            (spo2: nil, hr: nil, expectedKinds: [])
+        ]
+    )
+    func as11PresentAndAbsentFields(
+        spo2: Double?, hr: Double?, expectedKinds: [CNSSignalKind]
+    ) {
+        let payload = AS11StreamPayload(
+            id: "fictional-as11", bridgeId: "test-bridge", timestampUTC: t0,
+            pressure: nil, flow: nil, leak: nil, spo2: spo2, hr: hr,
+            state: AS11StreamState.streamingOK.rawValue
+        )
+
+        let samples = CNSSensorAdapters.samples(from: payload)
+
+        #expect(samples.map(\.kind) == expectedKinds)
+        #expect(samples.allSatisfy { $0.source == .as11Bridge && $0.timestamp == t0 })
+        #expect(samples.first { $0.kind == .spo2 }?.value == spo2)
+        #expect(samples.first { $0.kind == .heartRate }?.value == hr)
+    }
+
+    @Test(
+        "AS11 rejects physiologically-impossible values — invalid data contributes nothing, never a false escalation",
+        arguments: [
+            // Dropped-channel sentinel / a flow-leak-pressure number mislabeled into the SpO2 slot.
+            (spo2: 0.0 as Double?, hr: 61.0 as Double?, expected: [CNSSignalKind.heartRate]),
+            (spo2: 110.0 as Double?, hr: 61.0 as Double?, expected: [CNSSignalKind.heartRate]),
+            (spo2: -1.0 as Double?, hr: 61.0 as Double?, expected: [CNSSignalKind.heartRate]),
+            (spo2: Double.nan as Double?, hr: 61.0 as Double?, expected: [CNSSignalKind.heartRate]),
+            // Non-positive / absurd HR.
+            (spo2: 94.0 as Double?, hr: 0.0 as Double?, expected: [CNSSignalKind.spo2]),
+            (spo2: 94.0 as Double?, hr: 400.0 as Double?, expected: [CNSSignalKind.spo2]),
+            // A genuine severe desaturation MUST survive — the dangerous (false-negative) direction to guard.
+            (spo2: 45.0 as Double?, hr: 61.0 as Double?, expected: [CNSSignalKind.spo2, .heartRate])
+        ]
+    )
+    func as11RejectsImplausibleValues(spo2: Double?, hr: Double?, expected: [CNSSignalKind]) {
+        let payload = AS11StreamPayload(
+            id: "fictional-as11", bridgeId: "test-bridge", timestampUTC: t0,
+            pressure: nil, flow: nil, leak: nil, spo2: spo2, hr: hr,
+            state: AS11StreamState.streamingOK.rawValue
+        )
+        #expect(CNSSensorAdapters.samples(from: payload).map(\.kind) == expected)
+    }
+
+    @Test("AS11 sample time-windows on local receipt time, not the bridge clock (skew-proof)")
+    func as11UsesLocalReceiptTimeWhenPresent() {
+        let serverTime = t0.addingTimeInterval(-600) // bridge clock 10 min behind the phone
+        let payload = AS11StreamPayload(
+            id: "fictional-as11", bridgeId: "test-bridge", timestampUTC: serverTime,
+            pressure: nil, flow: nil, leak: nil, spo2: 94, hr: 61,
+            state: AS11StreamState.streamingOK.rawValue, receivedAt: t0
+        )
+        let samples = CNSSensorAdapters.samples(from: payload)
+        #expect(!samples.isEmpty)
+        #expect(samples.allSatisfy { $0.timestamp == t0 })
+    }
+
     // MARK: - Polar
 
     @Test("Polar HR 62 yields one heartRate/polarH10 sample with no PI")

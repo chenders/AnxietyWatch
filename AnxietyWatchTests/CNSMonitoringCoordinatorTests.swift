@@ -73,6 +73,7 @@ struct CNSMonitoringCoordinatorTests {
         emayReading: @escaping () -> EMAYReading? = { nil },
         polarHR: @escaping () -> Int? = { nil },
         polarRMSSD: @escaping () -> Double? = { nil },
+        as11Source: AS11StreamSource? = nil,
         poster: CNSMonitoringNotificationPosting,
         defaults: UserDefaults,
         emayStartHook: @escaping () -> Void = {},
@@ -84,6 +85,7 @@ struct CNSMonitoringCoordinatorTests {
             latestEMAYReading: emayReading,
             latestPolarHR: polarHR,
             latestPolarRMSSD: polarRMSSD,
+            as11Source: as11Source,
             notificationPoster: poster,
             defaults: defaults,
             enableTickLoop: false,
@@ -228,6 +230,195 @@ struct CNSMonitoringCoordinatorTests {
             lastSamples = samples
             return result
         }
+    }
+
+    // MARK: - AS11 source wiring
+
+    @Test("Coordinator preserves authoritative AS11 state and collects AS11 samples")
+    func as11SourceStateAndSamplesReachCoordinator() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let currentTime = t0
+        let payload = AS11StreamPayload(
+            id: "as11-1", bridgeId: "test-bridge", timestampUTC: t0,
+            pressure: nil, flow: nil, leak: nil, spo2: 94, hr: 61,
+            state: AS11StreamState.bridgeDown.rawValue
+        )
+        let source = MockAS11StreamSource(
+            state: .bridgeDown, samples: [payload], lastFrameAt: t0,
+            now: { currentTime }, staleTimeout: 120
+        )
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime },
+            emayReading: { EMAYReading(spo2: 96, pulseRate: 62, timestamp: currentTime) },
+            as11Source: source,
+            poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        coordinator.tick(at: currentTime)
+
+        #expect(coordinator.currentAS11State() == .bridgeDown)
+        #expect(coordinator.reportingSources.contains(.as11Bridge))
+    }
+
+    @Test("AS11-only bridge death ends monitoring because AS11 is primary-capable")
+    func as11OnlyBridgeDeathEndsMonitoring() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        var currentTime = t0
+        let payload = AS11StreamPayload(
+            id: "as11-only-1", bridgeId: "test-bridge", timestampUTC: t0,
+            pressure: nil, flow: nil, leak: nil, spo2: 94, hr: 61,
+            state: AS11StreamState.streamingOK.rawValue
+        )
+        let source = MockAS11StreamSource(
+            state: .streamingOK, samples: [payload], lastFrameAt: t0,
+            now: { currentTime }, staleTimeout: 120
+        )
+        let poster = NotificationPosterSpy()
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, as11Source: source,
+            poster: poster, defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        coordinator.tick(at: currentTime)
+        currentTime = t0.addingTimeInterval(CNSThresholds.standard.gateWindowSeconds + 1)
+        coordinator.tick(at: currentTime)
+
+        #expect(!coordinator.isMonitoring)
+        #expect(poster.posts.contains { $0.identifier == CNSMonitoringConstants.endedNotificationID })
+    }
+
+    @Test("AS11 death degrades when EMAY remains a reporting primary source")
+    func as11DeathWithReportingEMAYDegrades() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        var currentTime = t0
+        let payload = AS11StreamPayload(
+            id: "as11-with-emay-1", bridgeId: "test-bridge", timestampUTC: t0,
+            pressure: nil, flow: nil, leak: nil, spo2: 94, hr: nil,
+            state: AS11StreamState.streamingOK.rawValue
+        )
+        let source = MockAS11StreamSource(
+            state: .streamingOK, samples: [payload], lastFrameAt: t0,
+            now: { currentTime }, staleTimeout: 120
+        )
+        let poster = NotificationPosterSpy()
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime },
+            emayReading: { EMAYReading(spo2: 96, pulseRate: 62, timestamp: currentTime) },
+            as11Source: source, poster: poster, defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        coordinator.tick(at: currentTime)
+        currentTime = t0.addingTimeInterval(CNSThresholds.standard.gateWindowSeconds + 1)
+        coordinator.tick(at: currentTime)
+
+        #expect(coordinator.isMonitoring)
+        #expect(poster.posts.contains { $0.identifier == CNSMonitoringConstants.degradedNotificationID })
+    }
+
+    @Test("Faulted AS11 cannot mask loss of the last trustworthy primary source")
+    func faultedAS11DoesNotMaskEMAYDeath() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        var currentTime = t0
+        var emayReading: EMAYReading? = EMAYReading(spo2: 96, pulseRate: 62, timestamp: t0)
+        let payload = AS11StreamPayload(
+            id: "as11-faulted-1", bridgeId: "test-bridge", timestampUTC: t0,
+            pressure: nil, flow: nil, leak: nil, spo2: 94, hr: nil,
+            state: AS11StreamState.maskOffLeak.rawValue
+        )
+        let source = MockAS11StreamSource(
+            state: .maskOffLeak, samples: [payload], lastFrameAt: t0,
+            now: { currentTime }, staleTimeout: 120
+        )
+        let poster = NotificationPosterSpy()
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime }, emayReading: { emayReading },
+            as11Source: source, poster: poster, defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        coordinator.tick(at: currentTime)
+        emayReading = nil
+        currentTime = t0.addingTimeInterval(CNSThresholds.standard.gateWindowSeconds + 1)
+        coordinator.tick(at: currentTime)
+
+        #expect(!coordinator.isMonitoring)
+        #expect(poster.posts.contains { $0.identifier == CNSMonitoringConstants.endedNotificationID })
+    }
+
+    @Test(
+        "Persisted can't-assess records retain the authoritative AS11 fault reason",
+        arguments: [
+            AS11StreamState.bridgeDown,
+            AS11StreamState.streamStalled,
+            AS11StreamState.maskOffLeak
+        ]
+    )
+    func persistedRecordRetainsAS11FaultReason(state: AS11StreamState) throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let source = MockAS11StreamSource(
+            state: state, samples: [], lastFrameAt: t0,
+            now: { t0 }, staleTimeout: 120
+        )
+        let coordinator = makeCoordinator(
+            context: context, now: { t0 }, as11Source: source,
+            poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        coordinator.tick(at: t0)
+
+        let record = try #require(context.fetch(FetchDescriptor<CNSRiskSampleRecord>()).first)
+        #expect(record.assessmentReason == state.rawValue)
+        #expect(record.canAssess == false)
+    }
+
+    @Test("A persisted .insufficientData record carries NO fault reason (only faults name a reason)")
+    func insufficientDataRecordHasNoAssessmentReason() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        // streamingOK AS11 with no samples and no other source → insufficientData:
+        // a genuine no-data state, NOT an AS11 fault, so no reason is recorded.
+        let source = MockAS11StreamSource(
+            state: .streamingOK, samples: [], lastFrameAt: t0,
+            now: { t0 }, staleTimeout: 120
+        )
+        let coordinator = makeCoordinator(
+            context: context, now: { t0 }, as11Source: source,
+            poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        coordinator.tick(at: t0)
+
+        let record = try #require(context.fetch(FetchDescriptor<CNSRiskSampleRecord>()).first)
+        #expect(record.canAssess == false)
+        #expect(record.riskScore == nil)
+        #expect(record.assessmentReason == nil)
+    }
+
+    @Test("A persisted .assessed record carries NO fault reason (a healthy score is not a fault)")
+    func assessedRecordHasNoAssessmentReason() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        var currentTime = t0
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime },
+            emayReading: { EMAYReading(spo2: 97, pulseRate: 60, timestamp: currentTime) },
+            poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+        coordinator.armManually(companionPresent: false)
+        // Build a full gate window of healthy coverage so the pipeline reaches .assessed.
+        for second in 1...65 {
+            currentTime = t0.addingTimeInterval(Double(second))
+            coordinator.tick(at: currentTime)
+        }
+
+        let records = try context.fetch(
+            FetchDescriptor<CNSRiskSampleRecord>(sortBy: [SortDescriptor(\.timestamp)])
+        )
+        let assessed = try #require(records.last { $0.riskScore != nil })
+        #expect(assessed.assessmentReason == nil)
     }
 
     // MARK: - Contract 1: tick loop
@@ -842,6 +1033,50 @@ struct CNSMonitoringCoordinatorTests {
             coordinator.tick(at: currentTime)
         }
         #expect(coordinator.currentTier == .klaxon)
+    }
+
+    @Test("Monitoring session connects and disconnects the AS11 stream")
+    func monitoringSessionOwnsAS11ConnectionLifecycle() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let source = MockAS11StreamSource()
+        let coordinator = makeCoordinator(
+            context: context,
+            now: { self.t0 },
+            as11Source: source,
+            poster: NotificationPosterSpy(),
+            defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        #expect(source.connectCallCount == 1)
+        #expect(source.disconnectCallCount == 0)
+
+        coordinator.disarm()
+        #expect(source.connectCallCount == 1)
+        #expect(source.disconnectCallCount == 1)
+    }
+
+    @Test("Active monitoring suspends AS11 in background and reconnects in foreground")
+    func sceneLifecycleReconnectsAS11WhileMonitoring() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let source = MockAS11StreamSource()
+        let coordinator = makeCoordinator(
+            context: context,
+            now: { self.t0 },
+            as11Source: source,
+            poster: NotificationPosterSpy(),
+            defaults: makeDefaults()
+        )
+        coordinator.armManually(companionPresent: true)
+
+        coordinator.sceneDidEnterBackground()
+        #expect(source.suspendCallCount == 1)
+        coordinator.sceneDidBecomeActive()
+        #expect(source.connectCallCount == 2)
+
+        coordinator.disarm()
+        coordinator.sceneDidBecomeActive()
+        #expect(source.connectCallCount == 2)
     }
 
     // MARK: - disarm() always wins

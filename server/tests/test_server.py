@@ -85,7 +85,7 @@ def _clean_tables(app):
             "medication_doses, cpap_sessions, barometric_readings, correlations, "
             "analyses, api_keys, sync_log, therapy_sessions, settings, "
             "patient_profile, psychiatrist_profile, conflicts, analysis_jobs, "
-            "pharmacies, prescriptions, pharmacy_call_logs, "
+            "pharmacies, prescriptions, pharmacy_call_logs, as11_therapy_session, as11_stream_sample, "
             "quantity_health_samples, sleep_stage_events, "
             "sensor_sessions, hrv_readings, "
             "accel_spectrograms, derived_breathing_rates, "
@@ -394,7 +394,15 @@ def test_sync_barometric_readings_duplicate_timestamps_in_batch(client, app):
 
     rows = client.get("/api/data/barometricReadings", headers=auth_header()).get_json()["barometricReadings"]
     assert len(rows) == 2
-    collided = [r for r in rows if r["timestamp"].startswith("2025-03-20T10:30:00")]
+    # Compare the parsed instant in UTC rather than substring-matching the
+    # rendered time (which could coincidentally match an unrelated row).
+    collided_instant = datetime.datetime(2025, 3, 20, 10, 30, tzinfo=datetime.timezone.utc)
+    collided = [
+        r for r in rows
+        if datetime.datetime.fromisoformat(
+            r["timestamp"].replace("Z", "+00:00")
+        ).astimezone(datetime.timezone.utc) == collided_instant
+    ]
     assert len(collided) == 1
     # Last occurrence in the batch wins.
     assert collided[0]["pressure_kpa"] == 99.9
@@ -3043,3 +3051,33 @@ def test_as11_request_updates_key_usage(client, app):
         row = cur.fetchone()
         assert row[0] == 2
         assert row[1] is not None
+
+
+def test_as11_rest_timestamps_are_iso8601(client, app):
+    """Regression test for Task 11: GET /api/cpap/as11/live and /sessions return ISO-8601 strings, not HTTP dates."""
+    from api.as11 import insert_stream_sample, insert_therapy_session
+    from datetime import datetime, timezone
+
+    with app.app_context():
+        db = app.get_db()
+        sample_id = insert_stream_sample(db, "br-1", datetime(2026, 7, 20, 10, 0, 0, tzinfo=timezone.utc), "SPO2", 98.0)
+        session_id = insert_therapy_session(db, "br-1", datetime(2026, 7, 19, 22, 0, 0, tzinfo=timezone.utc),
+                                            datetime(2026, 7, 20, 6, 0, 0, tzinfo=timezone.utc))
+
+    resp_live = client.get("/api/cpap/as11/live", headers=auth_header())
+    assert resp_live.status_code == 200
+    live_data = resp_live.get_json()["samples"]
+    assert len(live_data) >= 1
+    # Check that ts_utc and ingest_ts_utc are ISO-8601
+    sample = [s for s in live_data if s["id"] == sample_id][0]
+    assert "T" in sample["ts_utc"] and sample["ts_utc"].endswith("Z")
+    assert "T" in sample["ingest_ts_utc"] and sample["ingest_ts_utc"].endswith("Z")
+
+    resp_sessions = client.get("/api/cpap/as11/sessions", headers=auth_header())
+    assert resp_sessions.status_code == 200
+    sessions_data = resp_sessions.get_json()["sessions"]
+    assert len(sessions_data) >= 1
+    session = [s for s in sessions_data if s["id"] == session_id][0]
+    assert "T" in session["start_utc"] and session["start_utc"].endswith("Z")
+    assert "T" in session["end_utc"] and session["end_utc"].endswith("Z")
+    assert "T" in session["created_at"] and session["created_at"].endswith("Z")
