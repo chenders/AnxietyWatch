@@ -289,6 +289,11 @@ final class AS11WebSocketClient: AS11StreamSource {
                 try ingestFrameData(data, receivedAt: now())
             } catch {
                 let wasCancelled = Task.isCancelled
+                // A cancelled receive from an older backgrounded socket may
+                // finish after foreground activation has already opened its
+                // replacement. Never let that stale completion clear or retry
+                // over the newer transport.
+                guard self.socketTask === socketTask else { return }
                 receiveTask = nil
                 self.socketTask = nil
                 if !wasCancelled {
