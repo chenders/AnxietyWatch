@@ -270,7 +270,9 @@ def _maybe_raise(db, session_id, kind, now, push):
 def append_samples(db, session_id, samples, now, push=None):
     """Buffer ``samples`` for ``session_id``, then evaluate the backstop.
 
-    ``samples`` is an iterable of ``(ts_utc, channel, value)``. The batch insert
+    ``samples`` is an iterable of ``(ts_utc, channel, value)`` or
+    ``(ts_utc, channel, value, source)`` (a 4th element tags the producing
+    sensor; the backstop then evaluates each source independently). The batch insert
     and heartbeat-clear commit atomically, so a failure DURING the insert rolls
     back and the endpoint 500s before any commit (a retry is then clean). Once
     the batch is buffered, backstop evaluation + push are BEST-EFFORT: a failure
@@ -489,8 +491,11 @@ def post_disarm():
 
     db = get_db()
     with db.cursor() as cur:
+        # Drop only the sample buffer: that removes the session from heartbeat
+        # candidacy and bounds growth. Do NOT delete alert_event — those rows are
+        # the delivered-alert ledger /health reports (MAX ts_utc); wiping them
+        # would erase real delivery history for an ended session.
         cur.execute("DELETE FROM session_sample_buffer WHERE session_id = %s", (session_id,))
-        cur.execute("DELETE FROM alert_event WHERE session_id = %s", (session_id,))
     db.commit()
     return jsonify({"ok": True})
 
