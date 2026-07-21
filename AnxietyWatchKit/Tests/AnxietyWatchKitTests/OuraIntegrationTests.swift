@@ -5,15 +5,19 @@ final class MockURLSession: URLSessionProtocol, @unchecked Sendable {
     var mockData: Data?
     var mockResponse: URLResponse?
     var mockError: Error?
-    
+    /// The most recent request passed to `data(for:)`, for asserting on
+    /// outgoing URL / headers / body (e.g. postTokenToServer).
+    private(set) var lastRequest: URLRequest?
+
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        lastRequest = request
         if let error = mockError { throw error }
         return (mockData ?? Data(), mockResponse ?? URLResponse())
     }
 }
 
 final class OuraIntegrationTests: XCTestCase {
-    
+
     func testIBIParsing() async throws {
         let json = """
         {
@@ -29,30 +33,30 @@ final class OuraIntegrationTests: XCTestCase {
             "next_token": null
         }
         """
-        
+
         let mockSession = MockURLSession()
         mockSession.mockData = json.data(using: .utf8)
         let response = HTTPURLResponse(url: URL(string: "https://api.ouraring.com")!, statusCode: 200, httpVersion: nil, headerFields: nil)
         mockSession.mockResponse = response
-        
+
         let client = OuraAPIClient(session: mockSession)
         await client.setAccessToken("test_token")
-        
+
         let ibiData = try await client.fetchIBI(startDate: "2023-11-20", endDate: "2023-11-21")
         XCTAssertEqual(ibiData.count, 1)
         XCTAssertEqual(ibiData[0].ibi, 850)
         XCTAssertEqual(ibiData[0].validity, .good)
     }
-    
+
     func testRateLimitError() async throws {
         let mockSession = MockURLSession()
         mockSession.mockData = Data()
         let response = HTTPURLResponse(url: URL(string: "https://api.ouraring.com")!, statusCode: 429, httpVersion: nil, headerFields: ["X-RateLimit-Tier": "per_app"])
         mockSession.mockResponse = response
-        
+
         let client = OuraAPIClient(session: mockSession)
         await client.setAccessToken("test_token")
-        
+
         do {
             _ = try await client.fetchSleep(startDate: "2023-11-20", endDate: "2023-11-21")
             XCTFail("Should throw rate limited")
@@ -63,3 +67,6 @@ final class OuraIntegrationTests: XCTestCase {
         }
     }
 }
+// NOTE: postTokenToServer coverage lives in OuraAPIClientServerSyncTests.swift
+// (Swift Testing) per the repo convention for new tests. MockURLSession above is
+// shared with that suite (same test target).

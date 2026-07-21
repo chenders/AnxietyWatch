@@ -41,6 +41,9 @@ server/.env
 server/__pycache__/
 AnxietyWatch/Utilities/BuildVersion.swift
 
+# Oura OAuth secrets — real values only, template is Config/Oura.xcconfig.example
+Config/Oura.xcconfig
+
 # Scratch screenshots / images not intended for the repo (root level only)
 /*.png
 

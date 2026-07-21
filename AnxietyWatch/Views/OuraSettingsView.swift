@@ -1,4 +1,5 @@
 import SwiftUI
+import AuthenticationServices
 import AnxietyWatchKit
 
 struct OuraSettingsView: View {
@@ -36,11 +37,15 @@ struct OuraSettingsView: View {
     private let service: OuraService
     private let healthKitAdapter: OuraHealthKitAdapter
 
-    @State private var token = ""
     @State private var connectionStatus: ConnectionStatus = .notConfigured
     @State private var isLoading = true
     @State private var isSaving = false
     @State private var errorMessage: String?
+    /// Non-fatal warning shown when the token is stored locally but couldn't be
+    /// pushed to the sync server — the server-side background pull won't run
+    /// until reconnected. Distinct from a full connection failure.
+    @State private var serverSyncWarning: String?
+    @State private var oauthManager = OuraOAuthManager()
 #if DEBUG
     @State private var demoDataPresented = false
 #endif
@@ -77,28 +82,28 @@ struct OuraSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                if let serverSyncWarning {
+                    Label(serverSyncWarning, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
 
             Section {
-                SecureField("Personal access token", text: $token)
-                    .textContentType(.password)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .privacySensitive()
-
                 Button {
-                    Task { await saveToken() }
+                    Task { await connectOAuth() }
                 } label: {
                     if isSaving {
                         HStack {
                             ProgressView()
-                            Text("Saving…")
+                            Text("Connecting…")
                         }
                     } else {
-                        Text(connectionStatus == .notConfigured ? "Connect" : "Update Token")
+                        Text(connectionStatus == .notConfigured ? "Connect with Oura" : "Reconnect with Oura")
                     }
                 }
-                .disabled(trimmedToken.isEmpty || isSaving)
+                .disabled(isSaving)
 
                 if connectionStatus != .notConfigured {
                     Button("Disconnect", role: .destructive) {
@@ -107,9 +112,11 @@ struct OuraSettingsView: View {
                     .disabled(isSaving)
                 }
             } header: {
-                Text("Personal Access Token")
+                Text("Oura Account")
             } footer: {
-                Text("Your token is stored securely in the system Keychain. Leave this field blank unless you want to replace it.")
+                Text("Anxiety Watch will open a browser to securely authenticate with your Oura account. "
+                    + "Disconnecting removes the token from this device only; your sync server keeps its "
+                    + "copy until it is removed there.")
             }
 
             Section("Data") {
@@ -162,10 +169,6 @@ struct OuraSettingsView: View {
         }
     }
 
-    private var trimmedToken: String {
-        token.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private var lastSyncDate: Date? {
 #if targetEnvironment(simulator)
         return Date().addingTimeInterval(-180)
@@ -205,26 +208,63 @@ struct OuraSettingsView: View {
     }
 
     @MainActor
-    private func saveToken() async {
-        let accessToken = trimmedToken
-        guard !accessToken.isEmpty else { return }
-
+    private func connectOAuth() async {
         isSaving = true
+        let previousStatus = connectionStatus
+        let previousWarning = serverSyncWarning
+        serverSyncWarning = nil
         defer { isSaving = false }
 
-        let credential = OuraTokenStore.Token(
-            accessToken: accessToken,
-            refreshToken: "",
-            expiresAt: .distantFuture
-        )
-        await service.configure(token: credential)
+        do {
+            let credential = try await oauthManager.authenticate()
+            await service.configure(token: credential)
 
-        if await service.isAuthenticated {
-            token = ""
+            guard await service.isAuthenticated else {
+                connectionStatus = .disconnected
+                errorMessage = "Oura could not be connected."
+                return
+            }
             connectionStatus = .connected
-        } else {
-            connectionStatus = .disconnected
-            errorMessage = "Oura could not be connected with that token."
+            await postTokenToServerIfConfigured(credential)
+        } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+            // The user dismissed the auth sheet — a normal action, not a
+            // failure. Restore the prior state (including any prior warning we
+            // cleared before presenting) without an alert.
+            connectionStatus = previousStatus
+            serverSyncWarning = previousWarning
+        } catch {
+            // Auth/network failure: no new token was stored, so the prior state
+            // (and any existing stored token) is still authoritative. Don't force
+            // .disconnected — that would wrongly show a Disconnect button on a
+            // not-configured install, or mislabel a previously-connected user who
+            // hit a transient error. Restore prior state and surface the error.
+            connectionStatus = previousStatus
+            serverSyncWarning = previousWarning
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Push the freshly-obtained token to the sync server so the server-side
+    /// webhook worker can pull Oura data. The local connection is already
+    /// established at this point; a server-post failure is surfaced as a
+    /// non-fatal warning (own-failure-visible) rather than silently swallowed —
+    /// otherwise the user sees a clean "Connected" while background pull never
+    /// runs. When sync isn't configured at all, there's nothing to post to and
+    /// local-only is a valid state.
+    @MainActor
+    private func postTokenToServerIfConfigured(_ credential: OuraTokenStore.Token) async {
+        let serverURL = (UserDefaults.standard.string(forKey: SyncService.serverURLDefaultsKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey = (UserDefaults.standard.string(forKey: SyncService.apiKeyDefaultsKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !serverURL.isEmpty, !apiKey.isEmpty else { return }
+
+        do {
+            try await service.postTokenToServer(baseURL: serverURL, apiKey: apiKey, token: credential)
+            serverSyncWarning = nil
+        } catch {
+            serverSyncWarning = "Connected on this device, but couldn't reach your sync server — "
+                + "background data pull won't run until you reconnect."
         }
     }
 
@@ -236,8 +276,8 @@ struct OuraSettingsView: View {
         await service.stopPolling()
         do {
             try tokenStore.delete()
-            token = ""
             connectionStatus = .notConfigured
+            serverSyncWarning = nil
             lastSyncTimeInterval = 0
         } catch {
             errorMessage = "The saved Oura token could not be removed."
