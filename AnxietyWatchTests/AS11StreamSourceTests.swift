@@ -136,6 +136,27 @@ struct AS11StreamSourceTests {
         #expect(client.latestSamples().map(\.id) == ["new"])
     }
 
+    @Test("Disconnect resets cursor + buffer so a re-armed session can't replay a stale backlog")
+    func disconnectResetsStreamState() {
+        let client = AS11WebSocketClient(
+            baseURL: URL(string: "wss://example.invalid/api/cpap/as11/ws")!,
+            now: { self.now }
+        )
+        client.ingest(
+            state: .streamingOK,
+            samples: [makePayload(id: "1", timestamp: now, spo2: 96, hr: 60)],
+            receivedAt: now
+        )
+        #expect(client.lastCursor == "1")
+        #expect(!client.latestSamples().isEmpty)
+
+        client.disconnect()
+
+        #expect(client.lastCursor == nil)
+        #expect(client.latestSamples().isEmpty)
+        #expect(client.latestState == .streamStalled)
+    }
+
     private func makePayload(
         id: String,
         timestamp: Date,

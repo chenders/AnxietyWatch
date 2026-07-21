@@ -166,6 +166,17 @@ final class AS11WebSocketClient: AS11StreamSource {
         socketTask?.cancel(with: .goingAway, reason: nil)
         socketTask = nil
         willResignActive()
+        // Reset stream state at the session boundary so the NEXT monitoring
+        // session starts fresh instead of resuming from a stale cursor and
+        // pulling the between-sessions backlog. (A within-session
+        // background/foreground resume preserves the cursor via
+        // willResignActive/willBecomeActive; ending the session does not.)
+        // Defense-in-depth alongside the server's recency-bounded replay.
+        lastCursor = nil
+        samplesByID = [:]
+        orderedIDs = []
+        authoritativeState = .streamStalled
+        lastFrameAt = nil
     }
 
     func willResignActive() {

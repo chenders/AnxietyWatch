@@ -78,6 +78,32 @@ def test_as11_ws_with_valid_token_and_since_cursor(app, _clean_tables):
         assert sample2_id in ids
 
 
+def test_as11_ws_excludes_stale_backlog(app, _clean_tables):
+    """Samples older than the replay window are never streamed, so neither a
+    stale `since` cursor from a prior session nor a fresh (id=0) connect can
+    replay historical backlog that the client would score as current."""
+    from datetime import timedelta
+    from api.as11_ws import STREAM_REPLAY_WINDOW_SECONDS
+
+    with app.app_context():
+        db = app.get_db()
+        stale_ts = datetime.now(timezone.utc) - timedelta(seconds=STREAM_REPLAY_WINDOW_SECONDS + 60)
+        stale_id = insert_stream_sample(db, "br-1", stale_ts, "SPO2", 80.0)
+        recent_id = insert_stream_sample(db, "br-1", datetime.now(timezone.utc), "SPO2", 97.0)
+
+    from tests.test_server import auth_header
+    headers = auth_header()
+
+    # Fresh connect (no `since` -> old code started at id 0 and replayed the oldest rows).
+    with app.test_request_context('/api/cpap/as11/ws', headers=headers):
+        ws = MockWebSocket()
+        as11_ws_handler(ws)
+        data = json.loads(ws.sent[0])
+        ids = [s["id"] for s in data["samples"]]
+        assert stale_id not in ids
+        assert recent_id in ids
+
+
 def test_as11_ws_stalled_state(app, _clean_tables):
     from datetime import timedelta
     with app.app_context():

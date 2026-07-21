@@ -9,6 +9,17 @@ from datetime import datetime, timezone
 as11_ws_bp = Blueprint("as11_ws", __name__)
 sock = Sock()
 
+# Never stream stream-sample history older than this. The app stamps every
+# sample in one frame with the same LOCAL receipt time, so an old backlog —
+# a stale `since` cursor from a prior monitoring session, or a fresh connect
+# that would otherwise start at id 0 and replay the oldest rows — drained over
+# several polls would look "current" to the quality gate and could MASK a live
+# desaturation (or fire on a resolved historical dip). Bounding every send to
+# the recent window (>= the app's gate window + slack) means only genuinely
+# recent samples ever reach the client; a legitimate short background/foreground
+# resync still replays its (recent) gap.
+STREAM_REPLAY_WINDOW_SECONDS = 70
+
 
 def get_db():
     return current_app.get_db()
@@ -60,9 +71,9 @@ def as11_ws_handler(ws):
             cur.execute("""
                 SELECT id, bridge_id, ts_utc, channel, value, unit, ingest_ts_utc, session_id
                 FROM as11_stream_sample
-                WHERE id > %s
+                WHERE id > %s AND ts_utc > NOW() - (%s * INTERVAL '1 second')
                 ORDER BY id ASC LIMIT 1000
-            """, (last_id,))
+            """, (last_id, STREAM_REPLAY_WINDOW_SECONDS))
             samples = cur.fetchall()
 
             cur.execute("SELECT MAX(ts_utc) AS max_ts FROM as11_stream_sample")
