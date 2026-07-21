@@ -179,12 +179,14 @@ def push_alert(db, kind, session_id, *, critical=False):
     """
     tokens = _registered_tokens(db)
     if not tokens:
-        logger.warning("alert-channel: %s raised for session but no device push tokens registered", kind)
+        logger.warning("alert-channel: %s raised for session=%s but no device push tokens registered",
+                       kind, session_id)
         return 0
     try:
         config = apns.ApnsConfig.from_env()
     except apns.ApnsConfigError:
-        logger.warning("alert-channel: %s raised for session but APNs is not configured (env missing)", kind)
+        logger.warning("alert-channel: %s raised for session=%s but APNs is not configured (env missing)",
+                       kind, session_id)
         return 0
 
     payload = apns.build_payload(kind, critical=critical)
@@ -238,7 +240,8 @@ def _maybe_raise(db, session_id, kind, now, push):
     if not sent:
         # Delivered to no device: record nothing, so the alert stays retryable
         # and /health surfaces the dark channel. Own failure must be visible.
-        logger.warning("alert-channel: %s for session not delivered to any device; will retry", kind)
+        logger.warning("alert-channel: %s for session=%s not delivered to any device; will retry",
+                       kind, session_id)
         return (False, 0)
 
     with db.cursor() as cur:
@@ -309,8 +312,9 @@ def append_samples(db, session_id, samples, now, push=None):
             # timestamps are stale or clock-skewed relative to server time.
             # Surface it rather than silently evaluating nothing.
             logger.warning(
-                "alert-channel: buffered %d sample(s) but none within the %.0fs recency window (stale/clock-skew?)",
-                len(samples), ALERT_EVAL_WINDOW_SECONDS,
+                "alert-channel: session=%s buffered %d sample(s) but none within the %.0fs recency "
+                "window (stale/clock-skew?)",
+                session_id, len(samples), ALERT_EVAL_WINDOW_SECONDS,
             )
 
         verdict = backstop.evaluate(window, now)
