@@ -10,6 +10,16 @@ import requests
 from datetime import datetime, timezone, timedelta
 
 
+# The Oura V2 collections this worker knows how to persist. data_type is
+# validated against this allowlist before being interpolated into the API path
+# (defence-in-depth: never query an arbitrary/typo'd collection blindly).
+SUPPORTED_OURA_DATA_TYPES = frozenset({
+    'sleep', 'heartrate', 'interbeat_interval',
+    'daily_readiness', 'daily_resilience', 'daily_stress', 'daily_spo2',
+    'daily_cardiovascular_age', 'vo2_max',
+})
+
+
 def fetch_and_persist_oura_data(token_row, event_data, db_conn, http_client=requests):
     """
     Test-callable function to fetch and persist Oura data.
@@ -22,6 +32,11 @@ def fetch_and_persist_oura_data(token_row, event_data, db_conn, http_client=requ
     if expires_at < now:
         client_id = os.environ.get('OURA_CLIENT_ID', '')
         client_secret = os.environ.get('OURA_CLIENT_SECRET', '')
+        if not client_id or not client_secret:
+            # Fail early with a clear guard: a refresh is impossible without the
+            # OAuth client credentials, so skip the doomed round trip and do not
+            # proceed to fetch with a stale/expired token.
+            return False
         refresh_bytes = token_row['refresh_token']
         refresh_str = refresh_bytes.decode('utf-8') if isinstance(refresh_bytes, bytes) else refresh_bytes
 
@@ -63,7 +78,10 @@ def fetch_and_persist_oura_data(token_row, event_data, db_conn, http_client=requ
     access_str = access_bytes.decode('utf-8') if isinstance(access_bytes, bytes) else access_bytes
 
     data_type = event_data.get('data_type')
-    if not data_type:
+    if data_type not in SUPPORTED_OURA_DATA_TYPES:
+        # Unknown/absent type (typo, a new Oura collection, or anything
+        # unexpected even on a signed webhook) — never interpolate it into the
+        # API path and query blindly.
         return False
 
     url = f"https://api.ouraring.com/v2/usercollection/{data_type}"
@@ -87,7 +105,12 @@ def fetch_and_persist_oura_data(token_row, event_data, db_conn, http_client=requ
             if data_type == 'sleep':
                 day = item.get('day')
                 doc_id = item.get('id', f"sleep_{day}")
-                stages = json.dumps(item.get('sleep_phase_5_min', ''))
+                raw_hypnogram = item.get('sleep_phase_5_min', '')
+                # Oura returns the hypnogram as a raw digit string; store it as
+                # such (the column is TEXT). json.dumps() on an already-string
+                # value would double-encode it to '"..."'. Only serialize a
+                # non-string shape.
+                stages = raw_hypnogram if isinstance(raw_hypnogram, str) else json.dumps(raw_hypnogram)
                 hr_var = item.get('heart_rate_variability', {})
                 hrv = hr_var.get('5_min', []) if isinstance(hr_var, dict) else []
                 rr = item.get('respiratory_rate_5_min', [])
@@ -369,6 +392,9 @@ def apply_patch(app, get_db, require_api_key):
             return jsonify({"error": "Invalid expires_at format"}), 400
 
         db = get_db()
+        # Single-user deployment: one Oura account per server, keyed by the
+        # constant 'default'. The UNIQUE(oura_user_id) upsert is what makes
+        # re-authing idempotent; there is deliberately no multi-user identity.
         oura_user_id = 'default'
         scope = data.get("scope", "all")
 
@@ -380,6 +406,7 @@ def apply_patch(app, get_db, require_api_key):
                     access_token = EXCLUDED.access_token,
                     refresh_token = EXCLUDED.refresh_token,
                     expires_at = EXCLUDED.expires_at,
+                    scope = EXCLUDED.scope,
                     updated_at = NOW()
             """, (oura_user_id, access_token.encode('utf-8'), refresh_token.encode('utf-8'), expires_at, scope))
         db.commit()
@@ -396,10 +423,13 @@ def apply_patch(app, get_db, require_api_key):
 
         # Read the signing secret per-request and FAIL CLOSED: an unconfigured
         # secret must reject every webhook, never fall back to a guessable
-        # default that would let a forged, unsigned call verify.
-        client_secret = os.environ.get("OURA_CLIENT_SECRET", "")
-        if not client_secret:
-            app.logger.error("Oura webhook rejected: OURA_CLIENT_SECRET not configured")
+        # default that would let a forged, unsigned call verify. This is a
+        # DISTINCT secret from the OAuth client secret (OURA_CLIENT_SECRET used
+        # for token refresh) — the webhook subscription's signing secret is set
+        # independently when the subscription is created with Oura.
+        webhook_secret = os.environ.get("OURA_WEBHOOK_SECRET", "")
+        if not webhook_secret:
+            app.logger.error("Oura webhook rejected: OURA_WEBHOOK_SECRET not configured")
             return jsonify({"error": "Webhook not configured"}), 503
 
         signature = request.headers.get("x-oura-signature")
@@ -408,7 +438,7 @@ def apply_patch(app, get_db, require_api_key):
 
         body = request.get_data()
         expected_signature = hmac.new(
-            client_secret.encode("utf-8"),
+            webhook_secret.encode("utf-8"),
             body,
             hashlib.sha256
         ).hexdigest()
