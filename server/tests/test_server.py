@@ -3079,4 +3079,5 @@ def test_as11_rest_timestamps_are_iso8601(client, app):
     assert len(sessions_data) >= 1
     session = [s for s in sessions_data if s["id"] == session_id][0]
     assert "T" in session["start_utc"] and session["start_utc"].endswith("Z")
+    assert "T" in session["end_utc"] and session["end_utc"].endswith("Z")
     assert "T" in session["created_at"] and session["created_at"].endswith("Z")
