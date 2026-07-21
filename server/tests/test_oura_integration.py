@@ -5,8 +5,9 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
-from delta_oura_patch import fetch_and_persist_oura_data
+from delta_oura_patch import fetch_and_persist_oura_data, OURA_HTTP_TIMEOUT
 # _clean_tables is an autouse fixture that TRUNCATEs + re-seeds api_keys before
 # each test; importing it here activates it for this module so auth_header()'s
 # key is valid (route tests otherwise 401 in the full suite once another module
@@ -60,7 +61,8 @@ def test_fetch_and_persist_oura_sleep(mock_db_conn):
     http_client.get.assert_called_once_with(
         "https://api.ouraring.com/v2/usercollection/sleep",
         headers={"Authorization": "Bearer dummy_access"},
-        params={}
+        params={},
+        timeout=OURA_HTTP_TIMEOUT
     )
     cursor.execute.assert_called_once()
     sql_call = cursor.execute.call_args[0][0]
@@ -213,7 +215,8 @@ def test_memoryview_access_token_is_decoded_for_fetch(mock_db_conn):
     http_client.get.assert_called_once_with(
         "https://api.ouraring.com/v2/usercollection/sleep",
         headers={"Authorization": "Bearer mv_access"},
-        params={}
+        params={},
+        timeout=OURA_HTTP_TIMEOUT
     )
 
 
@@ -237,6 +240,35 @@ def test_memoryview_refresh_token_is_decoded_for_refresh(mock_db_conn, monkeypat
     assert fetch_and_persist_oura_data(token_row, {'data_type': 'sleep'}, conn, http_client) is True
     sent = http_client.post.call_args.kwargs['data']
     assert sent['refresh_token'] == 'mv_refresh'
+
+
+def test_fetch_network_error_returns_false(mock_db_conn):
+    """A RequestException during the data fetch must return False (the webhook
+    then stays 200 + logs), never propagate and 500 the webhook."""
+    conn, _ = mock_db_conn
+    token_row = {
+        'id': 1, 'access_token': 'a', 'refresh_token': 'r',
+        'expires_at': datetime.now(timezone.utc) + timedelta(hours=1)
+    }
+    http_client = MagicMock()
+    http_client.get.side_effect = requests.RequestException("boom")
+    assert fetch_and_persist_oura_data(token_row, {'data_type': 'sleep'}, conn, http_client) is False
+
+
+def test_refresh_network_error_returns_false(mock_db_conn, monkeypatch):
+    """A RequestException during the token refresh must return False before any
+    fetch, not 500 the webhook."""
+    conn, _ = mock_db_conn
+    token_row = {
+        'id': 1, 'access_token': 'expired', 'refresh_token': 'r',
+        'expires_at': datetime.now(timezone.utc) - timedelta(hours=1)
+    }
+    http_client = MagicMock()
+    http_client.post.side_effect = requests.RequestException("boom")
+    monkeypatch.setenv('OURA_CLIENT_ID', 'id')
+    monkeypatch.setenv('OURA_CLIENT_SECRET', 'sec')
+    assert fetch_and_persist_oura_data(token_row, {'data_type': 'sleep'}, conn, http_client) is False
+    http_client.get.assert_not_called()
 
 
 # --- webhook route: signature verification fails closed --------------------
@@ -415,6 +447,17 @@ def test_oura_auth_rejects_invalid_expires_at(app):  # noqa: F811
         resp = client.post(
             "/api/oura/auth", headers=auth_header(),
             json=_auth_body(expires_at="not-a-date"),
+        )
+    assert resp.status_code == 400
+
+
+def test_oura_auth_rejects_non_string_types(app):  # noqa: F811
+    """Wrong JSON types (e.g. a numeric access_token) must 400, not 500 via an
+    AttributeError on .replace()/.encode()."""
+    with app.test_client() as client:
+        resp = client.post(
+            "/api/oura/auth", headers=auth_header(),
+            json={"access_token": 123, "refresh_token": "r", "expires_at": "2030-01-01T00:00:00Z"},
         )
     assert resp.status_code == 400
 

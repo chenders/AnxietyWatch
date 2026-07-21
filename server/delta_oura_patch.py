@@ -19,6 +19,9 @@ SUPPORTED_OURA_DATA_TYPES = frozenset({
     'daily_cardiovascular_age', 'vo2_max',
 })
 
+# Bound every outbound Oura call so a hung connection can't tie up the worker.
+OURA_HTTP_TIMEOUT = 30
+
 
 def _token_to_str(value):
     """Coerce a token column to a str. psycopg2 returns BYTEA columns as
@@ -51,14 +54,22 @@ def fetch_and_persist_oura_data(token_row, event_data, db_conn, http_client=requ
             return False
         refresh_str = _token_to_str(token_row['refresh_token'])
 
-        resp = http_client.post("https://api.ouraring.com/oauth/token", data={
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_str,
-            "client_id": client_id,
-            "client_secret": client_secret
-        })
+        try:
+            resp = http_client.post("https://api.ouraring.com/oauth/token", data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_str,
+                "client_id": client_id,
+                "client_secret": client_secret
+            }, timeout=OURA_HTTP_TIMEOUT)
+        except requests.RequestException:
+            # Network error refreshing — fail (webhook stays 200 + logs) rather
+            # than 500.
+            return False
         if resp.status_code == 200:
-            token_data = resp.json()
+            try:
+                token_data = resp.json()
+            except ValueError:
+                return False
             new_access = token_data.get('access_token')
             if not new_access:
                 # A 200 with no access_token is a malformed refresh response;
@@ -102,11 +113,18 @@ def fetch_and_persist_oura_data(token_row, event_data, db_conn, http_client=requ
     if 'end_date' in event_data:
         params['end_date'] = event_data['end_date']
 
-    resp = http_client.get(url, headers=headers, params=params)
+    try:
+        resp = http_client.get(url, headers=headers, params=params, timeout=OURA_HTTP_TIMEOUT)
+    except requests.RequestException:
+        # Network error fetching — fail (webhook stays 200 + logs) rather than 500.
+        return False
     if resp.status_code != 200:
         return False
 
-    data_list = resp.json().get('data', [])
+    try:
+        data_list = resp.json().get('data', [])
+    except ValueError:
+        return False
     if not data_list:
         return True
 
@@ -395,6 +413,12 @@ def apply_patch(app, get_db, require_api_key):
 
         if not access_token or not refresh_token or not expires_at_str:
             return jsonify({"error": "Missing required fields"}), 400
+
+        # Validate types before .replace()/.encode() so a client sending the
+        # wrong JSON types gets a 400, not an AttributeError-driven 500.
+        if not (isinstance(access_token, str) and isinstance(refresh_token, str)
+                and isinstance(expires_at_str, str)):
+            return jsonify({"error": "Fields must be strings"}), 400
 
         try:
             expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
