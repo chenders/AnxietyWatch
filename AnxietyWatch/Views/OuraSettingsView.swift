@@ -233,7 +233,13 @@ struct OuraSettingsView: View {
             connectionStatus = previousStatus
             serverSyncWarning = previousWarning
         } catch {
-            connectionStatus = .disconnected
+            // Auth/network failure: no new token was stored, so the prior state
+            // (and any existing stored token) is still authoritative. Don't force
+            // .disconnected — that would wrongly show a Disconnect button on a
+            // not-configured install, or mislabel a previously-connected user who
+            // hit a transient error. Restore prior state and surface the error.
+            connectionStatus = previousStatus
+            serverSyncWarning = previousWarning
             errorMessage = error.localizedDescription
         }
     }
