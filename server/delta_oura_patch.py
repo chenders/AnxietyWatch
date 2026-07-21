@@ -20,6 +20,18 @@ SUPPORTED_OURA_DATA_TYPES = frozenset({
 })
 
 
+def _token_to_str(value):
+    """Coerce a token column to a str. psycopg2 returns BYTEA columns as
+    memoryview by DEFAULT (not bytes), so an isinstance(..., bytes) check misses
+    the real DB shape and would pass a memoryview into the request / .encode().
+    Handle memoryview, bytes/bytearray, and str uniformly."""
+    if isinstance(value, memoryview):
+        value = value.tobytes()
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode('utf-8')
+    return value
+
+
 def fetch_and_persist_oura_data(token_row, event_data, db_conn, http_client=requests):
     """
     Test-callable function to fetch and persist Oura data.
@@ -37,8 +49,7 @@ def fetch_and_persist_oura_data(token_row, event_data, db_conn, http_client=requ
             # OAuth client credentials, so skip the doomed round trip and do not
             # proceed to fetch with a stale/expired token.
             return False
-        refresh_bytes = token_row['refresh_token']
-        refresh_str = refresh_bytes.decode('utf-8') if isinstance(refresh_bytes, bytes) else refresh_bytes
+        refresh_str = _token_to_str(token_row['refresh_token'])
 
         resp = http_client.post("https://api.ouraring.com/oauth/token", data={
             "grant_type": "refresh_token",
@@ -74,8 +85,7 @@ def fetch_and_persist_oura_data(token_row, event_data, db_conn, http_client=requ
         else:
             return False
 
-    access_bytes = token_row['access_token']
-    access_str = access_bytes.decode('utf-8') if isinstance(access_bytes, bytes) else access_bytes
+    access_str = _token_to_str(token_row['access_token'])
 
     data_type = event_data.get('data_type')
     if data_type not in SUPPORTED_OURA_DATA_TYPES:

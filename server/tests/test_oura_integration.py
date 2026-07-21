@@ -197,6 +197,48 @@ def test_oura_refresh_http_error_returns_false(mock_db_conn, monkeypatch):
     http_client.get.assert_not_called()
 
 
+def test_memoryview_access_token_is_decoded_for_fetch(mock_db_conn):
+    """psycopg2 returns BYTEA as memoryview by default; the access token must be
+    decoded to a str for the Authorization header, not passed through raw."""
+    conn, _ = mock_db_conn
+    token_row = {
+        'id': 1,
+        'access_token': memoryview(b'mv_access'),
+        'refresh_token': memoryview(b'mv_refresh'),
+        'expires_at': datetime.now(timezone.utc) + timedelta(hours=1)
+    }
+    http_client = MagicMock()
+    http_client.get.return_value = MockResponse({'data': []}, 200)
+    assert fetch_and_persist_oura_data(token_row, {'data_type': 'sleep'}, conn, http_client) is True
+    http_client.get.assert_called_once_with(
+        "https://api.ouraring.com/v2/usercollection/sleep",
+        headers={"Authorization": "Bearer mv_access"},
+        params={}
+    )
+
+
+def test_memoryview_refresh_token_is_decoded_for_refresh(mock_db_conn, monkeypatch):
+    """An expired token whose refresh_token is a memoryview (real psycopg2 shape)
+    must send the DECODED string in the refresh request, not a memoryview."""
+    conn, _ = mock_db_conn
+    token_row = {
+        'id': 1,
+        'access_token': memoryview(b'expired'),
+        'refresh_token': memoryview(b'mv_refresh'),
+        'expires_at': datetime.now(timezone.utc) - timedelta(hours=1)
+    }
+    http_client = MagicMock()
+    http_client.post.return_value = MockResponse({
+        'access_token': 'new_access', 'refresh_token': 'new_refresh', 'expires_in': 3600
+    }, 200)
+    http_client.get.return_value = MockResponse({'data': []}, 200)
+    monkeypatch.setenv('OURA_CLIENT_ID', 'id')
+    monkeypatch.setenv('OURA_CLIENT_SECRET', 'sec')
+    assert fetch_and_persist_oura_data(token_row, {'data_type': 'sleep'}, conn, http_client) is True
+    sent = http_client.post.call_args.kwargs['data']
+    assert sent['refresh_token'] == 'mv_refresh'
+
+
 # --- webhook route: signature verification fails closed --------------------
 
 
