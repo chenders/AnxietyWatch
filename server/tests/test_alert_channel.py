@@ -364,6 +364,14 @@ def test_samples_rejects_oversized_session_id(app, _clean_tables):  # noqa: F811
         assert resp.status_code == 400
 
 
+def test_samples_rejects_invalid_json(app, _clean_tables):  # noqa: F811
+    """The bounded-read parse path rejects a malformed body with 400."""
+    with app.test_client() as client:
+        resp = client.post("/api/alert-channel/samples", headers=auth_header(),
+                           data="not json", content_type="application/json")
+        assert resp.status_code == 400
+
+
 def test_eval_failure_does_not_fail_the_upload(app, _clean_tables, monkeypatch):  # noqa: F811
     """If backstop evaluation raises after the batch is buffered, the failure is
     swallowed (logged) — the samples stay buffered and append returns normally,

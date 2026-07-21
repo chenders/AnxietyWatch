@@ -40,6 +40,7 @@ can detect a dark channel (design §5). Credentials come from env only; tokens,
 keys, and JWTs are never logged (only kind + session id + counts).
 """
 import hashlib
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -58,9 +59,12 @@ alert_channel_bp = Blueprint("alert_channel", __name__, url_prefix="/api/alert-c
 KIND_BACKSTOP = apns.KIND_BACKSTOP
 KIND_HEARTBEAT = apns.KIND_HEARTBEAT
 
-# APNs statuses that mean the device token is permanently dead and should be
-# pruned from the registry: 410 Unregistered, 400 BadDeviceToken.
-_DEAD_TOKEN_STATUSES = (400, 410)
+# APNs status that unambiguously means the device token is permanently dead and
+# should be pruned: 410 Unregistered. NOT 400 — a 400 can be a server-side
+# misconfig (bad topic/JWT/headers) that would return 400 for EVERY token and
+# wipe the whole registry; distinguishing BadDeviceToken from other 400s needs
+# the APNs `reason`, which apns.send() does not currently surface.
+_DEAD_TOKEN_STATUSES = (410,)
 
 # --- Tunables ---------------------------------------------------------------
 
@@ -382,10 +386,29 @@ def _parse_ts(value):
 @alert_channel_bp.route("/samples", methods=["POST"])
 @require_api_key
 def post_samples():
-    if request.content_length and request.content_length > MAX_SAMPLES_REQUEST_BYTES:
+    if request.content_length is not None and request.content_length > MAX_SAMPLES_REQUEST_BYTES:
         return jsonify({"error": "request body too large"}), 413
 
-    body = request.get_json(silent=True) or {}
+    # Bounded-chunk read from request.stream so a chunked-transfer upload (no
+    # Content-Length) can't bypass the cap and force unbounded JSON parsing
+    # (mirrors the /rr_archive pattern in server.py).
+    chunks = []
+    total = 0
+    while True:
+        chunk = request.stream.read(64 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_SAMPLES_REQUEST_BYTES:
+            return jsonify({"error": "request body too large"}), 413
+        chunks.append(chunk)
+    try:
+        body = json.loads(b"".join(chunks)) if chunks else {}
+    except (ValueError, TypeError):
+        return jsonify({"error": "invalid JSON body"}), 400
+    if not isinstance(body, dict):
+        return jsonify({"error": "invalid JSON body"}), 400
+
     session_id = body.get("session_id")
     session_id = session_id.strip() if isinstance(session_id, str) else None
     raw = body.get("samples")
