@@ -146,8 +146,11 @@ final class ForegroundAlarmAudioPlayer: AlarmAudioPlaying {
 
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
-        let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
-        guard let buffer = Self.makeKlaxonBuffer(format: format) else {
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1),
+              let buffer = Self.makeKlaxonBuffer(format: format) else {
+            // Fail closed: skip foreground audio but keep the app (and the
+            // monitor) running — watch haptic + notifications still fire. A
+            // force-unwrap crash here would take the whole monitor down.
             try? session.setActive(false, options: .notifyOthersOnDeactivation)
             return
         }
