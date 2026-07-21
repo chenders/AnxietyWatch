@@ -12,6 +12,7 @@ struct CNSMonitoringView: View {
     @Environment(CNSMonitoringCoordinator.self) private var coordinator
     @State private var fallbackConfig = CNSDeviceFallbackConfig.load(from: .standard)
     @State private var permission: CNSNotifyPermission?
+    @State private var channelHealth: AlertChannelUploader.ChannelHealthResult?
 
     var body: some View {
         List {
@@ -21,12 +22,14 @@ struct CNSMonitoringView: View {
             }
             statusSection
             permissionSection
+            channelHealthSection
             fallbackSection
         }
         .navigationTitle("CNS Monitoring")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             permission = await CNSCriticalAlertPermission().currentStatus()
+            channelHealth = await AlertChannelUploader().fetchHealth()
         }
     }
 
@@ -126,6 +129,36 @@ struct CNSMonitoringView: View {
             }
         } header: {
             Text("Alarm Permissions")
+        }
+    }
+
+    private var channelHealthSection: some View {
+        Section {
+            switch channelHealth {
+            case nil:
+                Text("Checking backup channel…").foregroundColor(.secondary)
+            case .notConfigured:
+                // Not set up is a supported state (graceful degradation), not a fault.
+                LabeledContent("Status", value: "Server sync not set up").foregroundColor(.secondary)
+            case .unreachable:
+                // Configured but the server didn't answer — a real, visible fault.
+                LabeledContent("Status", value: "Server unreachable").foregroundColor(.orange)
+            case .ok(let health):
+                let status = CNSMonitoringViewHelpers.channelHealthStatus(
+                    apnsConfigured: health.apnsConfigured,
+                    registeredTokens: health.registeredTokens,
+                    permission: permission,
+                    lastDeliveredAlert: health.lastDeliveredAlert,
+                    now: Date()
+                )
+                LabeledContent("Status", value: status.label)
+                    .foregroundColor(status.isHealthy ? .secondary : .orange)
+            }
+        } header: {
+            Text("Server Backup Alert Channel")
+        } footer: {
+            Text("A redundant server-side check that can still alert you if the app or phone stops "
+                 + "monitoring. It never overrides the on-device alarm.")
         }
     }
 
