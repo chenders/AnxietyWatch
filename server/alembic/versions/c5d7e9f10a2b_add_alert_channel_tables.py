@@ -32,6 +32,9 @@ def upgrade():
     )
     op.create_index('idx_session_sample_buffer_session_ts', 'session_sample_buffer',
                     ['session_id', sa.text('ts_utc DESC')], if_not_exists=True)
+    # Supports the heartbeat sweep's per-session MAX(ingest_ts_utc) lookup.
+    op.create_index('idx_session_sample_buffer_session_ingest', 'session_sample_buffer',
+                    ['session_id', sa.text('ingest_ts_utc DESC')], if_not_exists=True)
 
     op.create_table(
         'device_push_token',
@@ -52,8 +55,11 @@ def upgrade():
                   server_default=sa.text('now()'), nullable=False),
         if_not_exists=True
     )
-    # UNIQUE so the (session_id, kind) event can be claimed atomically via
-    # INSERT ... ON CONFLICT DO NOTHING (idempotent push). Matches schema.sql.
+    # UNIQUE so a concurrent append/sweep can't create a duplicate (session_id,
+    # kind) row (INSERT ... ON CONFLICT DO NOTHING). The push is delivery-gated
+    # (the row is written only after a successful push), so at most one row
+    # exists per event; a rare same-key race may still double-push, which is
+    # acceptable for a redundant channel. Matches schema.sql.
     op.create_index('idx_alert_event_session_kind', 'alert_event',
                     ['session_id', 'kind'], unique=True, if_not_exists=True)
 
@@ -62,6 +68,8 @@ def downgrade():
     op.drop_index('idx_alert_event_session_kind', table_name='alert_event', if_exists=True)
     op.drop_table('alert_event', if_exists=True)
     op.drop_table('device_push_token', if_exists=True)
+    op.drop_index('idx_session_sample_buffer_session_ingest',
+                  table_name='session_sample_buffer', if_exists=True)
     op.drop_index('idx_session_sample_buffer_session_ts',
                   table_name='session_sample_buffer', if_exists=True)
     op.drop_table('session_sample_buffer', if_exists=True)

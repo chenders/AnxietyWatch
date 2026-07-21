@@ -311,3 +311,12 @@ def test_empty_batch_does_not_clear_heartbeat(app, _clean_tables):  # noqa: F811
             cur.execute("SELECT COUNT(*) FROM alert_event WHERE session_id = %s AND kind = %s",
                         ("sess-empty", alert_channel.KIND_HEARTBEAT))
             assert cur.fetchone()[0] == 1  # heartbeat still pending, not cleared by empty POST
+
+
+def test_parse_ts_normalizes_to_utc():
+    """A non-UTC offset is normalized to UTC (same instant); a naive value is
+    assumed UTC — so windowing/ordering can't be skewed by the client's offset."""
+    assert alert_channel._parse_ts("2026-07-20T03:00:00-07:00") == \
+        datetime(2026, 7, 20, 10, 0, 0, tzinfo=timezone.utc)
+    assert alert_channel._parse_ts("2026-07-20T03:00:00") == \
+        datetime(2026, 7, 20, 3, 0, 0, tzinfo=timezone.utc)

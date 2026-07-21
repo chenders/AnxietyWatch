@@ -605,6 +605,10 @@ CREATE TABLE IF NOT EXISTS session_sample_buffer (
 CREATE INDEX IF NOT EXISTS idx_session_sample_buffer_session_ts
     ON session_sample_buffer (session_id, ts_utc DESC);
 
+-- Supports the heartbeat sweep's per-session MAX(ingest_ts_utc) lookup.
+CREATE INDEX IF NOT EXISTS idx_session_sample_buffer_session_ingest
+    ON session_sample_buffer (session_id, ingest_ts_utc DESC);
+
 -- APNs device push tokens registered by the app (dedup on token).
 CREATE TABLE IF NOT EXISTS device_push_token (
     id SERIAL PRIMARY KEY,
@@ -613,11 +617,13 @@ CREATE TABLE IF NOT EXISTS device_push_token (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- At most one row per (session_id, kind) event: the UNIQUE index lets the
--- backstop/heartbeat claim the event atomically (INSERT ... ON CONFLICT DO
--- NOTHING), so concurrent appends/sweeps push exactly once (idempotency). The
--- row is deleted when the event clears (heartbeat resume) or a delivery fails,
--- so a later occurrence can re-claim.
+-- At most one row per (session_id, kind) event. The push is delivery-gated:
+-- the row is written (INSERT ... ON CONFLICT DO NOTHING) only AFTER a successful
+-- push, so a crash mid-push leaves no row and the alert stays retryable. The
+-- UNIQUE index keeps a concurrent append/sweep from creating a duplicate row;
+-- exactly-once holds for the row, though a rare same-key race may still
+-- double-push (acceptable for a redundant channel). The row is deleted when the
+-- heartbeat clears on resume, so a later occurrence can re-fire.
 CREATE TABLE IF NOT EXISTS alert_event (
     id SERIAL PRIMARY KEY,
     session_id TEXT NOT NULL,

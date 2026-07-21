@@ -338,8 +338,11 @@ def run_heartbeat_sweep(db, now, push=None):
 def _parse_ts(value):
     dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
+        # Naive input: assume UTC (the column is ts_utc).
+        return dt.replace(tzinfo=timezone.utc)
+    # Aware but possibly non-UTC: normalize to UTC so windowing/ordering can't be
+    # skewed by a client that sends a non-UTC offset.
+    return dt.astimezone(timezone.utc)
 
 
 @alert_channel_bp.route("/samples", methods=["POST"])
