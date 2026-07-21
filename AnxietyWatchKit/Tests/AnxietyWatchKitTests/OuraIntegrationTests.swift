@@ -66,47 +66,7 @@ final class OuraIntegrationTests: XCTestCase {
             XCTFail("Wrong error")
         }
     }
-
-    func testPostTokenToServerBuildsAuthedRequest() async throws {
-        let mockSession = MockURLSession()
-        mockSession.mockResponse = HTTPURLResponse(
-            url: URL(string: "https://sync.example.com/api/oura/auth")!,
-            statusCode: 200, httpVersion: nil, headerFields: nil
-        )
-        let client = OuraAPIClient(session: mockSession)
-        let token = OuraTokenStore.Token(
-            accessToken: "acc", refreshToken: "ref",
-            expiresAt: Date(timeIntervalSince1970: 1_700_000_000), tokenType: "Bearer"
-        )
-
-        try await client.postTokenToServer(baseURL: "https://sync.example.com", apiKey: "KEY123", token: token)
-
-        let req = try XCTUnwrap(mockSession.lastRequest)
-        XCTAssertEqual(req.httpMethod, "POST")
-        XCTAssertEqual(req.url?.absoluteString, "https://sync.example.com/api/oura/auth")
-        XCTAssertEqual(req.value(forHTTPHeaderField: "Authorization"), "Bearer KEY123")
-        let body = try XCTUnwrap(req.httpBody)
-        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
-        XCTAssertEqual(json["access_token"] as? String, "acc")
-        XCTAssertEqual(json["refresh_token"] as? String, "ref")
-        XCTAssertNotNil(json["expires_at"] as? String)  // ISO8601 string
-    }
-
-    func testPostTokenToServerThrowsOnNon2xx() async {
-        let mockSession = MockURLSession()
-        mockSession.mockResponse = HTTPURLResponse(
-            url: URL(string: "https://sync.example.com/api/oura/auth")!,
-            statusCode: 500, httpVersion: nil, headerFields: nil
-        )
-        let client = OuraAPIClient(session: mockSession)
-        let token = OuraTokenStore.Token(
-            accessToken: "acc", refreshToken: "ref", expiresAt: Date(), tokenType: "Bearer"
-        )
-        do {
-            try await client.postTokenToServer(baseURL: "https://sync.example.com", apiKey: "KEY", token: token)
-            XCTFail("Expected an error for a non-2xx response")
-        } catch {
-            // expected — server rejected the token post
-        }
-    }
 }
+// NOTE: postTokenToServer coverage lives in OuraAPIClientServerSyncTests.swift
+// (Swift Testing) per the repo convention for new tests. MockURLSession above is
+// shared with that suite (same test target).

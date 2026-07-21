@@ -78,9 +78,16 @@ final class OuraOAuthManager: NSObject, ASWebAuthenticationPresentationContextPr
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
-        request.httpBody = OuraOAuthUtils.tokenExchangeBody(
-            code: code, clientID: clientID, clientSecret: clientSecret, redirectURI: redirectURI
-        )?.data(using: .utf8)
+        guard let bodyString = OuraOAuthUtils.tokenExchangeBody(
+                  code: code, clientID: clientID, clientSecret: clientSecret, redirectURI: redirectURI
+              ), let bodyData = bodyString.data(using: .utf8) else {
+            // Fail on a local construction failure rather than POSTing a nil body
+            // and turning it into a confusing Oura-side error.
+            throw NSError(domain: "OuraOAuth", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "Could not build the Oura token-exchange request."
+            ])
+        }
+        request.httpBody = bodyData
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
