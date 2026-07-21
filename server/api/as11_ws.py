@@ -77,9 +77,12 @@ def as11_ws_handler(ws):
             """, (last_id, STREAM_REPLAY_WINDOW_SECONDS))
             samples = cur.fetchall()
 
-            cur.execute("SELECT MAX(ingest_ts_utc) AS max_ts FROM as11_stream_sample")
+            # Newest row by primary key = latest ingest (id is SERIAL, monotonic
+            # with ingest_ts_utc), so this reads the liveness timestamp off the
+            # PK index instead of a MAX() full-table scan every poll.
+            cur.execute("SELECT ingest_ts_utc FROM as11_stream_sample ORDER BY id DESC LIMIT 1")
             row = cur.fetchone()
-            latest_ts = row['max_ts'] if row else None
+            latest_ts = row['ingest_ts_utc'] if row else None
 
         # End the read transaction each iteration: this connection lives for the
         # whole WS session, and leaving a transaction open across every 2s poll

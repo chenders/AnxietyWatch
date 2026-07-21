@@ -1,7 +1,10 @@
 import Foundation
 
-/// Incoming raw payload from the AS11 bridge backend.
-struct AS11StreamPayload: Decodable, Sendable {
+/// App-internal normalized AS11 sample. NOT the wire shape — server frames are
+/// decoded via `WireSample` (snake_case `ts_utc`/`bridge_id`) in
+/// `AS11WebSocketClient` and mapped in through `init(wire:)`; this type is only
+/// ever constructed in-process, so it is deliberately not `Decodable`.
+struct AS11StreamPayload: Sendable {
     /// Server-owned cursor and deduplication key.
     let id: String
     let bridgeId: String
