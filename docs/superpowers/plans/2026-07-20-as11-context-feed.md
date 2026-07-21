@@ -184,6 +184,7 @@ Subagent-driven recommended. **T5–T10 each require `medical-data-accuracy-revi
 background alarm; can be built after or alongside A.
 
 ## Implementation notes (post-merge)
+- **Phase B shipped:** PR [#28](https://github.com/chenders/AnxietyWatch/pull/28) merged to `main` as `7ad4f2c` on 2026-07-21. Tasks 1–11 and the final review follow-ups below are complete except for the explicitly deferred physical-hardware and transport-harness validation.
 - **Deferred Manual Testing (Tasks 4 & 5):** Physical hardware testing is required for BLE session backgrounding, lifecycle state machine (app lock/background/foreground), and end-to-end hardware ingestion. This cannot be tested in the simulator due to lack of CoreBluetooth support and inaccurate background execution limits. This testing is temporarily deferred and assumed passing until the physical hardware (aircannect CPAP bridge / EMAY oximeter) setup is complete.
 - **Task 5 transport recovery:** The original Task 5 commit became orphaned during concurrent branch work. Its live WebSocket transport, lifecycle methods, app injection, and fractional ISO-8601 decoding were restored in `c1c4578`; simulator build and focused transport tests pass.
 - **Task 6 shipped:** AS11 is primary-capable with klaxon fallback, and coordinator loss classification only treats a healthy, reporting primary as coverage (`98de01f`, `bac1cc7`, `37d4a8e`).
