@@ -204,24 +204,20 @@ def push_alert(db, kind, session_id, *, critical=False):
 def _maybe_raise(db, session_id, kind, now, push):
     """Idempotently deliver + record ``kind`` for ``session_id``.
 
-    Returns ``(delivered, sent)``. The (session_id, kind) event is CLAIMED
-    atomically via ``INSERT ... ON CONFLICT DO NOTHING`` against the unique
-    index, so two concurrent appends/sweeps can't both push (exactly-once, with
-    no DB lock held across the network call). Idempotency still gates on
-    DELIVERY: if the push reaches no device the claim is released (row deleted)
-    so the alert stays retryable on the next append/sweep rather than being
-    silently marked "alerted".
+    Returns ``(delivered, sent)``. DELIVERY-GATED: the push is attempted BEFORE
+    any ``alert_event`` row is written, so a crash mid-push (or a push that
+    reaches no device) leaves no row — the alert stays retryable and ``/health``
+    never reports an undelivered alert as delivered. The success write uses
+    ``INSERT ... ON CONFLICT DO NOTHING`` against the UNIQUE(session_id, kind)
+    index so a concurrent caller can't create a duplicate row. The only residue
+    of a rare same-(session, kind) race is a duplicate push, which is acceptable
+    for a redundant channel and far preferable to a claim-before-delivery scheme
+    whose crash window could silently suppress a heartbeat.
     """
     with db.cursor() as cur:
-        cur.execute(
-            "INSERT INTO alert_event (session_id, kind, ts_utc) VALUES (%s, %s, %s) "
-            "ON CONFLICT (session_id, kind) DO NOTHING RETURNING id",
-            (session_id, kind, now),
-        )
-        claim = cur.fetchone()
-    db.commit()
-    if claim is None:
-        return (False, 0)  # another caller already claimed/delivered this event
+        cur.execute("SELECT 1 FROM alert_event WHERE session_id = %s AND kind = %s LIMIT 1", (session_id, kind))
+        if cur.fetchone():
+            return (False, 0)  # already delivered for this event
 
     try:
         sent = push(db, kind, session_id, critical=PUSH_CRITICAL)
@@ -230,14 +226,18 @@ def _maybe_raise(db, session_id, kind, now, push):
         sent = 0
 
     if not sent:
-        # Delivered to no device: release the claim so the alert stays retryable
+        # Delivered to no device: record nothing, so the alert stays retryable
         # and /health surfaces the dark channel. Own failure must be visible.
-        with db.cursor() as cur:
-            cur.execute("DELETE FROM alert_event WHERE id = %s", (claim[0],))
-        db.commit()
         logger.warning("alert-channel: %s for session not delivered to any device; will retry", kind)
         return (False, 0)
 
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO alert_event (session_id, kind, ts_utc) VALUES (%s, %s, %s) "
+            "ON CONFLICT (session_id, kind) DO NOTHING",
+            (session_id, kind, now),
+        )
+    db.commit()
     return (True, sent)
 
 
@@ -263,8 +263,11 @@ def append_samples(db, session_id, samples, now, push=None):
                 "INSERT INTO session_sample_buffer (session_id, ts_utc, channel, value) VALUES (%s, %s, %s, %s)",
                 (session_id, ts_utc, channel, value),
             )
-        # Uploads are flowing again -> the "monitoring stopped" alert no longer holds.
-        cur.execute("DELETE FROM alert_event WHERE session_id = %s AND kind = %s", (session_id, KIND_HEARTBEAT))
+        if samples:
+            # Real data resumed -> the "monitoring stopped" alert no longer holds.
+            # Gated on a non-empty batch so an empty POST (samples: []) can't
+            # silence a pending heartbeat without an actual upload resuming.
+            cur.execute("DELETE FROM alert_event WHERE session_id = %s AND kind = %s", (session_id, KIND_HEARTBEAT))
     db.commit()
 
     window_start = now - timedelta(seconds=ALERT_EVAL_WINDOW_SECONDS)

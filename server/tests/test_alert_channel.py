@@ -292,3 +292,22 @@ def test_health_surfaces_dark_channel(app, _clean_tables):  # noqa: F811
 def test_health_requires_auth(app, _clean_tables):  # noqa: F811
     with app.test_client() as client:
         assert client.get("/api/alert-channel/health").status_code == 401
+
+
+def test_empty_batch_does_not_clear_heartbeat(app, _clean_tables):  # noqa: F811
+    """An empty samples POST must NOT silence a pending heartbeat — only an
+    actual data upload resuming clears it."""
+    push = _Recorder()
+    with app.app_context():
+        db = app.get_db()
+        now = REF + timedelta(seconds=600)
+        insert_buffer_sample(db, "sess-empty", REF, "SPO2", NORMAL)
+        _silence(db, "sess-empty", now - timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS + 30))
+        run_heartbeat_sweep(db, now, push=push)
+        assert push.kinds() == [alert_channel.KIND_HEARTBEAT]
+
+        append_samples(db, "sess-empty", [], now + timedelta(seconds=5), push=push)
+        with db.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM alert_event WHERE session_id = %s AND kind = %s",
+                        ("sess-empty", alert_channel.KIND_HEARTBEAT))
+            assert cur.fetchone()[0] == 1  # heartbeat still pending, not cleared by empty POST
