@@ -86,6 +86,10 @@ HEARTBEAT_ACTIVE_LOOKBACK_SECONDS = 12 * 3600.0
 # lands (design §3 / §8); flip to True once it does.
 PUSH_CRITICAL = False
 
+# APNs device tokens are ~64 hex chars (32 bytes); cap generously so an
+# authenticated client can't bloat the registry with an oversized token.
+MAX_PUSH_TOKEN_LENGTH = 200
+
 
 def get_db():
     return current_app.get_db()
@@ -258,12 +262,13 @@ def append_samples(db, session_id, samples, now, push=None):
 
     samples = list(samples)
     with db.cursor() as cur:
-        for ts_utc, channel, value in samples:
-            cur.execute(
-                "INSERT INTO session_sample_buffer (session_id, ts_utc, channel, value) VALUES (%s, %s, %s, %s)",
-                (session_id, ts_utc, channel, value),
-            )
         if samples:
+            # One round trip for the whole batch (live-upload is a high-write path).
+            psycopg2.extras.execute_values(
+                cur,
+                "INSERT INTO session_sample_buffer (session_id, ts_utc, channel, value) VALUES %s",
+                [(session_id, ts_utc, channel, value) for ts_utc, channel, value in samples],
+            )
             # Real data resumed -> the "monitoring stopped" alert no longer holds.
             # Gated on a non-empty batch so an empty POST (samples: []) can't
             # silence a pending heartbeat without an actual upload resuming.
@@ -273,8 +278,9 @@ def append_samples(db, session_id, samples, now, push=None):
     window_start = now - timedelta(seconds=ALERT_EVAL_WINDOW_SECONDS)
     with db.cursor() as cur:
         cur.execute(
-            "SELECT ts_utc, channel, value FROM session_sample_buffer WHERE session_id = %s AND ts_utc >= %s",
-            (session_id, window_start),
+            "SELECT ts_utc, channel, value FROM session_sample_buffer "
+            "WHERE session_id = %s AND ts_utc >= %s AND ts_utc <= %s",
+            (session_id, window_start, now),
         )
         window = [backstop.Sample(ts, channel, float(value)) for ts, channel, value in cur.fetchall()]
 
@@ -375,9 +381,11 @@ def post_samples():
 def post_push_token():
     body = request.get_json(silent=True) or {}
     token = body.get("token")
+    token = token.strip() if isinstance(token, str) else None
     env = body.get("env", "sandbox")
-    if not token or env not in ("sandbox", "production"):
-        return jsonify({"error": "token and env ('sandbox'|'production') are required"}), 400
+    if not token or len(token) > MAX_PUSH_TOKEN_LENGTH or env not in ("sandbox", "production"):
+        return jsonify({"error": "token (non-empty, <= %d chars) and env ('sandbox'|'production') "
+                                 "are required" % MAX_PUSH_TOKEN_LENGTH}), 400
 
     db = get_db()
     with db.cursor() as cur:

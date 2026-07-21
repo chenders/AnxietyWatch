@@ -320,3 +320,28 @@ def test_parse_ts_normalizes_to_utc():
         datetime(2026, 7, 20, 10, 0, 0, tzinfo=timezone.utc)
     assert alert_channel._parse_ts("2026-07-20T03:00:00") == \
         datetime(2026, 7, 20, 3, 0, 0, tzinfo=timezone.utc)
+
+
+def test_future_dated_batch_does_not_raise(app, _clean_tables):  # noqa: F811
+    """A sustained-low run timestamped AFTER now (client clock skew or malicious
+    input) is excluded from the backstop window, so it can't false-raise."""
+    push = _Recorder()
+    with app.app_context():
+        db = app.get_db()
+        now = REF + timedelta(seconds=SUSTAIN)
+        future = [(now + timedelta(seconds=t), backstop.SPO2_CHANNEL, LOW)
+                  for t in range(1, SUSTAIN + 2)]
+        append_samples(db, "sess-future", future, now, push=push)
+    assert push.calls == []
+
+
+def test_push_token_rejects_oversized_token(app, _clean_tables):  # noqa: F811
+    with app.test_client() as client:
+        resp = client.post("/api/alert-channel/push-token", headers=auth_header(),
+                           json={"token": "x" * 500, "env": "sandbox"})
+        assert resp.status_code == 400
+    with app.app_context():
+        db = app.get_db()
+        with db.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM device_push_token")
+            assert cur.fetchone()[0] == 0
