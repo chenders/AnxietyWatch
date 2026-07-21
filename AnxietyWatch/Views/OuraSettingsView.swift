@@ -1,4 +1,5 @@
 import SwiftUI
+import AuthenticationServices
 import AnxietyWatchKit
 
 struct OuraSettingsView: View {
@@ -40,6 +41,10 @@ struct OuraSettingsView: View {
     @State private var isLoading = true
     @State private var isSaving = false
     @State private var errorMessage: String?
+    /// Non-fatal warning shown when the token is stored locally but couldn't be
+    /// pushed to the sync server — the server-side background pull won't run
+    /// until reconnected. Distinct from a full connection failure.
+    @State private var serverSyncWarning: String?
     @State private var oauthManager = OuraOAuthManager()
 #if DEBUG
     @State private var demoDataPresented = false
@@ -77,6 +82,12 @@ struct OuraSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                if let serverSyncWarning {
+                    Label(serverSyncWarning, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
 
             Section {
@@ -103,7 +114,9 @@ struct OuraSettingsView: View {
             } header: {
                 Text("Oura Account")
             } footer: {
-                Text("Anxiety Watch will open a browser to securely authenticate with your Oura account.")
+                Text("Anxiety Watch will open a browser to securely authenticate with your Oura account. "
+                    + "Disconnecting removes the token from this device only; your sync server keeps its "
+                    + "copy until it is removed there.")
             }
 
             Section("Data") {
@@ -197,28 +210,52 @@ struct OuraSettingsView: View {
     @MainActor
     private func connectOAuth() async {
         isSaving = true
+        let previousStatus = connectionStatus
+        serverSyncWarning = nil
         defer { isSaving = false }
 
         do {
             let credential = try await oauthManager.authenticate()
             await service.configure(token: credential)
 
-            if await service.isAuthenticated {
-                connectionStatus = .connected
-
-                // Post token to server
-                let serverURL = UserDefaults.standard.string(forKey: SyncService.serverURLDefaultsKey) ?? ""
-                let apiKey = UserDefaults.standard.string(forKey: SyncService.apiKeyDefaultsKey) ?? ""
-                if !serverURL.isEmpty && !apiKey.isEmpty {
-                    try? await service.postTokenToServer(baseURL: serverURL, apiKey: apiKey, token: credential)
-                }
-            } else {
+            guard await service.isAuthenticated else {
                 connectionStatus = .disconnected
                 errorMessage = "Oura could not be connected."
+                return
             }
+            connectionStatus = .connected
+            await postTokenToServerIfConfigured(credential)
+        } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+            // The user dismissed the auth sheet — a normal action, not a
+            // failure. Restore the prior state without an alert.
+            connectionStatus = previousStatus
         } catch {
             connectionStatus = .disconnected
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Push the freshly-obtained token to the sync server so the server-side
+    /// webhook worker can pull Oura data. The local connection is already
+    /// established at this point; a server-post failure is surfaced as a
+    /// non-fatal warning (own-failure-visible) rather than silently swallowed —
+    /// otherwise the user sees a clean "Connected" while background pull never
+    /// runs. When sync isn't configured at all, there's nothing to post to and
+    /// local-only is a valid state.
+    @MainActor
+    private func postTokenToServerIfConfigured(_ credential: OuraTokenStore.Token) async {
+        let serverURL = (UserDefaults.standard.string(forKey: SyncService.serverURLDefaultsKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey = (UserDefaults.standard.string(forKey: SyncService.apiKeyDefaultsKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !serverURL.isEmpty, !apiKey.isEmpty else { return }
+
+        do {
+            try await service.postTokenToServer(baseURL: serverURL, apiKey: apiKey, token: credential)
+            serverSyncWarning = nil
+        } catch {
+            serverSyncWarning = "Connected on this device, but couldn't reach your sync server — "
+                + "background data pull won't run until you reconnect."
         }
     }
 
@@ -231,6 +268,7 @@ struct OuraSettingsView: View {
         do {
             try tokenStore.delete()
             connectionStatus = .notConfigured
+            serverSyncWarning = nil
             lastSyncTimeInterval = 0
         } catch {
             errorMessage = "The saved Oura token could not be removed."

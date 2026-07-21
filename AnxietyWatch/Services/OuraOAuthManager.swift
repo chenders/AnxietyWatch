@@ -30,7 +30,14 @@ final class OuraOAuthManager: NSObject, ASWebAuthenticationPresentationContextPr
             throw URLError(.badURL)
         }
 
-        let scheme = URL(string: redirectURI)?.scheme ?? "anxietywatch"
+        guard let scheme = URL(string: redirectURI)?.scheme else {
+            // A redirect URI without a scheme can never match the callback, so
+            // fail clearly here rather than silently substituting an unrelated
+            // scheme and leaving the session to hang.
+            throw NSError(domain: "OuraOAuth", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "Oura redirect URI is missing a URL scheme: \(redirectURI)"
+            ])
+        }
 
         let callbackURL: URL = try await withCheckedThrowingContinuation { continuation in
             authSession = ASWebAuthenticationSession(url: authorizeURL, callbackURLScheme: scheme) { callbackURL, error in
@@ -91,7 +98,16 @@ final class OuraOAuthManager: NSObject, ASWebAuthenticationPresentationContextPr
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-            throw URLError(.badServerResponse)
+            // Surface Oura's error body (e.g. {"error":"invalid_grant",...}) so
+            // first-setup failures — bad client_secret, redirect_uri mismatch,
+            // reused code — are diagnosable instead of a generic "bad response".
+            // The response body carries no secrets (only the outgoing request
+            // did); the client_secret is never echoed back.
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let bodyText = String(data: data, encoding: .utf8) ?? ""
+            throw NSError(domain: "OuraOAuth", code: statusCode, userInfo: [
+                NSLocalizedDescriptionKey: "Oura token exchange failed (HTTP \(statusCode)). \(bodyText)"
+            ])
         }
 
         return try OuraOAuthUtils.decodeTokenResponse(data: data)

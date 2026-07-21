@@ -162,7 +162,7 @@ public actor OuraService {
     /// Fetch daily stress data for the given date range.
     /// - Returns: Array of `OuraStressData`, empty on error.
     public func fetchStress(startDate: Date, endDate: Date) async -> [OuraStressData] {
-        guard let _ = currentToken else { return [] }
+        guard currentToken != nil else { return [] }
         let startStr = dateFormatter.string(from: startDate)
         let endStr = dateFormatter.string(from: endDate)
         do {
@@ -175,7 +175,7 @@ public actor OuraService {
 
     /// Fetch daily readiness data for the given date range.
     public func fetchReadiness(startDate: Date, endDate: Date) async -> [OuraReadinessData] {
-        guard let _ = currentToken else { return [] }
+        guard currentToken != nil else { return [] }
         let startStr = dateFormatter.string(from: startDate)
         let endStr = dateFormatter.string(from: endDate)
         do {
@@ -188,7 +188,7 @@ public actor OuraService {
 
     /// Fetch sleep data for the given date range.
     public func fetchSleep(startDate: Date, endDate: Date) async -> [OuraSleepData] {
-        guard let _ = currentToken else { return [] }
+        guard currentToken != nil else { return [] }
         let startStr = dateFormatter.string(from: startDate)
         let endStr = dateFormatter.string(from: endDate)
         do {
@@ -201,7 +201,7 @@ public actor OuraService {
 
     /// Fetch daily resilience data for the given date range.
     public func fetchResilience(startDate: Date, endDate: Date) async -> [OuraResilienceData] {
-        guard let _ = currentToken else { return [] }
+        guard currentToken != nil else { return [] }
         let startStr = dateFormatter.string(from: startDate)
         let endStr = dateFormatter.string(from: endDate)
         do {
@@ -211,18 +211,18 @@ public actor OuraService {
             return []
         }
     }
-    
+
     // MARK: - Server Integration
-    
+
     public func postTokenToServer(baseURL: String, apiKey: String, token: OuraTokenStore.Token) async throws {
         try await client.postTokenToServer(baseURL: baseURL, apiKey: apiKey, token: token)
     }
-    
+
     // MARK: - New fetch methods
-    
+
     /// Fetch cardiovascular age data for the given date range.
     public func fetchCardiovascularAge(startDate: Date, endDate: Date) async -> [OuraCardiovascularAgeData] {
-        guard let _ = currentToken else { return [] }
+        guard currentToken != nil else { return [] }
         let startStr = dateFormatter.string(from: startDate)
         let endStr = dateFormatter.string(from: endDate)
         do {
@@ -232,10 +232,10 @@ public actor OuraService {
             return []
         }
     }
-    
+
     /// Fetch VO2 max data for the given date range.
     public func fetchVO2Max(startDate: Date, endDate: Date) async -> [OuraVO2MaxData] {
-        guard let _ = currentToken else { return [] }
+        guard currentToken != nil else { return [] }
         let startStr = dateFormatter.string(from: startDate)
         let endStr = dateFormatter.string(from: endDate)
         do {
@@ -245,10 +245,10 @@ public actor OuraService {
             return []
         }
     }
-    
+
     /// Fetch detailed sleep data for the given date range.
     public func fetchSleepDetail(startDate: Date, endDate: Date) async -> [OuraSleepDetailData] {
-        guard let _ = currentToken else { return [] }
+        guard currentToken != nil else { return [] }
         let startStr = dateFormatter.string(from: startDate)
         let endStr = dateFormatter.string(from: endDate)
         do {
@@ -258,10 +258,10 @@ public actor OuraService {
             return []
         }
     }
-    
+
     /// Fetch daily SpO2 data for the given date range.
     public func fetchDailySpO2(startDate: Date, endDate: Date) async -> [OuraDailySpO2Data] {
-        guard let _ = currentToken else { return [] }
+        guard currentToken != nil else { return [] }
         let startStr = dateFormatter.string(from: startDate)
         let endStr = dateFormatter.string(from: endDate)
         do {
@@ -271,10 +271,10 @@ public actor OuraService {
             return []
         }
     }
-    
+
     /// Fetch daily activity data for the given date range.
     public func fetchDailyActivity(startDate: Date, endDate: Date) async -> [OuraDailyActivityData] {
-        guard let _ = currentToken else { return [] }
+        guard currentToken != nil else { return [] }
         let startStr = dateFormatter.string(from: startDate)
         let endStr = dateFormatter.string(from: endDate)
         do {
@@ -284,7 +284,7 @@ public actor OuraService {
             return []
         }
     }
-    
+
     /// Fetch all new Oura data types for the given date range.
     /// This method coordinates fetching cardiovascular age, VO2 max, sleep detail,
     /// SpO2, and activity data in parallel for efficiency.
@@ -301,7 +301,7 @@ public actor OuraService {
         async let sleepDetail = fetchSleepDetail(startDate: startDate, endDate: endDate)
         async let dailySpO2 = fetchDailySpO2(startDate: startDate, endDate: endDate)
         async let dailyActivity = fetchDailyActivity(startDate: startDate, endDate: endDate)
-        
+
         return (
             cardiovascularAge: await cardiovascularAge,
             vo2Max: await vo2Max,

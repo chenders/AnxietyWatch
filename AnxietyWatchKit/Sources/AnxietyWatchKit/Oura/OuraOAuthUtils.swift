@@ -14,21 +14,28 @@ public enum OuraOAuthUtils {
     }
 
     public struct TokenResponse: Decodable {
-        public let access_token: String
-        public let refresh_token: String
-        public let expires_in: TimeInterval
-        public let token_type: String
+        public let accessToken: String
+        public let refreshToken: String
+        public let expiresIn: TimeInterval
+        public let tokenType: String
+
+        enum CodingKeys: String, CodingKey {
+            case accessToken = "access_token"
+            case refreshToken = "refresh_token"
+            case expiresIn = "expires_in"
+            case tokenType = "token_type"
+        }
     }
 
     public static func decodeTokenResponse(data: Data, date: Date = Date()) throws -> OuraTokenStore.Token {
         let decoder = JSONDecoder()
         let resp = try decoder.decode(TokenResponse.self, from: data)
-        let expiresAt = date.addingTimeInterval(resp.expires_in)
+        let expiresAt = date.addingTimeInterval(resp.expiresIn)
         return OuraTokenStore.Token(
-            accessToken: resp.access_token,
-            refreshToken: resp.refresh_token,
+            accessToken: resp.accessToken,
+            refreshToken: resp.refreshToken,
             expiresAt: expiresAt,
-            tokenType: resp.token_type
+            tokenType: resp.tokenType
         )
     }
 }

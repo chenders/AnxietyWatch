@@ -1,0 +1,17 @@
+// Oura OAuth configuration — TEMPLATE.
+//
+// Copy this file to Config/Oura.xcconfig (which is gitignored) and fill in the
+// values from your Oura developer application (https://cloud.ouraring.com/oauth/applications).
+// Config/Project.xcconfig optionally includes Config/Oura.xcconfig, so these
+// values override the empty defaults and are substituted into Info.plist as
+// OuraClientID / OuraClientSecret / OuraRedirectURI.
+//
+// NEVER commit real values — Config/Oura.xcconfig must stay gitignored. This is
+// a public repository.
+//
+// The redirect URI must use a custom scheme registered for your app and match
+// the one configured in the Oura developer portal, e.g. anxietywatch://oura-callback.
+
+OURA_CLIENT_ID = your_oura_client_id_here
+OURA_CLIENT_SECRET = your_oura_client_secret_here
+OURA_REDIRECT_URI = anxietywatch://oura-callback

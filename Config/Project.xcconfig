@@ -4,3 +4,15 @@
 // CI validates these values have not been overridden in the pbxproj.
 
 IPHONEOS_DEPLOYMENT_TARGET = 18.0
+
+// Oura OAuth configuration, substituted into Info.plist
+// (OuraClientID/OuraClientSecret/OuraRedirectURI). Empty defaults keep the
+// build deterministic and the public repo secret-free; the "Connect with Oura"
+// flow stays dormant (OuraOAuthManager's non-empty guard fails) until real
+// per-developer values are provided. Put those in a gitignored
+// Config/Oura.xcconfig — see Config/Oura.xcconfig.example — which the optional
+// include below layers on top when present.
+OURA_CLIENT_ID =
+OURA_CLIENT_SECRET =
+OURA_REDIRECT_URI =
+#include? "Oura.xcconfig"
