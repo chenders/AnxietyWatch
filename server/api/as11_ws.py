@@ -81,6 +81,11 @@ def as11_ws_handler(ws):
             row = cur.fetchone()
             latest_ts = row['max_ts'] if row else None
 
+        # End the read transaction each iteration: this connection lives for the
+        # whole WS session, and leaving a transaction open across every 2s poll
+        # would pin an xmin snapshot and hold back (auto)vacuum over time.
+        db.rollback()
+
         if samples:
             last_id = max(s['id'] for s in samples)
             for s in samples:
