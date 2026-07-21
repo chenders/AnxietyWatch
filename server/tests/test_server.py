@@ -394,8 +394,15 @@ def test_sync_barometric_readings_duplicate_timestamps_in_batch(client, app):
 
     rows = client.get("/api/data/barometricReadings", headers=auth_header()).get_json()["barometricReadings"]
     assert len(rows) == 2
-    print("ROWS:", rows)
-    collided = [r for r in rows if "T10:30:00" in r["timestamp"] or "T03:30:00" in r["timestamp"]]
+    # Compare the parsed instant in UTC rather than substring-matching the
+    # rendered time (which could coincidentally match an unrelated row).
+    collided_instant = datetime.datetime(2025, 3, 20, 10, 30, tzinfo=datetime.timezone.utc)
+    collided = [
+        r for r in rows
+        if datetime.datetime.fromisoformat(
+            r["timestamp"].replace("Z", "+00:00")
+        ).astimezone(datetime.timezone.utc) == collided_instant
+    ]
     assert len(collided) == 1
     # Last occurrence in the batch wins.
     assert collided[0]["pressure_kpa"] == 99.9

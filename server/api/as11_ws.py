@@ -17,7 +17,9 @@ sock = Sock()
 # desaturation (or fire on a resolved historical dip). Bounding every send to
 # the recent window (>= the app's gate window + slack) means only genuinely
 # recent samples ever reach the client; a legitimate short background/foreground
-# resync still replays its (recent) gap.
+# resync still replays its (recent) gap. Keyed on ingest_ts_utc (the server's
+# own clock, set at ingest) — NOT ts_utc — so a skewed bridge clock can't
+# future-date rows past the window or hold the liveness state at STREAMING_OK.
 STREAM_REPLAY_WINDOW_SECONDS = 70
 
 
@@ -71,12 +73,12 @@ def as11_ws_handler(ws):
             cur.execute("""
                 SELECT id, bridge_id, ts_utc, channel, value, unit, ingest_ts_utc, session_id
                 FROM as11_stream_sample
-                WHERE id > %s AND ts_utc > NOW() - (%s * INTERVAL '1 second')
+                WHERE id > %s AND ingest_ts_utc > NOW() - (%s * INTERVAL '1 second')
                 ORDER BY id ASC LIMIT 1000
             """, (last_id, STREAM_REPLAY_WINDOW_SECONDS))
             samples = cur.fetchall()
 
-            cur.execute("SELECT MAX(ts_utc) AS max_ts FROM as11_stream_sample")
+            cur.execute("SELECT MAX(ingest_ts_utc) AS max_ts FROM as11_stream_sample")
             row = cur.fetchone()
             latest_ts = row['max_ts'] if row else None
 

@@ -164,7 +164,13 @@ struct AnxietyWatchApp: App {
               components.host != nil else {
             return URL(string: "wss://sync.anxietywatch.com/api/cpap/as11/ws")!
         }
-        components.scheme = components.scheme == "http" ? "ws" : "wss"
+        // Map to a WebSocket scheme without clobbering an explicit ws://
+        // (local/dev): http→ws, https/anything-else→wss, ws/wss preserved.
+        switch components.scheme {
+        case "http": components.scheme = "ws"
+        case "ws", "wss": break
+        default: components.scheme = "wss"
+        }
         components.path = "/api/cpap/as11/ws"
         components.query = nil
         components.fragment = nil

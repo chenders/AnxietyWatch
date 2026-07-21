@@ -87,9 +87,16 @@ def test_as11_ws_excludes_stale_backlog(app, _clean_tables):
 
     with app.app_context():
         db = app.get_db()
-        stale_ts = datetime.now(timezone.utc) - timedelta(seconds=STREAM_REPLAY_WINDOW_SECONDS + 60)
-        stale_id = insert_stream_sample(db, "br-1", stale_ts, "SPO2", 80.0)
+        stale_id = insert_stream_sample(db, "br-1", datetime.now(timezone.utc), "SPO2", 80.0)
         recent_id = insert_stream_sample(db, "br-1", datetime.now(timezone.utc), "SPO2", 97.0)
+        # Backdate the SERVER-clock ingest time (the skew-safe field the window
+        # filters on) so the stale row falls outside the replay window.
+        with db.cursor() as cur:
+            cur.execute(
+                "UPDATE as11_stream_sample SET ingest_ts_utc = %s WHERE id = %s",
+                (datetime.now(timezone.utc) - timedelta(seconds=STREAM_REPLAY_WINDOW_SECONDS + 60), stale_id),
+            )
+            db.commit()
 
     from tests.test_server import auth_header
     headers = auth_header()
@@ -108,7 +115,15 @@ def test_as11_ws_stalled_state(app, _clean_tables):
     from datetime import timedelta
     with app.app_context():
         db = app.get_db()
-        sample1_id = insert_stream_sample(db, "br-1", datetime.now(timezone.utc) - timedelta(seconds=20), "SPO2", 98.0)
+        sample1_id = insert_stream_sample(db, "br-1", datetime.now(timezone.utc), "SPO2", 98.0)
+        # Liveness is computed from the server clock (ingest_ts_utc); backdate it
+        # so MAX(ingest_ts_utc) is older than the 15s freshness bound.
+        with db.cursor() as cur:
+            cur.execute(
+                "UPDATE as11_stream_sample SET ingest_ts_utc = %s WHERE id = %s",
+                (datetime.now(timezone.utc) - timedelta(seconds=20), sample1_id),
+            )
+            db.commit()
 
     from tests.test_server import auth_header
     headers = auth_header()
