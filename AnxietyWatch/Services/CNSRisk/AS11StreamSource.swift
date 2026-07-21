@@ -195,7 +195,7 @@ final class AS11WebSocketClient: AS11StreamSource {
     }
 
     func suspend() {
-        stopTransport()
+        willResignActive()
     }
 
     func disconnect() {

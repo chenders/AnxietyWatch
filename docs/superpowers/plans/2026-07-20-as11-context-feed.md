@@ -197,3 +197,4 @@ background alarm; can be built after or alongside A.
   3. `e118382` adds negative persistence assertions proving `.insufficientData` and `.assessed` records clear `assessmentReason`.
   4. `e118382` adds AS11 SpO₂/HR plausibility bounds at sample construction so impossible values contribute nothing. EMAY parser clamping and Polar's typed parser remain their source-specific guards.
 - **Phase A dependency:** PR #27 (real foreground `AVAudioEngine` klaxon) merged to `main` as `239519a`; Phase B was merged/rebased with that implementation present.
+- **Deferred transport-test harness:** The reconnect identity guard is correct by inspection and all exposed lifecycle/backoff behavior is covered, but directly firing an old socket's cancelled completion after a replacement socket opens requires an injectable/fake `URLSessionWebSocketTask` harness. Add that direct race regression when the transport seam is introduced; current behavior remains fail-closed.

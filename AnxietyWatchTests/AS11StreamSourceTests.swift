@@ -82,14 +82,13 @@ struct AS11StreamSourceTests {
         #expect(!client.shouldMaintainConnection)
     }
 
-    @Test("A stale receive completion cannot replace a newer foreground transport")
-    func staleReceiveCompletionIsIgnored() {
+    @Test("Foreground activation preserves the cursor after an intentional drop")
+    func foregroundActivationPreservesCursor() {
         let client = AS11WebSocketClient(
             baseURL: URL(string: "wss://example.invalid/api/cpap/as11/ws")!,
             now: { self.now }
         )
-        // Identity behavior is covered through the transport race regression;
-        // retain the cursor across the intentional drop/activation sequence.
+        // Retain the cursor across the intentional drop/activation sequence.
         client.ingest(
             state: .streamingOK,
             samples: [makePayload(id: "42", timestamp: now, spo2: 96, hr: 60)],
