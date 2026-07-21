@@ -375,6 +375,52 @@ struct CNSMonitoringCoordinatorTests {
         #expect(record.canAssess == false)
     }
 
+    @Test("A persisted .insufficientData record carries NO fault reason (only faults name a reason)")
+    func insufficientDataRecordHasNoAssessmentReason() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        // streamingOK AS11 with no samples and no other source → insufficientData:
+        // a genuine no-data state, NOT an AS11 fault, so no reason is recorded.
+        let source = MockAS11StreamSource(
+            state: .streamingOK, samples: [], lastFrameAt: t0,
+            now: { t0 }, staleTimeout: 120
+        )
+        let coordinator = makeCoordinator(
+            context: context, now: { t0 }, as11Source: source,
+            poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+
+        coordinator.armManually(companionPresent: true)
+        coordinator.tick(at: t0)
+
+        let record = try #require(context.fetch(FetchDescriptor<CNSRiskSampleRecord>()).first)
+        #expect(record.canAssess == false)
+        #expect(record.riskScore == nil)
+        #expect(record.assessmentReason == nil)
+    }
+
+    @Test("A persisted .assessed record carries NO fault reason (a healthy score is not a fault)")
+    func assessedRecordHasNoAssessmentReason() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        var currentTime = t0
+        let coordinator = makeCoordinator(
+            context: context, now: { currentTime },
+            emayReading: { EMAYReading(spo2: 97, pulseRate: 60, timestamp: currentTime) },
+            poster: NotificationPosterSpy(), defaults: makeDefaults()
+        )
+        coordinator.armManually(companionPresent: false)
+        // Build a full gate window of healthy coverage so the pipeline reaches .assessed.
+        for second in 1...65 {
+            currentTime = t0.addingTimeInterval(Double(second))
+            coordinator.tick(at: currentTime)
+        }
+
+        let records = try context.fetch(
+            FetchDescriptor<CNSRiskSampleRecord>(sortBy: [SortDescriptor(\.timestamp)])
+        )
+        let assessed = try #require(records.last { $0.riskScore != nil })
+        #expect(assessed.assessmentReason == nil)
+    }
+
     // MARK: - Contract 1: tick loop
 
     @Test("Tick loop: reads sensors via injected providers each tick and updates currentTier/canAssess as the pipeline processes")

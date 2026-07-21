@@ -108,17 +108,38 @@ final class AS11WebSocketClient: AS11StreamSource {
         orderedIDs.compactMap { samplesByID[$0] }
     }
 
-    /// Records one server frame. The state is used verbatim while fresh.
+    /// Records one server frame. The state is used verbatim while fresh. Each
+    /// admitted sample is stamped with the LOCAL `receivedAt` so downstream
+    /// time-windowing never depends on the bridge host's clock, and the buffer
+    /// is pruned to a bounded retention so an all-night session can't grow it
+    /// without limit.
     func ingest(state: AS11StreamState, samples: [AS11StreamPayload], receivedAt: Date) {
         authoritativeState = state
         lastFrameAt = receivedAt
         isDropped = false
         for sample in samples where samplesByID[sample.id] == nil {
-            samplesByID[sample.id] = sample
+            var stamped = sample
+            stamped.receivedAt = receivedAt
+            samplesByID[sample.id] = stamped
             orderedIDs.append(sample.id)
         }
         if let cursor = samples.last?.id {
             lastCursor = cursor
+        }
+        pruneExpiredSamples(asOf: receivedAt)
+    }
+
+    /// Drops samples received longer ago than `as11ClientBufferRetention`
+    /// (by LOCAL receipt time) so the buffer stays bounded across a long
+    /// session. Safe against resync overlap: `lastCursor` (the dedup/resume
+    /// key) is never pruned, and the server only resends samples AFTER that
+    /// cursor — never the older ones removed here.
+    private func pruneExpiredSamples(asOf now: Date) {
+        let cutoff = now.addingTimeInterval(-CNSMonitoringConstants.as11ClientBufferRetention)
+        orderedIDs.removeAll { id in
+            guard let received = samplesByID[id]?.receivedAt, received < cutoff else { return false }
+            samplesByID[id] = nil
+            return true
         }
     }
 

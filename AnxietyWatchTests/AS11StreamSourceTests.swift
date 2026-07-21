@@ -100,6 +100,42 @@ struct AS11StreamSourceTests {
         #expect(client.lastCursor == "3")
     }
 
+    @Test("Ingest stamps each sample with the local receipt time, not the bridge timestamp")
+    func ingestStampsLocalReceiptTime() {
+        let client = AS11WebSocketClient(
+            baseURL: URL(string: "wss://example.invalid/api/cpap/as11/ws")!,
+            now: { self.now }
+        )
+        let bridgeTime = now.addingTimeInterval(-600) // bridge clock behind the phone
+        client.ingest(
+            state: .streamingOK,
+            samples: [makePayload(id: "1", timestamp: bridgeTime, spo2: 96, hr: 60)],
+            receivedAt: now
+        )
+        #expect(client.latestSamples().first?.receivedAt == now)
+    }
+
+    @Test("Samples older than the buffer retention are pruned on ingest, so the buffer stays bounded")
+    func oldSamplesArePrunedFromBuffer() {
+        let client = AS11WebSocketClient(
+            baseURL: URL(string: "wss://example.invalid/api/cpap/as11/ws")!,
+            now: { self.now }
+        )
+        client.ingest(
+            state: .streamingOK,
+            samples: [makePayload(id: "old", timestamp: now, spo2: 96, hr: 60)],
+            receivedAt: now
+        )
+        // A later frame arriving beyond the retention window evicts the old sample.
+        let later = now.addingTimeInterval(CNSMonitoringConstants.as11ClientBufferRetention + 1)
+        client.ingest(
+            state: .streamingOK,
+            samples: [makePayload(id: "new", timestamp: later, spo2: 95, hr: 61)],
+            receivedAt: later
+        )
+        #expect(client.latestSamples().map(\.id) == ["new"])
+    }
+
     private func makePayload(
         id: String,
         timestamp: Date,

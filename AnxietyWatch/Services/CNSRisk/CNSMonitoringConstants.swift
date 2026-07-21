@@ -84,6 +84,31 @@ enum CNSMonitoringConstants {
     /// infer health from an open socket or the last successful state.
     static let as11FrameStaleTimeout: TimeInterval = 15
 
+    /// Physiologically-possible bounds for a LIVE AS11 sample. A value outside
+    /// these is garbage — a dropped-channel sentinel (`0`), or a mislabeled
+    /// flow/leak/pressure reading crossing the network + third-party bridge +
+    /// Postgres — and yields NO sample (invalid data contributes nothing, spec
+    /// §11), never a fabricated reading that could drive a false escalation.
+    /// Deliberately WIDE: they reject only the impossible, NEVER a real
+    /// desaturation. A genuine SpO₂ of 45 % is a medical emergency the klaxon
+    /// must still see, so the low bound stays at the physiological floor (a
+    /// living reading is `> 0`); only `0`/negative/`> 100`/non-finite are
+    /// dropped. `ClosedRange.contains` rejects `NaN`/`±inf` for free. AS11 is
+    /// the only live source with no on-device parser gate (EMAY clamps in its
+    /// BLE parser; Polar arrives as `Int`), so this is its equivalent guard.
+    static let as11PlausibleSpO2Percent: ClosedRange<Double> = 1...100
+    /// HR is a corroborating-only signal (can't escalate past watch alone), so
+    /// the upper bound is generous — reject only non-positive / absurd values.
+    static let as11PlausibleHeartRate: ClosedRange<Double> = 1...300
+
+    /// The AS11 client's in-memory frame buffer keeps samples received within
+    /// this window (by LOCAL receipt time) and prunes older ones on ingest, so
+    /// an all-night session can't grow the buffer without bound. Sized to the
+    /// gate window plus trim slack — the same span the coordinator's own
+    /// rolling buffer retains — so nothing the pipeline still wants is dropped.
+    static let as11ClientBufferRetention: TimeInterval =
+        CNSThresholds.standard.gateWindowSeconds + bufferTrimSlackSeconds
+
     // MARK: - §14.1 benzo+opioid synergy
 
     /// One leg of the UNION synergy-pairing rule: a benzodiazepine dose and

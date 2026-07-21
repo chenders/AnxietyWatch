@@ -61,16 +61,29 @@ enum CNSSensorAdapters {
     /// AS11 Bridge feed → SpO₂ and HR samples.
     /// Pressure, flow, and leak are context channels and do not become `CNSSignalSample`s
     /// but they influence the `AS11StreamState`.
+    ///
+    /// Two guards specific to this source's untrusted network + third-party-
+    /// bridge + Postgres round trip (EMAY/Polar are on-device):
+    /// - **Plausibility:** an out-of-range value (dropped-channel sentinel `0`,
+    ///   or a flow/leak/pressure number mislabeled into the SpO₂/HR slot) yields
+    ///   NO sample — invalid data contributes nothing (spec §11), never a
+    ///   fabricated reading that could drive a false escalation. Bounds reject
+    ///   only the impossible, never a real desaturation.
+    /// - **Timestamp:** time-window on the LOCAL receipt instant (`receivedAt`,
+    ///   stamped at ingest) so a skewed bridge clock can't push live samples
+    ///   out of the gate window. Fall back to the server `timestampUTC` only for
+    ///   directly-constructed payloads that never crossed the socket.
     static func samples(from payload: AS11StreamPayload) -> [CNSSignalSample] {
         var result: [CNSSignalSample] = []
-        if let spo2 = payload.spo2 {
+        let timestamp = payload.receivedAt ?? payload.timestampUTC
+        if let spo2 = payload.spo2, CNSMonitoringConstants.as11PlausibleSpO2Percent.contains(spo2) {
             result.append(CNSSignalSample(
-                kind: .spo2, source: .as11Bridge, value: spo2, timestamp: payload.timestampUTC
+                kind: .spo2, source: .as11Bridge, value: spo2, timestamp: timestamp
             ))
         }
-        if let hr = payload.hr {
+        if let hr = payload.hr, CNSMonitoringConstants.as11PlausibleHeartRate.contains(hr) {
             result.append(CNSSignalSample(
-                kind: .heartRate, source: .as11Bridge, value: hr, timestamp: payload.timestampUTC
+                kind: .heartRate, source: .as11Bridge, value: hr, timestamp: timestamp
             ))
         }
         return result

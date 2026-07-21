@@ -564,10 +564,15 @@ final class CNSMonitoringCoordinator {
         samples.append(contentsOf: collectPolarHRSample())
         samples.append(contentsOf: collectPolarRMSSDSample(at: now))
         if let as11Source {
-            for payload in as11Source.latestSamples()
-            where collectedAS11SampleIDs.insert(payload.id).inserted {
+            let payloads = as11Source.latestSamples()
+            for payload in payloads where collectedAS11SampleIDs.insert(payload.id).inserted {
                 samples.append(contentsOf: CNSSensorAdapters.samples(from: payload))
             }
+            // Bound the dedup set: once a sample ages out of the source's buffer
+            // it can never be re-returned (it precedes the resync cursor), so its
+            // id can be forgotten. Without this the set grows unbounded across an
+            // all-night session.
+            collectedAS11SampleIDs.formIntersection(payloads.map(\.id))
         }
         return samples
     }
