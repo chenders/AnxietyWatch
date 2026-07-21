@@ -68,6 +68,40 @@ public actor OuraAPIClient {
     
     // MARK: - New API methods
     
+    public func postTokenToServer(baseURL: String, apiKey: String, token: OuraTokenStore.Token) async throws {
+        struct AuthPayload: Encodable {
+            let access_token: String
+            let refresh_token: String
+            let expires_at: String
+        }
+        
+        guard let url = URL(string: baseURL)?.appendingPathComponent("api/oura/auth") else {
+            throw OuraAPIError.invalidResponse(statusCode: 400)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let formatter = ISO8601DateFormatter()
+        let payload = AuthPayload(
+            access_token: token.accessToken,
+            refresh_token: token.refreshToken,
+            expires_at: formatter.string(from: token.expiresAt)
+        )
+        
+        request.httpBody = try JSONEncoder().encode(payload)
+        
+        let (_, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw OuraAPIError.invalidResponse(statusCode: 0)
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw OuraAPIError.invalidResponse(statusCode: httpResponse.statusCode)
+        }
+    }
+    
     public func fetchCardiovascularAge(startDate: String, endDate: String) async throws -> [OuraCardiovascularAgeData] {
         return try await fetch(endpoint: "daily_cardiovascular_age", startDate: startDate, endDate: endDate, responseType: OuraCardiovascularAgeResponse.self).data
     }

@@ -36,11 +36,11 @@ struct OuraSettingsView: View {
     private let service: OuraService
     private let healthKitAdapter: OuraHealthKitAdapter
 
-    @State private var token = ""
     @State private var connectionStatus: ConnectionStatus = .notConfigured
     @State private var isLoading = true
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var oauthManager = OuraOAuthManager()
 #if DEBUG
     @State private var demoDataPresented = false
 #endif
@@ -80,25 +80,19 @@ struct OuraSettingsView: View {
             }
 
             Section {
-                SecureField("Personal access token", text: $token)
-                    .textContentType(.password)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .privacySensitive()
-
                 Button {
-                    Task { await saveToken() }
+                    Task { await connectOAuth() }
                 } label: {
                     if isSaving {
                         HStack {
                             ProgressView()
-                            Text("Saving…")
+                            Text("Connecting…")
                         }
                     } else {
-                        Text(connectionStatus == .notConfigured ? "Connect" : "Update Token")
+                        Text(connectionStatus == .notConfigured ? "Connect with Oura" : "Reconnect with Oura")
                     }
                 }
-                .disabled(trimmedToken.isEmpty || isSaving)
+                .disabled(isSaving)
 
                 if connectionStatus != .notConfigured {
                     Button("Disconnect", role: .destructive) {
@@ -107,9 +101,9 @@ struct OuraSettingsView: View {
                     .disabled(isSaving)
                 }
             } header: {
-                Text("Personal Access Token")
+                Text("Oura Account")
             } footer: {
-                Text("Your token is stored securely in the system Keychain. Leave this field blank unless you want to replace it.")
+                Text("Anxiety Watch will open a browser to securely authenticate with your Oura account.")
             }
 
             Section("Data") {
@@ -162,10 +156,6 @@ struct OuraSettingsView: View {
         }
     }
 
-    private var trimmedToken: String {
-        token.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private var lastSyncDate: Date? {
 #if targetEnvironment(simulator)
         return Date().addingTimeInterval(-180)
@@ -205,26 +195,30 @@ struct OuraSettingsView: View {
     }
 
     @MainActor
-    private func saveToken() async {
-        let accessToken = trimmedToken
-        guard !accessToken.isEmpty else { return }
-
+    private func connectOAuth() async {
         isSaving = true
         defer { isSaving = false }
 
-        let credential = OuraTokenStore.Token(
-            accessToken: accessToken,
-            refreshToken: "",
-            expiresAt: .distantFuture
-        )
-        await service.configure(token: credential)
+        do {
+            let credential = try await oauthManager.authenticate()
+            await service.configure(token: credential)
 
-        if await service.isAuthenticated {
-            token = ""
-            connectionStatus = .connected
-        } else {
+            if await service.isAuthenticated {
+                connectionStatus = .connected
+
+                // Post token to server
+                let serverURL = UserDefaults.standard.string(forKey: SyncService.serverURLDefaultsKey) ?? ""
+                let apiKey = UserDefaults.standard.string(forKey: SyncService.apiKeyDefaultsKey) ?? ""
+                if !serverURL.isEmpty && !apiKey.isEmpty {
+                    try? await service.postTokenToServer(baseURL: serverURL, apiKey: apiKey, token: credential)
+                }
+            } else {
+                connectionStatus = .disconnected
+                errorMessage = "Oura could not be connected."
+            }
+        } catch {
             connectionStatus = .disconnected
-            errorMessage = "Oura could not be connected with that token."
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -236,7 +230,6 @@ struct OuraSettingsView: View {
         await service.stopPolling()
         do {
             try tokenStore.delete()
-            token = ""
             connectionStatus = .notConfigured
             lastSyncTimeInterval = 0
         } catch {

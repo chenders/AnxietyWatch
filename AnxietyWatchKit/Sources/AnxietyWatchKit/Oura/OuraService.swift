@@ -212,6 +212,12 @@ public actor OuraService {
         }
     }
     
+    // MARK: - Server Integration
+    
+    public func postTokenToServer(baseURL: String, apiKey: String, token: OuraTokenStore.Token) async throws {
+        try await client.postTokenToServer(baseURL: baseURL, apiKey: apiKey, token: token)
+    }
+    
     // MARK: - New fetch methods
     
     /// Fetch cardiovascular age data for the given date range.
