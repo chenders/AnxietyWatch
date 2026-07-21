@@ -96,6 +96,10 @@ MAX_PUSH_TOKEN_LENGTH = 200
 MAX_SAMPLES_PER_REQUEST = 1000
 MAX_SAMPLES_REQUEST_BYTES = 1_000_000
 
+# Session ids are app-generated (UUID-ish, ~36 chars); cap generously so a
+# client can't bloat the buffer/indexes with an oversized id.
+MAX_SESSION_ID_LENGTH = 128
+
 
 def get_db():
     return current_app.get_db()
@@ -383,9 +387,11 @@ def post_samples():
 
     body = request.get_json(silent=True) or {}
     session_id = body.get("session_id")
+    session_id = session_id.strip() if isinstance(session_id, str) else None
     raw = body.get("samples")
-    if not session_id or not isinstance(raw, list):
-        return jsonify({"error": "session_id and samples[] are required"}), 400
+    if not session_id or len(session_id) > MAX_SESSION_ID_LENGTH or not isinstance(raw, list):
+        return jsonify({"error": "session_id (non-empty, <= %d chars) and samples[] are required"
+                                 % MAX_SESSION_ID_LENGTH}), 400
     if len(raw) > MAX_SAMPLES_PER_REQUEST:
         return jsonify({"error": "too many samples in one request (max %d)" % MAX_SAMPLES_PER_REQUEST}), 413
 
