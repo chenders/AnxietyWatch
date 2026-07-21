@@ -1,4 +1,3 @@
-# flake8: noqa: F811
 import json
 from datetime import datetime, timezone
 from api.as11 import insert_stream_sample
@@ -27,7 +26,7 @@ class MockWebSocket:
         self.close_reason = reason
 
 
-def test_as11_ws_auth_rejected(app):
+def test_as11_ws_auth_rejected(app):  # noqa: F811  (pytest fixtures shadow the imports)
     """An invalid token is rejected."""
     with app.test_request_context('/api/cpap/as11/ws', headers={"Authorization": "Bearer bad"}):
         ws = MockWebSocket()
@@ -36,7 +35,7 @@ def test_as11_ws_auth_rejected(app):
         assert ws.close_code == 1008
 
 
-def test_as11_ws_with_valid_token_and_since_cursor(app, _clean_tables):
+def test_as11_ws_with_valid_token_and_since_cursor(app, _clean_tables):  # noqa: F811
     """A WS client with a valid Bearer token receives buffered rows and state,
     and a `since` cursor replays newer rows."""
 
@@ -71,7 +70,7 @@ def test_as11_ws_with_valid_token_and_since_cursor(app, _clean_tables):
         assert sample2_id in ids
 
 
-def test_as11_ws_excludes_stale_backlog(app, _clean_tables):
+def test_as11_ws_excludes_stale_backlog(app, _clean_tables):  # noqa: F811
     """Samples older than the replay window are never streamed, so neither a
     stale `since` cursor from a prior session nor a fresh (id=0) connect can
     replay historical backlog that the client would score as current."""
@@ -104,7 +103,7 @@ def test_as11_ws_excludes_stale_backlog(app, _clean_tables):
         assert recent_id in ids
 
 
-def test_as11_ws_stalled_state(app, _clean_tables):
+def test_as11_ws_stalled_state(app, _clean_tables):  # noqa: F811
     from datetime import timedelta
     with app.app_context():
         db = app.get_db()

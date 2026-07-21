@@ -65,29 +65,45 @@ def as11_ws_handler(ws):
     except ValueError:
         last_id = 0
 
+    db = None
     while True:
-        db = get_db()
+        try:
+            db = get_db()
+            with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, bridge_id, ts_utc, channel, value, unit, ingest_ts_utc, session_id
+                    FROM as11_stream_sample
+                    WHERE id > %s AND ingest_ts_utc > NOW() - (%s * INTERVAL '1 second')
+                    ORDER BY id ASC LIMIT 1000
+                """, (last_id, STREAM_REPLAY_WINDOW_SECONDS))
+                samples = cur.fetchall()
 
-        with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
-                SELECT id, bridge_id, ts_utc, channel, value, unit, ingest_ts_utc, session_id
-                FROM as11_stream_sample
-                WHERE id > %s AND ingest_ts_utc > NOW() - (%s * INTERVAL '1 second')
-                ORDER BY id ASC LIMIT 1000
-            """, (last_id, STREAM_REPLAY_WINDOW_SECONDS))
-            samples = cur.fetchall()
+                # Newest row by primary key = latest ingest (id is SERIAL,
+                # monotonic with ingest_ts_utc), so this reads the liveness
+                # timestamp off the PK index, not a MAX() full-table scan.
+                cur.execute("SELECT ingest_ts_utc FROM as11_stream_sample ORDER BY id DESC LIMIT 1")
+                row = cur.fetchone()
+                latest_ts = row['ingest_ts_utc'] if row else None
 
-            # Newest row by primary key = latest ingest (id is SERIAL, monotonic
-            # with ingest_ts_utc), so this reads the liveness timestamp off the
-            # PK index instead of a MAX() full-table scan every poll.
-            cur.execute("SELECT ingest_ts_utc FROM as11_stream_sample ORDER BY id DESC LIMIT 1")
-            row = cur.fetchone()
-            latest_ts = row['ingest_ts_utc'] if row else None
-
-        # End the read transaction each iteration: this connection lives for the
-        # whole WS session, and leaving a transaction open across every 2s poll
-        # would pin an xmin snapshot and hold back (auto)vacuum over time.
-        db.rollback()
+            # End the read transaction each iteration: this connection lives for
+            # the whole WS session, and leaving one open across every 2s poll
+            # would pin an xmin snapshot and hold back (auto)vacuum over time.
+            db.rollback()
+        except Exception:
+            # A transient DB error (connection reset, statement timeout) must not
+            # dangle the socket: roll back if possible and close with 1011 so the
+            # client sees the drop and reconnects (its state fails safe to
+            # .streamStalled meanwhile).
+            if db is not None:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+            try:
+                ws.close(1011, "server error")
+            except Exception:
+                pass
+            return
 
         if samples:
             last_id = max(s['id'] for s in samples)
