@@ -613,8 +613,11 @@ CREATE TABLE IF NOT EXISTS device_push_token (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- One row per raised alert so the backstop/heartbeat pushes exactly once per
--- (session_id, kind) event (idempotency).
+-- At most one row per (session_id, kind) event: the UNIQUE index lets the
+-- backstop/heartbeat claim the event atomically (INSERT ... ON CONFLICT DO
+-- NOTHING), so concurrent appends/sweeps push exactly once (idempotency). The
+-- row is deleted when the event clears (heartbeat resume) or a delivery fails,
+-- so a later occurrence can re-claim.
 CREATE TABLE IF NOT EXISTS alert_event (
     id SERIAL PRIMARY KEY,
     session_id TEXT NOT NULL,
@@ -622,7 +625,7 @@ CREATE TABLE IF NOT EXISTS alert_event (
     ts_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_alert_event_session_kind
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_event_session_kind
     ON alert_event (session_id, kind);
 
 

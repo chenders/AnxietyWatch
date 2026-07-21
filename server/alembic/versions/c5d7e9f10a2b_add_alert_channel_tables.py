@@ -52,8 +52,10 @@ def upgrade():
                   server_default=sa.text('now()'), nullable=False),
         if_not_exists=True
     )
+    # UNIQUE so the (session_id, kind) event can be claimed atomically via
+    # INSERT ... ON CONFLICT DO NOTHING (idempotent push). Matches schema.sql.
     op.create_index('idx_alert_event_session_kind', 'alert_event',
-                    ['session_id', 'kind'], if_not_exists=True)
+                    ['session_id', 'kind'], unique=True, if_not_exists=True)
 
 
 def downgrade():

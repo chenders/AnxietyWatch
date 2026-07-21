@@ -204,15 +204,24 @@ def push_alert(db, kind, session_id, *, critical=False):
 def _maybe_raise(db, session_id, kind, now, push):
     """Idempotently deliver + record ``kind`` for ``session_id``.
 
-    Returns ``(delivered, sent)``. Idempotency gates on DELIVERY, not attempt:
-    the ``alert_event`` ledger row is written only after >= 1 device accepts the
-    push, so a failed delivery stays retryable on the next append/sweep and is
-    never silently marked "alerted".
+    Returns ``(delivered, sent)``. The (session_id, kind) event is CLAIMED
+    atomically via ``INSERT ... ON CONFLICT DO NOTHING`` against the unique
+    index, so two concurrent appends/sweeps can't both push (exactly-once, with
+    no DB lock held across the network call). Idempotency still gates on
+    DELIVERY: if the push reaches no device the claim is released (row deleted)
+    so the alert stays retryable on the next append/sweep rather than being
+    silently marked "alerted".
     """
     with db.cursor() as cur:
-        cur.execute("SELECT 1 FROM alert_event WHERE session_id = %s AND kind = %s LIMIT 1", (session_id, kind))
-        if cur.fetchone():
-            return (False, 0)  # already delivered for this event
+        cur.execute(
+            "INSERT INTO alert_event (session_id, kind, ts_utc) VALUES (%s, %s, %s) "
+            "ON CONFLICT (session_id, kind) DO NOTHING RETURNING id",
+            (session_id, kind, now),
+        )
+        claim = cur.fetchone()
+    db.commit()
+    if claim is None:
+        return (False, 0)  # another caller already claimed/delivered this event
 
     try:
         sent = push(db, kind, session_id, critical=PUSH_CRITICAL)
@@ -221,17 +230,14 @@ def _maybe_raise(db, session_id, kind, now, push):
         sent = 0
 
     if not sent:
-        # Delivered to no device: do NOT record, so the alert remains retryable
+        # Delivered to no device: release the claim so the alert stays retryable
         # and /health surfaces the dark channel. Own failure must be visible.
+        with db.cursor() as cur:
+            cur.execute("DELETE FROM alert_event WHERE id = %s", (claim[0],))
+        db.commit()
         logger.warning("alert-channel: %s for session not delivered to any device; will retry", kind)
         return (False, 0)
 
-    with db.cursor() as cur:
-        cur.execute(
-            "INSERT INTO alert_event (session_id, kind, ts_utc) VALUES (%s, %s, %s)",
-            (session_id, kind, now),
-        )
-    db.commit()
     return (True, sent)
 
 

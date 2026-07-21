@@ -239,9 +239,10 @@ def build_jwt(config: ApnsConfig, issued_at=None) -> str:
 def _default_transport(url, headers, body):
     """Default HTTP/2 transport (APNs requires HTTP/2).
 
-    Imported lazily so the module — and the mocked tests — do not need ``httpx``.
-    ``httpx[http2]`` is NOT yet in ``server/requirements.txt``; add it before the
-    live send path is exercised in production, or inject a custom ``transport``.
+    ``httpx[http2]`` is in ``server/requirements.txt`` for the live send path;
+    it is still imported lazily here so the module — and the mocked tests, which
+    inject their own ``transport`` — do not pull in ``httpx`` at import time. The
+    ImportError branch is a defensive guard for a stripped-down environment.
     """
     try:
         import httpx
