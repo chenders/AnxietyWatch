@@ -20,7 +20,14 @@ final class OuraOAuthManager: NSObject, ASWebAuthenticationPresentationContextPr
         let redirectURI = Bundle.main.object(forInfoDictionaryKey: "OuraRedirectURI") as? String ?? ""
 
         guard !clientID.isEmpty, !clientSecret.isEmpty, !redirectURI.isEmpty else {
-            throw NSError(domain: "OuraOAuth", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing Oura configuration in Info.plist"])
+            // Actionable: the Info.plist keys exist but resolve to empty strings
+            // when the OURA_* build settings aren't set. Name them and where to
+            // set them so first-run setup is self-diagnosable.
+            throw NSError(domain: "OuraOAuth", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Oura isn't configured. Set OURA_CLIENT_ID, "
+                    + "OURA_CLIENT_SECRET, and OURA_REDIRECT_URI in Config/Oura.xcconfig "
+                    + "(copy Config/Oura.xcconfig.example), then rebuild."
+            ])
         }
 
         let scopes = ["email", "personal", "daily", "heartrate", "workout", "tag", "session", "spo2"]
