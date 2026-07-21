@@ -211,6 +211,7 @@ struct OuraSettingsView: View {
     private func connectOAuth() async {
         isSaving = true
         let previousStatus = connectionStatus
+        let previousWarning = serverSyncWarning
         serverSyncWarning = nil
         defer { isSaving = false }
 
@@ -227,8 +228,10 @@ struct OuraSettingsView: View {
             await postTokenToServerIfConfigured(credential)
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
             // The user dismissed the auth sheet — a normal action, not a
-            // failure. Restore the prior state without an alert.
+            // failure. Restore the prior state (including any prior warning we
+            // cleared before presenting) without an alert.
             connectionStatus = previousStatus
+            serverSyncWarning = previousWarning
         } catch {
             connectionStatus = .disconnected
             errorMessage = error.localizedDescription
