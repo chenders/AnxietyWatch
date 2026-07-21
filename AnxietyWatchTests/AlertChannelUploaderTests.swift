@@ -54,9 +54,9 @@ struct AlertChannelUploaderTests {
             CNSSignalSample(kind: .spo2, source: .emayOximeter, value: 96, timestamp: ref),
             CNSSignalSample(kind: .spo2, source: .as11Bridge, value: 88, timestamp: ref),
         ])
-        #expect(wire.compactMap { $0["source"] as? String } == ["emay", "as11"])
+        #expect(wire.compactMap { $0["source"] as? String } == ["oximeter", "as11"])
         #expect(AlertChannelUploader.sourceLabel(for: .polarH10) == "polar")
-        #expect(AlertChannelUploader.sourceLabel(for: .appleWatch) == "appleWatch")
+        #expect(AlertChannelUploader.sourceLabel(for: .appleWatch) == "watch")
     }
 
     @Test func wireSampleTimestampRoundTripsAsISO8601() throws {

@@ -408,7 +408,7 @@ def test_backstop_evaluated_per_source_not_masked(app, _clean_tables):  # noqa: 
         samples = []
         for t in range(0, SUSTAIN + 1):
             samples.append((REF + timedelta(seconds=t), backstop.SPO2_CHANNEL, LOW, "as11"))
-            samples.append((REF + timedelta(seconds=t), backstop.SPO2_CHANNEL, NORMAL, "emay"))
+            samples.append((REF + timedelta(seconds=t), backstop.SPO2_CHANNEL, NORMAL, "oximeter"))
         append_samples(db, "sess-multi", samples, now, push=push)
     assert push.kinds() == [alert_channel.KIND_BACKSTOP]
 

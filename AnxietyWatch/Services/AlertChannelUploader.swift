@@ -53,15 +53,17 @@ final class AlertChannelUploader: AlertChannelUploading {
         }
     }
 
-    /// The server source label, so the backstop can evaluate each SpO2 source
-    /// independently — a normal reading from one concurrently-active source
-    /// (e.g. an oximeter) must not reset, and thereby mask, a genuine sustained
-    /// low on another (e.g. the CPAP bridge).
+    /// The alert-channel wire discriminator for a source, so the backstop can
+    /// evaluate each SpO2 source independently — a normal reading from one
+    /// concurrently-active source (e.g. the oximeter) must not reset, and thereby
+    /// mask, a genuine sustained low on another (e.g. the CPAP bridge). This is a
+    /// self-contained wire vocabulary the server only groups by opaquely; it
+    /// deliberately does NOT reuse the HealthKit source-label strings.
     static func sourceLabel(for source: CNSSignalSource) -> String {
         switch source {
-        case .emayOximeter: return "emay"
+        case .emayOximeter: return "oximeter"
         case .polarH10: return "polar"
-        case .appleWatch: return "appleWatch"
+        case .appleWatch: return "watch"
         case .as11Bridge: return "as11"
         }
     }
