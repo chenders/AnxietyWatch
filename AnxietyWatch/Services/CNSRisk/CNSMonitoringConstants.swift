@@ -109,6 +109,12 @@ enum CNSMonitoringConstants {
     static let as11ClientBufferRetention: TimeInterval =
         CNSThresholds.standard.gateWindowSeconds + bufferTrimSlackSeconds
 
+    /// Automatic reconnect uses bounded exponential backoff while a monitoring
+    /// session actively wants the foreground AS11 feed. Intentional background
+    /// and session-end disconnects disable retries until `connect()` is called.
+    static let as11ReconnectInitialDelay: TimeInterval = 1
+    static let as11ReconnectMaximumDelay: TimeInterval = 30
+
     // MARK: - §14.1 benzo+opioid synergy
 
     /// One leg of the UNION synergy-pairing rule: a benzodiazepine dose and

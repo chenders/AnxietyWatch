@@ -24,6 +24,7 @@ protocol AS11StreamSource: AnyObject {
     var latestState: AS11StreamState { get }
     func latestSamples() -> [AS11StreamPayload]
     func connect()
+    func suspend()
     func disconnect()
 }
 
@@ -34,6 +35,7 @@ final class MockAS11StreamSource: AS11StreamSource {
     var samples: [AS11StreamPayload]
     var lastFrameAt: Date?
     private(set) var connectCallCount = 0
+    private(set) var suspendCallCount = 0
     private(set) var disconnectCallCount = 0
 
     private let now: () -> Date
@@ -69,6 +71,10 @@ final class MockAS11StreamSource: AS11StreamSource {
         connectCallCount += 1
     }
 
+    func suspend() {
+        suspendCallCount += 1
+    }
+
     func disconnect() {
         disconnectCallCount += 1
     }
@@ -92,8 +98,11 @@ final class AS11WebSocketClient: AS11StreamSource {
 
     private(set) var lastCursor: String?
     private(set) var isDropped = true
+    private(set) var shouldMaintainConnection = false
+    private var reconnectAttempt = 0
     private var socketTask: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
 
     init(
         baseURL: URL,
@@ -133,6 +142,7 @@ final class AS11WebSocketClient: AS11StreamSource {
         authoritativeState = state
         lastFrameAt = receivedAt
         isDropped = false
+        reconnectAttempt = 0
         for sample in samples where samplesByID[sample.id] == nil {
             var stamped = sample
             stamped.receivedAt = receivedAt
@@ -160,7 +170,15 @@ final class AS11WebSocketClient: AS11StreamSource {
     }
 
     func connect() {
-        guard socketTask == nil, let url = willBecomeActive() else { return }
+        shouldMaintainConnection = true
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        openSocketIfNeeded()
+    }
+
+    private func openSocketIfNeeded() {
+        guard shouldMaintainConnection, socketTask == nil,
+              let url = willBecomeActive() else { return }
         var request = URLRequest(url: url)
         let token = apiKey()
         guard !token.isEmpty else {
@@ -176,8 +194,12 @@ final class AS11WebSocketClient: AS11StreamSource {
         }
     }
 
+    func suspend() {
+        stopTransport()
+    }
+
     func disconnect() {
-        willResignActive()
+        stopTransport()
         // Reset stream state at the session boundary so the NEXT monitoring
         // session starts fresh instead of resuming from a stale cursor and
         // pulling the between-sessions backlog. (A within-session
@@ -197,11 +219,45 @@ final class AS11WebSocketClient: AS11StreamSource {
     /// otherwise an in-flight frame would immediately flip the state back to
     /// non-dropped.
     func willResignActive() {
+        stopTransport()
+    }
+
+    private func stopTransport() {
+        shouldMaintainConnection = false
+        reconnectTask?.cancel()
+        reconnectTask = nil
         receiveTask?.cancel()
         receiveTask = nil
         socketTask?.cancel(with: .goingAway, reason: nil)
         socketTask = nil
         isDropped = true
+    }
+
+    /// Deterministic seam used by tests; advances and returns the bounded
+    /// exponential-backoff delay for the next retry.
+    func nextReconnectDelay() -> TimeInterval {
+        let exponent = min(reconnectAttempt, 10)
+        let delay = min(
+            CNSMonitoringConstants.as11ReconnectInitialDelay * pow(2, Double(exponent)),
+            CNSMonitoringConstants.as11ReconnectMaximumDelay
+        )
+        reconnectAttempt += 1
+        return delay
+    }
+
+    private func scheduleReconnect() {
+        guard shouldMaintainConnection, reconnectTask == nil else { return }
+        let delay = nextReconnectDelay()
+        reconnectTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            reconnectTask = nil
+            openSocketIfNeeded()
+        }
     }
 
     /// Returns the cursor-resync URL used by the WebSocket transport.
@@ -232,8 +288,13 @@ final class AS11WebSocketClient: AS11StreamSource {
                 }
                 try ingestFrameData(data, receivedAt: now())
             } catch {
-                if !Task.isCancelled { isDropped = true }
+                let wasCancelled = Task.isCancelled
+                receiveTask = nil
                 self.socketTask = nil
+                if !wasCancelled {
+                    isDropped = true
+                    scheduleReconnect()
+                }
                 return
             }
         }

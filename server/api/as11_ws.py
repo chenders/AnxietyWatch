@@ -1,11 +1,13 @@
 import time
 import json
 import hashlib
+import logging
 from flask import request, current_app
 from flask_sock import Sock
 import psycopg2.extras
 from datetime import datetime, timezone
 
+logger = logging.getLogger(__name__)
 sock = Sock()
 
 # Never stream stream-sample history older than this. The app stamps every
@@ -97,12 +99,12 @@ def as11_ws_handler(ws):
             if db is not None:
                 try:
                     db.rollback()
-                except Exception:
-                    pass
+                except Exception as rollback_error:
+                    logger.warning("AS11 WebSocket rollback failed: %s", type(rollback_error).__name__)
             try:
                 ws.close(1011, "server error")
-            except Exception:
-                pass
+            except Exception as close_error:
+                logger.warning("AS11 WebSocket close failed: %s", type(close_error).__name__)
             return
 
         if samples:

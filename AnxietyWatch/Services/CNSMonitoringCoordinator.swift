@@ -421,6 +421,19 @@ final class CNSMonitoringCoordinator {
         applyCompanionPresent(present, at: now())
     }
 
+    /// Foreground-only AS11 transport lifecycle. Monitoring state and the
+    /// server cursor survive backgrounding; the source remains fail-closed
+    /// until foreground reconnection produces a fresh authoritative frame.
+    func sceneDidBecomeActive() {
+        guard isMonitoring else { return }
+        as11Source?.connect()
+    }
+
+    func sceneDidEnterBackground() {
+        guard isMonitoring else { return }
+        as11Source?.suspend()
+    }
+
     /// Called from both dose-log sites (`MedicationsHubView.logDose`'s
     /// direct-insert path and `DoseAnxietyPromptView`'s prompt-confirm path)
     /// immediately after a `MedicationDose` is inserted. Classifies the dose,

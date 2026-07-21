@@ -191,8 +191,9 @@ background alarm; can be built after or alongside A.
 - **Task 8 shipped:** `.monitoringPaused` preserves a rise candidate and relies on the maximum-gap guard; brief and over-gap pause behavior plus degraded-state behavior are covered (`ea410cb`).
 - **Task 9 shipped:** Persisted risk snapshots retain authoritative `BRIDGE_DOWN`, `STREAM_STALLED`, and `MASK_OFF_LEAK` reasons (`a86bd39`).
 - **Task 11 shipped:** REST timestamps serialize as ISO-8601 strings (`b51b9ee`).
-- **Deferred follow-ups from final review (non-blocking, fail-safe):**
-  1. Bound or drain `AS11WebSocketClient`'s in-memory payload history and reject payloads older than the active session. The current snapshot API is re-scanned each tick and its coordinator dedup set resets on re-arm, so long sessions can grow memory/work and prior-session rows can be reconsidered (the quality gate still excludes stale evidence).
-  2. Add bounded reconnect/backoff when an active monitoring session returns to the foreground or suffers a transient socket error. The current session-owned connection fails closed to `.streamStalled`, but does not recover until a new monitoring session starts.
-  3. Add negative persistence assertions proving `.insufficientData` and `.assessed` records clear `assessmentReason`, preventing a future stale fault reason from appearing on a non-fault record.
-  4. Engine-wide hardening: apply shared physiological plausibility bounds when constructing live SpO₂/HR samples. AS11, EMAY, and Polar currently pass values through verbatim and rely on upstream artifact/quality signals; invalid values must contribute nothing.
+- **Final-review follow-ups completed:**
+  1. `e118382` bounds the AS11 receipt-time buffer and coordinator dedup set, resets history at session boundaries, and prevents stale replay from being treated as fresh evidence; `c9eac96` adds server-side replay recency defense.
+  2. Foreground scene transitions now suspend/resume the active AS11 session with its cursor intact, and transient socket failures retry with bounded exponential backoff while remaining fail-closed as `.streamStalled`.
+  3. `e118382` adds negative persistence assertions proving `.insufficientData` and `.assessed` records clear `assessmentReason`.
+  4. `e118382` adds AS11 SpO₂/HR plausibility bounds at sample construction so impossible values contribute nothing. EMAY parser clamping and Polar's typed parser remain their source-specific guards.
+- **Phase A dependency:** PR #27 (real foreground `AVAudioEngine` klaxon) merged to `main` as `239519a`; Phase B was merged/rebased with that implementation present.

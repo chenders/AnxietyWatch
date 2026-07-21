@@ -1056,6 +1056,29 @@ struct CNSMonitoringCoordinatorTests {
         #expect(source.disconnectCallCount == 1)
     }
 
+    @Test("Active monitoring suspends AS11 in background and reconnects in foreground")
+    func sceneLifecycleReconnectsAS11WhileMonitoring() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let source = MockAS11StreamSource()
+        let coordinator = makeCoordinator(
+            context: context,
+            now: { self.t0 },
+            as11Source: source,
+            poster: NotificationPosterSpy(),
+            defaults: makeDefaults()
+        )
+        coordinator.armManually(companionPresent: true)
+
+        coordinator.sceneDidEnterBackground()
+        #expect(source.suspendCallCount == 1)
+        coordinator.sceneDidBecomeActive()
+        #expect(source.connectCallCount == 2)
+
+        coordinator.disarm()
+        coordinator.sceneDidBecomeActive()
+        #expect(source.connectCallCount == 2)
+    }
+
     // MARK: - disarm() always wins
 
     @Test("disarm() ends monitoring with .manual even when other triggers are active")

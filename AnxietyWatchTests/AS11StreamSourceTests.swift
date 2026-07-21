@@ -53,6 +53,35 @@ struct AS11StreamSourceTests {
             .queryItems?.first(where: { $0.name == "since" })?.value == "42")
     }
 
+    @Test("Reconnect backoff is bounded and resets after a successful frame")
+    func reconnectBackoffIsBoundedAndResettable() {
+        let client = AS11WebSocketClient(
+            baseURL: URL(string: "wss://example.invalid/api/cpap/as11/ws")!,
+            now: { self.now }
+        )
+
+        #expect(client.nextReconnectDelay() == CNSMonitoringConstants.as11ReconnectInitialDelay)
+        #expect(client.nextReconnectDelay() == CNSMonitoringConstants.as11ReconnectInitialDelay * 2)
+        for _ in 0..<20 { _ = client.nextReconnectDelay() }
+        #expect(client.nextReconnectDelay() == CNSMonitoringConstants.as11ReconnectMaximumDelay)
+
+        client.ingest(state: .streamingOK, samples: [], receivedAt: now)
+        #expect(client.nextReconnectDelay() == CNSMonitoringConstants.as11ReconnectInitialDelay)
+    }
+
+    @Test("An intentional background drop disables automatic reconnect until foreground connect")
+    func intentionalDropDisablesReconnect() {
+        let client = AS11WebSocketClient(
+            baseURL: URL(string: "wss://example.invalid/api/cpap/as11/ws")!,
+            now: { self.now }, apiKey: { "test-key" }
+        )
+
+        client.connect()
+        #expect(client.shouldMaintainConnection)
+        client.willResignActive()
+        #expect(!client.shouldMaintainConnection)
+    }
+
     @Test("Real server frames decode ISO-8601 timestamps with fractional seconds")
     func decodesServerFrame() throws {
         let client = AS11WebSocketClient(

@@ -210,11 +210,13 @@ struct AnxietyWatchApp: App {
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
+                        monitoringCoordinator.sceneDidBecomeActive()
                         checkPendingFollowUp()
                         checkPendingRandomCheckIn()
                     }
                     // Spec §1.1 close flow: checkpoint + close on background.
                     if newPhase == .background {
+                        monitoringCoordinator.sceneDidEnterBackground()
                         saveCleanShutdownFlag()
                         Task {
                             await pipelineService.stop()
