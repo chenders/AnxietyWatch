@@ -881,6 +881,7 @@ final class CNSMonitoringCoordinator {
         notificationPoster.cancel(identifier: CNSMonitoringConstants.deadMansSwitchNotificationID)
 
         stopTickLoop()
+        ForegroundAlarmAudioPlayer.stopKlaxon()
         session = nil
         pipeline = nil
         isMonitoring = false
