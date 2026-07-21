@@ -56,6 +56,19 @@ struct CNSMonitoringCoordinatorTests {
         }
     }
 
+    private final class UploaderSpy: AlertChannelUploading {
+        private(set) var started: [UUID] = []
+        private(set) var uploads: [(sessionID: UUID, samples: [CNSSignalSample])] = []
+        private(set) var ended: [UUID] = []
+        private(set) var tokens: [Data] = []
+        func sessionStarted(_ sessionID: UUID) { started.append(sessionID) }
+        func uploadSamples(sessionID: UUID, samples: [CNSSignalSample]) {
+            uploads.append((sessionID, samples))
+        }
+        func sessionEnded(_ sessionID: UUID) { ended.append(sessionID) }
+        func registerPushToken(_ deviceToken: Data) { tokens.append(deviceToken) }
+    }
+
     // MARK: - Helpers
 
     private func makeDefaults(_ suite: String = #function) -> UserDefaults {
@@ -132,6 +145,45 @@ struct CNSMonitoringCoordinatorTests {
         #expect(pipeline.processCallCount == 1)
         #expect(pipeline.lastSamples == [sample])
         #expect(coordinator.currentTier == .watch)
+    }
+
+    @Test("Alert-channel uploader is fed only while a session is armed")
+    func uploaderGatedToArmedSession() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let uploader = UploaderSpy()
+        let coordinator = CNSMonitoringCoordinator(
+            modelContext: context,
+            now: { self.t0 },
+            latestEMAYReading: { nil },
+            latestPolarHR: { nil },
+            latestPolarRMSSD: { nil },
+            alertChannelUploader: uploader,
+            notificationPoster: NotificationPosterSpy(),
+            defaults: makeDefaults(),
+            enableTickLoop: false,
+            pipelineFactory: { _ in DetectionPipelineSpy(result: (.insufficientData, .clear)) }
+        )
+
+        // Not armed: a stray tick uploads nothing.
+        coordinator.tick(at: t0)
+        #expect(uploader.uploads.isEmpty)
+        #expect(uploader.started.isEmpty)
+
+        coordinator.armManually(companionPresent: false)
+        #expect(uploader.started.count == 1)
+        let sessionID = uploader.started.first
+
+        // Armed: each tick feeds the uploader, tagged with the session id.
+        coordinator.tick(at: t0)
+        #expect(uploader.uploads.count == 1)
+        #expect(uploader.uploads.first?.sessionID == sessionID)
+
+        coordinator.disarm()
+        #expect(uploader.ended == [sessionID].compactMap { $0 })
+
+        // Disarmed: no further uploads.
+        coordinator.tick(at: t0)
+        #expect(uploader.uploads.count == 1)
     }
 
     @Test("Restored primary sample refreshes reporting-source disclosure")

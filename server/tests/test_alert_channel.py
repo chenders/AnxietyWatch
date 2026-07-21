@@ -372,6 +372,30 @@ def test_samples_rejects_invalid_json(app, _clean_tables):  # noqa: F811
         assert resp.status_code == 400
 
 
+def test_disarm_clears_session_and_prevents_heartbeat(app, _clean_tables):  # noqa: F811
+    """Disarm drops the session's buffer + alerts, so a subsequent sweep finds
+    no candidate and the no-data heartbeat can't false-fire for a clean stop."""
+    push = _Recorder()
+    with app.app_context():
+        db = app.get_db()
+        now = REF + timedelta(seconds=600)
+        insert_buffer_sample(db, "sess-disarm", REF, "SPO2", NORMAL)
+        _silence(db, "sess-disarm", now - timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS + 30))
+
+    with app.test_client() as client:
+        resp = client.post("/api/alert-channel/disarm", headers=auth_header(),
+                           json={"session_id": "sess-disarm"})
+        assert resp.status_code == 200
+
+    with app.app_context():
+        db = app.get_db()
+        with db.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM session_sample_buffer WHERE session_id = %s", ("sess-disarm",))
+            assert cur.fetchone()[0] == 0
+        assert run_heartbeat_sweep(db, now, push=push) == []
+    assert push.calls == []
+
+
 def test_eval_failure_does_not_fail_the_upload(app, _clean_tables, monkeypatch):  # noqa: F811
     """If backstop evaluation raises after the batch is buffered, the failure is
     swallowed (logged) — the samples stay buffered and append returns normally,

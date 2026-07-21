@@ -456,6 +456,27 @@ def post_push_token():
     return jsonify({"ok": True})
 
 
+@alert_channel_bp.route("/disarm", methods=["POST"])
+@require_api_key
+def post_disarm():
+    """Mark a monitoring session ended (the client calls this on disarm) so the
+    no-data heartbeat doesn't fire a false "monitoring stopped" alert for a clean
+    stop. Drops the session's buffered samples and any pending alert rows — which
+    also bounds buffer growth for ended sessions."""
+    body = request.get_json(silent=True) or {}
+    session_id = body.get("session_id")
+    session_id = session_id.strip() if isinstance(session_id, str) else None
+    if not session_id or len(session_id) > MAX_SESSION_ID_LENGTH:
+        return jsonify({"error": "session_id (non-empty, <= %d chars) is required" % MAX_SESSION_ID_LENGTH}), 400
+
+    db = get_db()
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM session_sample_buffer WHERE session_id = %s", (session_id,))
+        cur.execute("DELETE FROM alert_event WHERE session_id = %s", (session_id,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @alert_channel_bp.route("/heartbeat-sweep", methods=["POST"])
 @require_api_key
 def post_heartbeat_sweep():
