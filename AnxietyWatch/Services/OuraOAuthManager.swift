@@ -60,13 +60,7 @@ final class OuraOAuthManager: NSObject, ASWebAuthenticationPresentationContextPr
             }
         }
 
-        guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
-              let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
-              let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value,
-              returnedState == state else {
-            throw URLError(.badServerResponse)
-        }
-
+        let code = try OuraOAuthUtils.authorizationCode(fromCallback: callbackURL, expectedState: state)
         return try await exchangeCodeForToken(code: code, clientID: clientID, clientSecret: clientSecret, redirectURI: redirectURI)
     }
 
@@ -84,16 +78,9 @@ final class OuraOAuthManager: NSObject, ASWebAuthenticationPresentationContextPr
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
-        var components = URLComponents()
-        components.queryItems = [
-            URLQueryItem(name: "grant_type", value: "authorization_code"),
-            URLQueryItem(name: "code", value: code),
-            URLQueryItem(name: "client_id", value: clientID),
-            URLQueryItem(name: "client_secret", value: clientSecret),
-            URLQueryItem(name: "redirect_uri", value: redirectURI)
-        ]
-
-        request.httpBody = components.query?.data(using: .utf8)
+        request.httpBody = OuraOAuthUtils.tokenExchangeBody(
+            code: code, clientID: clientID, clientSecret: clientSecret, redirectURI: redirectURI
+        )?.data(using: .utf8)
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
