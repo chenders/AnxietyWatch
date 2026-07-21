@@ -5,6 +5,155 @@ from psycopg2 import sql
 import hmac
 import hashlib
 import os
+import json
+import requests
+from datetime import datetime, timezone, timedelta
+
+
+def fetch_and_persist_oura_data(token_row, event_data, db_conn, http_client=requests):
+    """
+    Test-callable function to fetch and persist Oura data.
+    """
+    now = datetime.now(timezone.utc)
+    expires_at = token_row['expires_at']
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if expires_at < now:
+        client_id = os.environ.get('OURA_CLIENT_ID', '')
+        client_secret = os.environ.get('OURA_CLIENT_SECRET', '')
+        refresh_bytes = token_row['refresh_token']
+        refresh_str = refresh_bytes.decode('utf-8') if isinstance(refresh_bytes, bytes) else refresh_bytes
+
+        resp = http_client.post("https://api.ouraring.com/oauth/token", data={
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_str,
+            "client_id": client_id,
+            "client_secret": client_secret
+        })
+        if resp.status_code == 200:
+            token_data = resp.json()
+            new_access = token_data['access_token']
+            new_refresh = token_data['refresh_token']
+            expires_in = token_data.get('expires_in', 86400)
+            new_expires = now + timedelta(seconds=expires_in)
+
+            with db_conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE oura_credentials
+                    SET access_token = %s, refresh_token = %s, expires_at = %s, updated_at = %s
+                    WHERE id = %s
+                """, (new_access.encode('utf-8'), new_refresh.encode('utf-8'), new_expires, now, token_row['id']))
+            db_conn.commit()
+
+            token_row['access_token'] = new_access.encode('utf-8')
+            token_row['refresh_token'] = new_refresh.encode('utf-8')
+            token_row['expires_at'] = new_expires
+        else:
+            return False
+
+    access_bytes = token_row['access_token']
+    access_str = access_bytes.decode('utf-8') if isinstance(access_bytes, bytes) else access_bytes
+
+    data_type = event_data.get('data_type')
+    if not data_type:
+        return False
+
+    url = f"https://api.ouraring.com/v2/usercollection/{data_type}"
+    headers = {"Authorization": f"Bearer {access_str}"}
+    params = {}
+    if 'start_date' in event_data:
+        params['start_date'] = event_data['start_date']
+    if 'end_date' in event_data:
+        params['end_date'] = event_data['end_date']
+
+    resp = http_client.get(url, headers=headers, params=params)
+    if resp.status_code != 200:
+        return False
+
+    data_list = resp.json().get('data', [])
+    if not data_list:
+        return True
+
+    with db_conn.cursor() as cur:
+        for item in data_list:
+            if data_type == 'sleep':
+                day = item.get('day')
+                doc_id = item.get('id', f"sleep_{day}")
+                stages = json.dumps(item.get('sleep_phase_5_min', ''))
+                hr_var = item.get('heart_rate_variability', {})
+                hrv = hr_var.get('5_min', []) if isinstance(hr_var, dict) else []
+                rr = item.get('respiratory_rate_5_min', [])
+                resp_rate = item.get('average_respiratory_rate')
+                efficiency = item.get('efficiency')
+                latency = item.get('latency')
+
+                cur.execute("""
+                    INSERT INTO oura_sleep
+                    (day, stages_hypnogram, hrv_5min, rr, resp_rate, efficiency, latency, document_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (day) DO UPDATE SET
+                        stages_hypnogram = EXCLUDED.stages_hypnogram,
+                        hrv_5min = EXCLUDED.hrv_5min,
+                        rr = EXCLUDED.rr,
+                        resp_rate = EXCLUDED.resp_rate,
+                        efficiency = EXCLUDED.efficiency,
+                        latency = EXCLUDED.latency,
+                        document_id = EXCLUDED.document_id
+                """, (day, stages, hrv, rr, resp_rate, efficiency, latency, doc_id))
+            elif data_type == 'heartrate':
+                ts = item.get('timestamp')
+                bpm = item.get('bpm')
+                source = item.get('source', '')
+                cur.execute("""
+                    INSERT INTO oura_heartrate (ts, bpm, source)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (ts) DO NOTHING
+                """, (ts, bpm, source))
+            elif data_type == 'interbeat_interval':
+                ts = item.get('timestamp')
+                ibi_ms = item.get('ibi')
+                validity = item.get('validity', 0)
+                cur.execute("""
+                    INSERT INTO oura_ibi (ts, ibi_ms, validity)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (ts) DO NOTHING
+                """, (ts, ibi_ms, validity))
+            elif data_type in [
+                'daily_readiness', 'daily_resilience', 'daily_stress', 'daily_spo2',
+                'daily_cardiovascular_age', 'vo2_max'
+            ]:
+                day = item.get('day')
+                doc_id = item.get('id', f"{data_type}_{day}")
+
+                cur.execute("""
+                    INSERT INTO oura_daily (day, document_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (day) DO NOTHING
+                """, (day, doc_id))
+
+                if data_type == 'daily_readiness':
+                    cur.execute("UPDATE oura_daily SET readiness = %s, temp_deviation_c = %s WHERE day = %s",
+                                (item.get('score'), item.get('temperature_deviation'), day))
+                elif data_type == 'daily_resilience':
+                    cur.execute("UPDATE oura_daily SET resilience_level = %s WHERE day = %s",
+                                (item.get('resilience_level'), day))
+                elif data_type == 'daily_stress':
+                    cur.execute("UPDATE oura_daily SET stress_high_s = %s, recovery_high_s = %s WHERE day = %s",
+                                (item.get('stress_high'), item.get('recovery_high'), day))
+                elif data_type == 'daily_spo2':
+                    pct = item.get('percentage', {})
+                    spo2_avg = pct.get('average') if isinstance(pct, dict) else None
+                    cur.execute("UPDATE oura_daily SET spo2_avg = %s WHERE day = %s",
+                                (spo2_avg, day))
+                elif data_type == 'daily_cardiovascular_age':
+                    cur.execute("UPDATE oura_daily SET vascular_age = %s WHERE day = %s",
+                                (item.get('vascular_age'), day))
+                elif data_type == 'vo2_max':
+                    cur.execute("UPDATE oura_daily SET vo2_max = %s WHERE day = %s",
+                                (item.get('vo2_max'), day))
+    db_conn.commit()
+    return True
 
 
 def apply_patch(app, get_db, require_api_key):
@@ -193,6 +342,44 @@ def apply_patch(app, get_db, require_api_key):
             "server_hlc": _server_hlc_now()
         })
 
+    @app.route("/api/oura/auth", methods=["POST"])
+    @require_api_key
+    def oura_auth():
+        from flask import request, jsonify
+        from datetime import datetime
+
+        data = request.get_json(silent=True) or {}
+        access_token = data.get("access_token")
+        refresh_token = data.get("refresh_token")
+        expires_at_str = data.get("expires_at")
+
+        if not access_token or not refresh_token or not expires_at_str:
+            return jsonify({"error": "Missing required fields"}), 400
+
+        try:
+            expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+        except ValueError:
+            return jsonify({"error": "Invalid expires_at format"}), 400
+
+        db = get_db()
+        oura_user_id = 'default'
+        scope = data.get("scope", "all")
+
+        with db.cursor() as cur:
+            cur.execute("""
+                INSERT INTO oura_credentials (oura_user_id, access_token, refresh_token, expires_at, scope)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (oura_user_id) DO UPDATE SET
+                    access_token = EXCLUDED.access_token,
+                    refresh_token = EXCLUDED.refresh_token,
+                    expires_at = EXCLUDED.expires_at,
+                    updated_at = NOW()
+            """, (oura_user_id, access_token.encode('utf-8'), refresh_token.encode('utf-8'), expires_at, scope))
+        db.commit()
+
+        app.logger.info(f"Oura auth stored: access_len={len(access_token)}, refresh_len={len(refresh_token)}")
+        return jsonify({"status": "ok"}), 200
+
     OURA_CLIENT_SECRET = os.environ.get("OURA_CLIENT_SECRET", "dummy_secret")
 
     @app.route("/webhooks/oura", methods=["GET", "POST"])
@@ -217,9 +404,14 @@ def apply_patch(app, get_db, require_api_key):
             return jsonify({"error": "Invalid signature"}), 401
 
         event_data = request.get_json(silent=True) or {}
-        app.logger.info(f"Oura webhook received: {event_data}")
+        app.logger.info(f"Oura webhook received: data_type={event_data.get('data_type')}")
 
-        # Worker implementation stub (background worker for token refresh & fetch)
-        # Typically enqueues an asynchronous task to pull the actual data from the API
+        db = get_db()
+        with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM oura_credentials WHERE oura_user_id = 'default' LIMIT 1")
+            token_row = cur.fetchone()
+
+        if token_row:
+            fetch_and_persist_oura_data(token_row, event_data, db)
 
         return jsonify({"status": "ok"}), 200
