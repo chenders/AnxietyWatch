@@ -520,6 +520,12 @@ final class CNSMonitoringCoordinator {
         sampleBuffer.removeAll { $0.timestamp < trimBefore }
         updateDeviceStates(newSamples: [sample], at: timestamp)
         guard isMonitoring, self.session != nil else { return }
+        // Feed the redundant channel from the BACKGROUND-delivery path too: the
+        // 1 Hz tick loop is suspended while backgrounded, so CoreBluetooth
+        // restored samples arrive here, not via tick(). Without this the channel
+        // goes dark during locked-phone overnight monitoring — the exact
+        // scenario it exists to cover — and its heartbeat would false-fire.
+        alertChannelUploader?.uploadSamples(sessionID: session.id, samples: [sample])
         let (assessment, tier) = pipeline.process(
             samples: sampleBuffer, baselines: baselines, as11State: currentAS11State(), at: timestamp
         )
@@ -953,9 +959,15 @@ final class CNSMonitoringCoordinator {
         pipeline = nil
         isMonitoring = false
         activeTriggers = []
-        // Tell the server the session ended so its no-data heartbeat doesn't
-        // fire a false "monitoring stopped" alert for a clean disarm.
-        if let endingSessionID { alertChannelUploader?.sessionEnded(endingSessionID) }
+        // Only tell the server about an INTENTIONAL end (manual stop or a benign
+        // dose-window expiry) so its no-data heartbeat doesn't false-fire for a
+        // clean disarm. For .deviceLoss / .appTerminated — the failure-like ends
+        // that most resemble the silent failure this channel exists to catch —
+        // leave the server session armed so the heartbeat fires "monitoring may
+        // have stopped" instead of standing down and deleting the evidence.
+        if let endingSessionID, reason == .manual || reason == .windowExpired {
+            alertChannelUploader?.sessionEnded(endingSessionID)
+        }
         currentTier = .clear
         canAssess = false
         reportingSources = []

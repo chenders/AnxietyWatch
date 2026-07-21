@@ -26,10 +26,9 @@ protocol AlertChannelUploading: AnyObject {
 }
 
 final class AlertChannelUploader: AlertChannelUploading {
-    // Reuse the SyncService-configured server URL + API key (same UserDefaults
-    // keys) so there is a single place to point the app at its server.
-    static let serverURLDefaultsKey = "syncServerURL"
-    static let apiKeyDefaultsKey = "syncApiKey"
+    // Reuse SyncService's configured server URL + API key. The UserDefaults keys
+    // are SyncService's constants (single source of truth) — not re-typed here,
+    // so a future rename can't silently break this uploader's requests.
 
     private let urlSession: URLSession
     private let defaults: UserDefaults
@@ -41,27 +40,44 @@ final class AlertChannelUploader: AlertChannelUploading {
 
     // MARK: - Pure mapping (unit-tested)
 
-    /// The server channel label for a signal kind, or nil for kinds the server
-    /// does not buffer/evaluate.
-    static func channelLabel(for kind: CNSSignalKind) -> String? {
+    /// The server channel label for a signal kind. Every kind is uploaded so the
+    /// server's no-data heartbeat can track liveness for ANY armed session —
+    /// including a CPAP-only respiratory-rate stream with no oximeter — while the
+    /// SpO2 backstop simply ignores every channel except "SPO2".
+    static func channelLabel(for kind: CNSSignalKind) -> String {
         switch kind {
         case .spo2: return "SPO2"
         case .heartRate: return "HR"
-        case .respiratoryRate, .hrv: return nil
+        case .respiratoryRate: return "RR"
+        case .hrv: return "HRV"
         }
     }
 
-    /// Map CNS samples to the server's `{ts_utc, channel, value}` wire form.
-    /// ARTIFACT samples are dropped — invalid data must be ABSENT from the
-    /// server buffer (the backstop treats a gap as indeterminate, never as safe),
-    /// never uploaded as a coerced value. Kinds the server ignores are dropped.
+    /// The server source label, so the backstop can evaluate each SpO2 source
+    /// independently — a normal reading from one concurrently-active source
+    /// (e.g. an oximeter) must not reset, and thereby mask, a genuine sustained
+    /// low on another (e.g. the CPAP bridge).
+    static func sourceLabel(for source: CNSSignalSource) -> String {
+        switch source {
+        case .emayOximeter: return "emay"
+        case .polarH10: return "polar"
+        case .appleWatch: return "appleWatch"
+        case .as11Bridge: return "as11"
+        }
+    }
+
+    /// Map CNS samples to the server's `{ts_utc, source, channel, value}` wire
+    /// form. ARTIFACT samples are dropped — invalid data must be ABSENT from the
+    /// server buffer (a gap is indeterminate, never "safe"), never uploaded as a
+    /// coerced value.
     static func wireSamples(from samples: [CNSSignalSample]) -> [[String: Any]] {
         let formatter = ISO8601DateFormatter()
         return samples.compactMap { sample -> [String: Any]? in
-            guard !sample.isArtifact, let channel = channelLabel(for: sample.kind) else { return nil }
+            guard !sample.isArtifact else { return nil }
             return [
                 "ts_utc": formatter.string(from: sample.timestamp),
-                "channel": channel,
+                "source": sourceLabel(for: sample.source),
+                "channel": channelLabel(for: sample.kind),
                 "value": sample.value,
             ]
         }
@@ -123,9 +139,9 @@ final class AlertChannelUploader: AlertChannelUploading {
     }
 
     private func makeRequest(endpoint: String, body: [String: Any]) -> URLRequest? {
-        let baseURL = (defaults.string(forKey: Self.serverURLDefaultsKey) ?? "")
+        let baseURL = (defaults.string(forKey: SyncService.serverURLDefaultsKey) ?? "")
             .trimmingCharacters(in: .whitespaces)
-        let apiKey = (defaults.string(forKey: Self.apiKeyDefaultsKey) ?? "")
+        let apiKey = (defaults.string(forKey: SyncService.apiKeyDefaultsKey) ?? "")
             .trimmingCharacters(in: .whitespaces)
         guard !baseURL.isEmpty, !apiKey.isEmpty, let base = URL(string: baseURL),
               let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }

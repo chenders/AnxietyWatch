@@ -2,6 +2,10 @@ import UIKit
 import os
 
 class AppDelegate: NSObject, UIApplicationDelegate {
+    /// Injectable so tests can assert token forwarding with a spy; production
+    /// uses the real uploader (stateless — reads SyncService's configured server).
+    var alertChannelUploader: AlertChannelUploading = AlertChannelUploader()
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -23,7 +27,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Register with the server's alert channel (best-effort; no-ops until the
         // user has configured sync). The token itself is never logged.
         Log.health.notice("APNs device token received (len=\(deviceToken.count, privacy: .public))")
-        AlertChannelUploader().registerPushToken(deviceToken)
+        alertChannelUploader.registerPushToken(deviceToken)
     }
 
     func application(

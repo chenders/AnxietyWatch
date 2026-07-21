@@ -599,6 +599,11 @@ CREATE TABLE IF NOT EXISTS session_sample_buffer (
     ts_utc TIMESTAMPTZ NOT NULL,
     channel TEXT NOT NULL,
     value DOUBLE PRECISION NOT NULL,
+    -- Which sensor produced the sample (e.g. 'emay', 'as11'). The backstop
+    -- evaluates each source independently so a normal reading from one
+    -- concurrently-active SpO2 source can't reset (mask) a sustained low on
+    -- another. Nullable: an omitted source groups as a single stream.
+    source TEXT,
     ingest_ts_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

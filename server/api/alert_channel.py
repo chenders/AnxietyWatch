@@ -42,6 +42,7 @@ keys, and JWTs are never logged (only kind + session id + counts).
 import hashlib
 import json
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
@@ -143,7 +144,7 @@ def require_api_key(f):
 # --- Persistence helpers ----------------------------------------------------
 
 
-def insert_buffer_sample(db, session_id, ts_utc, channel, value, ingest_ts_utc=None):
+def insert_buffer_sample(db, session_id, ts_utc, channel, value, source=None, ingest_ts_utc=None):
     """Append one sample to the per-session buffer; returns its id.
 
     ``ingest_ts_utc`` defaults to the server clock (NOW()); it is injectable so
@@ -154,15 +155,16 @@ def insert_buffer_sample(db, session_id, ts_utc, channel, value, ingest_ts_utc=N
     with db.cursor() as cur:
         if ingest_ts_utc is None:
             cur.execute(
-                "INSERT INTO session_sample_buffer (session_id, ts_utc, channel, value) "
-                "VALUES (%s, %s, %s, %s) RETURNING id",
-                (session_id, ts_utc, channel, value),
+                "INSERT INTO session_sample_buffer (session_id, ts_utc, channel, value, source) "
+                "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                (session_id, ts_utc, channel, value, source),
             )
         else:
             cur.execute(
-                "INSERT INTO session_sample_buffer (session_id, ts_utc, channel, value, ingest_ts_utc) "
-                "VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                (session_id, ts_utc, channel, value, ingest_ts_utc),
+                "INSERT INTO session_sample_buffer "
+                "(session_id, ts_utc, channel, value, source, ingest_ts_utc) "
+                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                (session_id, ts_utc, channel, value, source, ingest_ts_utc),
             )
         sample_id = cur.fetchone()[0]
     db.commit()
@@ -283,10 +285,12 @@ def append_samples(db, session_id, samples, now, push=None):
     with db.cursor() as cur:
         if samples:
             # One round trip for the whole batch (live-upload is a high-write path).
+            # A sample is (ts_utc, channel, value) or (ts_utc, channel, value, source).
+            rows = [(session_id, s[0], s[1], s[2], s[3] if len(s) > 3 else None) for s in samples]
             psycopg2.extras.execute_values(
                 cur,
-                "INSERT INTO session_sample_buffer (session_id, ts_utc, channel, value) VALUES %s",
-                [(session_id, ts_utc, channel, value) for ts_utc, channel, value in samples],
+                "INSERT INTO session_sample_buffer (session_id, ts_utc, channel, value, source) VALUES %s",
+                rows,
             )
             # Real data resumed -> the "monitoring stopped" alert no longer holds.
             # Gated on a non-empty batch so an empty POST (samples: []) can't
@@ -309,13 +313,13 @@ def append_samples(db, session_id, samples, now, push=None):
         window_start = now - timedelta(seconds=ALERT_EVAL_WINDOW_SECONDS)
         with db.cursor() as cur:
             cur.execute(
-                "SELECT ts_utc, channel, value FROM session_sample_buffer "
+                "SELECT ts_utc, channel, value, source FROM session_sample_buffer "
                 "WHERE session_id = %s AND ts_utc >= %s AND ts_utc <= %s",
                 (session_id, window_start, now),
             )
-            window = [backstop.Sample(ts, channel, float(value)) for ts, channel, value in cur.fetchall()]
+            rows = cur.fetchall()
 
-        if samples and not window:
+        if samples and not rows:
             # Buffered samples but none fall in the recency window: the feed's
             # timestamps are stale or clock-skewed relative to server time.
             # Surface it rather than silently evaluating nothing.
@@ -325,9 +329,16 @@ def append_samples(db, session_id, samples, now, push=None):
                 session_id, len(samples), ALERT_EVAL_WINDOW_SECONDS,
             )
 
-        verdict = backstop.evaluate(window, now)
-        result["backstop_raised"] = verdict.raised
-        if verdict.raised:
+        # Evaluate the backstop PER SOURCE and raise if ANY source is
+        # sustained-low: a normal reading from one concurrently-active SpO2
+        # source must never reset (and thereby mask) a genuine sustained low on
+        # another. Grouping here keeps the pure evaluator single-stream.
+        by_source = defaultdict(list)
+        for ts_utc, channel, value, source in rows:
+            by_source[source].append(backstop.Sample(ts_utc, channel, float(value)))
+        raised = any(backstop.evaluate(group, now).raised for group in by_source.values())
+        result["backstop_raised"] = raised
+        if raised:
             delivered, sent = _maybe_raise(db, session_id, KIND_BACKSTOP, now, push)
             result["alert_delivered"] = delivered
             result["delivered_devices"] = sent
@@ -421,7 +432,11 @@ def post_samples():
     samples = []
     for item in raw:
         try:
-            samples.append((_parse_ts(item["ts_utc"]), str(item["channel"]), float(item["value"])))
+            source = item.get("source") if isinstance(item, dict) else None
+            samples.append((
+                _parse_ts(item["ts_utc"]), str(item["channel"]), float(item["value"]),
+                str(source) if source is not None else None,
+            ))
         except (KeyError, TypeError, ValueError):
             return jsonify({"error": "each sample needs ts_utc, channel, value"}), 400
 

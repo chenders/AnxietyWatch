@@ -26,6 +26,8 @@ def upgrade():
         sa.Column('ts_utc', sa.DateTime(timezone=True), nullable=False),
         sa.Column('channel', sa.Text(), nullable=False),
         sa.Column('value', sa.Float(), nullable=False),
+        # Producing sensor; the backstop evaluates each source independently.
+        sa.Column('source', sa.Text(), nullable=True),
         sa.Column('ingest_ts_utc', sa.DateTime(timezone=True),
                   server_default=sa.text('now()'), nullable=False),
         if_not_exists=True

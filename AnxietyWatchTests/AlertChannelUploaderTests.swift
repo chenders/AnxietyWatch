@@ -32,16 +32,31 @@ struct AlertChannelUploaderTests {
         #expect((wire[0]["value"] as? Double) == 97)
     }
 
-    @Test func dropsKindsTheServerDoesNotConsume() {
+    @Test func mapsEveryKindToAChannelForHeartbeatLiveness() {
+        // Every kind uploads so the server's no-data heartbeat can track
+        // liveness even for a CPAP-only / RR-only session; the SpO2 backstop
+        // ignores every channel except "SPO2".
+        #expect(AlertChannelUploader.channelLabel(for: .spo2) == "SPO2")
+        #expect(AlertChannelUploader.channelLabel(for: .heartRate) == "HR")
+        #expect(AlertChannelUploader.channelLabel(for: .respiratoryRate) == "RR")
+        #expect(AlertChannelUploader.channelLabel(for: .hrv) == "HRV")
         let wire = AlertChannelUploader.wireSamples(from: [
             CNSSignalSample(kind: .respiratoryRate, source: .as11Bridge, value: 12, timestamp: ref),
             CNSSignalSample(kind: .hrv, source: .polarH10, value: 40, timestamp: ref),
         ])
-        #expect(wire.isEmpty)
-        #expect(AlertChannelUploader.channelLabel(for: .respiratoryRate) == nil)
-        #expect(AlertChannelUploader.channelLabel(for: .hrv) == nil)
-        #expect(AlertChannelUploader.channelLabel(for: .spo2) == "SPO2")
-        #expect(AlertChannelUploader.channelLabel(for: .heartRate) == "HR")
+        #expect(wire.compactMap { $0["channel"] as? String } == ["RR", "HRV"])
+    }
+
+    @Test func tagsEachSampleWithItsSource() {
+        // Source must reach the server so the backstop evaluates each SpO2
+        // source independently (concurrent-source masking fix).
+        let wire = AlertChannelUploader.wireSamples(from: [
+            CNSSignalSample(kind: .spo2, source: .emayOximeter, value: 96, timestamp: ref),
+            CNSSignalSample(kind: .spo2, source: .as11Bridge, value: 88, timestamp: ref),
+        ])
+        #expect(wire.compactMap { $0["source"] as? String } == ["emay", "as11"])
+        #expect(AlertChannelUploader.sourceLabel(for: .polarH10) == "polar")
+        #expect(AlertChannelUploader.sourceLabel(for: .appleWatch) == "appleWatch")
     }
 
     @Test func wireSampleTimestampRoundTripsAsISO8601() throws {

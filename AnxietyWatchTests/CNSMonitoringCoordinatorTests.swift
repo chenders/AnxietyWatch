@@ -186,6 +186,34 @@ struct CNSMonitoringCoordinatorTests {
         #expect(uploader.uploads.count == 1)
     }
 
+    @Test("Background-delivered (restored) samples feed the alert channel too")
+    func uploaderFedFromRestoredSamplePath() throws {
+        let context = ModelContext(try TestHelpers.makeFullContainer())
+        let uploader = UploaderSpy()
+        let coordinator = CNSMonitoringCoordinator(
+            modelContext: context,
+            now: { self.t0 },
+            latestEMAYReading: { nil },
+            latestPolarHR: { nil },
+            latestPolarRMSSD: { nil },
+            alertChannelUploader: uploader,
+            notificationPoster: NotificationPosterSpy(),
+            defaults: makeDefaults(),
+            enableTickLoop: false,
+            pipelineFactory: { _ in DetectionPipelineSpy(result: (.insufficientData, .watch)) }
+        )
+        coordinator.armManually(companionPresent: false)
+        let sample = CNSSignalSample(kind: .spo2, source: .emayOximeter, value: 90, timestamp: t0)
+
+        coordinator.handleRestoredSample(sample)
+
+        // The redundant channel must receive background-delivered samples — the
+        // 1 Hz tick loop is suspended while backgrounded, so this path (not
+        // tick) carries overnight locked-phone data. Regression for the
+        // Will-Block finding.
+        #expect(uploader.uploads.contains { $0.samples.contains(sample) })
+    }
+
     @Test("Restored primary sample refreshes reporting-source disclosure")
     func restoredSampleRefreshesReportingSources() throws {
         let context = ModelContext(try TestHelpers.makeFullContainer())

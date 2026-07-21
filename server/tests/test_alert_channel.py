@@ -396,6 +396,23 @@ def test_disarm_clears_session_and_prevents_heartbeat(app, _clean_tables):  # no
     assert push.calls == []
 
 
+def test_backstop_evaluated_per_source_not_masked(app, _clean_tables):  # noqa: F811
+    """Two concurrent SpO2 sources: one sustained-low, the other interleaving
+    NORMAL readings at the same timestamps. Per-source evaluation must still
+    raise — a merged single stream would let the normal source reset the low
+    source's run and never fire (the concurrent-source masking hazard)."""
+    push = _Recorder()
+    with app.app_context():
+        db = app.get_db()
+        now = REF + timedelta(seconds=SUSTAIN)
+        samples = []
+        for t in range(0, SUSTAIN + 1):
+            samples.append((REF + timedelta(seconds=t), backstop.SPO2_CHANNEL, LOW, "as11"))
+            samples.append((REF + timedelta(seconds=t), backstop.SPO2_CHANNEL, NORMAL, "emay"))
+        append_samples(db, "sess-multi", samples, now, push=push)
+    assert push.kinds() == [alert_channel.KIND_BACKSTOP]
+
+
 def test_eval_failure_does_not_fail_the_upload(app, _clean_tables, monkeypatch):  # noqa: F811
     """If backstop evaluation raises after the batch is buffered, the failure is
     swallowed (logged) — the samples stay buffered and append returns normally,
