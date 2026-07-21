@@ -26,7 +26,7 @@ enum CNSMonitoringViewHelpers {
         case .klaxon: return "CRITICAL RISK (ALARM SOUNDING)"
         }
     }
-    
+
     static func tierText(_ tier: CNSAlertTier) -> String {
         switch tier {
         case .clear: return "Clear"

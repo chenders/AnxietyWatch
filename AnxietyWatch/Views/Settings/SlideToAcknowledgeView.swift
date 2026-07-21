@@ -15,11 +15,11 @@ struct SlideToAcknowledgeView: View {
                     .frame(maxWidth: .infinity)
                     .foregroundColor(.secondary)
                     .font(.subheadline)
-                
+
                 Capsule()
                     .fill(Color.red)
                     .frame(width: max(50, 50 + offset))
-                
+
                 Circle()
                     .fill(Color.white)
                     .shadow(radius: 2)
@@ -33,7 +33,7 @@ struct SlideToAcknowledgeView: View {
                                     offset = min(value.translation.width, geo.size.width - 50)
                                 }
                             }
-                            .onEnded { value in
+                            .onEnded { _ in
                                 if offset >= geo.size.width - 60 {
                                     onAcknowledge()
                                 }
