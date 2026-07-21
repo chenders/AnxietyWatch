@@ -438,6 +438,17 @@ def test_blank_and_missing_source_merge_into_one_stream(app, _clean_tables):  # 
         assert resp.get_json()["backstop_raised"] is True
 
 
+def test_samples_rejects_non_finite_value(app, _clean_tables):  # noqa: F811
+    """A NaN value (json.loads accepts it) must be rejected, not buffered — a
+    NaN slips past the backstop's `value < FLOOR` check as a false recovery."""
+    body = ('{"session_id":"sess-nan","samples":[{"ts_utc":"%s","channel":"SPO2","value":NaN}]}'
+            % REF.isoformat())
+    with app.test_client() as client:
+        resp = client.post("/api/alert-channel/samples", headers=auth_header(),
+                           data=body, content_type="application/json")
+        assert resp.status_code == 400
+
+
 def test_eval_failure_does_not_fail_the_upload(app, _clean_tables, monkeypatch):  # noqa: F811
     """If backstop evaluation raises after the batch is buffered, the failure is
     swallowed (logged) — the samples stay buffered and append returns normally,

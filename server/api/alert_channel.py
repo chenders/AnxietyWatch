@@ -42,6 +42,7 @@ keys, and JWTs are never logged (only kind + session id + counts).
 import hashlib
 import json
 import logging
+import math
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -439,11 +440,15 @@ def post_samples():
             # can't split one sensor's stream from the None group (which would
             # break a sustained-low run across the boundary).
             source = (raw_source.strip() or None) if isinstance(raw_source, str) else None
-            samples.append((
-                _parse_ts(item["ts_utc"]), str(item["channel"]), float(item["value"]), source,
-            ))
+            # Reject non-finite values: json.loads accepts NaN/Infinity, and a
+            # NaN would slip past the backstop's `value < FLOOR` check (NaN
+            # comparisons are False) as a false "recovery" that resets a run.
+            value = float(item["value"])
+            if not math.isfinite(value):
+                raise ValueError("value must be finite")
+            samples.append((_parse_ts(item["ts_utc"]), str(item["channel"]), value, source))
         except (KeyError, TypeError, ValueError):
-            return jsonify({"error": "each sample needs ts_utc, channel, value"}), 400
+            return jsonify({"error": "each sample needs ts_utc, channel, and a finite value"}), 400
 
     db = get_db()
     try:
