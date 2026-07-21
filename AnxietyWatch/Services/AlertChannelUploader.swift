@@ -131,7 +131,11 @@ final class AlertChannelUploader: AlertChannelUploading {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
-    nonisolated(unsafe) private static let iso8601Plain = ISO8601DateFormatter()
+    nonisolated(unsafe) private static let iso8601Plain: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]  // explicit, not Foundation defaults
+        return formatter
+    }()
 
     /// Outcome of a health probe. Distinguishes "sync not set up" from
     /// "configured but unreachable" so the UI can be honest (own-failure-visible)
