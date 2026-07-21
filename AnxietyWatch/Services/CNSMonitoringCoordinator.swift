@@ -153,6 +153,10 @@ final class CNSMonitoringCoordinator {
     private let latestPolarHR: () -> Int?
     private let latestPolarRMSSD: () -> Double?
     private let as11Source: AS11StreamSource?
+    /// Redundant server alert-channel client (sub-project C). Optional so tests
+    /// and non-production wiring can omit it; the production convenience init
+    /// supplies a real `AlertChannelUploader`. Uploads are fire-and-forget.
+    private let alertChannelUploader: AlertChannelUploading?
     private let notificationPoster: CNSMonitoringNotificationPosting
     private let defaults: UserDefaults
     /// `false` in tests: suppresses the real `Task`-based tick loop so tests
@@ -245,6 +249,7 @@ final class CNSMonitoringCoordinator {
         latestPolarHR: @escaping () -> Int?,
         latestPolarRMSSD: @escaping () -> Double?,
         as11Source: AS11StreamSource? = nil,
+        alertChannelUploader: AlertChannelUploading? = nil,
         notificationPoster: CNSMonitoringNotificationPosting,
         defaults: UserDefaults = .standard,
         enableTickLoop: Bool = true,
@@ -263,6 +268,7 @@ final class CNSMonitoringCoordinator {
         self.latestPolarHR = latestPolarHR
         self.latestPolarRMSSD = latestPolarRMSSD
         self.as11Source = as11Source
+        self.alertChannelUploader = alertChannelUploader
         self.notificationPoster = notificationPoster
         self.defaults = defaults
         self.enableTickLoop = enableTickLoop
@@ -308,6 +314,7 @@ final class CNSMonitoringCoordinator {
             latestPolarHR: { [weak polarService] in polarService?.state.currentHR },
             latestPolarRMSSD: { [weak polarService] in polarService?.state.lastMinuteRMSSD },
             as11Source: as11Source,
+            alertChannelUploader: AlertChannelUploader(),
             notificationPoster: UNUserNotificationCenterPoster(),
             emayStartHook: { [weak emayService] in emayService?.start() },
             emayStopHook: { [weak emayService] in
@@ -513,6 +520,12 @@ final class CNSMonitoringCoordinator {
         sampleBuffer.removeAll { $0.timestamp < trimBefore }
         updateDeviceStates(newSamples: [sample], at: timestamp)
         guard isMonitoring, self.session != nil else { return }
+        // Feed the redundant channel from the BACKGROUND-delivery path too: the
+        // 1 Hz tick loop is suspended while backgrounded, so CoreBluetooth
+        // restored samples arrive here, not via tick(). Without this the channel
+        // goes dark during locked-phone overnight monitoring — the exact
+        // scenario it exists to cover — and its heartbeat would false-fire.
+        alertChannelUploader?.uploadSamples(sessionID: session.id, samples: [sample])
         let (assessment, tier) = pipeline.process(
             samples: sampleBuffer, baselines: baselines, as11State: currentAS11State(), at: timestamp
         )
@@ -542,6 +555,11 @@ final class CNSMonitoringCoordinator {
         updateDeviceStates(newSamples: newSamples, at: now)
         // A device-loss transition may have just ended the session.
         guard isMonitoring, self.session != nil else { return }
+
+        // Feed the same samples to the redundant server channel (fire-and-forget;
+        // artifact/non-SpO2-HR samples are dropped by the uploader). Only ever
+        // runs inside an armed session — this is the "upload only while armed" gate.
+        alertChannelUploader?.uploadSamples(sessionID: session.id, samples: newSamples)
 
         for sample in newSamples where !sampleBuffer.contains(sample) {
             sampleBuffer.append(sample)
@@ -897,6 +915,7 @@ final class CNSMonitoringCoordinator {
         modelContext.insert(newSession)
         try? modelContext.save()
         session = newSession
+        alertChannelUploader?.sessionStarted(newSession.id)
 
         // Start both primary-capable live sources for every new monitoring
         // session. Each transport is idempotent, and an unavailable AS11
@@ -915,6 +934,7 @@ final class CNSMonitoringCoordinator {
     }
 
     private func endSession(reason: EndReason, at now: Date) {
+        let endingSessionID = session?.id
         session?.endedAt = now
         session?.endReason = reason.rawValue
         try? modelContext.save()
@@ -939,6 +959,15 @@ final class CNSMonitoringCoordinator {
         pipeline = nil
         isMonitoring = false
         activeTriggers = []
+        // Only tell the server about an INTENTIONAL end (manual stop or a benign
+        // dose-window expiry) so its no-data heartbeat doesn't false-fire for a
+        // clean disarm. For .deviceLoss / .appTerminated — the failure-like ends
+        // that most resemble the silent failure this channel exists to catch —
+        // leave the server session armed so the heartbeat fires "monitoring may
+        // have stopped" instead of standing down and deleting the evidence.
+        if let endingSessionID, reason == .manual || reason == .windowExpired {
+            alertChannelUploader?.sessionEnded(endingSessionID)
+        }
         currentTier = .clear
         canAssess = false
         reportingSources = []

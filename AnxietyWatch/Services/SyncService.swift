@@ -39,12 +39,18 @@ final class SyncService {
     // track them — SwiftUI won't re-render on changes to computed UserDefaults-backed
     // properties because the macro only instruments stored storage.
 
-    var serverURL: String = UserDefaults.standard.string(forKey: "syncServerURL") ?? "" {
-        didSet { UserDefaults.standard.set(serverURL, forKey: "syncServerURL") }
+    /// UserDefaults keys for the server URL + API key. Exposed so other clients
+    /// of the same server (e.g. `AlertChannelUploader`) reference one source of
+    /// truth instead of duplicating the raw string literals.
+    static let serverURLDefaultsKey = "syncServerURL"
+    static let apiKeyDefaultsKey = "syncApiKey"
+
+    var serverURL: String = UserDefaults.standard.string(forKey: SyncService.serverURLDefaultsKey) ?? "" {
+        didSet { UserDefaults.standard.set(serverURL, forKey: SyncService.serverURLDefaultsKey) }
     }
 
-    var apiKey: String = UserDefaults.standard.string(forKey: "syncApiKey") ?? "" {
-        didSet { UserDefaults.standard.set(apiKey, forKey: "syncApiKey") }
+    var apiKey: String = UserDefaults.standard.string(forKey: SyncService.apiKeyDefaultsKey) ?? "" {
+        didSet { UserDefaults.standard.set(apiKey, forKey: SyncService.apiKeyDefaultsKey) }
     }
 
     var autoSyncEnabled: Bool = UserDefaults.standard.bool(forKey: "syncAutoEnabled") {

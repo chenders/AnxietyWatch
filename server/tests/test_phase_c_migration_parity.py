@@ -26,16 +26,19 @@ from tests.test_server import DATABASE_URL, _init_db  # noqa: F401  (pytest fixt
 PHASE_C_TABLES = ("session_sample_buffer", "device_push_token", "alert_event")
 PARITY_SCHEMA = "phase_c_parity"
 
-MIGRATION_FILE = os.path.join(
-    os.path.dirname(__file__), "..", "alembic", "versions",
-    "c5d7e9f10a2b_add_alert_channel_tables.py",
-)
+_VERSIONS_DIR = os.path.join(os.path.dirname(__file__), "..", "alembic", "versions")
+# Applied in order — the second ALTERs the table the first creates, so the
+# private schema ends up matching schema.sql (which has `source`).
+MIGRATION_FILES = [
+    os.path.join(_VERSIONS_DIR, "c5d7e9f10a2b_add_alert_channel_tables.py"),
+    os.path.join(_VERSIONS_DIR, "d6e8fa0b1c34_add_source_to_session_sample_buffer.py"),
+]
 
 
-def _load_migration():
-    """Import the migration module by path (it is not on the import path)."""
-    spec = importlib.util.spec_from_file_location("phase_c_migration_under_test", MIGRATION_FILE)
-    assert spec is not None and spec.loader is not None, f"cannot load migration at {MIGRATION_FILE}"
+def _load_migration(path):
+    """Import a migration module by path (it is not on the import path)."""
+    spec = importlib.util.spec_from_file_location("phase_c_migration_under_test", path)
+    assert spec is not None and spec.loader is not None, f"cannot load migration at {path}"
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -89,11 +92,13 @@ def parity_engine(_init_db):  # noqa: F811  (pytest fixture injection shadows th
             conn.execute(text(f"DROP SCHEMA IF EXISTS {PARITY_SCHEMA} CASCADE"))
             conn.execute(text(f"CREATE SCHEMA {PARITY_SCHEMA}"))
             conn.execute(text(f"SET search_path TO {PARITY_SCHEMA}"))
-            migration = _load_migration()
-            # Bind the migration's op proxy to THIS connection/schema, then run
-            # the real upgrade() so any failure-to-run surfaces as a test failure.
-            migration.op = Operations(MigrationContext.configure(connection=conn))
-            migration.upgrade()
+            # Apply the migration chain in order. Bind each migration's op proxy
+            # to THIS connection/schema and run the real upgrade() so any
+            # failure-to-run surfaces as a test failure.
+            for path in MIGRATION_FILES:
+                migration = _load_migration(path)
+                migration.op = Operations(MigrationContext.configure(connection=conn))
+                migration.upgrade()
         yield engine
     finally:
         with engine.begin() as conn:

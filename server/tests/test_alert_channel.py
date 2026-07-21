@@ -372,6 +372,83 @@ def test_samples_rejects_invalid_json(app, _clean_tables):  # noqa: F811
         assert resp.status_code == 400
 
 
+def test_disarm_clears_session_and_prevents_heartbeat(app, _clean_tables):  # noqa: F811
+    """Disarm drops the session's buffer (only), so a subsequent sweep finds no
+    candidate and the no-data heartbeat can't false-fire for a clean stop. The
+    alert_event delivery ledger is intentionally preserved."""
+    push = _Recorder()
+    with app.app_context():
+        db = app.get_db()
+        now = REF + timedelta(seconds=600)
+        insert_buffer_sample(db, "sess-disarm", REF, "SPO2", NORMAL)
+        _silence(db, "sess-disarm", now - timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS + 30))
+
+    with app.test_client() as client:
+        resp = client.post("/api/alert-channel/disarm", headers=auth_header(),
+                           json={"session_id": "sess-disarm"})
+        assert resp.status_code == 200
+
+    with app.app_context():
+        db = app.get_db()
+        with db.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM session_sample_buffer WHERE session_id = %s", ("sess-disarm",))
+            assert cur.fetchone()[0] == 0
+        assert run_heartbeat_sweep(db, now, push=push) == []
+    assert push.calls == []
+
+
+def test_backstop_evaluated_per_source_not_masked(app, _clean_tables):  # noqa: F811
+    """Two concurrent SpO2 sources: one sustained-low, the other interleaving
+    NORMAL readings at the same timestamps. Per-source evaluation must still
+    raise — a merged single stream would let the normal source reset the low
+    source's run and never fire (the concurrent-source masking hazard)."""
+    push = _Recorder()
+    with app.app_context():
+        db = app.get_db()
+        now = REF + timedelta(seconds=SUSTAIN)
+        samples = []
+        for t in range(0, SUSTAIN + 1):
+            samples.append((REF + timedelta(seconds=t), backstop.SPO2_CHANNEL, LOW, "as11"))
+            samples.append((REF + timedelta(seconds=t), backstop.SPO2_CHANNEL, NORMAL, "oximeter"))
+        append_samples(db, "sess-multi", samples, now, push=push)
+    assert push.kinds() == [alert_channel.KIND_BACKSTOP]
+
+
+def test_blank_and_missing_source_merge_into_one_stream(app, _clean_tables):  # noqa: F811
+    """A blank ('') source and a missing source normalize to the SAME stream:
+    a sustained low split across the two halves still raises, rather than
+    fragmenting into two sub-sustain runs (blank-source-splitting hazard)."""
+    half = SUSTAIN // 2
+    # The endpoint uses the real server clock, so anchor the samples to now (the
+    # newest at ~now, the oldest SUSTAIN seconds back) to land inside the
+    # recency window. Only the absolute anchor is real-now; the 90s span and the
+    # raise decision are deterministic.
+    now = datetime.now(timezone.utc)
+    with app.test_client() as client:
+        samples = []
+        for t in range(0, SUSTAIN + 1):
+            ts = now - timedelta(seconds=SUSTAIN - t)
+            item = {"ts_utc": ts.isoformat(), "channel": "SPO2", "value": LOW}
+            if t <= half:
+                item["source"] = ""   # blank -> must normalize to None (same group as omitted)
+            samples.append(item)
+        resp = client.post("/api/alert-channel/samples", headers=auth_header(),
+                           json={"session_id": "sess-blank", "samples": samples})
+        assert resp.status_code == 200
+        assert resp.get_json()["backstop_raised"] is True
+
+
+def test_samples_rejects_non_finite_value(app, _clean_tables):  # noqa: F811
+    """A NaN value (json.loads accepts it) must be rejected, not buffered — a
+    NaN slips past the backstop's `value < FLOOR` check as a false recovery."""
+    body = ('{"session_id":"sess-nan","samples":[{"ts_utc":"%s","channel":"SPO2","value":NaN}]}'
+            % REF.isoformat())
+    with app.test_client() as client:
+        resp = client.post("/api/alert-channel/samples", headers=auth_header(),
+                           data=body, content_type="application/json")
+        assert resp.status_code == 400
+
+
 def test_eval_failure_does_not_fail_the_upload(app, _clean_tables, monkeypatch):  # noqa: F811
     """If backstop evaluation raises after the batch is buffered, the failure is
     swallowed (logged) — the samples stay buffered and append returns normally,
