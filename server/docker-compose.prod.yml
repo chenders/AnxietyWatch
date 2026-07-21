@@ -79,7 +79,14 @@ services:
     image: ghcr.io/chenders/anxietywatch-server:latest
     container_name: anxietywatch-app-ws
     restart: unless-stopped
-    depends_on: *id001
+    # Start only after the main app is HEALTHY (its pre-start migrations have
+    # run): avoids concurrent-migration contention and transient WS failures
+    # during deploy/boot, and makes startup sequencing deterministic.
+    depends_on:
+      anxietywatch-db:
+        condition: service_healthy
+      anxietywatch-app:
+        condition: service_healthy
     environment: *id002
     shm_size: 256mb
     ports:

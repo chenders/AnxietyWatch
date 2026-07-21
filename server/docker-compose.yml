@@ -46,7 +46,15 @@ services:
     build: .
     container_name: anxietywatch-app-ws
     restart: unless-stopped
-    depends_on: *id001
+    # Start after the main app (not just the DB): the app runs startup
+    # migrations, so ordering the WS behind it avoids concurrent-migration
+    # contention and transient WS failures. (Dev app has no healthcheck, so
+    # service_started is the best available ordering here.)
+    depends_on:
+      anxietywatch-db:
+        condition: service_healthy
+      anxietywatch-app:
+        condition: service_started
     environment: *id002
     shm_size: 256mb
     ports:
