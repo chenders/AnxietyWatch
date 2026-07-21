@@ -431,6 +431,11 @@ def apply_patch(app, get_db, require_api_key):
         # re-authing idempotent; there is deliberately no multi-user identity.
         oura_user_id = 'default'
         scope = data.get("scope", "all")
+        # scope is optional but, like the other fields, must be a string — a
+        # non-string (object/array) would raise a psycopg2 adaptation error and
+        # 500 the endpoint instead of returning a clean 400.
+        if not isinstance(scope, str):
+            return jsonify({"error": "scope must be a string"}), 400
 
         with db.cursor() as cur:
             cur.execute("""

@@ -462,6 +462,17 @@ def test_oura_auth_rejects_non_string_types(app):  # noqa: F811
     assert resp.status_code == 400
 
 
+def test_oura_auth_rejects_non_string_scope(app):  # noqa: F811
+    """A non-string scope (object/array) must 400, not 500 via a psycopg2
+    adaptation error."""
+    with app.test_client() as client:
+        resp = client.post(
+            "/api/oura/auth", headers=auth_header(),
+            json=_auth_body(scope=["daily", "spo2"]),
+        )
+    assert resp.status_code == 400
+
+
 def test_oura_auth_upsert_updates_scope_on_conflict(app):  # noqa: F811
     """Re-authing with a different scope updates the stored row (single-user
     'default' key) rather than retaining the old scope."""
