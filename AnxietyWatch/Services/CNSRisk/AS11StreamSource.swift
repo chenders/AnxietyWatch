@@ -177,10 +177,6 @@ final class AS11WebSocketClient: AS11StreamSource {
     }
 
     func disconnect() {
-        receiveTask?.cancel()
-        receiveTask = nil
-        socketTask?.cancel(with: .goingAway, reason: nil)
-        socketTask = nil
         willResignActive()
         // Reset stream state at the session boundary so the NEXT monitoring
         // session starts fresh instead of resuming from a stale cursor and
@@ -195,7 +191,16 @@ final class AS11WebSocketClient: AS11StreamSource {
         lastFrameAt = nil
     }
 
+    /// Drop the live transport (cancel the receive loop + socket) and mark the
+    /// stream dropped — used on backgrounding and by `disconnect()`. Tearing the
+    /// socket down, not just flipping `isDropped`, is what makes the drop stick:
+    /// otherwise an in-flight frame would immediately flip the state back to
+    /// non-dropped.
     func willResignActive() {
+        receiveTask?.cancel()
+        receiveTask = nil
+        socketTask?.cancel(with: .goingAway, reason: nil)
+        socketTask = nil
         isDropped = true
     }
 
