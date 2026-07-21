@@ -91,3 +91,9 @@ def downgrade():
     op.execute("DROP TABLE IF EXISTS samples CASCADE")
     op.execute("DROP TABLE IF EXISTS as11_stream_sample CASCADE")
     op.execute("DROP TABLE IF EXISTS as11_therapy_session CASCADE")
+    # Sub-project C (server redundant alert channel) — added to schema.sql, so
+    # the 0001 replay creates them on fresh DBs and this downgrade must drop them
+    # (mirrored incrementally by migration c5d7e9f10a2b for already-migrated DBs).
+    op.execute("DROP TABLE IF EXISTS alert_event CASCADE")
+    op.execute("DROP TABLE IF EXISTS device_push_token CASCADE")
+    op.execute("DROP TABLE IF EXISTS session_sample_buffer CASCADE")

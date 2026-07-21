@@ -108,6 +108,39 @@ SESSION_COOKIE_SECURE=1
 
 Anything other than `1`/`true`/`yes` (or leaving it unset) keeps the flag off for plain-HTTP deployments.
 
+### 3b. Redundant alert channel (APNs push + heartbeat)
+
+The server can run a *redundant, secondary* CNS alert channel (sub-project C): the phone live-uploads SpO₂/HR during an armed session, the server runs a conservative fixed-floor backstop plus a no-data heartbeat monitor, and either raises a high-priority APNs push. It **only ever adds** an alert — it never suppresses the on-device decision.
+
+**APNs credentials (optional).** Set the `APNS_*` variables in `/opt/anxietywatch/.env` to enable pushes (see `server/.env.example` for the full descriptions). They use `.p8` token auth; **never commit the `.p8` contents.** Without them the channel still buffers uploads and evaluates the backstop, but cannot deliver a push (the app's channel-health surface shows the degraded state).
+
+**Heartbeat sweep (periodic trigger required).** The no-data monitor is a sweep the app process does not schedule itself — drive it with a systemd timer that POSTs to the authenticated endpoint (substitute an API key from step 8):
+
+```bash
+sudo tee /etc/systemd/system/anxietywatch-heartbeat.service << 'EOF'
+[Unit]
+Description=AnxietyWatch alert-channel heartbeat sweep
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl -fsS -X POST -H "Authorization: Bearer YOUR_API_KEY" http://127.0.0.1:8081/api/alert-channel/heartbeat-sweep
+EOF
+
+sudo tee /etc/systemd/system/anxietywatch-heartbeat.timer << 'EOF'
+[Unit]
+Description=Run the AnxietyWatch heartbeat sweep every minute
+[Timer]
+OnUnitActiveSec=60
+OnBootSec=60
+[Install]
+WantedBy=timers.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now anxietywatch-heartbeat.timer
+```
+
+Run the sweep at least as often as you want the "monitoring may have stopped" alert to be timely; once per minute pairs well with the 120 s silence threshold.
+
 ### 4. Create GitHub PAT for Runner
 
 1. GitHub → Settings → Developer settings → Fine-grained tokens

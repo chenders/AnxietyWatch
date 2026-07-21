@@ -590,4 +590,48 @@ CREATE TABLE IF NOT EXISTS as11_stream_sample (
 CREATE INDEX IF NOT EXISTS idx_as11_stream_sample_ts
     ON as11_stream_sample (ts_utc DESC);
 
+-- Sub-project C: server redundant alert channel (backstop + heartbeat + push).
+-- Buffer of SpO2/HR samples the app uploads during an armed BLE-active session;
+-- the conservative backstop and the no-data heartbeat run over these rows.
+CREATE TABLE IF NOT EXISTS session_sample_buffer (
+    id SERIAL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    ts_utc TIMESTAMPTZ NOT NULL,
+    channel TEXT NOT NULL,
+    value DOUBLE PRECISION NOT NULL,
+    ingest_ts_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_sample_buffer_session_ts
+    ON session_sample_buffer (session_id, ts_utc DESC);
+
+-- Supports the heartbeat sweep's per-session MAX(ingest_ts_utc) lookup.
+CREATE INDEX IF NOT EXISTS idx_session_sample_buffer_session_ingest
+    ON session_sample_buffer (session_id, ingest_ts_utc DESC);
+
+-- APNs device push tokens registered by the app (dedup on token).
+CREATE TABLE IF NOT EXISTS device_push_token (
+    id SERIAL PRIMARY KEY,
+    token TEXT NOT NULL UNIQUE,
+    env TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- At most one row per (session_id, kind) event. The push is delivery-gated:
+-- the row is written (INSERT ... ON CONFLICT DO NOTHING) only AFTER a successful
+-- push, so a crash mid-push leaves no row and the alert stays retryable. The
+-- UNIQUE index keeps a concurrent append/sweep from creating a duplicate row;
+-- exactly-once holds for the row, though a rare same-key race may still
+-- double-push (acceptable for a redundant channel). The row is deleted when the
+-- heartbeat clears on resume, so a later occurrence can re-fire.
+CREATE TABLE IF NOT EXISTS alert_event (
+    id SERIAL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    ts_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_event_session_kind
+    ON alert_event (session_id, kind);
+
 

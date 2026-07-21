@@ -69,6 +69,10 @@ def create_app(test_config=None):
     sock.init_app(app)
     app.register_blueprint(as11_bp)
 
+    # Register redundant alert-channel blueprint (sub-project C)
+    from api.alert_channel import alert_channel_bp
+    app.register_blueprint(alert_channel_bp)
+
     # -----------------------------------------------------------------------
     # Jinja2 template filters for Claude API text formatting
     # -----------------------------------------------------------------------

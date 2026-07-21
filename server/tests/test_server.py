@@ -86,6 +86,7 @@ def _clean_tables(app):
             "analyses, api_keys, sync_log, therapy_sessions, settings, "
             "patient_profile, psychiatrist_profile, conflicts, analysis_jobs, "
             "pharmacies, prescriptions, pharmacy_call_logs, as11_therapy_session, as11_stream_sample, "
+            "session_sample_buffer, device_push_token, alert_event, "
             "quantity_health_samples, sleep_stage_events, "
             "sensor_sessions, hrv_readings, "
             "accel_spectrograms, derived_breathing_rates, "
