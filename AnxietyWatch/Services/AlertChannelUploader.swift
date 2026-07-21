@@ -141,10 +141,12 @@ final class AlertChannelUploader: AlertChannelUploading {
     }
 
     private func makeRequest(endpoint: String, body: [String: Any]) -> URLRequest? {
+        // Trim newlines too: a copy-pasted URL/key with a trailing newline would
+        // otherwise make URL(string:) fail and silently no-op ("channel dark").
         let baseURL = (defaults.string(forKey: SyncService.serverURLDefaultsKey) ?? "")
-            .trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let apiKey = (defaults.string(forKey: SyncService.apiKeyDefaultsKey) ?? "")
-            .trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !baseURL.isEmpty, !apiKey.isEmpty, let base = URL(string: baseURL),
               let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
 

@@ -413,6 +413,30 @@ def test_backstop_evaluated_per_source_not_masked(app, _clean_tables):  # noqa: 
     assert push.kinds() == [alert_channel.KIND_BACKSTOP]
 
 
+def test_blank_and_missing_source_merge_into_one_stream(app, _clean_tables):  # noqa: F811
+    """A blank ('') source and a missing source normalize to the SAME stream:
+    a sustained low split across the two halves still raises, rather than
+    fragmenting into two sub-sustain runs (blank-source-splitting hazard)."""
+    half = SUSTAIN // 2
+    # The endpoint uses the real server clock, so anchor the samples to now (the
+    # newest at ~now, the oldest SUSTAIN seconds back) to land inside the
+    # recency window. Only the absolute anchor is real-now; the 90s span and the
+    # raise decision are deterministic.
+    now = datetime.now(timezone.utc)
+    with app.test_client() as client:
+        samples = []
+        for t in range(0, SUSTAIN + 1):
+            ts = now - timedelta(seconds=SUSTAIN - t)
+            item = {"ts_utc": ts.isoformat(), "channel": "SPO2", "value": LOW}
+            if t <= half:
+                item["source"] = ""   # blank -> must normalize to None (same group as omitted)
+            samples.append(item)
+        resp = client.post("/api/alert-channel/samples", headers=auth_header(),
+                           json={"session_id": "sess-blank", "samples": samples})
+        assert resp.status_code == 200
+        assert resp.get_json()["backstop_raised"] is True
+
+
 def test_eval_failure_does_not_fail_the_upload(app, _clean_tables, monkeypatch):  # noqa: F811
     """If backstop evaluation raises after the batch is buffered, the failure is
     swallowed (logged) — the samples stay buffered and append returns normally,

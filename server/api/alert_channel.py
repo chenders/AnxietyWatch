@@ -432,10 +432,13 @@ def post_samples():
     samples = []
     for item in raw:
         try:
-            source = item.get("source") if isinstance(item, dict) else None
+            raw_source = item.get("source") if isinstance(item, dict) else None
+            # Normalize blank/whitespace/non-string to None so a blank label
+            # can't split one sensor's stream from the None group (which would
+            # break a sustained-low run across the boundary).
+            source = (raw_source.strip() or None) if isinstance(raw_source, str) else None
             samples.append((
-                _parse_ts(item["ts_utc"]), str(item["channel"]), float(item["value"]),
-                str(source) if source is not None else None,
+                _parse_ts(item["ts_utc"]), str(item["channel"]), float(item["value"]), source,
             ))
         except (KeyError, TypeError, ValueError):
             return jsonify({"error": "each sample needs ts_utc, channel, value"}), 400
