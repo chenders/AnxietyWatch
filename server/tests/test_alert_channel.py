@@ -11,6 +11,7 @@ is injected everywhere a decision depends on it (no wall-clock in assertions).
 """
 from datetime import datetime, timedelta, timezone
 
+import apns
 import backstop
 from api import alert_channel
 from api.alert_channel import (
@@ -206,3 +207,88 @@ def test_push_token_registration_dedups(app, _clean_tables):  # noqa: F811
             cur.execute("SELECT COUNT(*) FROM device_push_token WHERE token = %s",
                         ("fictional-device-token",))
             assert cur.fetchone()[0] == 1
+
+
+# --- delivery-gated idempotency + failure visibility ----------------------
+
+
+class _FailingPush:
+    """Push seam that never reaches a device (delivered to no one -> returns 0)."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def __call__(self, db, kind, session_id, *, critical=False):
+        self.calls += 1
+        return 0
+
+
+def test_failed_delivery_is_not_recorded_and_retries(app, _clean_tables):  # noqa: F811
+    """A raise that delivers to no device must NOT write the alert_event ledger
+    row, so it stays retryable on the next append rather than being silently
+    marked 'alerted' (the core own-failure-visible invariant)."""
+    push = _FailingPush()
+    with app.app_context():
+        db = app.get_db()
+        append_samples(db, "sess-fail", _low_run("sess-fail", 0, SUSTAIN),
+                       REF + timedelta(seconds=SUSTAIN), push=push)
+        more = [(REF + timedelta(seconds=SUSTAIN + 1), backstop.SPO2_CHANNEL, LOW)]
+        append_samples(db, "sess-fail", more, REF + timedelta(seconds=SUSTAIN + 1), push=push)
+
+        # Pushed on BOTH appends (undelivered -> retried), and no ledger row exists.
+        assert push.calls == 2
+        with db.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM alert_event WHERE session_id = %s AND kind = %s",
+                        ("sess-fail", alert_channel.KIND_BACKSTOP))
+            assert cur.fetchone()[0] == 0
+
+
+def test_dead_token_pruned_on_apns_410(app, _clean_tables, monkeypatch):  # noqa: F811
+    """push_alert prunes a token APNs reports permanently dead (410) and returns
+    0 (delivered to no one)."""
+    monkeypatch.setenv("APNS_AUTH_KEY", "fictional-not-a-real-key")
+    monkeypatch.setenv("APNS_KEY_ID", "KEY1234567")
+    monkeypatch.setenv("APNS_TEAM_ID", "TEAM123456")
+    monkeypatch.setenv("APNS_TOPIC", "org.example.anxietywatch.fictional")
+    monkeypatch.setenv("APNS_ENV", "sandbox")
+    monkeypatch.setattr(
+        apns, "send",
+        lambda *a, **k: apns.ApnsResult(ok=False, status=410, apns_id=None),
+    )
+
+    with app.app_context():
+        db = app.get_db()
+        with db.cursor() as cur:
+            cur.execute("INSERT INTO device_push_token (token, env) VALUES (%s, %s)",
+                        ("dead-fictional-token", "sandbox"))
+        db.commit()
+
+        sent = alert_channel.push_alert(db, alert_channel.KIND_BACKSTOP, "sess-x")
+        assert sent == 0
+        with db.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM device_push_token WHERE token = %s",
+                        ("dead-fictional-token",))
+            assert cur.fetchone()[0] == 0
+
+
+# --- channel-health surface -----------------------------------------------
+
+
+def test_health_surfaces_dark_channel(app, _clean_tables):  # noqa: F811
+    """With no APNs env and no tokens, /health reports the channel as dark so
+    the app can detect it (never reads as all-clear)."""
+    with app.test_client() as client:
+        data = client.get("/api/alert-channel/health", headers=auth_header()).get_json()
+        assert data["apns_configured"] is False
+        assert data["registered_tokens"] == 0
+        assert data["last_delivered_alert_utc"] is None
+
+        client.post("/api/alert-channel/push-token", headers=auth_header(),
+                    json={"token": "fictional-device-token", "env": "sandbox"})
+        data = client.get("/api/alert-channel/health", headers=auth_header()).get_json()
+        assert data["registered_tokens"] == 1
+
+
+def test_health_requires_auth(app, _clean_tables):  # noqa: F811
+    with app.test_client() as client:
+        assert client.get("/api/alert-channel/health").status_code == 401

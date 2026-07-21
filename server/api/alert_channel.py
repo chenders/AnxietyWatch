@@ -13,23 +13,31 @@ Flow (design §4):
                     └──────────── APNs push (once per event) ───────────┘
 
 Two independent raises, both idempotent per ``(session_id, kind)`` via the
-``alert_event`` ledger:
+``alert_event`` ledger. **Idempotency gates on delivery, not attempt**: a row is
+written only after APNs accepts the push for at least one device, so a failed
+delivery (no tokens, missing config, rejection, network error) stays retryable
+rather than being silently marked "alerted" (design §5, own-failure-visible).
 
 * **Backstop** — evaluated on every append over a *recent* (``ts_utc``-bounded)
   window, so a late catch-up upload of old samples can't fire it (the AS11
-  stale-backlog lesson). Delegates the decision to the pure ``backstop``
-  evaluator; this module never re-implements the personalized on-device fusion.
+  stale-backlog lesson). A non-empty batch that lands entirely outside the
+  window (stale/clock-skew) is logged, not silently ignored. Delegates the
+  decision to the pure ``backstop`` evaluator; never re-implements on-device
+  fusion.
 * **Heartbeat** — a periodic sweep (``run_heartbeat_sweep``, cron-invoked in
   prod; there is no in-process scheduler) that raises "monitoring may have
-  stopped" when an *armed* session's server-side ingest goes silent past
+  stopped" when a session's server-side ingest goes silent past
   ``HEARTBEAT_TIMEOUT_SECONDS``. Liveness keys on ``ingest_ts_utc`` (server
-  clock — skew-proof "when did we last hear from the phone"). An append clears
-  the session's heartbeat alert, so a later silence re-fires (design §6
-  "resumes → clears").
+  clock — skew-proof). An append clears the session's heartbeat alert, so a
+  later silence re-fires. NOTE: distinguishing a *cleanly disarmed* session from
+  a *silently stalled* one needs the explicit arm/disarm signal that ships with
+  sub-project C Task 5 (the iOS uploader); until then the sweep is effectively
+  inert because nothing uploads. See ``HEARTBEAT_ACTIVE_LOOKBACK_SECONDS``.
 
-Fail-safe: a missing/failed APNs push is logged (own-failure-visible, design §5)
-but never crashes an upload — A carries the fast path. Credentials come from env
-only; tokens/keys/JWTs are never logged (only kind + session id + metadata).
+Channel health (``GET /health``) surfaces whether APNs is configured, how many
+device tokens are registered, and when an alert was last delivered — so the app
+can detect a dark channel (design §5). Credentials come from env only; tokens,
+keys, and JWTs are never logged (only kind + session id + counts).
 """
 import hashlib
 import logging
@@ -50,6 +58,10 @@ alert_channel_bp = Blueprint("alert_channel", __name__, url_prefix="/api/alert-c
 KIND_BACKSTOP = apns.KIND_BACKSTOP
 KIND_HEARTBEAT = apns.KIND_HEARTBEAT
 
+# APNs statuses that mean the device token is permanently dead and should be
+# pruned from the registry: 410 Unregistered, 400 BadDeviceToken.
+_DEAD_TOKEN_STATUSES = (400, 410)
+
 # --- Tunables ---------------------------------------------------------------
 
 # Recent-window the backstop is evaluated over, in seconds. Bounded by the
@@ -65,8 +77,10 @@ HEARTBEAT_TIMEOUT_SECONDS = 120.0
 
 # Only sweep sessions whose last upload is within this lookback: past it the
 # session is treated as ended, not silently-stalled, so an old session in the
-# buffer never re-alerts on every sweep. (Explicit disarm is a Task 5 concern.)
-HEARTBEAT_ACTIVE_LOOKBACK_SECONDS = 3600.0
+# buffer never re-alerts on every sweep. Explicit disarm (Task 5) will replace
+# this heuristic; the window is generous so a genuinely-armed phone that dies
+# is still caught even if a sweep is delayed.
+HEARTBEAT_ACTIVE_LOOKBACK_SECONDS = 12 * 3600.0
 
 # Ship Time-Sensitive pushes until sub-project A's Critical Alerts entitlement
 # lands (design §3 / §8); flip to True once it does.
@@ -116,6 +130,8 @@ def insert_buffer_sample(db, session_id, ts_utc, channel, value, ingest_ts_utc=N
 
     ``ingest_ts_utc`` defaults to the server clock (NOW()); it is injectable so
     tests can backdate a session's last-heard-from time for the heartbeat sweep.
+    (``append_samples`` batches its own inserts in one transaction; this helper
+    is for single-sample inserts, primarily in tests.)
     """
     with db.cursor() as cur:
         if ingest_ts_utc is None:
@@ -141,19 +157,15 @@ def _registered_tokens(db):
         return cur.fetchall()
 
 
-def _clear_alert(db, session_id, kind):
-    """Drop a session's alert of ``kind`` so a future occurrence can re-fire."""
-    with db.cursor() as cur:
-        cur.execute("DELETE FROM alert_event WHERE session_id = %s AND kind = %s", (session_id, kind))
-    db.commit()
-
-
 def push_alert(db, kind, session_id, *, critical=False):
-    """Send one APNs push of ``kind`` to every registered device. Never raises.
+    """Deliver one APNs push of ``kind`` to every registered device.
 
-    Returns the number of devices APNs accepted. A missing token registry or
-    missing APNs config is logged (own-failure-visible) and returns 0 — the
-    redundant channel degrades quietly rather than crashing an upload.
+    Returns the number of devices APNs accepted (0 if none). Never raises: a
+    missing token registry or missing APNs config is logged (own-failure-visible)
+    and returns 0; a per-device send error is logged and skipped so one bad token
+    can't shadow a working one; a token APNs reports permanently dead (410/400)
+    is pruned. A return of 0 means "delivered to no one" — callers MUST NOT treat
+    that as success.
     """
     tokens = _registered_tokens(db)
     if not tokens:
@@ -167,35 +179,60 @@ def push_alert(db, kind, session_id, *, critical=False):
 
     payload = apns.build_payload(kind, critical=critical)
     sent = 0
+    dead = []
     for token, env in tokens:
-        result = apns.send(token, payload, critical=critical, config=config, use_sandbox=(env == "sandbox"))
+        try:
+            result = apns.send(token, payload, critical=critical, config=config, use_sandbox=(env == "sandbox"))
+        except Exception as exc:
+            # A malformed key, network error, or missing HTTP/2 client must not
+            # abort delivery to the remaining devices.
+            logger.warning("alert-channel: APNs send failed for one device (%s)", type(exc).__name__)
+            continue
         if result.ok:
             sent += 1
+        elif result.status in _DEAD_TOKEN_STATUSES:
+            dead.append(token)
+
+    if dead:
+        with db.cursor() as cur:
+            cur.execute("DELETE FROM device_push_token WHERE token = ANY(%s)", (dead,))
+        db.commit()
+        logger.info("alert-channel: pruned %d dead device token(s)", len(dead))
     return sent
 
 
 def _maybe_raise(db, session_id, kind, now, push):
-    """Idempotently raise ``kind`` for ``session_id``: alert + push exactly once
-    per un-cleared event. Returns True iff this call raised (a new alert)."""
+    """Idempotently deliver + record ``kind`` for ``session_id``.
+
+    Returns ``(delivered, sent)``. Idempotency gates on DELIVERY, not attempt:
+    the ``alert_event`` ledger row is written only after >= 1 device accepts the
+    push, so a failed delivery stays retryable on the next append/sweep and is
+    never silently marked "alerted".
+    """
     with db.cursor() as cur:
-        cur.execute(
-            "SELECT 1 FROM alert_event WHERE session_id = %s AND kind = %s LIMIT 1",
-            (session_id, kind),
-        )
+        cur.execute("SELECT 1 FROM alert_event WHERE session_id = %s AND kind = %s LIMIT 1", (session_id, kind))
         if cur.fetchone():
-            return False  # already alerted for this event
+            return (False, 0)  # already delivered for this event
+
+    try:
+        sent = push(db, kind, session_id, critical=PUSH_CRITICAL)
+    except Exception as exc:  # pragma: no cover - push_alert already swallows
+        logger.warning("alert-channel push raised for %s: %s", kind, type(exc).__name__)
+        sent = 0
+
+    if not sent:
+        # Delivered to no device: do NOT record, so the alert remains retryable
+        # and /health surfaces the dark channel. Own failure must be visible.
+        logger.warning("alert-channel: %s for session not delivered to any device; will retry", kind)
+        return (False, 0)
+
+    with db.cursor() as cur:
         cur.execute(
             "INSERT INTO alert_event (session_id, kind, ts_utc) VALUES (%s, %s, %s)",
             (session_id, kind, now),
         )
     db.commit()
-    # Push after the ledger commit so the event is recorded even if delivery
-    # fails; push_alert never raises, but guard anyway (fail-safe).
-    try:
-        push(db, kind, session_id, critical=PUSH_CRITICAL)
-    except Exception as exc:  # pragma: no cover - push_alert already swallows
-        logger.warning("alert-channel push raised for %s: %s", kind, type(exc).__name__)
-    return True
+    return (True, sent)
 
 
 # --- Core logic (clock-injected, test-callable) -----------------------------
@@ -204,40 +241,53 @@ def _maybe_raise(db, session_id, kind, now, push):
 def append_samples(db, session_id, samples, now, push=None):
     """Buffer ``samples`` for ``session_id`` and evaluate the backstop.
 
-    ``samples`` is an iterable of ``(ts_utc, channel, value)``. Appending clears
-    any pending heartbeat alert (uploads resumed). The backstop is evaluated
-    over the recent ts_utc-bounded window and raised idempotently. ``now`` is
-    injected; ``push`` defaults to the real APNs sender.
+    ``samples`` is an iterable of ``(ts_utc, channel, value)``. The batch and the
+    heartbeat-clear commit in a single transaction (a mid-batch failure rolls
+    back atomically, so a client retry does not duplicate rows). The backstop is
+    evaluated over the recent ts_utc-bounded window and raised idempotently.
+    ``now`` is injected; ``push`` defaults to the real APNs sender.
     """
     if push is None:
         push = push_alert
 
-    buffered = 0
-    for ts_utc, channel, value in samples:
-        insert_buffer_sample(db, session_id, ts_utc, channel, value)
-        buffered += 1
-
-    # Uploads are flowing again -> the "monitoring stopped" alert no longer holds.
-    _clear_alert(db, session_id, KIND_HEARTBEAT)
+    samples = list(samples)
+    with db.cursor() as cur:
+        for ts_utc, channel, value in samples:
+            cur.execute(
+                "INSERT INTO session_sample_buffer (session_id, ts_utc, channel, value) VALUES (%s, %s, %s, %s)",
+                (session_id, ts_utc, channel, value),
+            )
+        # Uploads are flowing again -> the "monitoring stopped" alert no longer holds.
+        cur.execute("DELETE FROM alert_event WHERE session_id = %s AND kind = %s", (session_id, KIND_HEARTBEAT))
+    db.commit()
 
     window_start = now - timedelta(seconds=ALERT_EVAL_WINDOW_SECONDS)
     with db.cursor() as cur:
         cur.execute(
-            "SELECT ts_utc, channel, value FROM session_sample_buffer "
-            "WHERE session_id = %s AND ts_utc >= %s",
+            "SELECT ts_utc, channel, value FROM session_sample_buffer WHERE session_id = %s AND ts_utc >= %s",
             (session_id, window_start),
         )
         window = [backstop.Sample(ts, channel, float(value)) for ts, channel, value in cur.fetchall()]
 
+    if samples and not window:
+        # Buffered samples but none fall in the recency window: the feed's
+        # timestamps are stale or clock-skewed relative to server time. Surface
+        # it rather than silently evaluating nothing (own-failure-visible).
+        logger.warning(
+            "alert-channel: buffered %d sample(s) but none within the %.0fs recency window (stale/clock-skew?)",
+            len(samples), ALERT_EVAL_WINDOW_SECONDS,
+        )
+
     verdict = backstop.evaluate(window, now)
-    pushed = False
+    delivered, sent = (False, 0)
     if verdict.raised:
-        pushed = _maybe_raise(db, session_id, KIND_BACKSTOP, now, push)
+        delivered, sent = _maybe_raise(db, session_id, KIND_BACKSTOP, now, push)
 
     return {
-        "buffered": buffered,
+        "buffered": len(samples),
         "backstop_raised": verdict.raised,
-        "pushed": pushed,
+        "alert_delivered": delivered,
+        "delivered_devices": sent,
         "last_ack_utc": now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
 
@@ -247,9 +297,9 @@ def run_heartbeat_sweep(db, now, push=None):
 
     A session is a candidate when its most recent server-side ingest is older
     than ``HEARTBEAT_TIMEOUT_SECONDS`` but still within
-    ``HEARTBEAT_ACTIVE_LOOKBACK_SECONDS`` (so ended/ancient sessions are not
-    re-alerted). Idempotent per session; cleared by the next append. Returns the
-    list of session ids that raised on this sweep.
+    ``HEARTBEAT_ACTIVE_LOOKBACK_SECONDS``. Idempotent per session (gated on
+    delivery); cleared by the next append. Returns the list of session ids that
+    delivered an alert on this sweep.
     """
     if push is None:
         push = push_alert
@@ -267,7 +317,8 @@ def run_heartbeat_sweep(db, now, push=None):
 
     raised = []
     for session_id in candidates:
-        if _maybe_raise(db, session_id, KIND_HEARTBEAT, now, push):
+        delivered, _sent = _maybe_raise(db, session_id, KIND_HEARTBEAT, now, push)
+        if delivered:
             raised.append(session_id)
     return raised
 
@@ -301,8 +352,8 @@ def post_samples():
     db = get_db()
     try:
         result = append_samples(db, session_id, samples, datetime.now(timezone.utc))
-    except Exception as exc:
-        logger.error("alert-channel append failed: %s", type(exc).__name__)
+    except Exception:
+        logger.exception("alert-channel append failed for session=%s", session_id)
         return jsonify({"error": "Internal server error"}), 500
     return jsonify(result)
 
@@ -335,7 +386,38 @@ def post_heartbeat_sweep():
     db = get_db()
     try:
         raised = run_heartbeat_sweep(db, datetime.now(timezone.utc))
-    except Exception as exc:
-        logger.error("alert-channel heartbeat sweep failed: %s", type(exc).__name__)
+    except Exception:
+        logger.exception("alert-channel heartbeat sweep failed")
         return jsonify({"error": "Internal server error"}), 500
     return jsonify({"raised": raised, "count": len(raised)})
+
+
+@alert_channel_bp.route("/health", methods=["GET"])
+@require_api_key
+def get_health():
+    """Channel-health surface (design §5, own-failure-visible): whether APNs is
+    configured, how many device tokens are registered, and when an alert was
+    last *delivered* (alert_event rows are written only on successful delivery),
+    so the app can detect a dark channel. Never leaks secret material."""
+    db = get_db()
+    apns_configured = True
+    try:
+        apns.ApnsConfig.from_env()
+    except apns.ApnsConfigError:
+        apns_configured = False
+
+    with db.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM device_push_token")
+        token_count = cur.fetchone()[0]
+        cur.execute("SELECT MAX(ts_utc) FROM alert_event")
+        last_alert = cur.fetchone()[0]
+
+    last_alert_iso = None
+    if last_alert is not None:
+        last_alert_iso = last_alert.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    return jsonify({
+        "apns_configured": apns_configured,
+        "registered_tokens": token_count,
+        "last_delivered_alert_utc": last_alert_iso,
+    })
