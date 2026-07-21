@@ -1,5 +1,21 @@
 import Foundation
 
+// Reused ISO-8601 parsers: allocating an `ISO8601DateFormatter` per decoded
+// timestamp is wasteful on the stream. Parsing is read-only and only runs on
+// the @MainActor WS receive path, so sharing single instances is safe;
+// `nonisolated(unsafe)` documents that we intentionally opt out of the Sendable
+// check for these otherwise-immutable formatters.
+private nonisolated(unsafe) let as11FractionalISO8601: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+}()
+private nonisolated(unsafe) let as11PlainISO8601: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter
+}()
+
 /// Synchronous snapshot consumed by the 1 Hz CNS coordinator. The state is
 /// the server's authoritative state while its most recent frame is fresh;
 /// stale or absent frames always degrade to `.streamStalled`.
@@ -224,14 +240,8 @@ final class AS11WebSocketClient: AS11StreamSource {
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let string = try container.decode(String.self)
-            for options: ISO8601DateFormatter.Options in [
-                [.withInternetDateTime, .withFractionalSeconds],
-                [.withInternetDateTime]
-            ] {
-                let formatter = ISO8601DateFormatter()
-                formatter.formatOptions = options
-                if let date = formatter.date(from: string) { return date }
-            }
+            if let date = as11FractionalISO8601.date(from: string) { return date }
+            if let date = as11PlainISO8601.date(from: string) { return date }
             throw DecodingError.dataCorruptedError(
                 in: container, debugDescription: "Invalid ISO-8601 AS11 timestamp"
             )
