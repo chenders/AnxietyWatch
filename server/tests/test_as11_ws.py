@@ -45,13 +45,6 @@ def test_as11_ws_with_valid_token_and_since_cursor(app, _clean_tables):
         sample1_id = insert_stream_sample(db, "br-1", datetime.now(timezone.utc), "SPO2", 98.0)
         sample2_id = insert_stream_sample(db, "br-1", datetime.now(timezone.utc), "SPO2", 99.0)
 
-        # We need a valid API key. test_server.py has a fixture or setup that puts one.
-        # But wait, app_context is enough to query it?
-        with db.cursor() as cur:
-            cur.execute("SELECT id, key_hash, is_active FROM api_keys LIMIT 1")
-            cur.fetchone()
-
-    # wait fixture usually handles api keys. test_server.py auth_header() uses "test-api-key"
     from tests.test_server import auth_header
     headers = auth_header()
 

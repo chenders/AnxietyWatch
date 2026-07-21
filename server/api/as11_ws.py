@@ -1,12 +1,11 @@
 import time
 import json
 import hashlib
-from flask import Blueprint, request, current_app
+from flask import request, current_app
 from flask_sock import Sock
 import psycopg2.extras
 from datetime import datetime, timezone
 
-as11_ws_bp = Blueprint("as11_ws", __name__)
 sock = Sock()
 
 # Never stream stream-sample history older than this. The app stamps every

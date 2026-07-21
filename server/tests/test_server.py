@@ -3071,6 +3071,7 @@ def test_as11_rest_timestamps_are_iso8601(client, app):
     # Check that ts_utc and ingest_ts_utc are ISO-8601
     sample = [s for s in live_data if s["id"] == sample_id][0]
     assert "T" in sample["ts_utc"] and sample["ts_utc"].endswith("Z")
+    assert "T" in sample["ingest_ts_utc"] and sample["ingest_ts_utc"].endswith("Z")
 
     resp_sessions = client.get("/api/cpap/as11/sessions", headers=auth_header())
     assert resp_sessions.status_code == 200
