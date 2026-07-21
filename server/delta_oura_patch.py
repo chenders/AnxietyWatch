@@ -33,8 +33,15 @@ def fetch_and_persist_oura_data(token_row, event_data, db_conn, http_client=requ
         })
         if resp.status_code == 200:
             token_data = resp.json()
-            new_access = token_data['access_token']
-            new_refresh = token_data['refresh_token']
+            new_access = token_data.get('access_token')
+            if not new_access:
+                # A 200 with no access_token is a malformed refresh response;
+                # treat as failure instead of crashing on KeyError.
+                return False
+            # Oura does not always rotate the refresh token on refresh — keep
+            # the existing one when the response omits it (a missing key here
+            # would otherwise KeyError and 500 the webhook).
+            new_refresh = token_data.get('refresh_token') or refresh_str
             expires_in = token_data.get('expires_in', 86400)
             new_expires = now + timedelta(seconds=expires_in)
 
@@ -380,8 +387,6 @@ def apply_patch(app, get_db, require_api_key):
         app.logger.info(f"Oura auth stored: access_len={len(access_token)}, refresh_len={len(refresh_token)}")
         return jsonify({"status": "ok"}), 200
 
-    OURA_CLIENT_SECRET = os.environ.get("OURA_CLIENT_SECRET", "dummy_secret")
-
     @app.route("/webhooks/oura", methods=["GET", "POST"])
     def oura_webhook():
         from flask import request, jsonify
@@ -389,13 +394,21 @@ def apply_patch(app, get_db, require_api_key):
         if challenge:
             return challenge
 
+        # Read the signing secret per-request and FAIL CLOSED: an unconfigured
+        # secret must reject every webhook, never fall back to a guessable
+        # default that would let a forged, unsigned call verify.
+        client_secret = os.environ.get("OURA_CLIENT_SECRET", "")
+        if not client_secret:
+            app.logger.error("Oura webhook rejected: OURA_CLIENT_SECRET not configured")
+            return jsonify({"error": "Webhook not configured"}), 503
+
         signature = request.headers.get("x-oura-signature")
         if not signature:
             return jsonify({"error": "Missing signature"}), 401
 
         body = request.get_data()
         expected_signature = hmac.new(
-            OURA_CLIENT_SECRET.encode("utf-8"),
+            client_secret.encode("utf-8"),
             body,
             hashlib.sha256
         ).hexdigest()
@@ -411,7 +424,16 @@ def apply_patch(app, get_db, require_api_key):
             cur.execute("SELECT * FROM oura_credentials WHERE oura_user_id = 'default' LIMIT 1")
             token_row = cur.fetchone()
 
-        if token_row:
-            fetch_and_persist_oura_data(token_row, event_data, db)
+        if not token_row:
+            app.logger.warning("Oura webhook: no stored credentials; ignoring event")
+            return jsonify({"status": "ok"}), 200
+
+        # Keep 200 even on a fetch failure so Oura does not enter a retry storm
+        # for this single-user deployment, but make the failure VISIBLE in logs
+        # (token refresh failed or Oura API error) rather than swallowing it.
+        if not fetch_and_persist_oura_data(token_row, event_data, db):
+            app.logger.warning(
+                f"Oura webhook: fetch/persist failed for data_type={event_data.get('data_type')}"
+            )
 
         return jsonify({"status": "ok"}), 200
