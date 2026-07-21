@@ -5,6 +5,213 @@ from psycopg2 import sql
 import hmac
 import hashlib
 import os
+import json
+import requests
+from datetime import datetime, timezone, timedelta
+
+
+# The Oura V2 collections this worker knows how to persist. data_type is
+# validated against this allowlist before being interpolated into the API path
+# (defence-in-depth: never query an arbitrary/typo'd collection blindly).
+SUPPORTED_OURA_DATA_TYPES = frozenset({
+    'sleep', 'heartrate', 'interbeat_interval',
+    'daily_readiness', 'daily_resilience', 'daily_stress', 'daily_spo2',
+    'daily_cardiovascular_age', 'vo2_max',
+})
+
+# Bound every outbound Oura call so a hung connection can't tie up the worker.
+OURA_HTTP_TIMEOUT = 30
+
+
+def _token_to_str(value):
+    """Coerce a token column to a str. psycopg2 returns BYTEA columns as
+    memoryview by DEFAULT (not bytes), so an isinstance(..., bytes) check misses
+    the real DB shape and would pass a memoryview into the request / .encode().
+    Handle memoryview, bytes/bytearray, and str uniformly."""
+    if isinstance(value, memoryview):
+        value = value.tobytes()
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode('utf-8')
+    return value
+
+
+def fetch_and_persist_oura_data(token_row, event_data, db_conn, http_client=requests):
+    """
+    Test-callable function to fetch and persist Oura data.
+    """
+    now = datetime.now(timezone.utc)
+    expires_at = token_row['expires_at']
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if expires_at < now:
+        client_id = os.environ.get('OURA_CLIENT_ID', '')
+        client_secret = os.environ.get('OURA_CLIENT_SECRET', '')
+        if not client_id or not client_secret:
+            # Fail early with a clear guard: a refresh is impossible without the
+            # OAuth client credentials, so skip the doomed round trip and do not
+            # proceed to fetch with a stale/expired token.
+            return False
+        refresh_str = _token_to_str(token_row['refresh_token'])
+
+        try:
+            resp = http_client.post("https://api.ouraring.com/oauth/token", data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_str,
+                "client_id": client_id,
+                "client_secret": client_secret
+            }, timeout=OURA_HTTP_TIMEOUT)
+        except requests.RequestException:
+            # Network error refreshing — fail (webhook stays 200 + logs) rather
+            # than 500.
+            return False
+        if resp.status_code == 200:
+            try:
+                token_data = resp.json()
+            except ValueError:
+                return False
+            new_access = token_data.get('access_token')
+            if not new_access:
+                # A 200 with no access_token is a malformed refresh response;
+                # treat as failure instead of crashing on KeyError.
+                return False
+            # Oura does not always rotate the refresh token on refresh — keep
+            # the existing one when the response omits it (a missing key here
+            # would otherwise KeyError and 500 the webhook).
+            new_refresh = token_data.get('refresh_token') or refresh_str
+            expires_in = token_data.get('expires_in', 86400)
+            new_expires = now + timedelta(seconds=expires_in)
+
+            with db_conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE oura_credentials
+                    SET access_token = %s, refresh_token = %s, expires_at = %s, updated_at = %s
+                    WHERE id = %s
+                """, (new_access.encode('utf-8'), new_refresh.encode('utf-8'), new_expires, now, token_row['id']))
+            db_conn.commit()
+
+            token_row['access_token'] = new_access.encode('utf-8')
+            token_row['refresh_token'] = new_refresh.encode('utf-8')
+            token_row['expires_at'] = new_expires
+        else:
+            return False
+
+    access_str = _token_to_str(token_row['access_token'])
+
+    data_type = event_data.get('data_type')
+    if data_type not in SUPPORTED_OURA_DATA_TYPES:
+        # Unknown/absent type (typo, a new Oura collection, or anything
+        # unexpected even on a signed webhook) — never interpolate it into the
+        # API path and query blindly.
+        return False
+
+    url = f"https://api.ouraring.com/v2/usercollection/{data_type}"
+    headers = {"Authorization": f"Bearer {access_str}"}
+    params = {}
+    if 'start_date' in event_data:
+        params['start_date'] = event_data['start_date']
+    if 'end_date' in event_data:
+        params['end_date'] = event_data['end_date']
+
+    try:
+        resp = http_client.get(url, headers=headers, params=params, timeout=OURA_HTTP_TIMEOUT)
+    except requests.RequestException:
+        # Network error fetching — fail (webhook stays 200 + logs) rather than 500.
+        return False
+    if resp.status_code != 200:
+        return False
+
+    try:
+        data_list = resp.json().get('data', [])
+    except ValueError:
+        return False
+    if not data_list:
+        return True
+
+    with db_conn.cursor() as cur:
+        for item in data_list:
+            if data_type == 'sleep':
+                day = item.get('day')
+                doc_id = item.get('id', f"sleep_{day}")
+                raw_hypnogram = item.get('sleep_phase_5_min', '')
+                # Oura returns the hypnogram as a raw digit string; store it as
+                # such (the column is TEXT). json.dumps() on an already-string
+                # value would double-encode it to '"..."'. Only serialize a
+                # non-string shape.
+                stages = raw_hypnogram if isinstance(raw_hypnogram, str) else json.dumps(raw_hypnogram)
+                hr_var = item.get('heart_rate_variability', {})
+                hrv = hr_var.get('5_min', []) if isinstance(hr_var, dict) else []
+                rr = item.get('respiratory_rate_5_min', [])
+                resp_rate = item.get('average_respiratory_rate')
+                efficiency = item.get('efficiency')
+                latency = item.get('latency')
+
+                cur.execute("""
+                    INSERT INTO oura_sleep
+                    (day, stages_hypnogram, hrv_5min, rr, resp_rate, efficiency, latency, document_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (day) DO UPDATE SET
+                        stages_hypnogram = EXCLUDED.stages_hypnogram,
+                        hrv_5min = EXCLUDED.hrv_5min,
+                        rr = EXCLUDED.rr,
+                        resp_rate = EXCLUDED.resp_rate,
+                        efficiency = EXCLUDED.efficiency,
+                        latency = EXCLUDED.latency,
+                        document_id = EXCLUDED.document_id
+                """, (day, stages, hrv, rr, resp_rate, efficiency, latency, doc_id))
+            elif data_type == 'heartrate':
+                ts = item.get('timestamp')
+                bpm = item.get('bpm')
+                source = item.get('source', '')
+                cur.execute("""
+                    INSERT INTO oura_heartrate (ts, bpm, source)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (ts) DO NOTHING
+                """, (ts, bpm, source))
+            elif data_type == 'interbeat_interval':
+                ts = item.get('timestamp')
+                ibi_ms = item.get('ibi')
+                validity = item.get('validity', 0)
+                cur.execute("""
+                    INSERT INTO oura_ibi (ts, ibi_ms, validity)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (ts) DO NOTHING
+                """, (ts, ibi_ms, validity))
+            elif data_type in [
+                'daily_readiness', 'daily_resilience', 'daily_stress', 'daily_spo2',
+                'daily_cardiovascular_age', 'vo2_max'
+            ]:
+                day = item.get('day')
+                doc_id = item.get('id', f"{data_type}_{day}")
+
+                cur.execute("""
+                    INSERT INTO oura_daily (day, document_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (day) DO NOTHING
+                """, (day, doc_id))
+
+                if data_type == 'daily_readiness':
+                    cur.execute("UPDATE oura_daily SET readiness = %s, temp_deviation_c = %s WHERE day = %s",
+                                (item.get('score'), item.get('temperature_deviation'), day))
+                elif data_type == 'daily_resilience':
+                    cur.execute("UPDATE oura_daily SET resilience_level = %s WHERE day = %s",
+                                (item.get('resilience_level'), day))
+                elif data_type == 'daily_stress':
+                    cur.execute("UPDATE oura_daily SET stress_high_s = %s, recovery_high_s = %s WHERE day = %s",
+                                (item.get('stress_high'), item.get('recovery_high'), day))
+                elif data_type == 'daily_spo2':
+                    pct = item.get('percentage', {})
+                    spo2_avg = pct.get('average') if isinstance(pct, dict) else None
+                    cur.execute("UPDATE oura_daily SET spo2_avg = %s WHERE day = %s",
+                                (spo2_avg, day))
+                elif data_type == 'daily_cardiovascular_age':
+                    cur.execute("UPDATE oura_daily SET vascular_age = %s WHERE day = %s",
+                                (item.get('vascular_age'), day))
+                elif data_type == 'vo2_max':
+                    cur.execute("UPDATE oura_daily SET vo2_max = %s WHERE day = %s",
+                                (item.get('vo2_max'), day))
+    db_conn.commit()
+    return True
 
 
 def apply_patch(app, get_db, require_api_key):
@@ -193,7 +400,58 @@ def apply_patch(app, get_db, require_api_key):
             "server_hlc": _server_hlc_now()
         })
 
-    OURA_CLIENT_SECRET = os.environ.get("OURA_CLIENT_SECRET", "dummy_secret")
+    @app.route("/api/oura/auth", methods=["POST"])
+    @require_api_key
+    def oura_auth():
+        from flask import request, jsonify
+        from datetime import datetime
+
+        data = request.get_json(silent=True) or {}
+        access_token = data.get("access_token")
+        refresh_token = data.get("refresh_token")
+        expires_at_str = data.get("expires_at")
+
+        if not access_token or not refresh_token or not expires_at_str:
+            return jsonify({"error": "Missing required fields"}), 400
+
+        # Validate types before .replace()/.encode() so a client sending the
+        # wrong JSON types gets a 400, not an AttributeError-driven 500.
+        if not (isinstance(access_token, str) and isinstance(refresh_token, str)
+                and isinstance(expires_at_str, str)):
+            return jsonify({"error": "Fields must be strings"}), 400
+
+        try:
+            expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+        except ValueError:
+            return jsonify({"error": "Invalid expires_at format"}), 400
+
+        db = get_db()
+        # Single-user deployment: one Oura account per server, keyed by the
+        # constant 'default'. The UNIQUE(oura_user_id) upsert is what makes
+        # re-authing idempotent; there is deliberately no multi-user identity.
+        oura_user_id = 'default'
+        scope = data.get("scope", "all")
+        # scope is optional but, like the other fields, must be a string — a
+        # non-string (object/array) would raise a psycopg2 adaptation error and
+        # 500 the endpoint instead of returning a clean 400.
+        if not isinstance(scope, str):
+            return jsonify({"error": "scope must be a string"}), 400
+
+        with db.cursor() as cur:
+            cur.execute("""
+                INSERT INTO oura_credentials (oura_user_id, access_token, refresh_token, expires_at, scope)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (oura_user_id) DO UPDATE SET
+                    access_token = EXCLUDED.access_token,
+                    refresh_token = EXCLUDED.refresh_token,
+                    expires_at = EXCLUDED.expires_at,
+                    scope = EXCLUDED.scope,
+                    updated_at = NOW()
+            """, (oura_user_id, access_token.encode('utf-8'), refresh_token.encode('utf-8'), expires_at, scope))
+        db.commit()
+
+        app.logger.info(f"Oura auth stored: access_len={len(access_token)}, refresh_len={len(refresh_token)}")
+        return jsonify({"status": "ok"}), 200
 
     @app.route("/webhooks/oura", methods=["GET", "POST"])
     def oura_webhook():
@@ -202,13 +460,24 @@ def apply_patch(app, get_db, require_api_key):
         if challenge:
             return challenge
 
+        # Read the signing secret per-request and FAIL CLOSED: an unconfigured
+        # secret must reject every webhook, never fall back to a guessable
+        # default that would let a forged, unsigned call verify. This is a
+        # DISTINCT secret from the OAuth client secret (OURA_CLIENT_SECRET used
+        # for token refresh) — the webhook subscription's signing secret is set
+        # independently when the subscription is created with Oura.
+        webhook_secret = os.environ.get("OURA_WEBHOOK_SECRET", "")
+        if not webhook_secret:
+            app.logger.error("Oura webhook rejected: OURA_WEBHOOK_SECRET not configured")
+            return jsonify({"error": "Webhook not configured"}), 503
+
         signature = request.headers.get("x-oura-signature")
         if not signature:
             return jsonify({"error": "Missing signature"}), 401
 
         body = request.get_data()
         expected_signature = hmac.new(
-            OURA_CLIENT_SECRET.encode("utf-8"),
+            webhook_secret.encode("utf-8"),
             body,
             hashlib.sha256
         ).hexdigest()
@@ -217,9 +486,23 @@ def apply_patch(app, get_db, require_api_key):
             return jsonify({"error": "Invalid signature"}), 401
 
         event_data = request.get_json(silent=True) or {}
-        app.logger.info(f"Oura webhook received: {event_data}")
+        app.logger.info(f"Oura webhook received: data_type={event_data.get('data_type')}")
 
-        # Worker implementation stub (background worker for token refresh & fetch)
-        # Typically enqueues an asynchronous task to pull the actual data from the API
+        db = get_db()
+        with db.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM oura_credentials WHERE oura_user_id = 'default' LIMIT 1")
+            token_row = cur.fetchone()
+
+        if not token_row:
+            app.logger.warning("Oura webhook: no stored credentials; ignoring event")
+            return jsonify({"status": "ok"}), 200
+
+        # Keep 200 even on a fetch failure so Oura does not enter a retry storm
+        # for this single-user deployment, but make the failure VISIBLE in logs
+        # (token refresh failed or Oura API error) rather than swallowing it.
+        if not fetch_and_persist_oura_data(token_row, event_data, db):
+            app.logger.warning(
+                f"Oura webhook: fetch/persist failed for data_type={event_data.get('data_type')}"
+            )
 
         return jsonify({"status": "ok"}), 200
