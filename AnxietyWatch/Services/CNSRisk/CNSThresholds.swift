@@ -22,6 +22,15 @@ struct CNSThresholds: Sendable {
     /// the documented min/max-erratum failure one level deeper).
     var spo2RampWidth: Double = 3
 
+    /// Absolute danger floor, INDEPENDENT of the personalized ramp: a raw SpO₂
+    /// at or below this scores maximal severity (1.0) regardless of baseline,
+    /// so a corrupted/depressed personal nadir can never score a genuinely
+    /// dangerous reading as safe (closes the "no absolute safety net" gap).
+    /// Set well below any plausible personal nadir — measured continuous-oximeter
+    /// floors sit ~84–100 — so it fires only on real severe hypoxemia, never
+    /// nightly. OR'd with the ramp (the higher severity wins).
+    var spo2AbsoluteDangerFloor: Double = 80
+
     /// Personal baselines outside these ranges are treated as absent rather
     /// than trusted: a corrupted or mis-scaled value (the classic percent-vs-
     /// fraction bug would store 0.82 instead of 82) would otherwise push the
@@ -223,6 +232,13 @@ struct CNSThresholds: Sendable {
     /// baseline the density factors relax accordingly. Degraded-but-passing
     /// streams reach confirm.
     var loneSourceOverrideConfidence: Double = 0.35
+    /// A lone PRIMARY source at or above this fidelity escalates past watch
+    /// WITHOUT the extreme-override gate — a continuous, verified oximeter
+    /// (EMAY / AS11 SpO₂ = 0.9) reporting a sustained moderate desat is the
+    /// device's purpose and must not be muzzled to a chirp. A lone
+    /// LOW-fidelity/opportunistic primary (Apple Watch SpO₂ = 0.5, whose phantom
+    /// lows dominate this user's sub-85 history) stays damped.
+    var loneSourceTrustedFidelity: Double = 0.8
     /// Severity at/above which an assessment counts toward lone-source logic.
     var contributingSeverityFloor: Double = 0.2
 
@@ -243,6 +259,14 @@ struct CNSThresholds: Sendable {
     var klaxonRiseSustainSeconds: TimeInterval = 30
     /// Alone-mode sustain to escalate confirm → klaxon.
     var aloneModeKlaxonRiseSustainSeconds: TimeInterval = 15
+    /// Severity-scaled FAST PATH: a critical primary reading (fused score at the
+    /// klaxon threshold — SpO₂ at the floor / absolute danger line) reaches
+    /// klaxon after just this sustain, skipping the watch→confirm ladder. Deep,
+    /// unambiguous danger must not pay the full ~2-min graded latency. Long
+    /// enough (≥ several 1 Hz samples, and > the 5 s gap guard) to reject a
+    /// single-sample glitch; short enough to matter. Applies regardless of
+    /// companion presence — critical danger is critical either way.
+    var criticalFastPathSustainSeconds: TimeInterval = 12
     /// Score must sit below (threshold − hysteresis) this long to FALL.
     var clearSustainSeconds: TimeInterval = 120
     var clearHysteresis: Double = 0.1

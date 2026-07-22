@@ -61,7 +61,13 @@ struct CNSAlertTierMachine {
         return companionPresent ? base : base - thresholds.aloneModeThresholdDelta
     }
 
-    private func sustainSeconds(toEnter tier: CNSAlertTier) -> TimeInterval {
+    private func sustainSeconds(toEnter tier: CNSAlertTier, critical: Bool) -> TimeInterval {
+        if critical {
+            // Severity-scaled fast path: a critical primary reading (score at
+            // the klaxon threshold — SpO₂ at the floor / absolute danger line)
+            // does not pay the graded ladder. One short validity sustain.
+            return thresholds.criticalFastPathSustainSeconds
+        }
         if companionPresent {
             return tier == .klaxon ? thresholds.klaxonRiseSustainSeconds : thresholds.riseSustainSeconds
         } else {
@@ -113,20 +119,40 @@ struct CNSAlertTierMachine {
     }
 
     private mutating func advanceRise(score: Double, primaryInformed: Bool, at now: Date) {
-        guard let next = CNSAlertTier(rawValue: tier.rawValue + 1) else {
+        // Severity-scaled fast path: a primary-informed score at the klaxon
+        // threshold is deep, unambiguous danger (severity ≈ 1.0 — SpO₂ at the
+        // floor / absolute danger line). It escalates STRAIGHT to klaxon after
+        // one short validity sustain, skipping the watch→confirm ladder, so a
+        // crash does not pay the full graded latency. Reaching the klaxon
+        // threshold at all requires primary severity ~1.0, so this is genuinely
+        // the critical band, not a gradual rise.
+        let critical = primaryInformed && score >= entryThreshold(for: .klaxon)
+        let target: CNSAlertTier
+        if critical {
+            target = .klaxon
+        } else if let next = CNSAlertTier(rawValue: tier.rawValue + 1) {
+            target = next
+        } else {
+            resetRiseCandidate()
+            return
+        }
+        // Already at or above the target (e.g. critical while already at klaxon):
+        // nothing to rise into.
+        guard target > tier else {
             resetRiseCandidate()
             return
         }
         // Only primary-informed evidence can escalate the tier PAST watch — HR/HRV
         // alone (corroborating signals) can trigger a watch state, but cannot
-        // push into confirm/klaxon. Without this guard, a chest-strap-only
-        // (no SpO₂) session could rise to confirm on HR/HRV alone.
-        if next > .watch {
+        // push into confirm/klaxon (a critical target is primary-informed by
+        // construction). Without this guard, a chest-strap-only (no SpO₂)
+        // session could rise to confirm on HR/HRV alone.
+        if target > .watch {
             guard primaryInformed else {
                 return
             }
         }
-        guard score >= entryThreshold(for: next) else {
+        guard score >= entryThreshold(for: target) else {
             // Only contrary PRIMARY evidence resets a rise in progress. A
             // corroborating-only tick can't testify about the primary stream
             // that started the candidate, so it leaves the candidate intact
@@ -137,21 +163,22 @@ struct CNSAlertTierMachine {
             }
             return
         }
-        // A fresh candidate, OR a stale one whose last qualifying update is
-        // too old: (re)start the window at now. Unobserved time never counts.
+        // A fresh candidate, a changed target, OR a stale one whose last
+        // qualifying update is too old: (re)start the window at now. Unobserved
+        // time never counts.
         let gapTooLong = riseCandidateLastQualifyingAt.map {
             now.timeIntervalSince($0) > thresholds.sustainMaxGapSeconds
         } ?? false
-        if riseCandidateTier != next || gapTooLong {
-            riseCandidateTier = next
+        if riseCandidateTier != target || gapTooLong {
+            riseCandidateTier = target
             riseCandidateSince = now
             riseCandidateLastQualifyingAt = now
             return
         }
         riseCandidateLastQualifyingAt = now
         if let since = riseCandidateSince,
-           now.timeIntervalSince(since) >= sustainSeconds(toEnter: next) {
-            tier = next
+           now.timeIntervalSince(since) >= sustainSeconds(toEnter: target, critical: critical) {
+            tier = target
             resetClearCandidate()
             // Chain-escalation continues from a fresh candidate window.
             resetRiseCandidate()

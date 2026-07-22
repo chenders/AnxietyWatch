@@ -61,8 +61,14 @@ enum CNSSeverityScorer {
             // so severity falls back to the default ramp AND confidence
             // carries the missing-baseline factor — the two can't disagree.
             let ramp = thresholds.spo2Ramp(nadirBaseline: baselines.spo2Nadir)
+            let rampSev = rampSeverity(value: value, onset: ramp.onset, floor: ramp.floor)
+            // Absolute safety net, independent of the personalized ramp: a raw
+            // SpO₂ at/below the absolute danger floor is maximal severity no
+            // matter the baseline, so a poisoned/depressed nadir can never score
+            // real danger as safe. OR'd with the ramp (max wins).
+            let sev = value <= thresholds.spo2AbsoluteDangerFloor ? 1.0 : rampSev
             return (
-                rampSeverity(value: value, onset: ramp.onset, floor: ramp.floor),
+                sev,
                 thresholds.sanitizedSpO2Nadir(baselines.spo2Nadir) != nil
             )
         case .respiratoryRate:

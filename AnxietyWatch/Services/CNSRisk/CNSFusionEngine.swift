@@ -81,7 +81,15 @@ struct CNSFusionEngine {
                .max(by: { $0.severity < $1.severity }) {
             let extremeOverride = strongest.severity >= thresholds.loneSourceOverrideSeverity
                 && strongest.confidence >= thresholds.loneSourceOverrideConfidence
-            if !extremeOverride {
+            // A lone HIGH-FIDELITY continuous primary (EMAY / AS11 oximeter) is
+            // the device's whole purpose — it must escalate a sustained moderate
+            // desat past watch, not be muzzled to a chirp. Only a lone
+            // LOW-fidelity/opportunistic primary (Apple Watch spot-checks, whose
+            // phantom lows are artifact-prone) stays damped.
+            let trustedContinuousPrimary = thresholds.sourceFidelity(
+                kind: strongest.kind, source: strongest.source
+            ) >= thresholds.loneSourceTrustedFidelity
+            if !extremeOverride && !trustedContinuousPrimary {
                 score = min(score, thresholds.loneSourceRiskCap)
             }
         }

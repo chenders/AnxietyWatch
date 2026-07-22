@@ -56,17 +56,18 @@ struct CNSAlertTierMachineTests {
         #expect(tier == .watch)
     }
 
-    @Test("Klaxon escalates tier-by-tier: two 60s sustains, then a 30s one")
-    func klaxonEscalatesThroughConfirm() {
+    @Test("A confirm-level (sub-critical) score ladders to confirm and never klaxons")
+    func confirmLevelLaddersAndCapsAtConfirm() {
         var m = machine()
-        // Escalation is chained, never skipped: watch at ~t=60, confirm
-        // candidate starts fresh at t=61 and lands at ~t=121.
-        _ = feed(&m, score: 0.95, seconds: 125)
+        // 0.7 is above confirm (0.6) but below klaxon (0.85): it must climb the
+        // graded ladder clear→watch→confirm and then STOP. Only a critical
+        // (klaxon-threshold) score fast-paths to klaxon (see the fast-path
+        // tests); a merely-elevated one must never reach the loud alarm.
+        _ = feed(&m, score: 0.7, seconds: 125)   // watch ~t60, confirm ~t121
         #expect(m.tier == .confirm)
-        // Klaxon candidate began right after confirm (~t=122); its shorter
-        // 30s sustain completes around t=152.
-        let tier = feed(&m, score: 0.95, seconds: 35, startingAt: 125)
-        #expect(tier == .klaxon)
+        // Sustained far beyond every rise window: still confirm, never klaxon.
+        let tier = feed(&m, score: 0.7, seconds: 300, startingAt: 125)
+        #expect(tier == .confirm)
     }
 
     @Test("Clearing requires sustained decisively-low scores")
@@ -122,30 +123,25 @@ struct CNSAlertTierMachineTests {
         #expect(feed(&accompanied, score: 0.28, seconds: 70) == .clear)
     }
 
-    @Test("Alone mode shortens the sustain window to escalate faster")
+    @Test("Alone mode shortens the rise-sustain window (watch/confirm) to escalate faster")
     func aloneModeFastEscalation() {
-        // 0.95 saturates thresholds for both, isolating the sustain timing.
+        // 0.7 exceeds the watch+confirm thresholds in BOTH modes (isolating the
+        // sustain timing) but stays below klaxon, so it ladders rather than
+        // fast-pathing — this test is about the alone-mode SUSTAIN shortening.
         var alone = machine(companionPresent: false)
-        // In alone mode, watch uses aloneModeRiseSustainSeconds (45s).
-        // Candidate starts at t=0. 45s elapsed at t=45. (46 ticks)
-        let aloneTier = feed(&alone, score: 0.95, seconds: 46)
+        // Alone watch uses aloneModeRiseSustainSeconds (45s): watch at t=45.
+        let aloneTier = feed(&alone, score: 0.7, seconds: 46)
         #expect(aloneTier == .watch)
 
         var accompanied = machine(companionPresent: true)
-        // With companion, watch needs riseSustainSeconds (60s).
-        let accompaniedTier = feed(&accompanied, score: 0.95, seconds: 46)
+        // With a companion, watch needs the full 60s: still clear at t=46.
+        let accompaniedTier = feed(&accompanied, score: 0.7, seconds: 46)
         #expect(accompaniedTier == .clear)
 
-        // Continue alone mode to confirm.
-        // Candidate for confirm starts at t=46.
-        // Needs 45s => escalates at t=91.
-        _ = feed(&alone, score: 0.95, seconds: 46, startingAt: 46)
+        // Continue alone mode to confirm: candidate at t=46, 45s → confirm t=91.
+        // 0.7 stays below klaxon, so it caps at confirm (fast path not engaged).
+        _ = feed(&alone, score: 0.7, seconds: 46, startingAt: 46)
         #expect(alone.tier == .confirm)
-
-        // Candidate for klaxon starts at t=92.
-        // Needs 15s => escalates at t=107.
-        let aloneKlaxonTier = feed(&alone, score: 0.95, seconds: 16, startingAt: 92)
-        #expect(aloneKlaxonTier == .klaxon)
     }
 
     @Test("A brief monitoring pause preserves a rise candidate within the gap guard")
@@ -203,20 +199,21 @@ struct CNSAlertTierMachineTests {
     @Test("A data gap inside a rise window restarts the sustain — no escalation on bracketing evidence")
     func dataGapDoesNotCountTowardRise() {
         var m = machine()
-        _ = feed(&m, score: 0.95, seconds: 125)          // -> confirm (t=121)
-        #expect(m.tier == .confirm)
-        // One qualifying tick starts the klaxon candidate...
-        _ = m.ingest(.assessed(riskScore: 0.95, contributions: primary(0.95)), at: t0.addingTimeInterval(125))
-        // ...then a 29s blackout, then a single qualifying tick at t=155.
-        for second in 126...154 {
+        _ = feed(&m, score: 0.7, seconds: 61)            // -> watch (t=60)
+        #expect(m.tier == .watch)
+        // One qualifying tick starts the confirm candidate...
+        _ = m.ingest(.assessed(riskScore: 0.7, contributions: primary(0.7)), at: t0.addingTimeInterval(61))
+        // ...then a 59s blackout, then a single qualifying tick at t=121.
+        for second in 62...120 {
             _ = m.ingest(.insufficientData, at: t0.addingTimeInterval(Double(second)))
         }
-        let tier = m.ingest(.assessed(riskScore: 0.95, contributions: primary(0.95)), at: t0.addingTimeInterval(155))
-        // Pre-fix this fired klaxon (155-125 >= 30 on two observed points).
-        #expect(tier == .confirm)
-        // Sustained OBSERVED evidence from t=155 does escalate: 30 more seconds.
-        let after = feed(&m, score: 0.95, seconds: 31, startingAt: 156)
-        #expect(after == .klaxon)
+        let tier = m.ingest(.assessed(riskScore: 0.7, contributions: primary(0.7)), at: t0.addingTimeInterval(121))
+        // Two observed points bracketing the blackout must NOT complete the 60s
+        // confirm sustain (they'd span it on paper — unobserved time can't count).
+        #expect(tier == .watch)
+        // Sustained OBSERVED evidence from t=121 does escalate: 60 more seconds.
+        let after = feed(&m, score: 0.7, seconds: 61, startingAt: 122)
+        #expect(after == .confirm)
     }
 
     @Test("Sub-tolerance jitter gaps do not restart the rise window")
@@ -352,11 +349,11 @@ struct CNSAlertTierMachineTests {
 
     @Test("Flipping companionPresent mid-sustain toward confirm does not reset the rise clock")
     func companionFlipPreservesConfirmSustainClock() throws {
-        // 0.95 saturates every threshold (watch/confirm/klaxon) in BOTH alone
-        // and companion mode, so the flip can never gate on the threshold
-        // delta itself — any timing difference could only come from a
-        // sustain-clock reset, which is exactly what this test rules out.
-        let score = 0.95
+        // 0.7 exceeds the watch+confirm thresholds in BOTH alone and companion
+        // mode (so the flip can never gate on the threshold delta itself) yet
+        // stays below klaxon (no critical fast path) — any timing difference
+        // could only come from a sustain-clock reset, which this test rules out.
+        let score = 0.7
 
         // Control: never flips, stays alone throughout. Records the first
         // second confirm is reached.
