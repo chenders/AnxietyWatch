@@ -48,17 +48,15 @@ public actor ComplicationCacheWriter {
         ) {
             self.containerURL = url
         } else {
-            // The App Group container is unavailable — a missing/mismatched
-            // provisioning entitlement, or the iOS app target (which has no App
-            // Group entitlement) constructing the writer even though it can't feed
-            // a watchOS complication across the device boundary. A glanceable
-            // complication cache must NEVER crash the app, so fall back to a
-            // throwaway temp directory (the complication simply won't update)
-            // rather than hard-failing in production. In DEBUG, assert so a
-            // genuine on-device WATCH misconfiguration still surfaces loudly.
-            assertionFailure(
-                "App Group container unavailable for \(Self.appGroupIdentifier) — complication cache disabled"
-            )
+            // The App Group container is unavailable, and this is EXPECTED in
+            // several normal cases — the iOS app target has no App Group
+            // entitlement (and can't feed a watchOS complication across the
+            // device boundary anyway), and the simulator / XCTest host lack it
+            // too. So this must NOT crash: no `fatalError` (would crash release
+            // device builds) and no `assertionFailure` (would crash every DEBUG
+            // app launch + the app test suite, since the iOS app always lands
+            // here). A glanceable complication cache degrades to a throwaway
+            // temp directory (it simply won't update) in every build config.
             self.containerURL = URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("ComplicationCacheFallback")
             try? FileManager.default.createDirectory(at: self.containerURL, withIntermediateDirectories: true)

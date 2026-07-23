@@ -101,4 +101,18 @@ final class ComplicationCacheWriterTests: XCTestCase {
             "group.com.groundeffectsoftware.AnxietyWatch.watch"
         )
     }
+
+    func testInitWithoutContainerDegradesInsteadOfCrashing() async throws {
+        // In the SPM / XCTest host the App Group container is unavailable, so the
+        // no-container init MUST degrade to a temp fallback, never trap. Regression
+        // guard: a fatalError (release) or assertionFailure (debug) here crashed
+        // the app + the whole app test suite on launch (KitPipelineService.start
+        // -> ComplicationCacheWriter()).
+        let fallbackWriter = ComplicationCacheWriter()   // must not trap
+        let state = ComplicationState(alertTier: "Normal", fusionScore: 0.1)
+        await fallbackWriter.submit(state)
+        await fallbackWriter.flush()
+        let pending = await fallbackWriter.pendingState
+        XCTAssertNil(pending)   // flush ran against the fallback container without crashing
+    }
 }
