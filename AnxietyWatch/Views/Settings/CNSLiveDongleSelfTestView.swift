@@ -14,8 +14,10 @@ import OSLog
 /// Record-safety: both the dedicated `EMAYRealtimeService` and the
 /// `CNSMonitoringCoordinator` are constructed with `ModelContext`s over an
 /// in-memory `ModelContainer` (same schema as the app, `isStoredInMemoryOnly`),
-/// which is discarded when the view goes away. The real `sharedModelContainer`
-/// is never referenced here.
+/// which is discarded when the view goes away. The app's container is read only
+/// for its `schema` (to build the matching in-memory store — see the
+/// `appContext.container.schema` copy below); nothing is ever written to the
+/// real `sharedModelContainer`.
 struct CNSLiveDongleSelfTestView: View {
     private let log = Logger(subsystem: "com.anxietywatch.app", category: "CNSLiveSelfTest")
 
