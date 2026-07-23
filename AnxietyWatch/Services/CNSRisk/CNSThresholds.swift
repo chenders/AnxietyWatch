@@ -291,8 +291,12 @@ struct CNSThresholds: Sendable {
     /// (e.g. SpO₂ 86, severity ~0.67) that only crosses the klaxon threshold with
     /// HR/HRV corroboration escalates over the graded ladder, never the 12 s
     /// express — corroboration raises watchfulness, it does not manufacture a
-    /// crash. The fast path additionally requires the fused score to clear the
-    /// (companion-aware) klaxon entry, so tier semantics still hold.
+    /// crash. The fast path pairs this with a SOURCE-FIDELITY gate
+    /// (`loneSourceTrustedFidelity`), NOT the confidence-damped fused score:
+    /// otherwise a genuinely maximal reading (raw SpO₂ ≤ 80, severity 1.0) from a
+    /// trusted oximeter at low coverage / no baseline — fused score ≈ 0.68, below
+    /// the klaxon entry — would be muzzled below the express lane at the exact
+    /// moment it matters most ("the crash starves its own detector").
     var criticalPrimarySeverity: Double = 0.85
     /// Score must sit below (threshold − hysteresis) this long to FALL.
     var clearSustainSeconds: TimeInterval = 120

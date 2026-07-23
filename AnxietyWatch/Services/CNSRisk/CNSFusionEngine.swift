@@ -2,8 +2,11 @@ import Foundation
 
 /// §5.2 cross-sensor fusion. Deliberately not over-aggressive: primary
 /// signals (SpO₂, respiratory rate) drive the score, corroborating signals
-/// (HR, HRV) can only boost, a lone screaming sensor is damped, and no data
-/// is an explicit state — never a fabricated zero.
+/// (HR, HRV) can only boost, and no data is an explicit state — never a
+/// fabricated zero. A lone LOW-fidelity/opportunistic sensor is damped; a lone
+/// HIGH-fidelity continuous primary (EMAY/AS11 oximeter) is NOT — it is the
+/// device's whole purpose and must escalate a sustained desat on its own
+/// (`trustedContinuousPrimary` below).
 struct CNSFusionEngine {
     let thresholds: CNSThresholds
 

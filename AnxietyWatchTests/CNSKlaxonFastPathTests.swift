@@ -186,6 +186,87 @@ struct CNSKlaxonFastPathTests {
         #expect(tier == .confirm)
     }
 
+    @Test("A maximal low-confidence primary fast-paths despite a confidence-damped fused score below klaxon entry")
+    func criticalFastPathFiresOnMaximalLowConfidencePrimary() {
+        var m = machine()   // companion — klaxon entry 0.85
+        // Lone EMAY at the absolute danger floor: severity 1.0, but worst-case
+        // confidence 0.36 (fidelity 0.9 × density-floor 0.5 × missing-baseline
+        // 0.8) — the "crash starves its own detector" state (perfusion collapses
+        // during a real desat, dropping coverage exactly when severity peaks).
+        // The fused score is only 1.0 × (0.5 + 0.5 × 0.36) = 0.68, BELOW the 0.85
+        // klaxon entry, so a fused-score gate would strand this maximal reading at
+        // confirm. The source-fidelity gate fires it: EMAY (0.9) is trusted,
+        // severity 1.0 is critical — confidence is irrelevant to the express lane.
+        let maximal = [CNSSignalAssessment(kind: .spo2, source: .emayOximeter, severity: 1.0, confidence: 0.36)]
+        for second in 0..<12 {   // t=0…11, 11 s elapsed < 12 s sustain
+            _ = m.ingest(.assessed(riskScore: 0.68, contributions: maximal),
+                         at: t0.addingTimeInterval(Double(second)))
+        }
+        #expect(m.tier == .clear)
+        let tier = m.ingest(.assessed(riskScore: 0.68, contributions: maximal),
+                            at: t0.addingTimeInterval(12))
+        #expect(tier == .klaxon)   // fired despite fused score 0.68 < klaxon entry
+    }
+
+    @Test("A high-severity LOW-fidelity primary never fast-paths, even at a klaxon-level fused score")
+    func lowFidelityPrimaryNeverFastPaths() {
+        var m = machine()
+        // Apple Watch SpO₂ (fidelity 0.5 < trusted 0.8) reporting a phantom
+        // severity 0.95 with a fused score AT the klaxon entry. A fused-score gate
+        // would fire the 12 s express on this artifact-prone spot-check; the
+        // fidelity gate keeps it off the express lane entirely (the ladder, whose
+        // input the fusion engine damps in practice, remains the only route up).
+        let watchSpike = [CNSSignalAssessment(kind: .spo2, source: .appleWatch, severity: 0.95, confidence: 0.5)]
+        for second in 0..<20 {   // 20 s — well past the 12 s fast-path window
+            _ = m.ingest(.assessed(riskScore: 0.9, contributions: watchSpike),
+                         at: t0.addingTimeInterval(Double(second)))
+        }
+        // No fast path fired (else klaxon by t=12); the ladder is still mid-first
+        // hop (watch needs 60 s), so the tier is clear — definitely not klaxon.
+        #expect(m.tier == .clear)
+    }
+
+    @Test("A corroborating-only tick mid-build leaves the critical fast-path candidate intact")
+    func corroboratingOnlyTickDoesNotResetCriticalCandidate() {
+        var m = machine()
+        let critical = [CNSSignalAssessment(kind: .spo2, source: .emayOximeter, severity: 1.0, confidence: 0.9)]
+        let corroborating = [CNSSignalAssessment(kind: .heartRate, source: .polarH10, severity: 1.0, confidence: 0.95)]
+        // Critical candidate opens at t=0 and builds to t=8 (8 s < 12 s)…
+        for second in 0...8 {
+            _ = m.ingest(.assessed(riskScore: 0.95, contributions: critical),
+                         at: t0.addingTimeInterval(Double(second)))
+        }
+        #expect(m.tier == .clear)
+        // …a lone HR tick at t=9 (the primary stream is silent this tick) must NOT
+        // reset the candidate — a corroborating signal can't testify about the
+        // primary that opened it, so it leaves it intact (the gap guard still
+        // governs staleness), mirroring the ladder.
+        _ = m.ingest(.assessed(riskScore: 0.5, contributions: corroborating), at: t0.addingTimeInterval(9))
+        #expect(m.tier == .clear)
+        // Critical resumes within the gap tolerance; the ORIGINAL t=0 candidate is
+        // still running, so the 12 s window completes at t=12 — not t=22, as a
+        // reset-on-corroborating bug would give.
+        _ = m.ingest(.assessed(riskScore: 0.95, contributions: critical), at: t0.addingTimeInterval(10))
+        _ = m.ingest(.assessed(riskScore: 0.95, contributions: critical), at: t0.addingTimeInterval(11))
+        let tier = m.ingest(.assessed(riskScore: 0.95, contributions: critical), at: t0.addingTimeInterval(12))
+        #expect(tier == .klaxon)
+    }
+
+    @Test("A maximal RR-only reading does not fast-path in Phase 1 (no trusted RR source yet)")
+    func respiratoryRatePrimaryDoesNotFastPathPhase1() {
+        var m = machine()
+        // RR ≈ 5 (severity 1.0) from Apple Watch — a PRIMARY signal, exercising
+        // the primary path for the respiratory-rate kind (not just SpO₂). But its
+        // fidelity (0.6) is below the trusted-continuous bar (0.8), and no Phase-1
+        // source emits a high-fidelity RR, so a maximal RR reading never takes the
+        // 12 s express lane; independent RR/apnea fast escalation is a later phase.
+        let rr = [CNSSignalAssessment(kind: .respiratoryRate, source: .appleWatch, severity: 1.0, confidence: 0.6)]
+        for second in 0..<20 {   // 20 s — well past the 12 s fast-path window
+            _ = m.ingest(.assessed(riskScore: 0.9, contributions: rr), at: t0.addingTimeInterval(Double(second)))
+        }
+        #expect(m.tier == .clear)   // no fast path; ladder still mid-first-hop
+    }
+
     // MARK: - Severity scorer: absolute backstop
 
     private func spo2Samples(value: Double) -> [CNSSignalSample] {

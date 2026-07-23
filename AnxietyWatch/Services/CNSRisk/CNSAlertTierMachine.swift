@@ -1,9 +1,11 @@
 import Foundation
 
 /// §5.3 hysteretic escalation state machine: `clear → watch → confirm →
-/// klaxon`. Rising demands sustained elevation; falling demands sustained,
-/// decisively-lower scores; missing data can never clear an alert (spec
-/// §14.2 asymmetry, §11 fail-safe bias). Pure value type — callers pass
+/// klaxon`. Rising demands sustained elevation — up the graded ladder one
+/// tier at a time, OR, for a deep critical primary desat, straight to klaxon
+/// via the fast path (skipping intermediate tiers in ~12 s). Falling demands
+/// sustained, decisively-lower scores; missing data can never clear an alert
+/// (spec §14.2 asymmetry, §11 fail-safe bias). Pure value type — callers pass
 /// `now`; there is no hidden clock.
 struct CNSAlertTierMachine {
     private let thresholds: CNSThresholds
@@ -100,10 +102,24 @@ struct CNSAlertTierMachine {
                 $0.kind == .spo2 || $0.kind == .respiratoryRate
             }
             let primaryInformed = !primaryContributions.isEmpty
-            let primarySeverity = primaryContributions.map(\.severity).max() ?? 0
+            // The critical fast path fires on a TRUSTED-fidelity primary source
+            // (EMAY / AS11 oximeter) whose OWN severity is in the critical band —
+            // NOT on the confidence-damped fused score. Keying on source fidelity
+            // rather than the fused score means (a) a confidence-damped maximal
+            // reading — a validated ≤ absolute-floor SpO₂ from a continuous
+            // oximeter at low coverage / no baseline, the exact "crash starves its
+            // own detector" signature — can never be SUPPRESSED below the express
+            // lane, and (b) a phantom low-fidelity spike (Apple Watch spot-check)
+            // can never TRIGGER it. Corroborating HR/HRV are excluded by
+            // construction (not primary), so they can neither inform nor shorten it.
+            let criticalPrimary = primaryContributions.contains {
+                $0.severity >= thresholds.criticalPrimarySeverity
+                    && thresholds.sourceFidelity(kind: $0.kind, source: $0.source)
+                        >= thresholds.loneSourceTrustedFidelity
+            }
 
             advanceRise(score: score, primaryInformed: primaryInformed,
-                        primarySeverity: primarySeverity, at: now)
+                        criticalPrimary: criticalPrimary, at: now)
             advanceClear(score: score, primaryInformed: primaryInformed, at: now)
             return tier
 
@@ -143,12 +159,11 @@ struct CNSAlertTierMachine {
     /// last so that if BOTH complete on the same tick, klaxon (the more severe)
     /// wins.
     private mutating func advanceRise(
-        score: Double, primaryInformed: Bool, primarySeverity: Double, at now: Date
+        score: Double, primaryInformed: Bool, criticalPrimary: Bool, at now: Date
     ) {
         advanceLadder(score: score, primaryInformed: primaryInformed, at: now)
         advanceCriticalFastPath(
-            score: score, primaryInformed: primaryInformed,
-            primarySeverity: primarySeverity, at: now
+            criticalPrimary: criticalPrimary, primaryInformed: primaryInformed, at: now
         )
     }
 
@@ -204,23 +219,25 @@ struct CNSAlertTierMachine {
     }
 
     /// Severity-scaled fast path: a deep, unambiguous PRIMARY desat (SpO₂ at the
-    /// floor / absolute danger line) escalates STRAIGHT to klaxon after one short
-    /// validity sustain, skipping the graded ladder so a crash does not pay the
-    /// full ~2-min latency. Gated on the primary's OWN severity — corroborating
-    /// HR/HRV can neither inform nor shorten it — AND on the fused score clearing
-    /// the (companion-aware) klaxon entry, so tier semantics still hold.
+    /// floor / absolute danger line) from a TRUSTED continuous oximeter escalates
+    /// STRAIGHT to klaxon after one short validity sustain, skipping the graded
+    /// ladder so a crash does not pay the full ~2-min latency. Gated on the
+    /// primary's OWN severity AND its SOURCE FIDELITY (computed as
+    /// `criticalPrimary` in `ingest`) — deliberately NOT on the confidence-damped
+    /// fused score, so a genuinely maximal reading at low coverage / no baseline
+    /// can never be muzzled below the express lane, and a phantom low-fidelity
+    /// spike can never trigger it. Corroborating HR/HRV can neither inform nor
+    /// shorten it.
     private mutating func advanceCriticalFastPath(
-        score: Double, primaryInformed: Bool, primarySeverity: Double, at now: Date
+        criticalPrimary: Bool, primaryInformed: Bool, at now: Date
     ) {
         guard tier < .klaxon else {
             resetCriticalCandidate()
             return
         }
-        let critical = primaryInformed
-            && primarySeverity >= thresholds.criticalPrimarySeverity
-            && score >= entryThreshold(for: .klaxon)
-        guard critical else {
-            // Contrary PRIMARY evidence (a primary-informed sub-critical tick)
+        guard criticalPrimary else {
+            // Contrary PRIMARY evidence (a primary-informed tick that is NOT a
+            // critical trusted primary — sub-critical, or a low-fidelity source)
             // abandons the fast path; a corroborating-only tick leaves it intact
             // (the gap guard governs staleness), mirroring the ladder. Either way
             // the ladder clock is untouched.

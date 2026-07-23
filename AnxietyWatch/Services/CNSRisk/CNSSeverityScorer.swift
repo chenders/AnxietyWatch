@@ -1,9 +1,11 @@
 import Foundation
 
-/// §5.1 per-signal scoring: severity (how far toward danger, 0–1,
-/// baseline-relative) and confidence (how much to trust it, 0–1). Pure —
-/// no clock, no I/O. Returns nil rather than scoring anything it can't
-/// score honestly (indeterminate window, impossible (kind, source) pair).
+/// §5.1 per-signal scoring: severity (how far toward danger, 0–1, mostly
+/// baseline-relative — SpO₂ additionally has an absolute safety-net floor
+/// that scores maximal danger independent of any baseline, see
+/// `CNSThresholds.spo2AbsoluteDangerFloor`) and confidence (how much to trust
+/// it, 0–1). Pure — no clock, no I/O. Returns nil rather than scoring anything
+/// it can't score honestly (indeterminate window, impossible (kind, source) pair).
 ///
 /// The median is computed over every good sample handed in: callers MUST
 /// pre-trim to the current gate window (see `CNSDetectionPipeline`) —
