@@ -191,6 +191,13 @@ CREATE TABLE IF NOT EXISTS pharmacy_call_logs (
     PRIMARY KEY (timestamp, pharmacy_name)
 );
 
+-- Generic key/value settings. Keys in use include the ResMed cloud sync
+-- (resmed_*) and the ez Share WiFi SD poller (ezshare_sync.py):
+--   ezshare_bridge_url  base URL of the card's HTTP API (default http://192.168.4.1)
+--   ezshare_last_sync   newest STR.EDF day date ingested (status/visibility only)
+--   ezshare_last_status human-readable last-run result ("ok: N upserted / M parsed",
+--                       "unreachable", "no STR.EDF on card", "error: ...")
+-- (cpap_sessions rows from this path carry import_source = 'ezshare'.)
 CREATE TABLE IF NOT EXISTS settings (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL,

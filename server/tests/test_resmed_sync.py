@@ -163,3 +163,20 @@ def test_log_sync_success_advances_cursor(clean_resmed_settings):
     log_sync(conn, "success", 5)
     assert get_setting(conn, "resmed_last_sync") is not None
     assert get_setting(conn, "resmed_last_status") == "success: 5 sessions upserted"
+
+
+def test_skip_existing_ezshare(clean_cpap):
+    """A later cloud poll must not regress a higher-fidelity ezshare row."""
+    cur = clean_cpap.cursor()
+    cur.execute(
+        "INSERT INTO cpap_sessions (date, ahi, total_usage_minutes, import_source) "
+        "VALUES ('2026-03-22', 1.1, 410, 'ezshare')"
+    )
+    clean_cpap.commit()
+    sessions = [{"date": "2026-03-22", "ahi": 9.9, "total_usage_minutes": 300,
+                 "leak_percentile": None, "mean_pressure": None}]
+    count = upsert_sessions(clean_cpap, sessions)
+    assert count == 0
+    cur.execute("SELECT ahi, import_source FROM cpap_sessions WHERE date = '2026-03-22'")
+    ahi, src = cur.fetchone()
+    assert abs(ahi - 1.1) < 0.01 and src == "ezshare"

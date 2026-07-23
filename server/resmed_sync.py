@@ -113,8 +113,8 @@ def upsert_sessions(conn, sessions):
             (date,),
         )
         existing = cur.fetchone()
-        if existing and existing[0] == "sd_card":
-            logger.debug("Skipping %s — sd_card import exists", date)
+        if existing and existing[0] in ("sd_card", "ezshare"):
+            logger.debug("Skipping %s — higher-fidelity %s import exists", date, existing[0])
             continue
 
         # INSERT ... ON CONFLICT upsert, but only update if the existing
