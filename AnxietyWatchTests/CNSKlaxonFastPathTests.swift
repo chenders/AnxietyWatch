@@ -15,6 +15,9 @@ import Testing
 struct CNSKlaxonFastPathTests {
     private let thresholds = CNSThresholds.standard
     private let t0 = Date(timeIntervalSince1970: 1_750_000_000)
+    /// The critical fast-path sustain (seconds), via the threshold — never the
+    /// literal, so the tests track the tunable (file convention above).
+    private var sustain: Int { Int(thresholds.criticalFastPathSustainSeconds) }
 
     // MARK: - Tier machine: critical fast path
 
@@ -45,7 +48,6 @@ struct CNSKlaxonFastPathTests {
     @Test("A critical score fast-paths straight to klaxon in one fast-path window, not the graded ~150s")
     func criticalFastPathsToKlaxon() {
         var m = machine()   // companion
-        let sustain = Int(thresholds.criticalFastPathSustainSeconds)
         // 0.95 ≥ klaxon threshold → critical. It SKIPS watch/confirm (a jump), so
         // it stays clear while the short validity window builds (< the sustain)…
         #expect(feed(&m, score: 0.95, seconds: sustain) == .clear)  // ticks t=0…sustain-1
@@ -57,13 +59,13 @@ struct CNSKlaxonFastPathTests {
         #expect(tier == .klaxon)
     }
 
-    @Test("The critical fast path is companion-independent — ~12s alone too")
+    @Test("The critical fast path is companion-independent — one sustain window alone too")
     func criticalFastPathCompanionIndependent() {
         var alone = machine(companionPresent: false)
-        #expect(feed(&alone, score: 0.95, seconds: 12) == .clear)
+        #expect(feed(&alone, score: 0.95, seconds: sustain) == .clear)
         let tier = alone.ingest(
             .assessed(riskScore: 0.95, contributions: primary(0.95)),
-            at: t0.addingTimeInterval(12)
+            at: t0.addingTimeInterval(TimeInterval(sustain))
         )
         #expect(tier == .klaxon)
     }
@@ -71,7 +73,7 @@ struct CNSKlaxonFastPathTests {
     @Test("A critical spike shorter than the fast-path sustain does not klaxon (glitch rejection)")
     func criticalSpikeBelowSustainDoesNotKlaxon() {
         var m = machine()
-        _ = feed(&m, score: 0.95, seconds: 9)                    // 9 s < 12 s sustain
+        _ = feed(&m, score: 0.95, seconds: sustain - 3)          // short of the fast-path sustain
         #expect(m.tier == .clear)
         // …and it resolves without ever alarming.
         #expect(feed(&m, score: 0.05, seconds: 5, startingAt: 9) == .clear)
@@ -85,26 +87,27 @@ struct CNSKlaxonFastPathTests {
         _ = m.ingest(.insufficientData, at: t0.addingTimeInterval(11))
         // A qualifying tick at t=16: last-qualifying was t=9, so the 7 s gap
         // exceeds the 5 s guard → restart. Two points bracketing the gap must
-        // NOT complete the 12 s window.
+        // NOT complete the fast-path window.
         let tier = m.ingest(
             .assessed(riskScore: 0.95, contributions: primary(0.95)),
             at: t0.addingTimeInterval(16)
         )
         #expect(tier == .clear)
-        // A full uninterrupted 12 s from the restart (t=16 … t=28) does fire.
-        let fired = feed(&m, score: 0.95, seconds: 13, startingAt: 17)
+        // A full uninterrupted sustain window from the restart (t=16 onward) does fire.
+        let fired = feed(&m, score: 0.95, seconds: sustain + 1, startingAt: 17)
         #expect(fired == .klaxon)
     }
 
-    @Test("A critical reading from an already-confirm tier fast-paths to klaxon in ~12s")
+    @Test("A critical reading from an already-confirm tier fast-paths to klaxon in one sustain window")
     func criticalFastPathFromConfirm() {
         var m = machine()
         _ = feed(&m, score: 0.7, seconds: 125)                   // ladder to confirm (~t121)
         #expect(m.tier == .confirm)
-        #expect(feed(&m, score: 0.95, seconds: 12, startingAt: 125) == .confirm)  // t=125…136 (11 s)
+        // sustain-1 s in from t=125: not yet.
+        #expect(feed(&m, score: 0.95, seconds: sustain, startingAt: 125) == .confirm)
         let tier = m.ingest(
             .assessed(riskScore: 0.95, contributions: primary(0.95)),
-            at: t0.addingTimeInterval(137)                       // t=137 = 125 + 12
+            at: t0.addingTimeInterval(125 + TimeInterval(sustain))
         )
         #expect(tier == .klaxon)
     }
@@ -115,28 +118,28 @@ struct CNSKlaxonFastPathTests {
         [CNSSignalAssessment(kind: .spo2, source: .emayOximeter, severity: severity, confidence: 0.9)]
     }
 
-    @Test("Corroboration cannot buy the 12s express lane — a moderate primary klaxons only via the graded ladder")
+    @Test("Corroboration cannot buy the fast-path express lane — a moderate primary klaxons only via the graded ladder")
     func criticalFastPathIgnoresCorroborationInflation() {
         var m = machine()
         // A MODERATE primary (SpO₂ severity 0.55, ~SpO₂ 86.4) plus screaming HR+HRV
         // fuses to 0.9 — above the klaxon threshold. Gating the fast path on the
-        // FUSED score (the pre-fix bug) would fire klaxon in 12 s. It now keys on
-        // RAW primary severity (0.55 < criticalPrimarySeverity 0.85), so
-        // corroboration can't manufacture a crash.
+        // FUSED score (the pre-fix bug) would fire klaxon within the fast-path
+        // window. It now keys on RAW primary severity (0.55 < criticalPrimary-
+        // Severity 0.85), so corroboration can't manufacture a crash.
         let corroborated: [CNSSignalAssessment] = [
             CNSSignalAssessment(kind: .spo2, source: .emayOximeter, severity: 0.55, confidence: 0.9),
             CNSSignalAssessment(kind: .heartRate, source: .polarH10, severity: 1.0, confidence: 0.95),
             CNSSignalAssessment(kind: .hrv, source: .polarH10, severity: 1.0, confidence: 0.9)
         ]
-        for second in 0..<13 {   // 12 s elapsed at t=12 — the fast-path window
+        for second in 0..<(sustain + 1) {   // through the fast-path window (t=sustain)
             _ = m.ingest(.assessed(riskScore: 0.9, contributions: corroborated),
                          at: t0.addingTimeInterval(Double(second)))
         }
-        #expect(m.tier == .clear)   // NO 12 s fast path; the ladder hasn't reached watch
+        #expect(m.tier == .clear)   // no fast path fired; the ladder hasn't reached watch
         // It DOES still escalate — over the graded ladder (err toward alarm):
         // watch ~t60, confirm ~t121, klaxon ~t152. Drive well past that.
         var tier = m.tier
-        for second in 13..<170 {
+        for second in (sustain + 1)..<170 {
             tier = m.ingest(.assessed(riskScore: 0.9, contributions: corroborated),
                             at: t0.addingTimeInterval(Double(second)))
         }
@@ -199,13 +202,13 @@ struct CNSKlaxonFastPathTests {
         // confirm. The source-fidelity gate fires it: EMAY (0.9) is trusted,
         // severity 1.0 is critical — confidence is irrelevant to the express lane.
         let maximal = [CNSSignalAssessment(kind: .spo2, source: .emayOximeter, severity: 1.0, confidence: 0.36)]
-        for second in 0..<12 {   // t=0…11, 11 s elapsed < 12 s sustain
+        for second in 0..<sustain {   // t=0…sustain-1: one short of the sustain
             _ = m.ingest(.assessed(riskScore: 0.68, contributions: maximal),
                          at: t0.addingTimeInterval(Double(second)))
         }
         #expect(m.tier == .clear)
         let tier = m.ingest(.assessed(riskScore: 0.68, contributions: maximal),
-                            at: t0.addingTimeInterval(12))
+                            at: t0.addingTimeInterval(TimeInterval(sustain)))
         #expect(tier == .klaxon)   // fired despite fused score 0.68 < klaxon entry
     }
 
@@ -232,24 +235,28 @@ struct CNSKlaxonFastPathTests {
         var m = machine()
         let critical = [CNSSignalAssessment(kind: .spo2, source: .emayOximeter, severity: 1.0, confidence: 0.9)]
         let corroborating = [CNSSignalAssessment(kind: .heartRate, source: .polarH10, severity: 1.0, confidence: 0.95)]
-        // Critical candidate opens at t=0 and builds to t=8 (8 s < 12 s)…
-        for second in 0...8 {
+        // Critical candidate opens at t=0 and builds toward the sustain…
+        for second in 0...(sustain - 4) {
             _ = m.ingest(.assessed(riskScore: 0.95, contributions: critical),
                          at: t0.addingTimeInterval(Double(second)))
         }
         #expect(m.tier == .clear)
-        // …a lone HR tick at t=9 (the primary stream is silent this tick) must NOT
-        // reset the candidate — a corroborating signal can't testify about the
-        // primary that opened it, so it leaves it intact (the gap guard still
-        // governs staleness), mirroring the ladder.
-        _ = m.ingest(.assessed(riskScore: 0.5, contributions: corroborating), at: t0.addingTimeInterval(9))
+        // …a lone HR tick (the primary stream is silent this tick) must NOT reset
+        // the candidate — a corroborating signal can't testify about the primary
+        // that opened it, so it leaves it intact (the gap guard still governs
+        // staleness), mirroring the ladder.
+        _ = m.ingest(.assessed(riskScore: 0.5, contributions: corroborating),
+                     at: t0.addingTimeInterval(Double(sustain - 3)))
         #expect(m.tier == .clear)
         // Critical resumes within the gap tolerance; the ORIGINAL t=0 candidate is
-        // still running, so the 12 s window completes at t=12 — not t=22, as a
-        // reset-on-corroborating bug would give.
-        _ = m.ingest(.assessed(riskScore: 0.95, contributions: critical), at: t0.addingTimeInterval(10))
-        _ = m.ingest(.assessed(riskScore: 0.95, contributions: critical), at: t0.addingTimeInterval(11))
-        let tier = m.ingest(.assessed(riskScore: 0.95, contributions: critical), at: t0.addingTimeInterval(12))
+        // still running, so it completes at t=sustain — not a full window later, as
+        // a reset-on-corroborating bug would give.
+        _ = m.ingest(.assessed(riskScore: 0.95, contributions: critical),
+                     at: t0.addingTimeInterval(Double(sustain - 2)))
+        _ = m.ingest(.assessed(riskScore: 0.95, contributions: critical),
+                     at: t0.addingTimeInterval(Double(sustain - 1)))
+        let tier = m.ingest(.assessed(riskScore: 0.95, contributions: critical),
+                            at: t0.addingTimeInterval(TimeInterval(sustain)))
         #expect(tier == .klaxon)
     }
 
