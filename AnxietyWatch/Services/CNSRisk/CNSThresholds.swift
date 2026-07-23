@@ -26,9 +26,9 @@ struct CNSThresholds: Sendable {
     /// at or below this scores maximal severity (1.0) regardless of baseline,
     /// so a corrupted/depressed personal nadir can never score a genuinely
     /// dangerous reading as safe (closes the "no absolute safety net" gap).
-    /// Set well below any plausible personal nadir — measured continuous-oximeter
-    /// floors sit ~84–100 — so it fires only on real severe hypoxemia, never
-    /// nightly. OR'd with the ramp (the higher severity wins).
+    /// Set well below any plausible personal nadir — a continuous oximeter's
+    /// overnight floor normally sits well above this — so it fires only on real
+    /// severe hypoxemia, never nightly. OR'd with the ramp (the higher severity wins).
     ///
     /// DELIBERATELY absolute (not clamped to the personal onset): clamping it to
     /// `onset − margin` would defeat its whole purpose, because a *poisoned*
@@ -36,8 +36,8 @@ struct CNSThresholds: Sendable {
     /// re-open the "score real danger as safe" hole this floor exists to close.
     /// The residual cost is a genuine *untreated*-severe-apnea user whose real
     /// nightly nadir sits below this floor: they would see nightly klaxons. That
-    /// is out of scope here (this deployment's measured floor is ≥ 84, and
-    /// err-toward-alarm favors firing on a sustained sub-80 desat regardless),
+    /// is out of scope here (a treated apnea user's oximeter floor sits well above
+    /// it, and err-toward-alarm favors firing on a sustained sub-80 desat regardless),
     /// and the correct fix for that population is a separate mechanism —
     /// requiring sustained depression relative to a *trusted* (plausibility-
     /// gated) baseline — not a clamp that reopens the poisoned-baseline hole.
