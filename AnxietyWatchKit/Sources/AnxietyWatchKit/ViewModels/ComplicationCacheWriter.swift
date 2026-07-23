@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Defines the complication data written out for the extension to display.
 public struct ComplicationState: Sendable, Codable, Equatable {
@@ -48,15 +49,24 @@ public actor ComplicationCacheWriter {
         ) {
             self.containerURL = url
         } else {
-            // The App Group container is unavailable, and this is EXPECTED in
-            // several normal cases — the iOS app target has no App Group
-            // entitlement (and can't feed a watchOS complication across the
-            // device boundary anyway), and the simulator / XCTest host lack it
-            // too. So this must NOT crash: no `fatalError` (would crash release
-            // device builds) and no `assertionFailure` (would crash every DEBUG
-            // app launch + the app test suite, since the iOS app always lands
-            // here). A glanceable complication cache degrades to a throwaway
-            // temp directory (it simply won't update) in every build config.
+            // The App Group container is unavailable. This must NOT crash: no
+            // `fatalError` (would crash release device builds) and no
+            // `assertionFailure` (would crash every DEBUG app launch + the app
+            // test suite, since the iOS app — which has no App Group entitlement —
+            // always lands here). Degrade to a throwaway temp directory instead
+            // (the complication simply won't update).
+            //
+            // WHERE this matters differs by platform: on iOS / simulator / XCTest
+            // a nil container is EXPECTED (the iOS app has no entitlement and
+            // can't feed a watchOS complication across the device boundary anyway)
+            // — stay silent. On watchOS this IS the writer that feeds the
+            // complication, so a nil container is a real entitlement/provisioning
+            // fault that would silently break updates — log it as a fault so it's
+            // diagnosable rather than mysterious.
+#if os(watchOS)
+            Logger(subsystem: "com.groundeffectsoftware.AnxietyWatch", category: "ComplicationCache")
+                .fault("App Group unavailable on watchOS — complication won't update; check the Watch app entitlement")
+#endif
             self.containerURL = URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("ComplicationCacheFallback")
             try? FileManager.default.createDirectory(at: self.containerURL, withIntermediateDirectories: true)
