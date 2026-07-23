@@ -21,12 +21,25 @@ struct CNSAlertTierMachine {
     private(set) var canAssess = false
 
     /// When the score first met the next tier's threshold (nil = no rise
-    /// in progress).
+    /// in progress). This is the GRADED-LADDER clock (clear→watch→confirm→klaxon,
+    /// one step at a time) — deliberately separate from the critical fast-path
+    /// clock below so a transient critical spike (or its resolution back to
+    /// moderate) never discards ladder progress that remains independently
+    /// valid, and vice versa.
     private var riseCandidateSince: Date?
     private var riseCandidateTier: CNSAlertTier?
     /// The most recent qualifying assessed update — used to detect gaps
     /// inside a rise-sustain window (see `sustainMaxGapSeconds`).
     private var riseCandidateLastQualifyingAt: Date?
+    /// When a critical PRIMARY reading first opened the fast path to klaxon
+    /// (nil = no critical rise in progress). Independent of the ladder clock:
+    /// keyed purely on `critical`, so oscillation across the critical boundary
+    /// resets ONLY this clock, never the ladder's.
+    private var criticalCandidateSince: Date?
+    /// The most recent qualifying (critical, primary-informed) update — the
+    /// fast path's own gap guard, so two critical readings bracketing a data
+    /// gap can never satisfy the 12 s window.
+    private var criticalCandidateLastQualifyingAt: Date?
     /// When the score first fell decisively below the current tier's
     /// threshold (nil = no clear in progress).
     private var clearCandidateSince: Date?
@@ -61,13 +74,10 @@ struct CNSAlertTierMachine {
         return companionPresent ? base : base - thresholds.aloneModeThresholdDelta
     }
 
-    private func sustainSeconds(toEnter tier: CNSAlertTier, critical: Bool) -> TimeInterval {
-        if critical {
-            // Severity-scaled fast path: a critical primary reading (score at
-            // the klaxon threshold — SpO₂ at the floor / absolute danger line)
-            // does not pay the graded ladder. One short validity sustain.
-            return thresholds.criticalFastPathSustainSeconds
-        }
+    /// Sustain to enter a tier via the GRADED ladder (one step at a time). The
+    /// confirm→klaxon hop is shorter (danger already confirmed) and shorter
+    /// still alone; the critical fast path uses its own constant, not this.
+    private func sustainSeconds(toEnter tier: CNSAlertTier) -> TimeInterval {
         if companionPresent {
             return tier == .klaxon ? thresholds.klaxonRiseSustainSeconds : thresholds.riseSustainSeconds
         } else {
@@ -81,13 +91,19 @@ struct CNSAlertTierMachine {
         case .assessed(let score, let contributions):
             canAssess = true
             // Whether a primary signal (SpO₂ / respiratory rate) actually
-            // informed this score. Only the signal class that can raise the
-            // alarm may earn reassurance or contradict a rise in progress.
-            let primaryInformed = contributions.contains {
+            // informed this score, and the strongest such severity. Only the
+            // signal class that can raise the alarm may earn reassurance,
+            // contradict a rise in progress, or open the critical fast path —
+            // and the fast path keys on the primary's OWN severity, never the
+            // corroboration-inflated fused score.
+            let primaryContributions = contributions.filter {
                 $0.kind == .spo2 || $0.kind == .respiratoryRate
             }
+            let primaryInformed = !primaryContributions.isEmpty
+            let primarySeverity = primaryContributions.map(\.severity).max() ?? 0
 
-            advanceRise(score: score, primaryInformed: primaryInformed, at: now)
+            advanceRise(score: score, primaryInformed: primaryInformed,
+                        primarySeverity: primarySeverity, at: now)
             advanceClear(score: score, primaryInformed: primaryInformed, at: now)
             return tier
 
@@ -118,35 +134,37 @@ struct CNSAlertTierMachine {
         }
     }
 
-    private mutating func advanceRise(score: Double, primaryInformed: Bool, at now: Date) {
-        // Severity-scaled fast path: a primary-informed score at the klaxon
-        // threshold is deep, unambiguous danger (severity ≈ 1.0 — SpO₂ at the
-        // floor / absolute danger line). It escalates STRAIGHT to klaxon after
-        // one short validity sustain, skipping the watch→confirm ladder, so a
-        // crash does not pay the full graded latency. Reaching the klaxon
-        // threshold at all requires primary severity ~1.0, so this is genuinely
-        // the critical band, not a gradual rise.
-        let critical = primaryInformed && score >= entryThreshold(for: .klaxon)
-        let target: CNSAlertTier
-        if critical {
-            target = .klaxon
-        } else if let next = CNSAlertTier(rawValue: tier.rawValue + 1) {
-            target = next
-        } else {
-            resetRiseCandidate()
-            return
-        }
-        // Already at or above the target (e.g. critical while already at klaxon):
-        // nothing to rise into.
-        guard target > tier else {
+    /// Two INDEPENDENT rise clocks advance every qualifying tick:
+    ///  • the graded ladder (clear→watch→confirm→klaxon, one step at a time), and
+    ///  • the critical fast path (straight to klaxon for a deep primary desat).
+    /// They never share a candidate. A score oscillating across the critical
+    /// boundary resets only the fast-path clock; the ladder keeps whatever
+    /// progress it has independently earned (and vice versa). The fast path runs
+    /// last so that if BOTH complete on the same tick, klaxon (the more severe)
+    /// wins.
+    private mutating func advanceRise(
+        score: Double, primaryInformed: Bool, primarySeverity: Double, at now: Date
+    ) {
+        advanceLadder(score: score, primaryInformed: primaryInformed, at: now)
+        advanceCriticalFastPath(
+            score: score, primaryInformed: primaryInformed,
+            primarySeverity: primarySeverity, at: now
+        )
+    }
+
+    /// Graded escalation: one tier at a time, each hop earned by its own sustain
+    /// window. The target is ALWAYS `tier + 1` (never score-dependent), so the
+    /// candidate is only ever restarted by a genuinely fresh window or a data
+    /// gap — never by a score crossing a higher threshold.
+    private mutating func advanceLadder(score: Double, primaryInformed: Bool, at now: Date) {
+        guard let target = CNSAlertTier(rawValue: tier.rawValue + 1) else {
             resetRiseCandidate()
             return
         }
         // Only primary-informed evidence can escalate the tier PAST watch — HR/HRV
         // alone (corroborating signals) can trigger a watch state, but cannot
-        // push into confirm/klaxon (a critical target is primary-informed by
-        // construction). Without this guard, a chest-strap-only (no SpO₂)
-        // session could rise to confirm on HR/HRV alone.
+        // push into confirm/klaxon. Without this guard, a chest-strap-only (no
+        // SpO₂) session could rise to confirm on HR/HRV alone.
         if target > .watch {
             guard primaryInformed else {
                 return
@@ -177,11 +195,58 @@ struct CNSAlertTierMachine {
         }
         riseCandidateLastQualifyingAt = now
         if let since = riseCandidateSince,
-           now.timeIntervalSince(since) >= sustainSeconds(toEnter: target, critical: critical) {
+           now.timeIntervalSince(since) >= sustainSeconds(toEnter: target) {
             tier = target
             resetClearCandidate()
             // Chain-escalation continues from a fresh candidate window.
             resetRiseCandidate()
+        }
+    }
+
+    /// Severity-scaled fast path: a deep, unambiguous PRIMARY desat (SpO₂ at the
+    /// floor / absolute danger line) escalates STRAIGHT to klaxon after one short
+    /// validity sustain, skipping the graded ladder so a crash does not pay the
+    /// full ~2-min latency. Gated on the primary's OWN severity — corroborating
+    /// HR/HRV can neither inform nor shorten it — AND on the fused score clearing
+    /// the (companion-aware) klaxon entry, so tier semantics still hold.
+    private mutating func advanceCriticalFastPath(
+        score: Double, primaryInformed: Bool, primarySeverity: Double, at now: Date
+    ) {
+        guard tier < .klaxon else {
+            resetCriticalCandidate()
+            return
+        }
+        let critical = primaryInformed
+            && primarySeverity >= thresholds.criticalPrimarySeverity
+            && score >= entryThreshold(for: .klaxon)
+        guard critical else {
+            // Contrary PRIMARY evidence (a primary-informed sub-critical tick)
+            // abandons the fast path; a corroborating-only tick leaves it intact
+            // (the gap guard governs staleness), mirroring the ladder. Either way
+            // the ladder clock is untouched.
+            if primaryInformed {
+                resetCriticalCandidate()
+            }
+            return
+        }
+        // A fresh candidate OR a stale one whose last qualifying update is too
+        // old: (re)start at now. Two critical readings bracketing a data gap
+        // must never complete the window — unobserved time never counts.
+        let gapTooLong = criticalCandidateLastQualifyingAt.map {
+            now.timeIntervalSince($0) > thresholds.sustainMaxGapSeconds
+        } ?? false
+        if criticalCandidateSince == nil || gapTooLong {
+            criticalCandidateSince = now
+            criticalCandidateLastQualifyingAt = now
+            return
+        }
+        criticalCandidateLastQualifyingAt = now
+        if let since = criticalCandidateSince,
+           now.timeIntervalSince(since) >= thresholds.criticalFastPathSustainSeconds {
+            tier = .klaxon
+            resetClearCandidate()
+            resetRiseCandidate()
+            resetCriticalCandidate()
         }
     }
 
@@ -228,6 +293,11 @@ struct CNSAlertTierMachine {
         riseCandidateSince = nil
         riseCandidateTier = nil
         riseCandidateLastQualifyingAt = nil
+    }
+
+    private mutating func resetCriticalCandidate() {
+        criticalCandidateSince = nil
+        criticalCandidateLastQualifyingAt = nil
     }
 
     private mutating func resetClearCandidate() {

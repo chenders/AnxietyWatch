@@ -29,6 +29,19 @@ struct CNSThresholds: Sendable {
     /// Set well below any plausible personal nadir — measured continuous-oximeter
     /// floors sit ~84–100 — so it fires only on real severe hypoxemia, never
     /// nightly. OR'd with the ramp (the higher severity wins).
+    ///
+    /// DELIBERATELY absolute (not clamped to the personal onset): clamping it to
+    /// `onset − margin` would defeat its whole purpose, because a *poisoned*
+    /// nadir (e.g. 65 → onset 62) would drag the clamp below the danger band and
+    /// re-open the "score real danger as safe" hole this floor exists to close.
+    /// The residual cost is a genuine *untreated*-severe-apnea user whose real
+    /// nightly nadir sits below this floor: they would see nightly klaxons. That
+    /// is out of scope here (this deployment's measured floor is ≥ 84, and
+    /// err-toward-alarm favors firing on a sustained sub-80 desat regardless),
+    /// and the correct fix for that population is a separate mechanism —
+    /// requiring sustained depression relative to a *trusted* (plausibility-
+    /// gated) baseline — not a clamp that reopens the poisoned-baseline hole.
+    /// Tracked as a follow-up, not addressed in the timing PR.
     var spo2AbsoluteDangerFloor: Double = 80
 
     /// Personal baselines outside these ranges are treated as absent rather
@@ -259,14 +272,28 @@ struct CNSThresholds: Sendable {
     var klaxonRiseSustainSeconds: TimeInterval = 30
     /// Alone-mode sustain to escalate confirm → klaxon.
     var aloneModeKlaxonRiseSustainSeconds: TimeInterval = 15
-    /// Severity-scaled FAST PATH: a critical primary reading (fused score at the
-    /// klaxon threshold — SpO₂ at the floor / absolute danger line) reaches
-    /// klaxon after just this sustain, skipping the watch→confirm ladder. Deep,
-    /// unambiguous danger must not pay the full ~2-min graded latency. Long
-    /// enough (≥ several 1 Hz samples, and > the 5 s gap guard) to reject a
-    /// single-sample glitch; short enough to matter. Applies regardless of
-    /// companion presence — critical danger is critical either way.
+    /// Severity-scaled FAST PATH: a critical PRIMARY reading (SpO₂ at the floor /
+    /// absolute danger line) reaches klaxon after just this sustain, skipping the
+    /// watch→confirm ladder. Deep, unambiguous danger must not pay the full
+    /// ~2-min graded latency. Long enough (≥ several 1 Hz samples, and > the 5 s
+    /// gap guard) to reject a single-sample glitch; short enough to matter.
+    /// Applies regardless of companion presence — critical danger is critical
+    /// either way. Gated on `criticalPrimarySeverity` (raw primary severity, NOT
+    /// the fused score) so corroborating HR/HRV can never shorten it: the fast
+    /// path's own clock is independent of the graded-ladder clock (see
+    /// `CNSAlertTierMachine.advanceCriticalFastPath`).
     var criticalFastPathSustainSeconds: TimeInterval = 12
+    /// The fast path engages only when a PRIMARY signal's OWN severity is in the
+    /// critical band — 0.85 maps to SpO₂ ≈ 85 on the population ramp (PRODIGY
+    /// severe-hypoxemia line) and to the near-floor value on a personalized ramp;
+    /// the absolute floor (≤ 80) already forces severity 1.0. Gating on raw
+    /// primary severity (not the fused composite) means a merely-moderate primary
+    /// (e.g. SpO₂ 86, severity ~0.67) that only crosses the klaxon threshold with
+    /// HR/HRV corroboration escalates over the graded ladder, never the 12 s
+    /// express — corroboration raises watchfulness, it does not manufacture a
+    /// crash. The fast path additionally requires the fused score to clear the
+    /// (companion-aware) klaxon entry, so tier semantics still hold.
+    var criticalPrimarySeverity: Double = 0.85
     /// Score must sit below (threshold − hysteresis) this long to FALL.
     var clearSustainSeconds: TimeInterval = 120
     var clearHysteresis: Double = 0.1

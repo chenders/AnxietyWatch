@@ -108,6 +108,84 @@ struct CNSKlaxonFastPathTests {
         #expect(tier == .klaxon)
     }
 
+    /// A primary contribution at an arbitrary severity, so a test can set the
+    /// fused riskScore and the raw primary severity independently.
+    private func primary(severity: Double) -> [CNSSignalAssessment] {
+        [CNSSignalAssessment(kind: .spo2, source: .emayOximeter, severity: severity, confidence: 0.9)]
+    }
+
+    @Test("Corroboration cannot buy the 12s express lane — a moderate primary klaxons only via the graded ladder")
+    func criticalFastPathIgnoresCorroborationInflation() {
+        var m = machine()
+        // A MODERATE primary (SpO₂ severity 0.55, ~SpO₂ 86.4) plus screaming HR+HRV
+        // fuses to 0.9 — above the klaxon threshold. Gating the fast path on the
+        // FUSED score (the pre-fix bug) would fire klaxon in 12 s. It now keys on
+        // RAW primary severity (0.55 < criticalPrimarySeverity 0.85), so
+        // corroboration can't manufacture a crash.
+        let corroborated: [CNSSignalAssessment] = [
+            CNSSignalAssessment(kind: .spo2, source: .emayOximeter, severity: 0.55, confidence: 0.9),
+            CNSSignalAssessment(kind: .heartRate, source: .polarH10, severity: 1.0, confidence: 0.95),
+            CNSSignalAssessment(kind: .hrv, source: .polarH10, severity: 1.0, confidence: 0.9)
+        ]
+        for second in 0..<13 {   // 12 s elapsed at t=12 — the fast-path window
+            _ = m.ingest(.assessed(riskScore: 0.9, contributions: corroborated),
+                         at: t0.addingTimeInterval(Double(second)))
+        }
+        #expect(m.tier == .clear)   // NO 12 s fast path; the ladder hasn't reached watch
+        // It DOES still escalate — over the graded ladder (err toward alarm):
+        // watch ~t60, confirm ~t121, klaxon ~t152. Drive well past that.
+        var tier = m.tier
+        for second in 13..<170 {
+            tier = m.ingest(.assessed(riskScore: 0.9, contributions: corroborated),
+                            at: t0.addingTimeInterval(Double(second)))
+        }
+        #expect(tier == .klaxon)
+    }
+
+    @Test("Oscillating across the critical boundary does not wedge the graded ladder")
+    func criticalBoundaryOscillationDoesNotWedgeLadder() {
+        var m = machine()
+        // Alternate a CRITICAL primary (severity 0.9 → fast-path eligible) with a
+        // sub-critical but still-elevated one (0.7, above the confirm entry). Both
+        // are primary-informed and both clear the confirm threshold, so the
+        // ladder's candidate accumulates CONTINUOUSLY. Pre-fix, the target
+        // flip-flopped klaxon↔confirm every tick and reset the SHARED candidate,
+        // wedging the machine below confirm forever. With independent clocks the
+        // ladder still reaches confirm on schedule, while the alternation keeps
+        // the fast path from ever completing (it resets every other tick).
+        var tier = m.tier
+        for second in 0..<130 {
+            let severity = second.isMultiple(of: 2) ? 0.9 : 0.7
+            tier = m.ingest(
+                .assessed(riskScore: severity, contributions: primary(severity: severity)),
+                at: t0.addingTimeInterval(Double(second))
+            )
+        }
+        // Reached confirm via the ladder (not wedged at clear/watch), and NOT
+        // klaxon (the alternation never lets the 12 s critical window complete).
+        #expect(tier == .confirm)
+    }
+
+    @Test("A single noisy critical spike mid-ladder does not reset confirm progress")
+    func singleNoisyCriticalSpikeDoesNotResetLadderProgress() {
+        var m = machine()
+        // Rise to watch (0.5, 60 s companion sustain), then build 30 s of confirm
+        // progress at 0.7 (under the 60 s hop).
+        _ = feed(&m, score: 0.5, seconds: 61)                    // watch at t=60
+        #expect(m.tier == .watch)
+        #expect(feed(&m, score: 0.7, seconds: 30, startingAt: 61) == .watch)  // t61…90, not yet confirm
+        // ONE noisy tick at t=91 spikes to critical (0.9 ≥ klaxon) — a single
+        // sample, nowhere near the 12 s fast-path window — then reverts to 0.7.
+        // Pre-fix, that spike flipped the shared candidate's target to klaxon and
+        // wiped the confirm progress, pushing confirm from t=121 out to t=152.
+        _ = m.ingest(.assessed(riskScore: 0.9, contributions: primary(0.9)), at: t0.addingTimeInterval(91))
+        _ = m.ingest(.assessed(riskScore: 0.7, contributions: primary(0.7)), at: t0.addingTimeInterval(92))
+        // The confirm candidate started at t=61, so 0.7 sustained to t=121 fires
+        // confirm ON SCHEDULE — the spike cost nothing (independent clocks).
+        let tier = feed(&m, score: 0.7, seconds: 29, startingAt: 93)  // t93…121
+        #expect(tier == .confirm)
+    }
+
     // MARK: - Severity scorer: absolute backstop
 
     private func spo2Samples(value: Double) -> [CNSSignalSample] {
@@ -151,16 +229,40 @@ struct CNSKlaxonFastPathTests {
 
     private var engine: CNSFusionEngine { CNSFusionEngine(thresholds: thresholds) }
 
-    @Test("A lone HIGH-fidelity continuous oximeter escalates a moderate desat past the lone-source cap")
-    func loneContinuousOximeterUnmuzzled() {
-        // EMAY alone at severity 0.667 (~SpO₂ 86), NOT the ≥0.9 extreme override.
-        // The old lone-source cap pinned this at 0.5 (dead zone → watch forever);
-        // now a trusted continuous oximeter escalates on its own.
+    @Test("A lone continuous oximeter (no baseline) clears the lone-source cap but a moderate desat lands just shy of confirm")
+    func loneContinuousOximeterUnmuzzledNoBaseline() {
+        // EMAY alone at severity 0.667 (~SpO₂ 86), NOT the ≥0.9 extreme override,
+        // at NO-BASELINE confidence (fidelity 0.9 × density 1.0 × missing-baseline
+        // 0.8 = 0.72). The old lone-source cap pinned this at 0.5 (dead zone →
+        // watch forever); un-muzzling lifts it ABOVE the cap. But with no personal
+        // baseline the confidence soft-scale leaves the composite just BELOW
+        // confirm — 0.667 × (0.5 + 0.5 × 0.72) = 0.574 < 0.6 — so a brand-new
+        // user's first-night sustained moderate desat reaches WATCH, not confirm.
+        // This is a DOCUMENTED residual of the un-muzzle (medical-review finding):
+        // a baseline closes it (see the with-baseline sibling), and the
+        // klaxon/critical paths are unaffected. Tracked as a follow-up, not a
+        // regression — pre-PR1 this same case was capped strictly lower (0.5).
         let lone = [CNSSignalAssessment(kind: .spo2, source: .emayOximeter, severity: 0.667, confidence: 0.72)]
         guard case .assessed(let score, _) = engine.fuse(lone) else {
             Issue.record("expected .assessed"); return
         }
         #expect(score > thresholds.loneSourceRiskCap)
+        #expect(score < thresholds.confirmThreshold)
+    }
+
+    @Test("A lone continuous oximeter WITH a baseline escalates a moderate desat to confirm")
+    func loneContinuousOximeterWithBaselineReachesConfirm() {
+        // Same severity 0.667, but a personal baseline lifts confidence to
+        // fidelity 0.9 × density 1.0 × 1.0 = 0.9, so the soft-scaled composite
+        // 0.667 × (0.5 + 0.5 × 0.9) = 0.634 clears confirm (0.6). This is exactly
+        // the case the design doc's "86–87% dead zone" targeted: once ANY personal
+        // baseline exists, a trusted lone oximeter's sustained moderate desat
+        // reaches confirm rather than being muzzled to watch.
+        let lone = [CNSSignalAssessment(kind: .spo2, source: .emayOximeter, severity: 0.667, confidence: 0.9)]
+        guard case .assessed(let score, _) = engine.fuse(lone) else {
+            Issue.record("expected .assessed"); return
+        }
+        #expect(score >= thresholds.confirmThreshold)
     }
 
     @Test("A lone LOW-fidelity opportunistic Watch reading stays damped at the lone-source cap")
