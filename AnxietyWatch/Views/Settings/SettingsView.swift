@@ -123,8 +123,10 @@ struct SettingsView: View {
                 } header: {
                     Text("Developer")
                 } footer: {
-                    Text("Replays a desaturation through the real CNS detection engine. In-memory only — no "
-                        + "health records, monitoring sessions, Bluetooth, or notifications.")
+                    Text("Replays a desaturation through the real CNS detection engine, in-memory only "
+                        + "(no health records or monitoring sessions). The synthetic replay uses no "
+                        + "Bluetooth or notifications; the live-dongle self-test it links to DOES use real "
+                        + "Bluetooth (the EMAY emulator) and its coordinator may post local notifications.")
                 }
 #endif
 

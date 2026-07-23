@@ -49,6 +49,7 @@ final class CNSAlertEngine {
 
         case .watch:
             stopKlaxonHaptics()
+            restoreSystemVolume()         // de-escalated below confirm/klaxon — un-pin the media volume
             if rising { notify(.warning) }
             tone.playSoftChirp()          // one gentle heads-up tone
 

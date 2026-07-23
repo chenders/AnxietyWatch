@@ -7,10 +7,12 @@ can be driven end-to-end — a hypoxia trajectory no real device could (or shoul
 produce on a person.
 
 > **What this tests:** the *detection* escalating `clear → watch → confirm →
-> klaxon`. It does **not** make a sound — the audible/haptic klaxon is Phase 3
-> (`CNSMonitoringCoordinator` currently only sets the tier state and persists
-> the edge: *"tier-edge is the hook point for klaxon/haptic escalation … Phase 2
-> triggers no alerting itself"*). You verify the **Tier** field, not your ears.
+> klaxon`. In the **production** monitoring path this is silent — the
+> audible/haptic klaxon there is Phase 3 (`CNSMonitoringCoordinator` currently
+> only sets the tier state and persists the edge). The DEBUG **live-dongle
+> self-test** (`CNSLiveDongleSelfTestView`), however, drives `CNSAlertEngine`,
+> which DOES play synthesized tones + haptics as the tier rises — so with that
+> harness you verify the alarm by ear too, not just the **Tier** field.
 
 No host is needed at run time — the dongle only needs **USB power** (a Mac port
 or any USB charger near the phone).
