@@ -11,10 +11,10 @@ An **ez Share WiFi SD card** in the AirSense 11 gives us a third path that is bo
 ## Constraints
 
 - **FAT32 only.** ez Share firmware and the AS11 both ignore exFAT/NTFS. The card must be FAT32 and re-initialized by the AS11.
-- **The card is its own access point.** SSID `ez Share`, WPA PSK `88888888`, HTTP root `http://192.168.4.1`, admin/config password `admin` (factory defaults). It does **not** join the home LAN, it is **short-range**, and its radio is **only live while the CPAP is powered**.
+- **The card is its own access point.** SSID `ez Share`, WPA2 PSK `88888888`, HTTP root `http://192.168.4.1` (card at `192.168.4.1`, DHCP hands clients `192.168.4.x`), admin/config password `admin` (factory defaults). It does **not** join the home LAN and is **short-range**. Its radio is live **whenever the card is powered by a host** — in production that's while the CPAP is on, but it also broadcasts while the card sits in a computer's SD reader (which is how the Phase-1 connectivity test below was run).
 - **The card AP has no internet.** Whatever interface joins it must not become the default route — only `192.168.4.0/24` should route over it; the primary Ethernet stays the default route.
 - **Directory listing is HTML, not JSON.** Files appear as `<a href="…/download?file=SHORT~1.EDF">` inside a `<pre>` block; the preceding text node carries date/time/size. Sizes are **whole-KB granular**, so the "already have this file" check must key on **(name, KB-size)**, never byte-exact.
-- **Firmware variants exist.** Modern cards expose `/dir?dir=A:`; older cards expose only a photo-gallery API and need a legacy `download?fname=…&fdir=…` form. Detect via `/client?command=version`.
+- **Firmware variants exist.** Modern cards expose `/dir?dir=A:`; older cards expose only a photo-gallery API and need a legacy `download?fname=…&fdir=…` form. Detect via `/client?command=version`. *(This specific card is confirmed **modern** — firmware `2.0.7_2018-01-01`, `/dir` live — so the legacy path is defensive-only. See Validation status.)*
 - **Deployment host (megadude):** Ubuntu 24.04, kernel 6.17, Ethernet `eno2` (default route), onboard Intel AX201 `wlo1` on the mainline `iwlwifi` driver (currently `rfkill` soft-blocked → clears with one command). Has both USB 2.0 and USB 3.0 buses. In-kernel drivers `ath9k_htc`, `mt7921u`, `mt76x2u`, `mt7601u` are present; `88x2bu` is **not**, and `dkms` is not installed (so Realtek RTL88x2-class USB adapters are out).
 - **Reuse, don't reinvent.** The server already ships `beautifulsoup4` + `lxml` (HTML parsing), `pyedflib` + `numpy` (EDF), `requests`/`httpx`, the `cpap_sessions` table with a full column set and an `import_source` discriminator, the `settings`/`sync_log` cursor+audit pattern, and `edf_parser.py`. This integration is additive, mirroring `resmed_sync.py`.
 
@@ -42,8 +42,8 @@ Thin wrapper over the card's HTTP API. No WiFi handling — it talks to `http://
 
 **Responsibilities:**
 - Probe firmware: `GET /client?command=version`.
-- List a directory: `GET /dir?dir=A:` / `…A:\DATALOG\<YYYYMMDD>` (backslash URL-encoded `%5C`), parse the HTML `<pre>` block with BeautifulSoup into entries.
-- Recurse `DATALOG/` folders; skip non-data files (`JOURNAL.JNL`, `ezshare.cfg`, `System Volume Information`).
+- List a directory: `GET /dir?dir=A:` / `…A:\DATALOG\<YYYYMMDD>` (backslash URL-encoded `%5C`), parse the HTML `<pre>` block with BeautifulSoup into entries. **Observed format** (from the live capture): the page is `charset=gb2312`, subdirectory links come back as `dir?dir=A:%5C<name>`, directories are marked `&lt;DIR&gt;` in the size column, and file rows are `2017-01-01 0:00:00 0KB <a href="…/download?file=SHORT~1.EDF"> name</a>`. Decode as gb2312; treat `<DIR>` rows as directories, not files.
+- Recurse `DATALOG/` folders; skip non-data entries: `JOURNAL.JNL`, `ezshare.cfg`, `System Volume Information`, **and macOS metadata** that appears whenever the card has been mounted on a Mac (`.fseventsd`, `.Spotlight-V100`, `.Trashes`, `.DS_Store`, `._*`) — the live listing already contained `.fseventsd` and `.Spotlight-V100`.
 - Download a file: `GET /download?file=<8.3-shortname>`.
 - Expose the **(name, KB-size)** identity for dedup (sizes are KB-granular).
 
@@ -131,18 +131,21 @@ diskutil eraseDisk FAT32 EZSHARE MBRFormat /dev/diskN   # N = the verified card 
 ```
 Reinsert into the AS11, let it initialize, and run **one night** of therapy. Confirm a `DATALOG/<YYYYMMDD>/` tree plus a top-level `STR.edf` appear.
 
-**Phase 1 — bring up onboard WiFi on megadude (no purchase for the common case).** The onboard AX201 (`wlo1`, `iwlwifi`) is `rfkill` soft-blocked by default:
+**Phase 1 — bring up onboard WiFi on megadude (no purchase for the common case; validated 2026-07-23).** The onboard AX201 (`wlo1`, `iwlwifi`) is `rfkill` soft-blocked by default. Use the **inline-secret** `device wifi connect` form — a pre-built profile + `nmcli connection up` fails headlessly over SSH with `Secrets were required, but not provided` (no secret agent in a non-login session):
 ```bash
 sudo rfkill unblock wifi
-nmcli device wifi connect "ez Share" password "88888888" ifname wlo1
-# Keep the card AP off the default route; only 192.168.4.0/24 over wlo1:
-nmcli connection modify "ez Share" ipv4.never-default yes ipv6.never-default yes
+sudo nmcli device wifi connect "ez Share" password "88888888" ifname wlo1 name ezshare-card
+# Keep the card AP off the default route AND out of DNS; autoconnect off:
+sudo nmcli connection modify ezshare-card ipv4.never-default yes ipv4.ignore-auto-dns yes \
+    ipv6.method ignore connection.autoconnect no
+sudo nmcli connection up ezshare-card
 ```
-Validate from megadude (Ethernet `eno2` still the default route, internet unaffected):
+Validate (Ethernet `eno2` must stay the default route — confirm `ip route show default` shows only the `eno2` line, and `ip route get 192.168.4.1` goes via `wlo1`):
 ```bash
-curl "http://192.168.4.1/client?command=version"
-curl "http://192.168.4.1/dir?dir=A:"
+curl "http://192.168.4.1/client?command=version"   # → firmware XML
+curl "http://192.168.4.1/dir?dir=A:"               # → HTML <pre> listing
 ```
+Teardown to the original state (keeps the saved profile): `sudo nmcli connection down ezshare-card && sudo rfkill block wifi`.
 
 **Range fallback (only if onboard can't hear the AP from where megadude sits).** The AX201's antennas are fixed at the box; the card AP is weak. If Phase 1's `curl` can't reach the card, add a USB adapter with a **repositionable external antenna** whose driver is already in-kernel here:
 - **ALFA AWUS036ACM** — MediaTek **MT7612U** → `mt76x2u` (present), dual-band, dual 5 dBi antennas, ships with a USB extension cradle (ideal for range). **Caveat:** MT7612U can misbehave on USB 3.0 on new kernels — plug it into megadude's **USB 2.0** port or use the included cradle.
@@ -150,6 +153,20 @@ curl "http://192.168.4.1/dir?dir=A:"
 - **Do not** use the TP-Link Archer T3U (RTL8812BU) — needs the out-of-tree `88x2bu` + dkms, neither present; it rots on kernel bumps.
 
 **Container networking.** The poller must reach `192.168.4.1` via the host's `wlo1` route, which the app's bridge network cannot. Recommended: a dedicated compose service (`network_mode: host`) built from the existing server image that runs the ez Share cron; with host networking it inherits the host route to the card and reaches Postgres via the published `127.0.0.1:5439`. Alternative: a host-level `systemd` timer running the script in a venv. (Decision flagged below.)
+
+## Validation status (2026-07-23, pre-implementation)
+
+The **network path (Phase 1) was validated live before any code was written**, with the card powered in a Mac SD reader so its AP was broadcasting:
+
+- megadude's **onboard AX201** (`wlo1`) saw `ez Share` at signal ~47–54 and joined it (IP `192.168.4.2/24`). **No USB adapter needed at this location.**
+- The `ipv4.never-default` + `ipv4.ignore-auto-dns` lockdown **held**: the default route stayed on `eno2`, DNS untouched, the running server unaffected (`ip route get 192.168.4.1` → via `wlo1`).
+- `GET /client?command=version` → `200`, firmware `2.0.7_2018-01-01` → **modern `/dir` API**, legacy fallback not needed for this card.
+- `GET /dir?dir=A:` → `200`, HTML `<pre>` listing parsed as expected. A real capture now anchors the `ezshare_client.py` parser and its test fixture (gb2312 charset; `&lt;DIR&gt;` markers; `dir?dir=A:%5C` subdir links; macOS dot-dirs present).
+- Confirmed the card holds **no `DATALOG/`** yet (only `ezshare.cfg` + macOS metadata), so **Phase 0 (FAT32 reformat + one AS11 night) remains the prerequisite** for real session data.
+
+A saved NM profile `ezshare-card` (autoconnect off, never-default, ignore-DNS) remains on megadude; the radio was returned to its original `rfkill`-blocked state after the test. Bring it back up with `sudo nmcli connection up ezshare-card`.
+
+**Still unvalidated (needs real data):** the EDF parse path (Phases 2–4) — blocked on Phase 0 producing an actual `STR.edf` — and whether signal ~50 holds once the card moves from the Mac into the CPAP in its permanent location (range may differ).
 
 ## Data Mapping
 
