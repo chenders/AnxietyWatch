@@ -92,30 +92,28 @@ struct CNSAlertTierMachine {
         switch assessment {
         case .assessed(let score, let contributions):
             canAssess = true
-            // Whether a primary signal (SpO₂ / respiratory rate) actually
-            // informed this score, and the strongest such severity. Only the
-            // signal class that can raise the alarm may earn reassurance,
-            // contradict a rise in progress, or open the critical fast path —
-            // and the fast path keys on the primary's OWN severity, never the
-            // corroboration-inflated fused score.
-            let primaryContributions = contributions.filter {
-                $0.kind == .spo2 || $0.kind == .respiratoryRate
-            }
-            let primaryInformed = !primaryContributions.isEmpty
-            // The critical fast path fires on a TRUSTED-fidelity primary source
-            // (EMAY / AS11 oximeter) whose OWN severity is in the critical band —
-            // NOT on the confidence-damped fused score. Keying on source fidelity
-            // rather than the fused score means (a) a confidence-damped maximal
-            // reading — a validated ≤ absolute-floor SpO₂ from a continuous
-            // oximeter at low coverage / no baseline, the exact "crash starves its
-            // own detector" signature — can never be SUPPRESSED below the express
-            // lane, and (b) a phantom low-fidelity spike (Apple Watch spot-check)
-            // can never TRIGGER it. Corroborating HR/HRV are excluded by
-            // construction (not primary), so they can neither inform nor shorten it.
-            let criticalPrimary = primaryContributions.contains {
-                $0.severity >= thresholds.criticalPrimarySeverity
-                    && thresholds.sourceFidelity(kind: $0.kind, source: $0.source)
-                        >= thresholds.loneSourceTrustedFidelity
+            // Classify this tick's PRIMARY (SpO₂ / respiratory rate) evidence in
+            // one pass: whether any primary signal informed the score at all (only
+            // that class can earn reassurance, contradict a rise, or open the fast
+            // path), and whether a TRUSTED continuous primary (EMAY / AS11 oximeter
+            // at/above the trusted-fidelity bar) is in the critical severity band.
+            // The fast path keys on that source-fidelity + raw-severity pair — NOT
+            // the confidence-damped fused score — so (a) a validated maximal desat
+            // at low coverage / no baseline ("the crash starves its own detector")
+            // can't be SUPPRESSED below the express lane, and (b) a phantom
+            // low-fidelity spike (Apple Watch spot-check) can't TRIGGER it.
+            // Corroborating HR/HRV are excluded by construction, so they can
+            // neither inform nor shorten escalation.
+            var primaryInformed = false
+            var criticalPrimary = false
+            for contribution in contributions
+            where contribution.kind == .spo2 || contribution.kind == .respiratoryRate {
+                primaryInformed = true
+                if contribution.severity >= thresholds.criticalPrimarySeverity,
+                   thresholds.sourceFidelity(kind: contribution.kind, source: contribution.source)
+                       >= thresholds.trustedContinuousPrimaryFidelity {
+                    criticalPrimary = true
+                }
             }
 
             advanceRise(score: score, primaryInformed: primaryInformed,

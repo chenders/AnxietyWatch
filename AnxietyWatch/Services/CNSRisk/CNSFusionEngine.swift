@@ -91,7 +91,7 @@ struct CNSFusionEngine {
             // phantom lows are artifact-prone) stays damped.
             let trustedContinuousPrimary = thresholds.sourceFidelity(
                 kind: strongest.kind, source: strongest.source
-            ) >= thresholds.loneSourceTrustedFidelity
+            ) >= thresholds.trustedContinuousPrimaryFidelity
             if !extremeOverride && !trustedContinuousPrimary {
                 score = min(score, thresholds.loneSourceRiskCap)
             }

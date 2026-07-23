@@ -245,13 +245,15 @@ struct CNSThresholds: Sendable {
     /// baseline the density factors relax accordingly. Degraded-but-passing
     /// streams reach confirm.
     var loneSourceOverrideConfidence: Double = 0.35
-    /// A lone PRIMARY source at or above this fidelity escalates past watch
-    /// WITHOUT the extreme-override gate — a continuous, verified oximeter
-    /// (EMAY / AS11 SpO₂ = 0.9) reporting a sustained moderate desat is the
-    /// device's purpose and must not be muzzled to a chirp. A lone
-    /// LOW-fidelity/opportunistic primary (Apple Watch SpO₂ = 0.5, whose phantom
-    /// lows dominate this user's sub-85 history) stays damped.
-    var loneSourceTrustedFidelity: Double = 0.8
+    /// The fidelity bar at/above which a PRIMARY source counts as a trusted,
+    /// continuous, verified stream. Used in TWO places: the fusion lone-source
+    /// un-muzzle (a lone trusted primary escalates past watch without the
+    /// extreme-override gate) and the tier machine's critical fast path. A
+    /// continuous oximeter (EMAY / AS11 SpO₂ = 0.9) reporting a sustained desat is
+    /// the device's purpose and must not be muzzled to a chirp; a
+    /// LOW-fidelity/opportunistic primary (Apple Watch SpO₂ = 0.5, artifact-prone
+    /// spot-checks) stays damped.
+    var trustedContinuousPrimaryFidelity: Double = 0.8
     /// Severity at/above which an assessment counts toward lone-source logic.
     var contributingSeverityFloor: Double = 0.2
 
@@ -292,7 +294,7 @@ struct CNSThresholds: Sendable {
     /// HR/HRV corroboration escalates over the graded ladder, never the 12 s
     /// express — corroboration raises watchfulness, it does not manufacture a
     /// crash. The fast path pairs this with a SOURCE-FIDELITY gate
-    /// (`loneSourceTrustedFidelity`), NOT the confidence-damped fused score:
+    /// (`trustedContinuousPrimaryFidelity`), NOT the confidence-damped fused score:
     /// otherwise a genuinely maximal reading (raw SpO₂ ≤ 80, severity 1.0) from a
     /// trusted oximeter at low coverage / no baseline — fused score ≈ 0.68, below
     /// the klaxon entry — would be muzzled below the express lane at the exact
