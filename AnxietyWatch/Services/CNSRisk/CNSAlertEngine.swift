@@ -1,6 +1,7 @@
 #if DEBUG
 import Foundation
 import AVFoundation
+import MediaPlayer
 import UIKit
 
 /// DEBUG-only first cut of the tiered CNS alert engine (the spec's
@@ -20,6 +21,21 @@ final class CNSAlertEngine {
     private var klaxonHapticTask: Task<Void, Never>?
     private var lastTier: CNSAlertTier = .clear
 
+    // Retained + prepared so the Taptic Engine is warm; an inline, unretained,
+    // un-prepared UINotificationFeedbackGenerator() is silently dropped by iOS
+    // ("no engine to play feedback").
+    private let notifier = UINotificationFeedbackGenerator()
+
+    // Best-effort DEBUG loudness: force the media volume to max while the klaxon
+    // sounds, restoring it after. iOS exposes no public output-volume setter, so
+    // this drives a hidden MPVolumeView slider — fragile (private-view
+    // introspection) and does NOT change the output ROUTE (headphones still win)
+    // or bypass the mute switch. The robust answer is the Critical Alerts
+    // entitlement (system volume, ignores mute + this slider); this is only a
+    // louder foreground stopgap.
+    private let volumeView = MPVolumeView(frame: .zero)
+    private var priorSystemVolume: Float?
+
     /// Drive the alert for a new tier. Idempotent per tier (only acts on change).
     func update(for tier: CNSAlertTier) {
         guard tier != lastTier else { return }
@@ -33,16 +49,18 @@ final class CNSAlertEngine {
 
         case .watch:
             stopKlaxonHaptics()
-            if rising { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
+            if rising { notify(.warning) }
             tone.playSoftChirp()          // one gentle heads-up tone
 
         case .confirm:
             stopKlaxonHaptics()
-            if rising { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
+            if rising { notify(.warning) }
+            boostSystemVolume()           // pre-klaxon "confirm you're awake" is loud too
             tone.playWarningLoop()        // mild repeating pre-klaxon beep
 
         case .klaxon:
-            if rising { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+            if rising { notify(.error) }
+            boostSystemVolume()           // best-effort: max the media volume
             tone.playKlaxonLoop()         // loud two-tone alarm, until dismissed
             startKlaxonHaptics()          // strong repeating buzz
         }
@@ -52,7 +70,41 @@ final class CNSAlertEngine {
     func silence() {
         stopKlaxonHaptics()
         tone.stop()
+        restoreSystemVolume()
         lastTier = .clear
+    }
+
+    private func notify(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+        notifier.prepare()   // warm the Taptic Engine right before firing
+        notifier.notificationOccurred(type)
+    }
+
+    /// Force the system media volume to max for the klaxon (best-effort).
+    private func boostSystemVolume() {
+        guard priorSystemVolume == nil,
+              let window = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .flatMap({ $0.windows })
+                .first(where: { $0.isKeyWindow }) else { return }
+        priorSystemVolume = AVAudioSession.sharedInstance().outputVolume
+        volumeView.alpha = 0.0001
+        volumeView.isUserInteractionEnabled = false
+        if volumeView.superview == nil { window.addSubview(volumeView) }
+        // The slider subview only exists once the view is in the hierarchy.
+        DispatchQueue.main.async { [weak self] in self?.setVolumeSlider(1.0) }
+    }
+
+    private func restoreSystemVolume() {
+        guard let prior = priorSystemVolume else { return }
+        priorSystemVolume = nil
+        setVolumeSlider(prior)
+        volumeView.removeFromSuperview()
+    }
+
+    private func setVolumeSlider(_ value: Float) {
+        guard let slider = volumeView.subviews.compactMap({ $0 as? UISlider }).first else { return }
+        slider.value = value
+        slider.sendActions(for: .valueChanged)
     }
 
     private func startKlaxonHaptics() {
@@ -153,7 +205,7 @@ final class CNSAlertTonePlayer {
         for i in 0..<Int(frames) {
             let freq: Double = i >= segmentFrames ? 1000 : 760
             let t = Double(i) / sr
-            channel[i] = 0.85 * Float(sin(2 * .pi * freq * t))
+            channel[i] = 0.98 * Float(sin(2 * .pi * freq * t))  // near full-scale klaxon
         }
         return buffer
     }
