@@ -92,7 +92,12 @@ final class CNSAlertEngine {
         volumeView.isUserInteractionEnabled = false
         if volumeView.superview == nil { window.addSubview(volumeView) }
         // The slider subview only exists once the view is in the hierarchy.
-        DispatchQueue.main.async { [weak self] in self?.setVolumeSlider(1.0) }
+        DispatchQueue.main.async { [weak self] in
+            // If Stop / de-escalation already restored the volume before this
+            // deferred boost runs, `priorSystemVolume` is nil — don't re-pin it.
+            guard let self, self.priorSystemVolume != nil else { return }
+            self.setVolumeSlider(1.0)
+        }
     }
 
     private func restoreSystemVolume() {
