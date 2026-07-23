@@ -162,7 +162,7 @@ The **network path (Phase 1) was validated live before any code was written**, w
 - The `ipv4.never-default` + `ipv4.ignore-auto-dns` lockdown **held**: the default route stayed on `eno2`, DNS untouched, the running server unaffected (`ip route get 192.168.4.1` → via `wlo1`).
 - `GET /client?command=version` → `200`, firmware `2.0.7_2018-01-01` → **modern `/dir` API**, legacy fallback not needed for this card.
 - `GET /dir?dir=A:` → `200`, HTML `<pre>` listing parsed as expected. A real capture now anchors the `ezshare_client.py` parser and its test fixture (gb2312 charset; `&lt;DIR&gt;` markers; `dir?dir=A:%5C` subdir links; macOS dot-dirs present).
-- Confirmed the card holds **no `DATALOG/`** yet (only `ezshare.cfg` + macOS metadata), so **Phase 0 (FAT32 reformat + one AS11 night) remains the prerequisite** for real session data.
+- **Phase 0 done (2026-07-23):** the card was confirmed exFAT (only `ezshare.cfg` + macOS metadata, no `DATALOG/`) and **reformatted to FAT32** — MBR scheme, label `EZSHARE`, via `diskutil eraseDisk FAT32 EZSHARE MBRFormat /dev/disk11`. **Remaining prerequisite for real data: one AS11 night** to generate the `DATALOG/` tree + `STR.edf`.
 
 A saved NM profile `ezshare-card` (autoconnect off, never-default, ignore-DNS) remains on megadude; the radio was returned to its original `rfkill`-blocked state after the test. Bring it back up with `sudo nmcli connection up ezshare-card`.
 
@@ -248,9 +248,9 @@ Fidelity ranking: **manual `sd_card`/`csv` (user-curated) ≥ `ezshare` (automat
 | `server/tests/test_ezshare_sync.py` | NEW — upsert/precedence/cursor tests |
 | `docs/` runbook (or this spec's Network Setup) | reference for the one-time card + WiFi setup |
 
-## Decisions & open questions (for review)
+## Decisions (locked 2026-07-23)
 
-1. **EDF parser:** adopt `cpap-py` for full summary metrics (recommended), vs. hand-extending the existing `pyedflib` `edf_parser.py`. Pending a license/output-shape check.
-2. **Precedence:** `ezshare` overwrites `resmed_cloud` but **skips** manual `sd_card`/`csv` rows (recommended, preserves user-curated imports) — or should `ezshare` outrank and overwrite manual too?
-3. **Packaging/cadence:** a dedicated `network_mode: host` compose service running the cron (recommended, stays in-repo) vs. a host `systemd` timer; poll every ~10 min with graceful no-op when the AP is down (recommended) vs. an always-on live loop.
-4. **File-dedup table:** ship `ezshare_files` now, or rely on cursor + upsert idempotency until re-walking proves slow (recommended: defer).
+1. **EDF parser: adopt `cpap-py`** for the full summary metrics, keeping `pyedflib`/`edf_parser.py` for leak detail. Phase 3 opens with a quick license + output-shape check; if `cpap-py` proves unworkable, fall back to hand-extending the `pyedflib` parser (documented as the alternative, not the plan).
+2. **Precedence: `ezshare` overwrites `resmed_cloud` but skips manual `sd_card`/`csv` rows.** Automated SD ingest is authoritative over cloud, but never silently clobbers a user-curated manual import (same underlying data, nothing to gain, provenance to lose). `resmed_sync` gains `'ezshare'` in its don't-overwrite guard.
+3. **Packaging/cadence: a dedicated `network_mode: host` compose service** built from the existing server image, running the poller on a **~10-minute schedule with a graceful no-op** when the AP is unreachable (the normal daytime state). Stays in-repo; no host `systemd` dependency. The always-on `--live` loop is a later opt-in, not V1.
+4. **File-dedup table: deferred.** Rely on the cursor + upsert idempotency; add `ezshare_files` only if re-walking is measurably slow in practice. (The `CREATE TABLE` stays in the spec as a ready-to-ship optimization.)
