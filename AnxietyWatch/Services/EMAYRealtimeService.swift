@@ -273,6 +273,29 @@ final class EMAYRealtimeService: NSObject {
     nonisolated static let notifyUUID = CBUUID(string: "FF02")
     /// The EMAY SleepO2 advertises its local name with this prefix.
     nonisolated static let namePrefix = "SleepO2"
+
+    /// Advertised-name suffix marking the DEBUG emulator dongle
+    /// (`tools/emay-emulator-nrf52840`, "SleepO2-SIM"). The production instance
+    /// rejects it so a real user's oximeter pairing can never be hijacked by a
+    /// test rig that happens to share `namePrefix`.
+    nonisolated static let simMarker = "-SIM"
+
+    /// `didDiscover` device-acceptance decision — pure, so it can be asserted
+    /// without CoreBluetooth (see `EMAYDeviceAcceptanceTests`). A `targetName`
+    /// (an ephemeral self-test instance) accepts ONLY names with that prefix,
+    /// and is the only path allowed to adopt the `-SIM` emulator. The production
+    /// path (`targetName == nil`) rejects any `-SIM` test rig, then accepts an
+    /// empty name (can't filter — don't reject the real device) or the real
+    /// device's `namePrefix`.
+    nonisolated static func shouldAccept(name: String, targetName: String?) -> Bool {
+        if let targetName {
+            return name.hasPrefix(targetName)
+        }
+        if name.hasSuffix(simMarker) {
+            return false
+        }
+        return name.isEmpty || name.hasPrefix(namePrefix)
+    }
     /// Provenance for the per-minute rows this service persists. Deliberately
     /// distinct from BOTH bundle IDs the aggregation pipeline treats as
     /// preferred overnight oximetry (`com.emay.SleepO2` CSV imports,
@@ -338,6 +361,17 @@ final class EMAYRealtimeService: NSObject {
     /// app init and owned for the service's (= app's) lifetime; everything
     /// that touches it runs on the main actor.
     @ObservationIgnored private let modelContext: ModelContext
+    /// True for a throwaway instance created without a restore identifier (the
+    /// DEBUG live-dongle self-test). Such an instance scans fresh every time and
+    /// never persists the connected peripheral's UUID, so it neither
+    /// pending-connects to the app's remembered oximeter nor clobbers that
+    /// remembered pairing.
+    @ObservationIgnored private let isEphemeral: Bool
+    /// When set, `didDiscover` accepts ONLY peripherals whose advertised name
+    /// has this prefix (e.g. the DEBUG self-test targets the emulator dongle's
+    /// "SleepO2-SIM" so it can never grab the user's real EMAY oximeter, which
+    /// advertises the same `FF12` service). nil = normal app behaviour.
+    @ObservationIgnored private let targetName: String?
     @ObservationIgnored private let demoSession: FullAppDemoDeviceSession?
     @ObservationIgnored private var demoUpdateTask: Task<Void, Never>?
     /// Buffers the ~1 Hz stream into per-minute means; flushed on TERMINAL
@@ -355,12 +389,19 @@ final class EMAYRealtimeService: NSObject {
     @ObservationIgnored private var isDemoStreaming = false
 #endif
 
-    init(modelContext: ModelContext, demoSession: FullAppDemoDeviceSession? = nil) {
+    init(
+        modelContext: ModelContext,
+        demoSession: FullAppDemoDeviceSession? = nil,
+        restoreIdentifier: String? = EMAYRealtimeService.restoreIdentifier,
+        targetName: String? = nil
+    ) {
         self.modelContext = modelContext
+        self.isEphemeral = (restoreIdentifier == nil)
+        self.targetName = targetName
         self.demoSession = demoSession?.isEnabled == true ? demoSession : nil
         self.continuousModeEnabled = self.demoSession != nil
             ? true
-            : Self.isContinuousModeEnabled(defaults: .standard)
+            : (self.isEphemeral ? false : Self.isContinuousModeEnabled(defaults: .standard))
         super.init()
         if let demoSession = self.demoSession {
             applyFullAppDemoSnapshot(demoSession)
@@ -386,11 +427,16 @@ final class EMAYRealtimeService: NSObject {
         // behalf and relaunches the app (calling willRestoreState) when the
         // peripheral produces an event — the mechanism that makes overnight
         // continuous streaming survive a jetsam.
-        central = CBCentralManager(
-            delegate: self,
-            queue: nil,
-            options: [CBCentralManagerOptionRestoreIdentifierKey: Self.restoreIdentifier]
-        )
+        // State restoration requires a UNIQUE identifier per CBCentralManager:
+        // a SECOND manager in the same app that shares an identifier comes up
+        // `.unsupported` (an easy-to-miss CoreBluetooth gotcha). The long-lived
+        // app service uses `restoreIdentifier`; a throwaway instance (e.g. the
+        // DEBUG live-dongle self-test, which runs alongside the real one) passes
+        // nil to skip restoration and avoid the collision.
+        let restoreOptions: [String: Any]? = restoreIdentifier.map {
+            [CBCentralManagerOptionRestoreIdentifierKey: $0]
+        }
+        central = CBCentralManager(delegate: self, queue: nil, options: restoreOptions)
     }
 
     // MARK: - Pure decision helpers (unit-tested without CoreBluetooth hardware)
@@ -581,8 +627,10 @@ final class EMAYRealtimeService: NSObject {
             adoptAndConnect(held)
             return
         }
-        if case .pendingConnect(let uuid) =
-            Self.reconnectApproach(knownPeripheralUUID: Self.knownPeripheralUUID(defaults: .standard)),
+        // An ephemeral instance always scans fresh — it must never pending-connect
+        // to the app's remembered oximeter (a different device than the dongle).
+        let rememberedUUID = isEphemeral ? nil : Self.knownPeripheralUUID(defaults: .standard)
+        if case .pendingConnect(let uuid) = Self.reconnectApproach(knownPeripheralUUID: rememberedUUID),
            let known = central.retrievePeripherals(withIdentifiers: [uuid]).first {
             adoptAndConnect(known)
             return
@@ -878,7 +926,7 @@ extension EMAYRealtimeService: CBCentralManagerDelegate {
             // the name is absent (can't filter) rather than risk rejecting the
             // real device.
             let name = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? peripheral.name ?? ""
-            guard name.isEmpty || name.hasPrefix(Self.namePrefix) else { return }
+            guard Self.shouldAccept(name: name, targetName: self.targetName) else { return }
             central.stopScan()
             self.peripheral = peripheral
             peripheral.delegate = self
@@ -886,8 +934,12 @@ extension EMAYRealtimeService: CBCentralManagerDelegate {
             central.connect(peripheral)
             // Remember the identifier so future launches and mid-session
             // reconnects can use a pending connect() instead of a
-            // background-throttled scan (see `beginMonitoring`).
-            UserDefaults.standard.set(peripheral.identifier.uuidString, forKey: Self.knownPeripheralUUIDKey)
+            // background-throttled scan (see `beginMonitoring`). Ephemeral
+            // (self-test) instances skip this so they never overwrite the app's
+            // remembered oximeter pairing.
+            if !isEphemeral {
+                UserDefaults.standard.set(peripheral.identifier.uuidString, forKey: Self.knownPeripheralUUIDKey)
+            }
             // Log the name as private: BLE local names can contain
             // user-supplied personal text (e.g. a person's name).
             Log.ble.info("EMAY: connecting to \(name.isEmpty ? "device" : name, privacy: .private)")

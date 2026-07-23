@@ -113,6 +113,23 @@ struct SettingsView: View {
                     Text("Export to JSON, CSV, or PDF for sharing with your therapist or doctor.")
                 }
 
+#if DEBUG
+                Section {
+                    NavigationLink {
+                        CNSDetectionSelfTestView()
+                    } label: {
+                        Label("Klaxon Detection Self-Test", systemImage: "waveform.badge.exclamationmark")
+                    }
+                } header: {
+                    Text("Developer")
+                } footer: {
+                    Text("Replays a desaturation through the real CNS detection engine, in-memory only "
+                        + "(no health records or monitoring sessions). The synthetic replay uses no "
+                        + "Bluetooth or notifications; the live-dongle self-test it links to DOES use real "
+                        + "Bluetooth (the EMAY emulator) and its coordinator may post local notifications.")
+                }
+#endif
+
                 Section {
                     LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0")
                     Link(destination: URL(string: "https://github.com/chenders/AnxietyWatch")!) {
