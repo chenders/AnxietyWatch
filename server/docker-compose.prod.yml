@@ -100,6 +100,26 @@ services:
     - -c
     - exec gunicorn --bind 0.0.0.0:8080 --workers 1 --worker-class gthread --threads
       10 --timeout 120 --access-logfile - 'server:create_app()'
+  anxietywatch-ezshare:
+    image: ghcr.io/chenders/anxietywatch-server:latest
+    container_name: anxietywatch-ezshare
+    restart: unless-stopped
+    # Opt-in poller for the ez Share WiFi SD card. Requires the host to have
+    # joined the "ez Share" AP first (see the ez Share spec's Network Setup).
+    # Start with:  docker compose --profile ezshare up -d anxietywatch-ezshare
+    profiles:
+    - ezshare
+    # Host networking so it reaches the card AP at 192.168.4.1 via the host's
+    # wlo1 route (a bridge network cannot); Postgres via the published port.
+    network_mode: host
+    environment:
+      DATABASE_URL: postgresql://anxietywatch:${POSTGRES_PASSWORD}@127.0.0.1:5439/anxietywatch
+    command:
+    - sh
+    - -c
+    - 'while true; do python ezshare_sync.py || true; sleep 600; done'
+    deploy: *id005
+    logging: *id006
 volumes:
   anxietywatch-pgdata: null
 networks:
