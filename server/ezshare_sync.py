@@ -32,13 +32,38 @@ EZSHARE_SOURCE = "ezshare"
 
 # ez Share overwrites cloud + its own rows; manual imports are preserved.
 _SKIP_SOURCES = ("sd_card", "csv")
-_OVERWRITE_SOURCES = ("resmed_cloud", "ezshare")
 
+# Column order for the values tuple below — MUST match _UPSERT_SQL's VALUES.
 _COLS = ("date", "ahi", "total_usage_minutes", "obstructive_events",
          "central_events", "hypopnea_events", "rdi_events", "rera_events",
          "pressure_min", "pressure_max", "pressure_mean", "pressure_95th",
          "leak_avg", "leak_max", "leak_rate_95th", "spo2_avg", "spo2_min",
          "pulse_avg")
+
+# Static SQL (no string interpolation) — values are always bound via %s. The
+# ON CONFLICT WHERE clause enforces precedence: only resmed_cloud/ezshare rows
+# are overwritten, so a manual sd_card/csv import is never regressed.
+_UPSERT_SQL = (
+    "INSERT INTO cpap_sessions "
+    "(date, ahi, total_usage_minutes, obstructive_events, central_events, "
+    "hypopnea_events, rdi_events, rera_events, pressure_min, pressure_max, "
+    "pressure_mean, pressure_95th, leak_avg, leak_max, leak_rate_95th, "
+    "spo2_avg, spo2_min, pulse_avg, import_source) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+    "ON CONFLICT (date) DO UPDATE SET "
+    "ahi = EXCLUDED.ahi, total_usage_minutes = EXCLUDED.total_usage_minutes, "
+    "obstructive_events = EXCLUDED.obstructive_events, "
+    "central_events = EXCLUDED.central_events, "
+    "hypopnea_events = EXCLUDED.hypopnea_events, "
+    "rdi_events = EXCLUDED.rdi_events, rera_events = EXCLUDED.rera_events, "
+    "pressure_min = EXCLUDED.pressure_min, pressure_max = EXCLUDED.pressure_max, "
+    "pressure_mean = EXCLUDED.pressure_mean, pressure_95th = EXCLUDED.pressure_95th, "
+    "leak_avg = EXCLUDED.leak_avg, leak_max = EXCLUDED.leak_max, "
+    "leak_rate_95th = EXCLUDED.leak_rate_95th, spo2_avg = EXCLUDED.spo2_avg, "
+    "spo2_min = EXCLUDED.spo2_min, pulse_avg = EXCLUDED.pulse_avg, "
+    "import_source = EXCLUDED.import_source "
+    "WHERE cpap_sessions.import_source IN ('resmed_cloud', 'ezshare')"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -90,10 +115,6 @@ def upsert_ezshare_sessions(conn, sessions: list[dict]) -> int:
     if not sessions:
         return 0
     cur = conn.cursor()
-    cols = ", ".join(_COLS) + ", import_source"
-    placeholders = ", ".join(["%s"] * len(_COLS)) + ", %s"
-    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in _COLS if c != "date")
-    where = " OR ".join(f"cpap_sessions.import_source = '{src}'" for src in _OVERWRITE_SOURCES)
     affected = 0
     for s in sessions:
         cur.execute("SELECT import_source FROM cpap_sessions WHERE date = %s", (s["date"],))
@@ -101,12 +122,7 @@ def upsert_ezshare_sessions(conn, sessions: list[dict]) -> int:
         if existing and existing[0] in _SKIP_SOURCES:
             logger.debug("Skipping %s — manual %s import exists", s["date"], existing[0])
             continue
-        cur.execute(
-            f"INSERT INTO cpap_sessions ({cols}) VALUES ({placeholders}) "
-            f"ON CONFLICT (date) DO UPDATE SET {updates}, import_source = EXCLUDED.import_source "
-            f"WHERE {where}",
-            tuple(s.get(c) for c in _COLS) + (EZSHARE_SOURCE,),
-        )
+        cur.execute(_UPSERT_SQL, tuple(s.get(c) for c in _COLS) + (EZSHARE_SOURCE,))
         affected += cur.rowcount
     conn.commit()
     return affected
