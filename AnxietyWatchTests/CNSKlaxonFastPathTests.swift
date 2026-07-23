@@ -42,16 +42,17 @@ struct CNSKlaxonFastPathTests {
         return tier
     }
 
-    @Test("A critical score fast-paths straight to klaxon in ~12s, not the graded ~150s")
+    @Test("A critical score fast-paths straight to klaxon in one fast-path window, not the graded ~150s")
     func criticalFastPathsToKlaxon() {
         var m = machine()   // companion
-        // 0.95 ≥ klaxon threshold → critical. It SKIPS watch/confirm (a jump),
-        // so it stays clear while the short validity window builds (< 12 s)…
-        #expect(feed(&m, score: 0.95, seconds: 12) == .clear)   // ticks t=0…11 (11 s)
-        // …then the 12 s critical sustain completes → straight to klaxon.
+        let sustain = Int(thresholds.criticalFastPathSustainSeconds)
+        // 0.95 ≥ klaxon threshold → critical. It SKIPS watch/confirm (a jump), so
+        // it stays clear while the short validity window builds (< the sustain)…
+        #expect(feed(&m, score: 0.95, seconds: sustain) == .clear)  // ticks t=0…sustain-1
+        // …then the fast-path sustain completes → straight to klaxon.
         let tier = m.ingest(
             .assessed(riskScore: 0.95, contributions: primary(0.95)),
-            at: t0.addingTimeInterval(12)
+            at: t0.addingTimeInterval(TimeInterval(sustain))
         )
         #expect(tier == .klaxon)
     }

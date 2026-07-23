@@ -2,8 +2,10 @@ import Foundation
 
 /// §5.3 hysteretic escalation state machine: `clear → watch → confirm →
 /// klaxon`. Rising demands sustained elevation — up the graded ladder one
-/// tier at a time, OR, for a deep critical primary desat, straight to klaxon
-/// via the fast path (skipping intermediate tiers in ~12 s). Falling demands
+/// tier at a time, OR, for a deep critical primary reading (SpO₂ at the danger
+/// floor in Phase 1 — the gate spans primary kinds but only a trusted continuous
+/// source qualifies, and none emit RR yet), straight to klaxon via the fast path
+/// (skipping intermediate tiers in one short sustain window). Falling demands
 /// sustained, decisively-lower scores; missing data can never clear an alert
 /// (spec §14.2 asymmetry, §11 fail-safe bias). Pure value type — callers pass
 /// `now`; there is no hidden clock.

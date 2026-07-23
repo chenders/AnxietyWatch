@@ -73,7 +73,9 @@ struct CNSFusionEngine {
 
         // Lone-sensor damping: if every contributing (severity above the
         // contributing floor) assessment comes from ONE source, cap below the
-        // confirm tier unless the strongest is extreme AND high-confidence.
+        // confirm tier — UNLESS the strongest primary either is extreme AND
+        // high-confidence (extremeOverride) OR comes from a trusted continuous
+        // source (trustedContinuousPrimary). See the two bypass checks below.
         let contributing = usable.filter { $0.severity >= thresholds.contributingSeverityFloor }
         let contributingSources = Set(contributing.map(\.source))
         // Only a primary signal (SpO₂/RR) can justify a lone-source
