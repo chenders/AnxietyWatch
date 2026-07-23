@@ -22,6 +22,28 @@ struct CNSThresholds: Sendable {
     /// the documented min/max-erratum failure one level deeper).
     var spo2RampWidth: Double = 3
 
+    /// Absolute danger floor, INDEPENDENT of the personalized ramp: a raw SpO₂
+    /// at or below this scores maximal severity (1.0) regardless of baseline,
+    /// so a corrupted/depressed personal nadir can never score a genuinely
+    /// dangerous reading as safe (closes the "no absolute safety net" gap).
+    /// Set well below any plausible personal nadir — a continuous oximeter's
+    /// overnight floor normally sits well above this — so it fires only on real
+    /// severe hypoxemia, never nightly. OR'd with the ramp (the higher severity wins).
+    ///
+    /// DELIBERATELY absolute (not clamped to the personal onset): clamping it to
+    /// `onset − margin` would defeat its whole purpose, because a *poisoned*
+    /// nadir (e.g. 65 → onset 62) would drag the clamp below the danger band and
+    /// re-open the "score real danger as safe" hole this floor exists to close.
+    /// The residual cost is a genuine *untreated*-severe-apnea user whose real
+    /// nightly nadir sits below this floor: they would see nightly klaxons. That
+    /// is out of scope here (a treated apnea user's oximeter floor sits well above
+    /// it, and err-toward-alarm favors firing on a sustained sub-80 desat regardless),
+    /// and the correct fix for that population is a separate mechanism —
+    /// requiring sustained depression relative to a *trusted* (plausibility-
+    /// gated) baseline — not a clamp that reopens the poisoned-baseline hole.
+    /// Tracked as a follow-up, not addressed in the timing PR.
+    var spo2AbsoluteDangerFloor: Double = 80
+
     /// Personal baselines outside these ranges are treated as absent rather
     /// than trusted: a corrupted or mis-scaled value (the classic percent-vs-
     /// fraction bug would store 0.82 instead of 82) would otherwise push the
@@ -223,6 +245,15 @@ struct CNSThresholds: Sendable {
     /// baseline the density factors relax accordingly. Degraded-but-passing
     /// streams reach confirm.
     var loneSourceOverrideConfidence: Double = 0.35
+    /// The fidelity bar at/above which a PRIMARY source counts as a trusted,
+    /// continuous, verified stream. Used in TWO places: the fusion lone-source
+    /// un-muzzle (a lone trusted primary escalates past watch without the
+    /// extreme-override gate) and the tier machine's critical fast path. A
+    /// continuous oximeter (EMAY / AS11 SpO₂ = 0.9) reporting a sustained desat is
+    /// the device's purpose and must not be muzzled to a chirp; a
+    /// LOW-fidelity/opportunistic primary (Apple Watch SpO₂ = 0.5, artifact-prone
+    /// spot-checks) stays damped.
+    var trustedContinuousPrimaryFidelity: Double = 0.8
     /// Severity at/above which an assessment counts toward lone-source logic.
     var contributingSeverityFloor: Double = 0.2
 
@@ -243,6 +274,32 @@ struct CNSThresholds: Sendable {
     var klaxonRiseSustainSeconds: TimeInterval = 30
     /// Alone-mode sustain to escalate confirm → klaxon.
     var aloneModeKlaxonRiseSustainSeconds: TimeInterval = 15
+    /// Severity-scaled FAST PATH: a critical PRIMARY reading (SpO₂ at the floor /
+    /// absolute danger line) reaches klaxon after just this sustain, skipping the
+    /// watch→confirm ladder. Deep, unambiguous danger must not pay the full
+    /// ~2-min graded latency. Long enough (≥ several 1 Hz samples, and > the 5 s
+    /// gap guard) to reject a single-sample glitch; short enough to matter.
+    /// Applies regardless of companion presence — critical danger is critical
+    /// either way. Gated on `criticalPrimarySeverity` (raw primary severity, NOT
+    /// the fused score) so corroborating HR/HRV can never shorten it: the fast
+    /// path's own clock is independent of the graded-ladder clock (see
+    /// `CNSAlertTierMachine.advanceCriticalFastPath`).
+    var criticalFastPathSustainSeconds: TimeInterval = 12
+    /// The fast path engages only when a PRIMARY signal's OWN severity is in the
+    /// critical band — 0.85 maps to SpO₂ ≈ 85 on the population ramp (PRODIGY
+    /// severe-hypoxemia line) and to the near-floor value on a personalized ramp;
+    /// the absolute floor (≤ 80) already forces severity 1.0. Gating on raw
+    /// primary severity (not the fused composite) means a merely-moderate primary
+    /// (e.g. SpO₂ 86, severity ~0.67) that only crosses the klaxon threshold with
+    /// HR/HRV corroboration escalates over the graded ladder, never the 12 s
+    /// express — corroboration raises watchfulness, it does not manufacture a
+    /// crash. The fast path pairs this with a SOURCE-FIDELITY gate
+    /// (`trustedContinuousPrimaryFidelity`), NOT the confidence-damped fused score:
+    /// otherwise a genuinely maximal reading (raw SpO₂ ≤ 80, severity 1.0) from a
+    /// trusted oximeter at low coverage / no baseline — fused score ≈ 0.68, below
+    /// the klaxon entry — would be muzzled below the express lane at the exact
+    /// moment it matters most ("the crash starves its own detector").
+    var criticalPrimarySeverity: Double = 0.85
     /// Score must sit below (threshold − hysteresis) this long to FALL.
     var clearSustainSeconds: TimeInterval = 120
     var clearHysteresis: Double = 0.1

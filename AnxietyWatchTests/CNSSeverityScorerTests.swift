@@ -129,28 +129,23 @@ struct CNSSeverityScorerTests {
 
     @Test("Apnea-lowered onset scales the floor down — no degenerate step at 85")
     func apneaBaselineScalesFloorDown() throws {
-        // Nadir 84 → onset 81, floor 78 (NOT the population 85). A reading
-        // equal to the user's own normal nadir must score zero severity.
-        let baselines = CNSBaselines(
-            spo2Nadir: 84, restingHeartRate: nil, hrvMean: nil, respiratoryRateMean: nil
-        )
-        let atOwnNadir = try #require(CNSSeverityScorer.assess(
-            kind: .spo2, source: .emayOximeter, samples: spo2Samples(value: 84),
-            verdict: passingVerdict, baselines: baselines, thresholds: thresholds
-        ))
-        #expect(abs(atOwnNadir.severity) < 0.001)
+        // Nadir 84 → onset 81, floor 78 (NOT the population 85), so the ramp
+        // keeps its 3-point width instead of degenerating to a step at 85.
+        // Verified via the pure ramp so the absolute-danger backstop (≤80 → 1.0,
+        // applied inside `assess`) doesn't mask the floor-scaling under test.
+        let ramp = thresholds.spo2Ramp(nadirBaseline: 84)
+        #expect(abs(ramp.onset - 81) < 0.001)
+        #expect(abs(ramp.floor - 78) < 0.001)
+        // A reading equal to the user's own normal nadir (84) scores zero.
+        #expect(abs(CNSSeverityScorer.rampSeverity(value: 84, onset: ramp.onset, floor: ramp.floor)) < 0.001)
         // Midway down the shifted ramp (79.5 between 81 and 78) → 0.5.
-        let midRamp = try #require(CNSSeverityScorer.assess(
-            kind: .spo2, source: .emayOximeter, samples: spo2Samples(value: 79.5),
-            verdict: passingVerdict, baselines: baselines, thresholds: thresholds
-        ))
-        #expect(abs(midRamp.severity - 0.5) < 0.001)
+        #expect(abs(CNSSeverityScorer.rampSeverity(value: 79.5, onset: ramp.onset, floor: ramp.floor) - 0.5) < 0.001)
         // At the shifted floor (78) severity saturates.
-        let atFloor = try #require(CNSSeverityScorer.assess(
-            kind: .spo2, source: .emayOximeter, samples: spo2Samples(value: 78),
-            verdict: passingVerdict, baselines: baselines, thresholds: thresholds
-        ))
-        #expect(abs(atFloor.severity - 1.0) < 0.001)
+        #expect(abs(CNSSeverityScorer.rampSeverity(value: 78, onset: ramp.onset, floor: ramp.floor) - 1.0) < 0.001)
+        // NOTE: through the full scorer, a reading ≤ the absolute danger floor
+        // (80) is forced to severity 1.0 regardless of this personalized ramp —
+        // 79.5% is genuinely dangerous for anyone. That safety-net override is
+        // covered by CNSKlaxonFastPathTests.absoluteBackstopOverridesRamp.
     }
 
     @Test("SpO2 confidence composes fidelity, density, and the missing-baseline factor")

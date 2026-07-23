@@ -39,12 +39,15 @@ struct CNSFusionEngineTests {
         #expect(abs(score) < 0.001)
     }
 
-    @Test("A lone source is capped below the confirm threshold")
-    func loneSourceCapped() {
-        // EMAY alone at severity 0.8 (high but not the >=0.9 extreme override):
-        // likely off-finger artifact when nothing corroborates (spec 5.2).
+    @Test("A lone LOW-fidelity source is capped below the confirm threshold")
+    func loneLowFidelitySourceCapped() {
+        // Apple Watch SpO₂ alone at severity 0.8: opportunistic spot-checks are
+        // artifact-prone (fidelity 0.5, below the trusted-continuous bar), so a
+        // lone reading is damped — a phantom Watch low must not escalate. (A lone
+        // HIGH-fidelity continuous oximeter is NOT capped — see
+        // CNSKlaxonFastPathTests.loneContinuousOximeterUnmuzzled.)
         let lone = [
-            assessment(kind: .spo2, source: .emayOximeter, severity: 0.8, confidence: 0.9)
+            assessment(kind: .spo2, source: .appleWatch, severity: 0.8, confidence: 0.9)
         ]
         guard case .assessed(let score, _) = engine.fuse(lone) else {
             Issue.record("expected .assessed"); return

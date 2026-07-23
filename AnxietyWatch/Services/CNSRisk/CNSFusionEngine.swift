@@ -2,8 +2,11 @@ import Foundation
 
 /// §5.2 cross-sensor fusion. Deliberately not over-aggressive: primary
 /// signals (SpO₂, respiratory rate) drive the score, corroborating signals
-/// (HR, HRV) can only boost, a lone screaming sensor is damped, and no data
-/// is an explicit state — never a fabricated zero.
+/// (HR, HRV) can only boost, and no data is an explicit state — never a
+/// fabricated zero. A lone LOW-fidelity/opportunistic sensor is damped; a lone
+/// HIGH-fidelity continuous primary (EMAY/AS11 oximeter) is NOT — it is the
+/// device's whole purpose and must escalate a sustained desat on its own
+/// (`trustedContinuousPrimary` below).
 struct CNSFusionEngine {
     let thresholds: CNSThresholds
 
@@ -70,7 +73,9 @@ struct CNSFusionEngine {
 
         // Lone-sensor damping: if every contributing (severity above the
         // contributing floor) assessment comes from ONE source, cap below the
-        // confirm tier unless the strongest is extreme AND high-confidence.
+        // confirm tier — UNLESS the strongest primary either is extreme AND
+        // high-confidence (extremeOverride) OR comes from a trusted continuous
+        // source (trustedContinuousPrimary). See the two bypass checks below.
         let contributing = usable.filter { $0.severity >= thresholds.contributingSeverityFloor }
         let contributingSources = Set(contributing.map(\.source))
         // Only a primary signal (SpO₂/RR) can justify a lone-source
@@ -81,7 +86,15 @@ struct CNSFusionEngine {
                .max(by: { $0.severity < $1.severity }) {
             let extremeOverride = strongest.severity >= thresholds.loneSourceOverrideSeverity
                 && strongest.confidence >= thresholds.loneSourceOverrideConfidence
-            if !extremeOverride {
+            // A lone HIGH-FIDELITY continuous primary (EMAY / AS11 oximeter) is
+            // the device's whole purpose — it must escalate a sustained moderate
+            // desat past watch, not be muzzled to a chirp. Only a lone
+            // LOW-fidelity/opportunistic primary (Apple Watch spot-checks, whose
+            // phantom lows are artifact-prone) stays damped.
+            let trustedContinuousPrimary = thresholds.sourceFidelity(
+                kind: strongest.kind, source: strongest.source
+            ) >= thresholds.trustedContinuousPrimaryFidelity
+            if !extremeOverride && !trustedContinuousPrimary {
                 score = min(score, thresholds.loneSourceRiskCap)
             }
         }
