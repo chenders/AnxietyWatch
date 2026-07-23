@@ -54,20 +54,30 @@ and starts advertising as **`SleepO2-SIM`**.
 1. Keep your **real EMAY oximeter off / out of range** during the test — the app
    connects to the first `FF12` peripheral it sees, so two would collide.
 2. Power the dongle (any USB port/charger near the phone).
-3. Open **AnxietyWatch → Settings → CNS Monitoring**.
-4. Tap **"Monitor me now."** Arming calls `emayService.start()`, which scans for
-   `FF12` and auto-connects to the dongle. (Approve the Bluetooth prompt if asked.)
-5. Watch the **Tier** field. Expected timeline (~5.5 min/loop):
+3. Open the self-test UI. Two options:
+   - **DEBUG Developer self-test** (recommended — *writes nothing*):
+     **Settings → CNS Monitoring → Developer → Live dongle self-test**
+     (`CNSLiveDongleSelfTestView`). It runs the real pipeline against an
+     **in-memory** store, so no monitoring sessions/samples touch your records.
+   - **Production CNS Monitoring** (**"Monitor me now"**): exercises the real
+     arming path but **persists a real monitoring session + samples** — use only
+     if you want that.
+4. Arming calls `emayService.start()`, which scans for `FF12` and auto-connects
+   to the dongle. (Approve the Bluetooth prompt if asked.)
+5. Watch the **Tier** field. The firmware streams the trajectory below on a
+   **~4.3 min (260 s) loop**. The *tier* timing on top of it is the app's own
+   sustain windows, **not** the dongle — the dongle can't shorten them; to speed
+   the cycle, shorten the windows in `CNSThresholds` (DEBUG only).
 
 | Time | SpO₂ streamed | Expected Tier |
 |------|---------------|---------------|
-| 0:00–0:45 | 97 | **clear** (status leaves "can't assess" once the 30 s quality gate fills) |
-| 0:45–1:05 | 97 → 80 | clear → **watch** |
-| 1:05–3:05 | ~80 | watch → **confirm** → **klaxon** |
-| 3:05–5:40 | 97 | back to **clear** (120 s clear-sustain) |
+| 0:00–0:20 | 98 | **clear** (status leaves "can't assess" once the 30 s quality gate fills) |
+| ~0:22 | 98 → 78 (near-instant) | clear → **watch** |
+| 0:22–~2:00 | 78 held | **watch → confirm → klaxon** as the ~90 s rise-sustain elapses |
+| ~2:02 | 78 → 98 (near-instant recovery) | de-escalation begins |
+| ~2:02–4:20 | 98 held | back to **clear** after the ~120 s clear-sustain, then loops |
 
-Then it loops. `Status`/`Reporting sources` should show the EMAY oximeter as
-reporting throughout.
+`Status`/`Reporting sources` should show the EMAY oximeter as reporting throughout.
 
 ## 3. Troubleshooting
 

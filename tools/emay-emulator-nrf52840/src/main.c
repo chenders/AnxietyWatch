@@ -52,14 +52,19 @@ struct keyframe {
 };
 
 static const struct keyframe SCENARIO[] = {
-	{    0, 98, 66 }, /* warmup: healthy, lets the quality gate reach canAssess */
-	{   30, 98, 66 },
-	{  120, 78, 44 }, /* SLOW desaturation over 90 s into dangerous hypoxia */
-	{ 3600, 78, 44 }, /* hold dangerous -> watch -> confirm -> KLAXON, and stays */
+	{    0, 98, 66 }, /* brief warmup: healthy, lets the quality gate reach canAssess */
+	{   20, 98, 66 },
+	{   22, 78, 44 }, /* near-instant desaturation into dangerous hypoxia */
+	{  120, 78, 44 }, /* hold dangerous ~100 s: watch -> confirm -> KLAXON (~t112) */
+	{  122, 98, 66 }, /* near-instant RECOVERY: de-escalation begins the moment SpO2 is back */
+	{  260, 98, 66 }, /* hold healthy past the app's ~120 s clear window: Clear (~t242), loops */
 };
-/* No recovery: it slowly becomes dangerous and stays there, so the alarm fires
- * and holds. Effectively non-looping for any realistic test length. */
-#define LOOP_SECONDS 3600U
+/* Fast test loop (260 s): the ramps are near-instant (2 s), so the only waits
+ * left are the APP's own sustain windows — ~90 s of sustained low before KLAXON,
+ * and ~120 s of sustained-normal before Clear. The dongle cannot shorten those;
+ * to make the whole cycle shorter, shorten the sustain windows in the app's
+ * CNSThresholds (DEBUG only). */
+#define LOOP_SECONDS 260U
 
 static void scenario_value(uint32_t t, uint8_t *spo2, uint8_t *pr)
 {
