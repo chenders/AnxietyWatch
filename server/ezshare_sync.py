@@ -20,11 +20,15 @@ import logging
 import os
 import sys
 import tempfile
+from datetime import date, timedelta
 
 import psycopg2
 
 from ezshare_client import EzShareClient, EzShareUnreachable, EzShareError
 from ezshare_parser import parse_str_edf
+from ezshare_clock import (
+    is_epoch_reset, compute_offset_days, apply_offset, offset_is_sane,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +133,49 @@ def upsert_ezshare_sessions(conn, sessions: list[dict]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Clock-reset correction
+# ---------------------------------------------------------------------------
+
+
+def _correct_clock(conn, sessions):
+    """Remap epoch-reset (~2008) dates to real dates via a persisted offset.
+
+    No-op once the machine's clock is correct (dates already plausible). The
+    offset is anchored to today's date on first detection and reused thereafter
+    so date assignment is stable (date is the cpap_sessions primary key). If the
+    persisted offset later stops making sense (a second reset, or the machine
+    finally synced to AirView), it is re-established. See ezshare_clock.
+
+    Anchor caveat: the newest raw session is mapped to *today*, which assumes a
+    morning-after poll of last night's session; the result can be off by ~1 day
+    depending on poll timing. Adjust the ezshare_clock_offset_days setting by
+    +/-1 if the corrected dates are consistently a day out.
+    """
+    if not is_epoch_reset(sessions):
+        return sessions
+    today = date.today()
+    persisted = get_setting(conn, "ezshare_clock_offset_days")
+    offset = None
+    if persisted is not None:
+        try:
+            cand = int(persisted)
+        except ValueError:
+            cand = None
+        if cand is not None and offset_is_sane(sessions, cand, today):
+            offset = cand
+    if offset is None:
+        offset = compute_offset_days(sessions, today)
+        set_setting(conn, "ezshare_clock_offset_days", str(offset))
+        logger.warning("AS11 clock reset detected — offset (re)established: %+d days", offset)
+    raw_newest = max(s["date"] for s in sessions)
+    corrected = apply_offset(sessions, offset)
+    new_newest = raw_newest + timedelta(days=offset)
+    set_setting(conn, "ezshare_clock_corrected", f"+{offset}d ({raw_newest} -> {new_newest})")
+    logger.info("Clock correction applied: +%d days (%s -> %s)", offset, raw_newest, new_newest)
+    return corrected
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -173,6 +220,7 @@ def main(argv=None) -> int:
     with open(path, "wb") as f:
         f.write(data)
     sessions = parse_str_edf(path)
+    sessions = _correct_clock(conn, sessions)
 
     count = upsert_ezshare_sessions(conn, sessions)
     log_sync(conn, count, len(sessions))

@@ -1,4 +1,5 @@
 import os
+from datetime import date
 from unittest.mock import patch
 
 import psycopg2
@@ -6,6 +7,7 @@ import pytest
 
 import ezshare_sync
 from ezshare_sync import upsert_ezshare_sessions, EZSHARE_SOURCE
+from ezshare_clock import EARLIEST_PLAUSIBLE_DATE
 
 
 @pytest.fixture(scope="session")
@@ -43,6 +45,8 @@ def clean_cpap(db):
 
 
 def _session(d, ahi=3.0):
+    if isinstance(d, str):
+        d = date.fromisoformat(d)
     return {"date": d, "ahi": ahi, "total_usage_minutes": 420,
             "obstructive_events": 1, "central_events": 0, "hypopnea_events": 2,
             "rdi_events": None, "rera_events": None,
@@ -112,3 +116,37 @@ def test_main_ingests_parsed_sessions(clean_cpap):
     assert abs(ahi - 4.4) < 0.01 and src == EZSHARE_SOURCE
     cur.execute("SELECT value FROM settings WHERE key='ezshare_last_status'")
     assert "ok:" in cur.fetchone()[0]
+
+
+def test_main_corrects_epoch_reset_dates(clean_cpap):
+    """A 2008-stamped STR.EDF is remapped to plausible dates + offset persisted."""
+    epoch = [_session(date(2008, 1, 9), ahi=5.0)]
+    with patch("ezshare_sync.EzShareClient") as C, \
+         patch("ezshare_sync.parse_str_edf", return_value=epoch):
+        inst = C.return_value
+        inst.version.return_value = "2.0.7"
+        inst.download_str_edf.return_value = b"0       edf"
+        assert ezshare_sync.main([]) == 0
+    cur = clean_cpap.cursor()
+    cur.execute("SELECT date FROM cpap_sessions WHERE import_source = 'ezshare'")
+    row = cur.fetchone()
+    assert row is not None
+    assert row[0] >= EARLIEST_PLAUSIBLE_DATE          # 2008 remapped forward
+    cur.execute("SELECT value FROM settings WHERE key = 'ezshare_clock_offset_days'")
+    assert cur.fetchone() is not None                  # offset persisted for stability
+
+
+def test_main_leaves_plausible_dates_untouched(clean_cpap):
+    """Real dates (machine clock correct) pass through with no shift."""
+    good = [_session(date(2026, 7, 20), ahi=2.2)]
+    with patch("ezshare_sync.EzShareClient") as C, \
+         patch("ezshare_sync.parse_str_edf", return_value=good):
+        inst = C.return_value
+        inst.version.return_value = "2.0.7"
+        inst.download_str_edf.return_value = b"0       edf"
+        assert ezshare_sync.main([]) == 0
+    cur = clean_cpap.cursor()
+    cur.execute("SELECT date FROM cpap_sessions WHERE import_source = 'ezshare'")
+    assert cur.fetchone()[0] == date(2026, 7, 20)
+    cur.execute("SELECT value FROM settings WHERE key = 'ezshare_clock_offset_days'")
+    assert cur.fetchone() is None                      # no offset established
