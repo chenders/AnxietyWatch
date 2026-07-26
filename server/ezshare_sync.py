@@ -20,11 +20,15 @@ import logging
 import os
 import sys
 import tempfile
+from datetime import date, timedelta
 
 import psycopg2
 
 from ezshare_client import EzShareClient, EzShareUnreachable, EzShareError
 from ezshare_parser import parse_str_edf
+from ezshare_clock import (
+    epoch_rows, compute_offset_days, apply_offset, offset_is_sane,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +133,61 @@ def upsert_ezshare_sessions(conn, sessions: list[dict]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Clock-reset correction
+# ---------------------------------------------------------------------------
+
+
+def _correct_clock(conn, sessions):
+    """Remap epoch-reset (~2008) dates to real dates via a persisted offset.
+
+    No-op once the machine's clock is correct (dates already plausible). The
+    offset is anchored to today's date on first detection and reused thereafter
+    so date assignment is stable (date is the cpap_sessions primary key). If the
+    persisted offset later stops making sense (a second reset, or the machine
+    finally synced to AirView), it is re-established. See ezshare_clock.
+
+    Anchor caveat: the newest raw session is mapped to *today*, which assumes a
+    morning-after poll of last night's session; the result can be off by ~1 day
+    depending on poll timing. Adjust the ezshare_clock_offset_days setting by
+    +/-1 if the corrected dates are consistently a day out.
+    """
+    implausible = epoch_rows(sessions)
+    if not implausible:
+        return sessions
+    today = date.today()
+    persisted = get_setting(conn, "ezshare_clock_offset_days")
+    offset = None
+    if persisted is not None:
+        try:
+            cand = int(persisted)
+        except ValueError:
+            cand = None
+        # Sanity-check against only the implausible subset, so a plausible
+        # newest date can't invalidate an otherwise-correct persisted offset.
+        if cand is not None and offset_is_sane(implausible, cand, today):
+            offset = cand
+    if offset is None:
+        if len(implausible) < len(sessions):
+            # Mixed real + epoch rows with no known offset: the epoch rows are
+            # genuinely old data whose true dates can't be anchored to today.
+            # Leave them uncorrected (they'll be flagged by the downstream
+            # clock-reset guard) rather than guess wrong.
+            logger.warning(
+                "Mixed epoch/real dates and no persisted offset — leaving %d epoch row(s) uncorrected",
+                len(implausible))
+            return sessions
+        offset = compute_offset_days(implausible, today)
+        set_setting(conn, "ezshare_clock_offset_days", str(offset))
+        logger.warning("AS11 clock reset detected — offset (re)established: %+d days", offset)
+    raw_newest = max(s["date"] for s in implausible)
+    corrected = apply_offset(sessions, offset)   # shifts only implausible rows
+    new_newest = raw_newest + timedelta(days=offset)
+    set_setting(conn, "ezshare_clock_corrected", f"+{offset}d ({raw_newest} -> {new_newest})")
+    logger.info("Clock correction applied: +%d days (%s -> %s)", offset, raw_newest, new_newest)
+    return corrected
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -173,6 +232,7 @@ def main(argv=None) -> int:
     with open(path, "wb") as f:
         f.write(data)
     sessions = parse_str_edf(path)
+    sessions = _correct_clock(conn, sessions)
 
     count = upsert_ezshare_sessions(conn, sessions)
     log_sync(conn, count, len(sessions))

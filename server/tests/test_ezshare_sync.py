@@ -1,4 +1,5 @@
 import os
+from datetime import date
 from unittest.mock import patch
 
 import psycopg2
@@ -6,6 +7,7 @@ import pytest
 
 import ezshare_sync
 from ezshare_sync import upsert_ezshare_sessions, EZSHARE_SOURCE
+from ezshare_clock import EARLIEST_PLAUSIBLE_DATE
 
 
 @pytest.fixture(scope="session")
@@ -43,6 +45,8 @@ def clean_cpap(db):
 
 
 def _session(d, ahi=3.0):
+    if isinstance(d, str):
+        d = date.fromisoformat(d)
     return {"date": d, "ahi": ahi, "total_usage_minutes": 420,
             "obstructive_events": 1, "central_events": 0, "hypopnea_events": 2,
             "rdi_events": None, "rera_events": None,
@@ -112,3 +116,76 @@ def test_main_ingests_parsed_sessions(clean_cpap):
     assert abs(ahi - 4.4) < 0.01 and src == EZSHARE_SOURCE
     cur.execute("SELECT value FROM settings WHERE key='ezshare_last_status'")
     assert "ok:" in cur.fetchone()[0]
+
+
+def test_main_corrects_epoch_reset_dates(clean_cpap):
+    """A 2008-stamped STR.EDF is remapped to plausible dates + offset persisted."""
+    epoch = [_session(date(2008, 1, 9), ahi=5.0)]
+    with patch("ezshare_sync.EzShareClient") as C, \
+         patch("ezshare_sync.parse_str_edf", return_value=epoch):
+        inst = C.return_value
+        inst.version.return_value = "2.0.7"
+        inst.download_str_edf.return_value = b"0       edf"
+        assert ezshare_sync.main([]) == 0
+    cur = clean_cpap.cursor()
+    cur.execute("SELECT date FROM cpap_sessions WHERE import_source = 'ezshare'")
+    row = cur.fetchone()
+    assert row is not None
+    assert row[0] >= EARLIEST_PLAUSIBLE_DATE          # 2008 remapped forward
+    cur.execute("SELECT value FROM settings WHERE key = 'ezshare_clock_offset_days'")
+    assert cur.fetchone() is not None                  # offset persisted for stability
+
+
+def test_main_leaves_plausible_dates_untouched(clean_cpap):
+    """Real dates (machine clock correct) pass through with no shift."""
+    good = [_session(date(2026, 7, 20), ahi=2.2)]
+    with patch("ezshare_sync.EzShareClient") as C, \
+         patch("ezshare_sync.parse_str_edf", return_value=good):
+        inst = C.return_value
+        inst.version.return_value = "2.0.7"
+        inst.download_str_edf.return_value = b"0       edf"
+        assert ezshare_sync.main([]) == 0
+    cur = clean_cpap.cursor()
+    cur.execute("SELECT date FROM cpap_sessions WHERE import_source = 'ezshare'")
+    assert cur.fetchone()[0] == date(2026, 7, 20)
+    cur.execute("SELECT value FROM settings WHERE key = 'ezshare_clock_offset_days'")
+    assert cur.fetchone() is None                      # no offset established
+
+
+def test_main_mixed_dates_applies_persisted_offset_to_epoch_rows(clean_cpap):
+    """Transition case: newest row is real, but an older epoch row still gets
+    corrected via the persisted offset (Copilot #41)."""
+    cur = clean_cpap.cursor()
+    # offset that maps 2008-01-09 -> ~2026 (established earlier while all-epoch)
+    from datetime import date as _d
+    off = (_d(2026, 7, 20) - _d(2008, 1, 9)).days
+    cur.execute("INSERT INTO settings (key, value) VALUES ('ezshare_clock_offset_days', %s)", (str(off),))
+    clean_cpap.commit()
+    mixed = [_session(date(2008, 1, 9), ahi=9.0), _session(date(2026, 7, 24), ahi=2.0)]
+    with patch("ezshare_sync.EzShareClient") as C, \
+         patch("ezshare_sync.parse_str_edf", return_value=mixed):
+        inst = C.return_value
+        inst.version.return_value = "2.0.7"
+        inst.download_str_edf.return_value = b"0       edf"
+        assert ezshare_sync.main([]) == 0
+    cur.execute("SELECT date FROM cpap_sessions WHERE import_source='ezshare' ORDER BY date")
+    dates = [r[0] for r in cur.fetchall()]
+    assert all(d >= EARLIEST_PLAUSIBLE_DATE for d in dates)   # no 2008 rows remain
+    assert date(2026, 7, 24) in dates                          # real row untouched
+
+
+def test_main_mixed_dates_no_offset_leaves_epoch_rows(clean_cpap):
+    """Mixed real+epoch with no persisted offset: epoch rows can't be safely
+    anchored, so they pass through uncorrected (and no offset is invented)."""
+    mixed = [_session(date(2008, 1, 9), ahi=9.0), _session(date(2026, 7, 24), ahi=2.0)]
+    with patch("ezshare_sync.EzShareClient") as C, \
+         patch("ezshare_sync.parse_str_edf", return_value=mixed):
+        inst = C.return_value
+        inst.version.return_value = "2.0.7"
+        inst.download_str_edf.return_value = b"0       edf"
+        assert ezshare_sync.main([]) == 0
+    cur = clean_cpap.cursor()
+    cur.execute("SELECT value FROM settings WHERE key='ezshare_clock_offset_days'")
+    assert cur.fetchone() is None                              # no offset invented
+    cur.execute("SELECT COUNT(*) FROM cpap_sessions WHERE date < %s", (EARLIEST_PLAUSIBLE_DATE,))
+    assert cur.fetchone()[0] == 1                              # the 2008 row passed through
