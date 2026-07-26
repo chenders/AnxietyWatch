@@ -77,3 +77,15 @@ def test_offset_is_sane_rejects_offset_landing_in_future():
     sessions = _sessions(date(2008, 1, 9))
     huge = compute_offset_days(sessions, date(2030, 1, 1))
     assert offset_is_sane(sessions, huge, date(2026, 7, 24)) is False
+
+
+def test_is_epoch_reset_true_for_mixed():
+    # Presence-based: a plausible newest date must not hide older epoch rows.
+    assert is_epoch_reset(_sessions(date(2008, 1, 4), date(2026, 7, 24))) is True
+
+
+def test_epoch_rows_returns_only_implausible():
+    from ezshare_clock import epoch_rows
+    rows = epoch_rows(_sessions(date(2008, 1, 4), date(2026, 7, 24), date(2008, 2, 1)))
+    got = sorted(s["date"] for s in rows)
+    assert got == [date(2008, 1, 4), date(2008, 2, 1)]

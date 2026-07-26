@@ -34,9 +34,20 @@ def newest_date(sessions: list[dict]) -> date | None:
 
 def is_epoch_reset(sessions: list[dict],
                    threshold: date = EARLIEST_PLAUSIBLE_DATE) -> bool:
-    """True if the newest session date is implausibly old (clock reset)."""
-    newest = newest_date(sessions)
-    return newest is not None and newest < threshold
+    """True if ANY session date is implausibly old (clock reset).
+
+    Presence-based, not newest-based: an STR.EDF can hold a mix of real and
+    epoch-reset rows (e.g. the machine's clock syncs to AirView partway through
+    its retained history), and those old rows still need correcting even though
+    the newest row is plausible.
+    """
+    return any(s["date"] < threshold for s in sessions)
+
+
+def epoch_rows(sessions: list[dict],
+               threshold: date = EARLIEST_PLAUSIBLE_DATE) -> list[dict]:
+    """The subset of sessions whose dates are implausibly old (clock reset)."""
+    return [s for s in sessions if s["date"] < threshold]
 
 
 def compute_offset_days(sessions: list[dict], anchor_date: date) -> int:

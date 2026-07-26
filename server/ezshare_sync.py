@@ -27,7 +27,7 @@ import psycopg2
 from ezshare_client import EzShareClient, EzShareUnreachable, EzShareError
 from ezshare_parser import parse_str_edf
 from ezshare_clock import (
-    is_epoch_reset, compute_offset_days, apply_offset, offset_is_sane,
+    epoch_rows, compute_offset_days, apply_offset, offset_is_sane,
 )
 
 logger = logging.getLogger(__name__)
@@ -151,7 +151,8 @@ def _correct_clock(conn, sessions):
     depending on poll timing. Adjust the ezshare_clock_offset_days setting by
     +/-1 if the corrected dates are consistently a day out.
     """
-    if not is_epoch_reset(sessions):
+    implausible = epoch_rows(sessions)
+    if not implausible:
         return sessions
     today = date.today()
     persisted = get_setting(conn, "ezshare_clock_offset_days")
@@ -161,14 +162,25 @@ def _correct_clock(conn, sessions):
             cand = int(persisted)
         except ValueError:
             cand = None
-        if cand is not None and offset_is_sane(sessions, cand, today):
+        # Sanity-check against only the implausible subset, so a plausible
+        # newest date can't invalidate an otherwise-correct persisted offset.
+        if cand is not None and offset_is_sane(implausible, cand, today):
             offset = cand
     if offset is None:
-        offset = compute_offset_days(sessions, today)
+        if len(implausible) < len(sessions):
+            # Mixed real + epoch rows with no known offset: the epoch rows are
+            # genuinely old data whose true dates can't be anchored to today.
+            # Leave them uncorrected (they'll be flagged by the downstream
+            # clock-reset guard) rather than guess wrong.
+            logger.warning(
+                "Mixed epoch/real dates and no persisted offset — leaving %d epoch row(s) uncorrected",
+                len(implausible))
+            return sessions
+        offset = compute_offset_days(implausible, today)
         set_setting(conn, "ezshare_clock_offset_days", str(offset))
         logger.warning("AS11 clock reset detected — offset (re)established: %+d days", offset)
-    raw_newest = max(s["date"] for s in sessions)
-    corrected = apply_offset(sessions, offset)
+    raw_newest = max(s["date"] for s in implausible)
+    corrected = apply_offset(sessions, offset)   # shifts only implausible rows
     new_newest = raw_newest + timedelta(days=offset)
     set_setting(conn, "ezshare_clock_corrected", f"+{offset}d ({raw_newest} -> {new_newest})")
     logger.info("Clock correction applied: +%d days (%s -> %s)", offset, raw_newest, new_newest)
