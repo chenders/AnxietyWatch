@@ -40,6 +40,15 @@ final class HealthDataCoordinator {
     /// and noops. No data loss; at worst one wasted HK round trip.
     @MainActor private var isMirroring = false
 
+    /// Whether un-aggregated samples have arrived in the lookback window.
+    @MainActor private var needsAggregation = true
+    
+    @ObservationIgnored
+    private lazy var refreshThrottle = CoalescingThrottle(debounceInterval: 60, maxDelay: 60) { [weak self] in
+        guard let self = self else { return }
+        await self.performRefresh()
+    }
+
     /// Exposed so the UI can show backfill progress.
     var isBackfilling = false
     var backfillProgress = 0
@@ -88,6 +97,11 @@ final class HealthDataCoordinator {
         // context's freshly computed fields would be dropped at save time.
         scheduleRefresh()
         await importClinicalRecordsIfNeeded()
+    }
+
+    @MainActor
+    fileprivate func markNeedsAggregation() {
+        needsAggregation = true
     }
 
     // MARK: - Authorization
@@ -292,6 +306,7 @@ final class HealthDataCoordinator {
         await healthKit.startObserving { [weak self] in
             guard let coordinator = self else { return }
             Task { @MainActor in
+                coordinator.markNeedsAggregation()
                 coordinator.scheduleRefresh()
             }
         }
@@ -373,6 +388,9 @@ final class HealthDataCoordinator {
                 // recentAggregationLookbackDays). aggregateRecentDays checks
                 // cancellation between days, so expiration cuts it short.
                 try await aggregator.aggregateRecentDays(endingAt: .now)
+                
+                guard !Task.isCancelled else { return }
+                await importClinicalRecordsIfNeeded()
             } catch is CancellationError {
                 // Expected when the background task expires and cancels workTask.
                 return
@@ -394,20 +412,25 @@ final class HealthDataCoordinator {
     // MARK: - Live Observer Refresh
 
     /// Debounce rapid-fire observer callbacks (e.g., Watch syncing multiple types at once).
-    /// Waits 5 seconds after the last update before re-aggregating the recent
-    /// trailing days' snapshots and checking for new clinical records.
+    /// Coalesces rapid-fire events and enforces a max delay.
     private func scheduleRefresh() {
-        pendingRefreshTask?.cancel()
-        pendingRefreshTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(5))
-            guard !Task.isCancelled else { return }
+        Task {
+            await refreshThrottle.event()
+        }
+    }
 
-            // Mirror new HealthKit samples into SwiftData BEFORE running the
-            // aggregator so SnapshotAggregator-derived data (and the anytime
-            // SwiftData consumers) sees the freshly-mirrored rows.
-            await mirrorHealthKitSamples()
-            guard !Task.isCancelled else { return }
+    @MainActor
+    private func performRefresh() async {
+        guard !Task.isCancelled else { return }
 
+        // Mirror new HealthKit samples into SwiftData BEFORE running the
+        // aggregator so SnapshotAggregator-derived data (and the anytime
+        // SwiftData consumers) sees the freshly-mirrored rows.
+        await mirrorHealthKitSamples()
+        guard !Task.isCancelled else { return }
+
+        let shouldAggregate = needsAggregation
+        if shouldAggregate {
             let context = ModelContext(modelContainer)
             let aggregator = SnapshotAggregator(
                 healthKit: healthKit,
@@ -419,14 +442,12 @@ final class HealthDataCoordinator {
                 // written near midnight), and this observer path is often
                 // the first aggregation to see them.
                 try await aggregator.aggregateRecentDays(endingAt: .now)
+                needsAggregation = false
             } catch is CancellationError {
                 return
             } catch {
                 Log.data.error("Refresh aggregation failed: \(error, privacy: .public)")
             }
-
-            guard !Task.isCancelled else { return }
-            await importClinicalRecordsIfNeeded()
         }
     }
 
@@ -851,6 +872,19 @@ final class HealthDataCoordinator {
     /// Flushes immediately if the buffer exceeds `maxBufferSize`.
     private func bufferSamples(_ samples: [(type: String, value: Double, timestamp: Date, source: String?)]) {
         sampleBuffer.append(contentsOf: samples)
+        
+        // Dirty-check: only flag for aggregation if at least one sample is in the lookback window.
+        let lookbackStart = Calendar.current.date(
+            byAdding: .day,
+            value: -SnapshotAggregator.recentAggregationLookbackDays,
+            to: Calendar.current.startOfDay(for: .now)
+        ) ?? .distantPast
+        
+        if samples.contains(where: { $0.timestamp >= lookbackStart }) {
+            Task { @MainActor [weak self] in
+                self?.markNeedsAggregation()
+            }
+        }
 
         if sampleBuffer.count >= maxBufferSize {
             flushTask?.cancel()
