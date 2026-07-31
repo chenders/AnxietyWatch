@@ -20,6 +20,9 @@ struct TrendsFetchWindowTests {
             AnxietyEntry.self,
             CPAPSession.self,
             BarometricReading.self,
+            HRVReading.self,
+            SensorSession.self,
+            QuantityHealthSample.self,
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [config])
@@ -97,6 +100,87 @@ struct TrendsFetchWindowTests {
         #expect(abs((fetched.first?.pressureKPa ?? 0) - 101) < 0.001)
     }
 
+    @Test("HRVReading fetch includes rows outside window within 24h widen bound but excludes beyond that")
+    @MainActor
+    func hrvReadingsAreBounded() throws {
+        let context = ModelContext(try makeContainer())
+        let start = dayStart
+        let end = dayStart.addingTimeInterval(24 * 3600)
+        
+        let widenInterval: TimeInterval = 24 * 3600
+
+        let hrv1 = HRVReading(timestamp: start.addingTimeInterval(-widenInterval - 10), rmssd: 1, sdnn: 1, pnn50: 1, lfPower: 1, hfPower: 1, lfHfRatio: 1, source: "polar_h10")
+        let hrv2 = HRVReading(timestamp: start.addingTimeInterval(-widenInterval + 10), rmssd: 1, sdnn: 1, pnn50: 1, lfPower: 1, hfPower: 1, lfHfRatio: 1, source: "polar_h10")
+        let hrv3 = HRVReading(timestamp: start.addingTimeInterval(60), rmssd: 1, sdnn: 1, pnn50: 1, lfPower: 1, hfPower: 1, lfHfRatio: 1, source: "polar_h10")
+        let hrv4 = HRVReading(timestamp: end.addingTimeInterval(widenInterval - 10), rmssd: 1, sdnn: 1, pnn50: 1, lfPower: 1, hfPower: 1, lfHfRatio: 1, source: "polar_h10")
+        let hrv5 = HRVReading(timestamp: end.addingTimeInterval(widenInterval + 10), rmssd: 1, sdnn: 1, pnn50: 1, lfPower: 1, hfPower: 1, lfHfRatio: 1, source: "polar_h10")
+        context.insert(hrv1)
+        context.insert(hrv2)
+        context.insert(hrv3)
+        context.insert(hrv4)
+        context.insert(hrv5)
+        try context.save()
+
+        let fetched = try context.fetch(
+            FetchDescriptor<HRVReading>(
+                predicate: TrendsFetchWindow.hrvReadings(windowStart: start, windowEnd: end)
+            )
+        )
+        // Includes the 3 within the widened window
+        #expect(fetched.count == 3)
+    }
+
+    @Test("SensorSession fetch includes rows outside window within 24h widen bound but excludes beyond that")
+    @MainActor
+    func sensorSessionsAreBounded() throws {
+        let context = ModelContext(try makeContainer())
+        let start = dayStart
+        let end = dayStart.addingTimeInterval(24 * 3600)
+        
+        let widenInterval: TimeInterval = 24 * 3600
+
+        let ss1 = SensorSession(startTime: start.addingTimeInterval(-widenInterval - 10), batteryAtStart: 100)
+        let ss2 = SensorSession(startTime: start.addingTimeInterval(-widenInterval + 10), batteryAtStart: 100)
+        let ss3 = SensorSession(startTime: start.addingTimeInterval(60), batteryAtStart: 100)
+        let ss4 = SensorSession(startTime: end.addingTimeInterval(widenInterval - 10), batteryAtStart: 100)
+        let ss5 = SensorSession(startTime: end.addingTimeInterval(widenInterval + 10), batteryAtStart: 100)
+        context.insert(ss1)
+        context.insert(ss2)
+        context.insert(ss3)
+        context.insert(ss4)
+        context.insert(ss5)
+        try context.save()
+
+        let fetched = try context.fetch(
+            FetchDescriptor<SensorSession>(
+                predicate: TrendsFetchWindow.sensorSessions(windowStart: start, windowEnd: end)
+            )
+        )
+        // Includes the 3 within the widened window
+        #expect(fetched.count == 3)
+    }
+
+    @Test("QuantityHealthSample fetch excludes rows outside the window on both edges")
+    @MainActor
+    func liveOximeterSamplesAreBounded() throws {
+        let context = ModelContext(try makeContainer())
+        let start = dayStart
+        let end = dayStart.addingTimeInterval(24 * 3600)
+
+        context.insert(QuantityHealthSample(timestamp: start.addingTimeInterval(-1), metricType: "SpO2", value: 95, unitString: "%", sourceBundleID: "emay", sourceName: "EMAY"))
+        context.insert(QuantityHealthSample(timestamp: start.addingTimeInterval(60), metricType: "SpO2", value: 96, unitString: "%", sourceBundleID: "emay", sourceName: "EMAY"))
+        context.insert(QuantityHealthSample(timestamp: end.addingTimeInterval(1), metricType: "SpO2", value: 97, unitString: "%", sourceBundleID: "emay", sourceName: "EMAY"))
+        try context.save()
+
+        let fetched = try context.fetch(
+            FetchDescriptor<QuantityHealthSample>(
+                predicate: TrendsFetchWindow.liveOximeterSamples(windowStart: start, windowEnd: end)
+            )
+        )
+        #expect(fetched.count == 1)
+        #expect(fetched.first?.value == 96)
+    }
+
     // MARK: - Boundary instants are inclusive
 
     @Test("Rows sitting exactly on the window edges are included")
@@ -105,19 +189,30 @@ struct TrendsFetchWindowTests {
         let context = ModelContext(try makeContainer())
         let start = dayStart
         let end = dayStart.addingTimeInterval(24 * 3600)
+        let widenInterval: TimeInterval = 24 * 3600
 
         context.insert(AnxietyEntry(timestamp: start, severity: 1))
         context.insert(AnxietyEntry(timestamp: end, severity: 2))
+        
+        let hrvA = HRVReading(timestamp: start.addingTimeInterval(-widenInterval), rmssd: 1, sdnn: 1, pnn50: 1, lfPower: 1, hfPower: 1, lfHfRatio: 1, source: "polar")
+        let hrvB = HRVReading(timestamp: end.addingTimeInterval(widenInterval), rmssd: 1, sdnn: 1, pnn50: 1, lfPower: 1, hfPower: 1, lfHfRatio: 1, source: "polar")
+        context.insert(hrvA)
+        context.insert(hrvB)
         try context.save()
 
-        let fetched = try context.fetch(
+        let fetchedEntries = try context.fetch(
             FetchDescriptor<AnxietyEntry>(
                 predicate: TrendsFetchWindow.entries(windowStart: start, windowEnd: end)
             )
         )
-        // `TrendsView.inWindow` includes the end instant for the active page,
-        // so the fetch must not be narrower than that in-memory filter.
-        #expect(fetched.count == 2)
+        #expect(fetchedEntries.count == 2)
+        
+        let fetchedHRV = try context.fetch(
+            FetchDescriptor<HRVReading>(
+                predicate: TrendsFetchWindow.hrvReadings(windowStart: start, windowEnd: end)
+            )
+        )
+        #expect(fetchedHRV.count == 2)
     }
 
     // MARK: - Day floor (the superset rule)
@@ -193,6 +288,27 @@ struct TrendsFetchWindowTests {
         // Already-aligned instants must not be widened by a whole bucket.
         #expect(TrendsFetchWindow.snapDown(alignedBase) == alignedBase)
         #expect(TrendsFetchWindow.snapUp(alignedBase) == alignedBase)
+    }
+
+    @Test("No #Predicate captures a non-Date local (F-030 safety)")
+    func predicatesCaptureOnlyDates() {
+        let start = dayStart
+        let end = dayStart.addingTimeInterval(24 * 3600)
+        
+        let predicates: [Any] = [
+            TrendsFetchWindow.entries(windowStart: start, windowEnd: end),
+            TrendsFetchWindow.cpapSessions(windowStart: start, windowEnd: end),
+            TrendsFetchWindow.barometric(windowStart: start, windowEnd: end),
+            TrendsFetchWindow.hrvReadings(windowStart: start, windowEnd: end),
+            TrendsFetchWindow.sensorSessions(windowStart: start, windowEnd: end),
+            TrendsFetchWindow.liveOximeterSamples(windowStart: start, windowEnd: end)
+        ]
+        
+        for p in predicates {
+            let mirrorStr = String(describing: Mirror(reflecting: p).children.first?.value ?? "")
+            #expect(!mirrorStr.contains("Value<Swift.String>"), "Predicate captured a String, which triggers the F-030 iOS 26 ORDER BY hang")
+            #expect(!mirrorStr.contains("Value<Foundation.UUID>"), "Predicate captured a UUID, which triggers the F-030 iOS 26 ORDER BY hang")
+        }
     }
 
     @Test("Snapped bounds still return rows sitting on the exact window edges")

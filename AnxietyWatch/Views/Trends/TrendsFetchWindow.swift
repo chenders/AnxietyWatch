@@ -81,4 +81,24 @@ enum TrendsFetchWindow {
         let upper = snapUp(windowEnd)
         return #Predicate<BarometricReading> { $0.timestamp >= lower && $0.timestamp <= upper }
     }
+
+    static func hrvReadings(windowStart: Date, windowEnd: Date) -> Predicate<HRVReading> {
+        // Widened by 24h so overnight sessions spanning the window bounds 
+        // have their full row set available for LFHFAggregator.
+        let lower = snapDown(windowStart.addingTimeInterval(-24 * 3600))
+        let upper = snapUp(windowEnd.addingTimeInterval(24 * 3600))
+        return #Predicate<HRVReading> { $0.timestamp >= lower && $0.timestamp <= upper }
+    }
+
+    static func sensorSessions(windowStart: Date, windowEnd: Date) -> Predicate<SensorSession> {
+        let lower = snapDown(windowStart.addingTimeInterval(-24 * 3600))
+        let upper = snapUp(windowEnd.addingTimeInterval(24 * 3600))
+        return #Predicate<SensorSession> { $0.startTime >= lower && $0.startTime <= upper }
+    }
+
+    static func liveOximeterSamples(windowStart: Date, windowEnd: Date) -> Predicate<QuantityHealthSample> {
+        let lower = snapDown(windowStart)
+        let upper = snapUp(windowEnd)
+        return #Predicate<QuantityHealthSample> { $0.timestamp >= lower && $0.timestamp <= upper }
+    }
 }

@@ -11,36 +11,13 @@ struct TrendsView: View {
     /// also one row per day, so it is ~1.4k rows after four years and is not
     /// the fetch cost this type's `WindowedTrendTables` split targets.
     @Query(sort: \HealthSnapshot.date) private var allSnapshots: [HealthSnapshot]
-    // AnxietyEntry / CPAPSession / BarometricReading previously lived here as
-    // unbounded whole-table @Querys. They are now fetched window-scoped by
+    // AnxietyEntry / CPAPSession / BarometricReading / HRVReading / SensorSession / QuantityHealthSample
+    // previously lived here as unbounded whole-table @Querys. They are now fetched window-scoped by
     // `WindowedTrendTables` (below) — see that type's doc comment for why.
-    // Source-filtered at the SwiftData layer so the per-minute HRVReading
-    // table doesn't load non-Polar rows (and won't bloat the Trends tab as
-    // future HRV writers start populating other source labels). String
-    // literal because #Predicate can't reference static properties on
-    // foreign types at macro expansion time.
-    @Query(
-        filter: #Predicate<HRVReading> { $0.source == "polar_h10" },
-        sort: \HRVReading.timestamp
-    )
-    private var allHRVReadings: [HRVReading]
-    @Query(
-        filter: #Predicate<SensorSession> { $0.source == "polar_h10" },
-        sort: \SensorSession.startTime
-    )
-    private var allSensorSessions: [SensorSession]
-    /// Live EMAY oximeter per-minute rows for the "Oximeter (live sessions)"
-    /// card. Single-clause #Predicate on `sourceBundleID` ONLY: adding a
-    /// `timestamp >= cutoff` clause alongside this query's sort routes SQL
-    /// ORDER BY generation through the documented iOS 26
-    /// `_predicateEnforceRestrictionsOnSelector` main-thread hang (F-030 —
-    /// the same shape already fixed in HRVSessionCardView and
-    /// GlucoseDetailView). No date bound is needed: every sibling query in
-    /// this view is date-unbounded and windowed in-memory per render, and
-    /// the live bundle only accrues two rows per streamed minute (~1k
-    /// rows/night ceiling — the ~36k-rows/night EMAY CSV imports live under
-    /// a different bundle ID and never match this predicate).
-    @Query private var allLiveOximeterSamples: [QuantityHealthSample]
+    
+    /// Dedicated cheap check for the "Oximeter (live sessions)" card's empty state.
+    /// Unbounded by date, fetchLimit = 1.
+    @Query private var liveOximeterPresence: [QuantityHealthSample]
     @State private var timeRange: TimeRange = .week
     /// 0 = current period (ending now), -1 = previous period, etc.
     @State private var pageOffset = 0
@@ -57,15 +34,13 @@ struct TrendsView: View {
     init() {
         // Bind the typed constant to a local so the #Predicate macro can
         // capture it (single source of truth, per the source-label-drift
-        // rule). This works because an init-based Query CAN capture locals —
-        // the same trick as HRVSessionCardView.init — unlike the
-        // property-wrapper-default HRVReading/SensorSession queries above,
-        // which have no init body to capture in and must inline the literal.
+        // rule). This works because an init-based Query CAN capture locals.
         let liveBundle = EMAYRealtimeService.liveSourceBundleID
-        _allLiveOximeterSamples = Query(
-            filter: #Predicate<QuantityHealthSample> { $0.sourceBundleID == liveBundle },
-            sort: \QuantityHealthSample.timestamp
+        var descriptor = FetchDescriptor<QuantityHealthSample>(
+            predicate: #Predicate { $0.sourceBundleID == liveBundle }
         )
+        descriptor.fetchLimit = 1
+        _liveOximeterPresence = Query(descriptor)
     }
 
     enum SourceFilter: String, CaseIterable {
@@ -179,12 +154,15 @@ struct TrendsView: View {
         // `@Query`s are rebuilt from these dates on every window change —
         // `@Query` can't read `@State` (timeRange/pageOffset/custom range),
         // so the bounds have to arrive through an `init`.
-        WindowedTrendTables(windowStart: ws.start, windowEnd: ws.end) { allEntries, allCPAPSessions, allBarometric in
+        WindowedTrendTables(windowStart: ws.start, windowEnd: ws.end) { allEntries, allCPAPSessions, allBarometric, allHRVReadings, allSensorSessions, allLiveOximeterSamples in
             charts(
                 ws: ws,
                 allEntries: allEntries,
                 allCPAPSessions: allCPAPSessions,
-                allBarometric: allBarometric
+                allBarometric: allBarometric,
+                allHRVReadings: allHRVReadings,
+                allSensorSessions: allSensorSessions,
+                allLiveOximeterSamples: allLiveOximeterSamples
             )
         }
     }
@@ -197,7 +175,10 @@ struct TrendsView: View {
         ws: (start: Date, end: Date, chartEnd: Date),
         allEntries: [AnxietyEntry],
         allCPAPSessions: [CPAPSession],
-        allBarometric: [BarometricReading]
+        allBarometric: [BarometricReading],
+        allHRVReadings: [HRVReading],
+        allSensorSessions: [SensorSession],
+        allLiveOximeterSamples: [QuantityHealthSample]
     ) -> some View {
         let f = timeRange == .custom ? Self.windowDateTimeFormatter : Self.windowDateFormatter
         // A past 1-day page IS one calendar day — "Mar 23 – Mar 24" would
@@ -260,16 +241,19 @@ struct TrendsView: View {
         // (started 11 PM, slept past midnight) contributes its full-night
         // mean anchored to bedtime, not a partial mean anchored to the first
         // post-midnight reading.
-        let coalescedNights = LFHFAggregator.coalesce(sessions: allSensorSessions)
+        let polarSource = PolarHRMService.sourceLabel
+        let polarSessions = allSensorSessions.filter { $0.source == polarSource }
+        let coalescedNights = LFHFAggregator.coalesce(sessions: polarSessions)
         let overnightNights = coalescedNights.filter {
             $0.wearTimeSeconds >= LFHFAggregator.overnightThresholdSeconds
         }
         let overnightMemberIDs = Set(overnightNights.flatMap(\.memberSessionIDs))
         let overnightReadings = allHRVReadings.filter {
+            guard $0.source == polarSource else { return false }
             guard let sid = $0.sensorSessionID else { return false }
             return overnightMemberIDs.contains(sid)
         }
-        let overnightSessions = allSensorSessions.filter { overnightMemberIDs.contains($0.id) }
+        let overnightSessions = polarSessions.filter { overnightMemberIDs.contains($0.id) }
         // Single grouping pass over `overnightReadings` produces all three
         // series (frequency-domain NightlyMean, SDNN, RMSSD) anchored to the
         // coalesced-night start time so the body doesn't re-group the
@@ -302,8 +286,9 @@ struct TrendsView: View {
         // Live-oximeter minutes are per-instant data (one mean per minute),
         // so they take the exact-instant window path — never the
         // day-granular one reserved for midnight-normalized rows.
+        let liveBundle = EMAYRealtimeService.liveSourceBundleID
         let liveOximeterWindow = allLiveOximeterSamples.filter {
-            inWindow($0.timestamp, start: ws.start, end: ws.end)
+            $0.sourceBundleID == liveBundle && inWindow($0.timestamp, start: ws.start, end: ws.end)
         }
 
         NavigationStack {
@@ -475,7 +460,7 @@ struct TrendsView: View {
                         // scroll past a permanently empty card.
                         // Within that, the per-window empty state comes from
                         // ChartCard(isEmpty:) like every sibling.
-                        if !allLiveOximeterSamples.isEmpty {
+                        if !liveOximeterPresence.isEmpty {
                             OximeterLiveTrendChart(
                                 samples: liveOximeterWindow,
                                 dateRange: dateRange
@@ -597,13 +582,16 @@ private struct WindowedTrendTables<Content: View>: View {
     @Query private var entries: [AnxietyEntry]
     @Query private var cpapSessions: [CPAPSession]
     @Query private var barometric: [BarometricReading]
+    @Query private var hrvReadings: [HRVReading]
+    @Query private var sensorSessions: [SensorSession]
+    @Query private var liveOximeterSamples: [QuantityHealthSample]
 
-    private let content: ([AnxietyEntry], [CPAPSession], [BarometricReading]) -> Content
+    private let content: ([AnxietyEntry], [CPAPSession], [BarometricReading], [HRVReading], [SensorSession], [QuantityHealthSample]) -> Content
 
     init(
         windowStart: Date,
         windowEnd: Date,
-        @ViewBuilder content: @escaping ([AnxietyEntry], [CPAPSession], [BarometricReading]) -> Content
+        @ViewBuilder content: @escaping ([AnxietyEntry], [CPAPSession], [BarometricReading], [HRVReading], [SensorSession], [QuantityHealthSample]) -> Content
     ) {
         self.content = content
         _entries = Query(
@@ -618,10 +606,22 @@ private struct WindowedTrendTables<Content: View>: View {
             filter: TrendsFetchWindow.barometric(windowStart: windowStart, windowEnd: windowEnd),
             sort: \BarometricReading.timestamp
         )
+        _hrvReadings = Query(
+            filter: TrendsFetchWindow.hrvReadings(windowStart: windowStart, windowEnd: windowEnd),
+            sort: \HRVReading.timestamp
+        )
+        _sensorSessions = Query(
+            filter: TrendsFetchWindow.sensorSessions(windowStart: windowStart, windowEnd: windowEnd),
+            sort: \SensorSession.startTime
+        )
+        _liveOximeterSamples = Query(
+            filter: TrendsFetchWindow.liveOximeterSamples(windowStart: windowStart, windowEnd: windowEnd),
+            sort: \QuantityHealthSample.timestamp
+        )
     }
 
     var body: some View {
-        content(entries, cpapSessions, barometric)
+        content(entries, cpapSessions, barometric, hrvReadings, sensorSessions, liveOximeterSamples)
     }
 }
 
