@@ -11,6 +11,7 @@ nonisolated struct SampleTypeConfig {
     let unitLabel: String
     /// Absolute change from 1h rolling average that counts as "rising" or "dropping"
     let trendThreshold: Double
+    let backgroundFrequency: HKUpdateFrequency
 
     /// All types that get individual sample caching via HKAnchoredObjectQuery.
     static let anchoredTypes: [SampleTypeConfig] = [
@@ -19,91 +20,104 @@ nonisolated struct SampleTypeConfig {
             unit: .count().unitDivided(by: .minute()),
             displayName: "Heart Rate",
             unitLabel: "bpm",
-            trendThreshold: 3
+            trendThreshold: 3,
+            backgroundFrequency: .hourly
         ),
         SampleTypeConfig(
             identifier: .heartRateVariabilitySDNN,
             unit: .secondUnit(with: .milli),
             displayName: "HRV",
             unitLabel: "ms",
-            trendThreshold: 5
+            trendThreshold: 5,
+            backgroundFrequency: .hourly
         ),
         SampleTypeConfig(
             identifier: .oxygenSaturation,
             unit: .percent(),
             displayName: "Blood Oxygen",
             unitLabel: "%",
-            trendThreshold: 0.01
+            trendThreshold: 0.01,
+            backgroundFrequency: .immediate
         ),
         SampleTypeConfig(
             identifier: .respiratoryRate,
             unit: .count().unitDivided(by: .minute()),
             displayName: "Respiratory Rate",
             unitLabel: "breaths/min",
-            trendThreshold: 1
+            trendThreshold: 1,
+            backgroundFrequency: .immediate
         ),
         SampleTypeConfig(
             identifier: .restingHeartRate,
             unit: .count().unitDivided(by: .minute()),
             displayName: "Resting HR",
             unitLabel: "bpm",
-            trendThreshold: 3
+            trendThreshold: 3,
+            backgroundFrequency: .hourly
         ),
         SampleTypeConfig(
             identifier: .vo2Max,
             unit: HKUnit(from: "mL/kg*min"),
             displayName: "VO₂ Max",
             unitLabel: "mL/kg/min",
-            trendThreshold: 1
+            trendThreshold: 1,
+            backgroundFrequency: .daily
         ),
         SampleTypeConfig(
             identifier: .walkingHeartRateAverage,
             unit: .count().unitDivided(by: .minute()),
             displayName: "Walking HR",
             unitLabel: "bpm",
-            trendThreshold: 3
+            trendThreshold: 3,
+            backgroundFrequency: .daily
         ),
         SampleTypeConfig(
             identifier: .appleWalkingSteadiness,
             unit: .percent(),
             displayName: "Walking Steadiness",
             unitLabel: "%",
-            trendThreshold: 0.02
+            trendThreshold: 0.02,
+            backgroundFrequency: .daily
         ),
         SampleTypeConfig(
             identifier: .bloodPressureSystolic,
             unit: .millimeterOfMercury(),
             displayName: "BP Systolic",
             unitLabel: "mmHg",
-            trendThreshold: 5
+            trendThreshold: 5,
+            backgroundFrequency: .daily
         ),
         SampleTypeConfig(
             identifier: .bloodPressureDiastolic,
             unit: .millimeterOfMercury(),
             displayName: "BP Diastolic",
             unitLabel: "mmHg",
-            trendThreshold: 3
+            trendThreshold: 3,
+            backgroundFrequency: .daily
         ),
         SampleTypeConfig(
             identifier: .bloodGlucose,
             unit: .gramUnit(with: .milli).unitDivided(by: .literUnit(with: .deci)),
             displayName: "Blood Glucose",
             unitLabel: "mg/dL",
-            trendThreshold: 10
+            trendThreshold: 10,
+            backgroundFrequency: .daily
         ),
         SampleTypeConfig(
             identifier: .environmentalAudioExposure,
             unit: .decibelAWeightedSoundPressureLevel(),
             displayName: "Env. Sound",
             unitLabel: "dBA",
-            trendThreshold: 5
+            trendThreshold: 5,
+            backgroundFrequency: .daily
         ),
         SampleTypeConfig(
             identifier: .headphoneAudioExposure,
             unit: .decibelAWeightedSoundPressureLevel(),
             displayName: "Headphone Audio",
             unitLabel: "dBA",
-            trendThreshold: 5
+            trendThreshold: 5,
+            backgroundFrequency: .daily
         ),
     ]
 

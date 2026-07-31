@@ -117,4 +117,27 @@ struct SampleTypeConfigTests {
         // env sound, headphone audio
         #expect(SampleTypeConfig.anchoredTypes.count == 13)
     }
+
+    // MARK: - Background frequencies
+
+    @Test("Exactly oxygenSaturation and respiratoryRate map to .immediate")
+    func immediateFrequencyShape() {
+        let immediateTypes = SampleTypeConfig.anchoredTypes
+            .filter { $0.backgroundFrequency == .immediate }
+            .map { $0.identifier }
+
+        let expected: Set<HKQuantityTypeIdentifier> = [.oxygenSaturation, .respiratoryRate]
+        #expect(Set(immediateTypes) == expected, "Only SpO2 and RR must be .immediate to save battery")
+    }
+
+    @Test("All anchored types have an explicit background frequency")
+    func allHaveBackgroundFrequencies() {
+        for config in SampleTypeConfig.anchoredTypes {
+            // Assert that the property can be read and is not some unexpected value.
+            // Since it's an enum it must be one of the HKUpdateFrequency cases.
+            let freq = config.backgroundFrequency
+            #expect(freq == .immediate || freq == .hourly || freq == .daily,
+                    "\(config.identifier.rawValue) must have a defined battery-tier frequency")
+        }
+    }
 }

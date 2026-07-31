@@ -704,7 +704,7 @@ actor HealthKitManager: HealthKitDataSource {
             healthStore.execute(query)
             activeAnchoredQueries.append(query)
 
-            healthStore.enableBackgroundDelivery(for: sampleType, frequency: .immediate) { success, error in
+            healthStore.enableBackgroundDelivery(for: sampleType, frequency: config.backgroundFrequency) { success, error in
                 let id = config.identifier.rawValue
                 if let error {
                     Log.health.error("enableBackgroundDelivery failed for \(id, privacy: .public): \(error, privacy: .public)")
