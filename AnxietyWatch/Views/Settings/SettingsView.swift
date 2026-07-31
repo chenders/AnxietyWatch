@@ -118,6 +118,13 @@ struct SettingsView: View {
                     Link(destination: URL(string: "https://github.com/chenders/AnxietyWatch")!) {
                         Label("Source Code", systemImage: "chevron.left.forwardslash.chevron.right")
                     }
+#if DEBUG
+                    NavigationLink {
+                        EnergyMetricsDebugView().equatable()
+                    } label: {
+                        Label("Debug: Energy Metrics", systemImage: "bolt.fill")
+                    }
+#endif
                 } header: {
                     Text("About")
                 } footer: {
