@@ -131,4 +131,15 @@ struct BarometerServiceTests {
     func timeThreshold() {
         #expect(BarometerService.minimumSaveIntervalSeconds == 900)
     }
+
+    // MARK: - Queue usage
+
+    @Test("Callback queue is not .main")
+    func callbackQueueIsNotMain() {
+        // Assert that the barometer service is configured to deliver CMAltimeter
+        // callbacks to a background operation queue, avoiding main thread CPU drain.
+        let service = BarometerService()
+        #expect(service.updateQueue !== OperationQueue.main)
+        #expect(service.updateQueue.underlyingQueue !== DispatchQueue.main)
+    }
 }
