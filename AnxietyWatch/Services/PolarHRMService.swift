@@ -92,6 +92,7 @@ final class PolarHRMService: NSObject {
     private var tickTask: Task<Void, Never>?
     private var elapsedTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
+    private var scanTimeoutTask: Task<Void, Never>?
     /// Latched by `startScan` when CB is in a transient state (`.unknown` /
     /// `.resetting`) or `.poweredOff` so the scan auto-resumes once
     /// `centralManagerDidUpdateState` fires with `.poweredOn`. Cleared by
@@ -234,10 +235,19 @@ final class PolarHRMService: NSObject {
             withServices: [Self.heartRateServiceUUID],
             options: nil
         )
+        
+        scanTimeoutTask?.cancel()
+        scanTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled else { return }
+            self?.stopScan()
+        }
     }
 
     func stopScan() {
         guard demoSession == nil else { return }
+        scanTimeoutTask?.cancel()
+        scanTimeoutTask = nil
         if central.isScanning { central.stopScan() }
         // Clear any pending-scan latch so dismissing the pairing view doesn't
         // trigger a background scan later when CB transitions to .poweredOn.
@@ -330,7 +340,8 @@ final class PolarHRMService: NSObject {
         tickTask?.cancel(); tickTask = nil
         elapsedTask?.cancel(); elapsedTask = nil
         reconnectTask?.cancel(); reconnectTask = nil
-        if let p, p.state == .connected || p.state == .connecting {
+        scanTimeoutTask?.cancel(); scanTimeoutTask = nil
+        if let p {
             central.cancelPeripheralConnection(p)
         }
 
@@ -809,9 +820,7 @@ extension PolarHRMService: CBCentralManagerDelegate {
                 // this, RR data flowing through the restored peripheral would
                 // be dropped on the floor while the UI claimed "Recording".
                 self.peripheral = nil
-                if p.state == .connected || p.state == .connecting {
-                    self.central.cancelPeripheralConnection(p)
-                }
+                self.central.cancelPeripheralConnection(p)
                 self.state.status = .idle
                 return
             }
