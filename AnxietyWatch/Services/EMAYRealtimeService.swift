@@ -337,6 +337,7 @@ final class EMAYRealtimeService: NSObject {
     /// not merely issued). Heartbeats bypass this (sent directly).
     @ObservationIgnored private var inFlightWrite: [UInt8]?
     @ObservationIgnored private var heartbeatTask: Task<Void, Never>?
+    @ObservationIgnored private var scanTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var wantScan = false
     /// Persists per-minute live samples. Created from the shared container at
     /// app init and owned for the service's (= app's) lifetime; everything
@@ -585,13 +586,16 @@ final class EMAYRealtimeService: NSObject {
             adoptAndConnect(held)
             return
         }
-        if case .pendingConnect(let uuid) =
-            Self.reconnectApproach(knownPeripheralUUID: Self.knownPeripheralUUID(defaults: .standard)),
-           let known = central.retrievePeripherals(withIdentifiers: [uuid]).first {
-            adoptAndConnect(known)
-            return
+        switch Self.reconnectApproach(knownPeripheralUUID: Self.knownPeripheralUUID(defaults: .standard)) {
+        case .pendingConnect(let uuid):
+            if let known = central.retrievePeripherals(withIdentifiers: [uuid]).first {
+                adoptAndConnect(known)
+            } else {
+                fail("Remembered oximeter no longer recognized by system. Please unpair and pair again.")
+            }
+        case .scan:
+            beginScan()
         }
-        beginScan()
     }
 
     /// Take ownership of `p` and drive it toward streaming based on its
@@ -622,6 +626,16 @@ final class EMAYRealtimeService: NSObject {
         status = .scanning
         central.scanForPeripherals(withServices: [Self.serviceUUID])
         Log.ble.info("EMAY: scanning for service FF12")
+        
+        scanTimeoutTask?.cancel()
+        scanTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled else { return }
+            guard let self = self else { return }
+            Log.ble.info("EMAY: scan timed out after 15s")
+            self.stop()
+            self.status = .failed("No oximeter found in range. Make sure it's turned on.")
+        }
     }
 
     private func write(_ bytes: [UInt8]) {
@@ -658,6 +672,8 @@ final class EMAYRealtimeService: NSObject {
         }
         heartbeatTask?.cancel()
         heartbeatTask = nil
+        scanTimeoutTask?.cancel()
+        scanTimeoutTask = nil
         pendingWrites = []
         inFlightWrite = nil
         peripheral?.delegate = nil
@@ -676,7 +692,7 @@ final class EMAYRealtimeService: NSObject {
     private func fail(_ message: String) {
         Log.ble.error("EMAY: \(message, privacy: .public)")
         status = .failed(message)
-        if central.state == .poweredOn, let peripheral {
+        if let peripheral {
             central.cancelPeripheralConnection(peripheral)
         } else {
             resetConnectionState()

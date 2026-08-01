@@ -42,6 +42,7 @@ struct AnxietyWatchApp: App {
             SleepStageEvent.self,
             MonitoringSession.self,
             CNSRiskSampleRecord.self,
+            EnergyMetricPayload.self,
         ])
         let appSupport: URL
         do {
@@ -207,6 +208,9 @@ struct AnxietyWatchApp: App {
                     }
                     // ── Existing launch logic ─────────────────────────
                     await existingLaunchSetup()
+                }
+                .background {
+                    EnergyMetricsLifecycleView(container: sharedModelContainer)
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
@@ -617,5 +621,27 @@ enum KeychainNodeID {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
         SecItemAdd(addQuery as CFDictionary, nil)
+    }
+}
+
+// MARK: - Energy Metrics Lifecycle Guardrail
+
+/// A non-visual child view that isolates the initialization and `@State` 
+/// mutation of the background energy metrics collector. This prevents 
+/// tab-tree invalidation that would occur if the `@State` were mutated 
+/// directly at the `App` or `WindowGroup` level.
+private struct EnergyMetricsLifecycleView: View {
+    let container: ModelContainer
+    @State private var collector: EnergyMetricsCollector?
+
+    var body: some View {
+        Color.clear
+            .task {
+                if collector == nil {
+                    let newCollector = EnergyMetricsCollector(modelContainer: container)
+                    collector = newCollector
+                    newCollector.start()
+                }
+            }
     }
 }

@@ -957,7 +957,7 @@ final class HealthDataCoordinator {
     /// Runs for the app's lifetime via the coordinator, not tied to any view.
     private func startBarometerPersistence() {
         let container = modelContainer
-        // Called on main actor (BarometerService uses .main queue for altimeter updates)
+        // Called on main actor (BarometerService hops to .main when a row is persisted)
         BarometerService.shared.onSignificantChange = { pressure, altitude in
             let context = ModelContext(container)
             let reading = BarometricReading(

@@ -10,8 +10,15 @@ final class BarometerService {
     private var lastSavedPressure: Double?
     private var lastSavedTime: Date?
 
+    let updateQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.name = "com.anxietywatch.barometerUpdates"
+        queue.maxConcurrentOperationCount = 1
+        return queue
+    }()
+
     /// Called whenever a new reading is worth persisting.
-    /// Always invoked on the main actor (from `startRelativeAltitudeUpdates` on `.main` queue).
+    /// Always invoked on the main actor.
     var onSignificantChange: ((Double, Double) -> Void)?
 
     var currentPressureKPa: Double?
@@ -33,16 +40,11 @@ final class BarometerService {
         guard isAvailable, !isMonitoring else { return }
         isMonitoring = true
 
-        altimeter.startRelativeAltitudeUpdates(to: .main) { [weak self] data, _ in
-            guard let data else { return }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let pressure = data.pressure.doubleValue
-                let altitude = data.relativeAltitude.doubleValue
-                self.currentPressureKPa = pressure
-                self.currentRelativeAltitude = altitude
-                self.captureIfSignificant(pressure: pressure, altitude: altitude)
-            }
+        altimeter.startRelativeAltitudeUpdates(to: updateQueue) { [weak self] data, _ in
+            guard let data, let self else { return }
+            let pressure = data.pressure.doubleValue
+            let altitude = data.relativeAltitude.doubleValue
+            self.captureIfSignificant(pressure: pressure, altitude: altitude)
         }
     }
 
@@ -74,10 +76,13 @@ final class BarometerService {
             now: now
         ) else { return }
 
-        if let callback = onSignificantChange {
-            lastSavedPressure = pressure
-            lastSavedTime = now
-            callback(pressure, altitude)
+        lastSavedPressure = pressure
+        lastSavedTime = now
+
+        Task { @MainActor in
+            self.currentPressureKPa = pressure
+            self.currentRelativeAltitude = altitude
+            self.onSignificantChange?(pressure, altitude)
         }
     }
 }
