@@ -6,14 +6,18 @@ import Foundation
 /// Sources: open_oura (Th0rgal), ringverse protocol docs, open_ring (LogosIsLife).
 /// All three generations share the same GATT layout and packet framing.
 ///
+/// ## UUID provenance
+/// These test-service UUIDs are shared with `firmware/oura-emu/`. They are
+/// intentionally scoped to the emulator pipeline and do not claim production
+/// Oura Ring interoperability.
+///
 /// ## Packet framing
 /// Every packet is 16 bytes:
 /// ```
 /// [command:1][data:14][checksum:1]
 /// ```
-/// The checksum byte is a simple XOR of bytes 0–14 (ringverse docs) or a
-/// CRC-8 (open_oura). We document both; the delegate side is responsible
-/// for validation.
+/// The emulator protocol checksum is XOR of bytes 0–14. The delegate rejects
+/// malformed lengths and checksum mismatches.
 ///
 /// ## Auth flow (per-connection)
 /// 1. Write a nonce challenge to the auth characteristic.
@@ -30,26 +34,27 @@ public enum OuraBLEProtocol {
 
     // MARK: - GATT Service
 
-    /// Primary Oura service UUID (Ring 3/4/5).
-    public static let serviceUUID = "0000XXXX-0000-1000-8000-00805F9B34FB"
+    /// Primary Oura service UUID.
+    /// Matches the firmware UUIDs in firmware/oura-emu/src/gatt_service.c.
+    public static let serviceUUID = "00001523-1212-EFDE-1523-785FEABCD123"
 
     // MARK: - GATT Characteristics
 
     /// Auth challenge/response characteristic (write + notify).
-    public static let authCharacteristicUUID = "0000XXXX-0000-1000-8000-00805F9B34FB"
+    public static let authCharacteristicUUID = "00001524-1212-EFDE-1523-785FEABCD123"
 
     /// Command characteristic — write to enable features, request data.
-    public static let commandCharacteristicUUID = "0000XXXX-0000-1000-8000-00805F9B34FB"
+    public static let commandCharacteristicUUID = "00001525-1212-EFDE-1523-785FEABCD123"
 
     /// Live measurement notifications (IBI, HR, SpO2, motion, temp).
-    public static let measurementCharacteristicUUID = "0000XXXX-0000-1000-8000-00805F9B34FB"
+    public static let measurementCharacteristicUUID = "00001526-1212-EFDE-1523-785FEABCD123"
 
-    /// Device info (battery, firmware version).
-    public static let deviceInfoCharacteristicUUID = "0000XXXX-0000-1000-8000-00805F9B34FB"
+    /// Device info: battery %, firmware version (read + notify).
+    public static let deviceInfoCharacteristicUUID = "00001527-1212-EFDE-1523-785FEABCD123"
 
     /// History event stream — full-ring dump of PPG/IBI/temp/motion/SpO2/
     /// sleep stages/MET/HRV.
-    public static let historyCharacteristicUUID = "0000XXXX-0000-1000-8000-00805F9B34FB"
+    public static let historyCharacteristicUUID = "00001528-1212-EFDE-1523-785FEABCD123"
 
     // MARK: - Packet structure
 

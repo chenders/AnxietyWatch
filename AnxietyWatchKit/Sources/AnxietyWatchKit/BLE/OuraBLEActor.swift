@@ -1,5 +1,10 @@
 import Foundation
 
+public protocol OuraBLEConnecting: AnyObject {
+    func connect() async throws
+    func disconnect()
+}
+
 /// Actor wrapping all Oura Ring BLE communication.
 ///
 /// ## Design (mirrors PolarActor / EMAYActor)
@@ -12,8 +17,9 @@ import Foundation
 /// ## Connection lifecycle
 /// 1. **Provision key** — User imports/enters the 16-byte shared key via
 ///    `provisionKey(hex:)` or `provisionKey(data:)`. Persisted to Keychain.
-/// 2. **Connect** — `connect()` starts BLE scan, finds ring, establishes
-///    connection, performs AES nonce auth, enables measurement features.
+/// 2. **Connect** — `connect()` starts BLE scan, finds the emulator, establishes
+///    a connection, performs the synchronized test-protocol auth exchange, and
+///    enables measurement features.
 /// 3. **Stream** — Samples flow through per-type `AsyncStream`s. The
 ///    `SensorRouter` bridges these into the merged `AnySensorSample` stream.
 /// 4. **Disconnect** — `disconnect()` tears down the BLE connection and
@@ -47,6 +53,7 @@ public actor OuraBLEActor {
     // MARK: - Key store
 
     private let keyStore: OuraBLEKeyStore
+    private let connectionFactory: @Sendable (OuraBLEActor, Data) -> any OuraBLEConnecting
 
     // MARK: - Streams & continuations
 
@@ -91,9 +98,13 @@ public actor OuraBLEActor {
         keyStore: OuraBLEKeyStore = OuraBLEKeyStore(),
         ringIdentifier: String? = nil,
         idleAfterSeconds: TimeInterval = 60,
-        bufferSize: Int = 1000
+        bufferSize: Int = 1000,
+        connectionFactory: (@Sendable (OuraBLEActor, Data) -> any OuraBLEConnecting)? = nil
     ) {
         self.keyStore = keyStore
+        self.connectionFactory = connectionFactory ?? { actor, key in
+            OuraBLEDelegate(actor: actor, sharedKey: key)
+        }
         self.ringIdentifier = ringIdentifier
         self.idleAfterSeconds = idleAfterSeconds
         self.bufferSize = bufferSize
@@ -180,62 +191,61 @@ public actor OuraBLEActor {
         try keyStore.delete()
     }
 
+    // MARK: - Delegate
+
+    /// CoreBluetooth delegate (nil until connect is called).
+    private var bleDelegate: (any OuraBLEConnecting)?
+
     // MARK: - Connection management
 
     /// Begin BLE connection flow.
     ///
+    /// Creates an `OuraBLEDelegate` that handles the full CoreBluetooth
+    /// lifecycle: scan → connect → discover → auth → enable features → stream.
+    ///
     /// - Throws: `OuraBLEConnectionError` if the key isn't provisioned,
     ///   Bluetooth is off, the ring isn't found, auth fails, or features
     ///   can't be enabled.
-    ///
-    /// The connection flow is:
-    /// 1. Verify key is provisioned
-    /// 2. Create CBCentralManager, start scan for ring
-    /// 3. Connect to ring peripheral
-    /// 4. Discover services and characteristics
-    /// 5. Perform AES nonce challenge
-    /// 6. Enable measurement features
-    /// 7. Begin receiving notifications
-    ///
-    /// This method returns when the ring is in `.streaming` state.
-    /// The actual CoreBluetooth delegate implementation lives off-actor
-    /// on a serial DispatchQueue and writes samples via `ingest*`.
     public func connect() async throws {
         guard keyStore.isProvisioned else {
             throw OuraBLEConnectionError.keyNotProvisioned
         }
 
+        guard let sharedKey = try keyStore.read() else {
+            throw OuraBLEConnectionError.keyNotProvisioned
+        }
+
         transition(to: .connecting)
-        // --- CoreBluetooth connection logic goes here ---
-        //
-        // 1. CBCentralManager(state: .poweredOn) else → .bluetoothPoweredOff
-        // 2. scanForPeripherals(withServices: [OuraBLEProtocol.serviceUUID])
-        // 3. didDiscover peripheral → connect
-        // 4. didConnect → peripheral.discoverServices([OuraBLEProtocol.serviceUUID])
-        // 5. didDiscoverServices → discover characteristics
-        // 6. transition(to: .authenticating)
-        // 7. Write nonce challenge to auth characteristic
-        // 8. Receive encrypted response, decrypt with AES-ECB(keyStore.read())
-        // 9. Write decrypted nonce back to complete auth
-        //    → On failure: transition(to: .failed(.authFailed(reason)))
-        // 10. transition(to: .connected)
-        // 11. Write SetFeatureMode command to enable desired features
-        //     → On failure: transition(to: .failed(.featureEnableFailed))
-        // 12. transition(to: .streaming)
-        //
-        // The delegate writes decoded samples into ingest* methods.
-        //
-        // --- Placeholder: transition directly for testability ---
-        // In production this is replaced by the CoreBluetooth delegate path.
-        transition(to: .streaming)
+
+        let delegate = connectionFactory(self, sharedKey)
+        self.bleDelegate = delegate
+
+        do {
+            transition(to: .authenticating)
+            try await delegate.connect()
+            // connect() handles: poweredOn check → scan → connect → discover → auth → features → subscribe
+            // The delegate sets state to .streaming via the notification callback
+        } catch {
+            delegate.disconnect()
+            if bleDelegate === delegate {
+                bleDelegate = nil
+            }
+
+            let reason = String(describing: error)
+            if let connErr = error as? OuraBLEConnectionError {
+                transition(to: .failed(connErr))
+            } else {
+                transition(to: .failed(.authFailed(reason: reason)))
+            }
+            throw error
+        }
     }
 
     /// Tear down the BLE connection and stop all streams.
     /// Does NOT clear the provisioned key.
     public func disconnect() async {
-        // --- CoreBluetooth teardown goes here ---
-        // peripheral.setNotifyValue(false, for: ...)
-        // centralManager.cancelPeripheralConnection(peripheral)
+        bleDelegate?.disconnect()
+        bleDelegate = nil
         transition(to: .disconnected)
     }
 
@@ -334,7 +344,8 @@ public actor OuraBLEActor {
 
     // MARK: - Helpers
 
-    private func transition(to state: OuraBLEConnectionState) {
+    /// Transition connection state (also used by the BLE delegate).
+    func transition(to state: OuraBLEConnectionState) {
         connectionState = state
         connStateContinuation.yield(state)
     }

@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var showRebuildConfirmation = false
 #if DEBUG
     @State private var demoOuraPresented = false
+    @State private var ouraBLEDemoPresented = false
     @State private var demoCNSPresented = false
 #endif
 
@@ -136,18 +137,24 @@ struct SettingsView: View {
             .navigationDestination(isPresented: $demoOuraPresented) {
                 OuraSettingsView()
             }
+            .navigationDestination(isPresented: $ouraBLEDemoPresented) {
+                OuraBLEDemoView()
+            }
             .navigationDestination(isPresented: $demoCNSPresented) {
                 CNSMonitoringDemoView()
             }
             .task {
                 let arguments = ProcessInfo.processInfo.arguments
                 guard arguments.contains("-demoOuraSequence")
+                        || arguments.contains("-ouraBLEDemoAutoOpen")
                         || arguments.contains("-demoCNSSequence") else { return }
                 // Let Settings remain visible long enough to establish where
                 // the feature lives before following the matching visible row.
                 try? await Task.sleep(for: .seconds(3))
                 if arguments.contains("-demoCNSSequence") {
                     demoCNSPresented = true
+                } else if arguments.contains("-ouraBLEDemoAutoOpen") {
+                    ouraBLEDemoPresented = true
                 } else {
                     demoOuraPresented = true
                 }

@@ -3,6 +3,45 @@ import XCTest
 
 final class OuraBLEActorTests: XCTestCase {
 
+    private final class SuccessfulConnection: OuraBLEConnecting, @unchecked Sendable {
+        private weak var actor: OuraBLEActor?
+
+        init(actor: OuraBLEActor) {
+            self.actor = actor
+        }
+
+        func connect() async throws {
+            await actor?.transition(to: .streaming)
+        }
+
+        func disconnect() {}
+    }
+
+    private final class FailingConnection: OuraBLEConnecting, @unchecked Sendable {
+        private(set) var disconnectCallCount = 0
+
+        func connect() async throws {
+            throw OuraBLEConnectionError.connectionTimeout
+        }
+
+        func disconnect() {
+            disconnectCallCount += 1
+        }
+    }
+
+    private func makeConnectedActor(testID: String) -> (OuraBLEActor, OuraBLEKeyStore) {
+        let keyStore = OuraBLEKeyStore(
+            service: "com.anxietywatch.test.connection.\(testID)",
+            account: testID
+        )
+        try? keyStore.delete()
+        let actor = OuraBLEActor(
+            keyStore: keyStore,
+            connectionFactory: { actor, _ in SuccessfulConnection(actor: actor) }
+        )
+        return (actor, keyStore)
+    }
+
     // MARK: - IBI ingest & stream
 
     func testIngestIBIYieldsOnOutbound() async throws {
@@ -165,16 +204,14 @@ final class OuraBLEActorTests: XCTestCase {
     }
 
     func testConnectionStateStreamEmitsOnConnect() async throws {
-        let actor = OuraBLEActor()
-        let keyHex = "00112233445566778899AABBCCDDEEFF"
+        let (actor, keyStore) = makeConnectedActor(testID: "states")
+        defer { try? keyStore.delete() }
 
-        try await actor.provisionKey(hex: keyHex)
+        try await actor.provisionKey(hex: "00112233445566778899AABBCCDDEEFF")
         try await actor.connect()
 
-        let states = await actor.collectConnectionStates(count: 2)
-        XCTAssertEqual(states.count, 2)
-        XCTAssertEqual(states[0], .connecting)
-        XCTAssertEqual(states[1], .streaming)
+        let states = await actor.collectConnectionStates(count: 3)
+        XCTAssertEqual(states, [.connecting, .authenticating, .streaming])
     }
 
     func testConnectFailsWithoutKey() async throws {
@@ -190,10 +227,36 @@ final class OuraBLEActorTests: XCTestCase {
         }
     }
 
+    func testConnectFailureDisconnectsConnectorAndTransitionsToFailed() async throws {
+        let keyStore = OuraBLEKeyStore(
+            service: "com.anxietywatch.test.connection.failure",
+            account: "failure"
+        )
+        defer { try? keyStore.delete() }
+        try keyStore.importHex("00112233445566778899AABBCCDDEEFF")
+
+        let connector = FailingConnection()
+        let actor = OuraBLEActor(
+            keyStore: keyStore,
+            connectionFactory: { _, _ in connector }
+        )
+
+        do {
+            try await actor.connect()
+            XCTFail("Expected connectionTimeout error")
+        } catch let error as OuraBLEConnectionError {
+            XCTAssertEqual(error, .connectionTimeout)
+        }
+
+        XCTAssertEqual(connector.disconnectCallCount, 1)
+        let state = await actor.currentConnectionState
+        XCTAssertEqual(state, .failed(.connectionTimeout))
+    }
+
     func testIsConnectedTrueAfterConnect() async throws {
-        let actor = OuraBLEActor()
-        let keyHex = "00112233445566778899AABBCCDDEEFF"
-        try await actor.provisionKey(hex: keyHex)
+        let (actor, keyStore) = makeConnectedActor(testID: "connected")
+        defer { try? keyStore.delete() }
+        try await actor.provisionKey(hex: "00112233445566778899AABBCCDDEEFF")
         try await actor.connect()
 
         let connected = await actor.isConnected
@@ -201,9 +264,9 @@ final class OuraBLEActorTests: XCTestCase {
     }
 
     func testIsConnectedFalseAfterDisconnect() async throws {
-        let actor = OuraBLEActor()
-        let keyHex = "00112233445566778899AABBCCDDEEFF"
-        try await actor.provisionKey(hex: keyHex)
+        let (actor, keyStore) = makeConnectedActor(testID: "disconnected")
+        defer { try? keyStore.delete() }
+        try await actor.provisionKey(hex: "00112233445566778899AABBCCDDEEFF")
         try await actor.connect()
         await actor.disconnect()
 

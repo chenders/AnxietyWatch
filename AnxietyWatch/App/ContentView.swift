@@ -40,9 +40,25 @@ struct ContentView: View {
             }
         } else if arguments.contains("-demoSongs") {
             DemoSongsWalkthroughView()
+        } else if isCNSVideoDemo(arguments) {
+#if DEBUG
+            NavigationStack {
+                CNSMonitoringDemoView()
+            }
+#else
+            mainTabs
+#endif
         } else {
             mainTabs
         }
+    }
+
+    private func isCNSVideoDemo(_ arguments: [String]) -> Bool {
+#if DEBUG
+        arguments.contains("-demoCNSVideo")
+#else
+        false
+#endif
     }
 
     private var mainTabs: some View {
@@ -84,6 +100,7 @@ struct ContentView: View {
         .task {
             let arguments = ProcessInfo.processInfo.arguments
             guard arguments.contains("-demoOuraSequence")
+                    || arguments.contains("-ouraBLEDemoAutoOpen")
                     || arguments.contains("-demoCNSSequence") else { return }
             // Begin on the app's home Dashboard before visibly moving to the
             // Settings tab. The remaining route is driven by each destination.

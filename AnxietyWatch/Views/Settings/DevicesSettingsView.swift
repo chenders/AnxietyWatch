@@ -24,6 +24,15 @@ struct DevicesSettingsView: View {
                 } label: {
                     Label("Oura Ring", systemImage: "circle.hexagongrid.fill")
                 }
+#if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-ouraBLEDemo") {
+                    NavigationLink {
+                        OuraBLEDemoView()
+                    } label: {
+                        Label("Oura BLE Demo (Dongle)", systemImage: "sparkles")
+                    }
+                }
+#endif
             } footer: {
                 Text("Manage your connected hardware devices and their settings.")
             }
