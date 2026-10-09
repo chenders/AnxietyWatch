@@ -184,6 +184,16 @@ See [REQUIREMENTS.md](REQUIREMENTS.md) for the full data model and specification
 
 ---
 
+## Specifications and Planned Changes
+
+Behavior specifications and active engineering changes are maintained in [`openspec/`](openspec/README.md). Canonical current behavior lives under `openspec/specs/`; proposed changes, designs, implementation status, and task plans live under `openspec/changes/`.
+
+For the redesign-v3 branch/worktree sequence and end-to-end completion checklist, start with [`docs/FINAL_REDESIGN_v3_WORK`](docs/FINAL_REDESIGN_v3_WORK).
+
+Validate the complete specification set with `openspec validate --all --strict` before implementing or archiving a change.
+
+---
+
 ## For Developers
 
 If you're browsing this codebase to learn from it, here are the parts worth studying:

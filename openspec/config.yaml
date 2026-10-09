@@ -1,0 +1,63 @@
+schema: spec-driven
+githubCopilot:
+  cloudAgent: false
+
+context: |
+  AnxietyWatch is a SwiftUI iOS/watchOS health application with a local
+  AnxietyWatchKit Swift package. The legacy app uses SwiftData and bespoke
+  services; redesign v3 adds GRDB/SQLite storage, actor-isolated sensor
+  ingestion, a deterministic CNS pipeline, HLC delta sync, and binary
+  WatchConnectivity in staged phases.
+
+  HealthKit is the source of truth for HealthKit-owned physiological data.
+  A personal server is a mirror and must never silently become the only copy.
+  Every table that syncs up needs an explicit restore/down path. Restore must
+  preserve server IDs, mark restored rows synced, and participate in the
+  empty-store restore guard. Large restores must be paged.
+
+  Migration is deliberately phased. A compiled implementation, a tested
+  foundation, an app-wired path, and a production-authoritative path are four
+  different states and must never be conflated. Legacy services remain
+  authoritative until the replacement has parity evidence and a tested
+  rollback. WCSession.default permits one effective delegate per process.
+
+  First-run, restore, authorization, and schema-migration paths require fresh-
+  install coverage because they stop executing after success. Invalid or
+  indeterminate medical data contributes nothing and is never treated as safe.
+
+  This is a public repository: use fictional test data, never commit PII,
+  credentials, screenshots, captures, or tool/session artifacts. Builds and
+  tests must produce zero warnings. Prefer XcodeBuildMCP for Apple-platform
+  build, run, and test operations.
+
+rules:
+  proposal:
+    - State the observed current behavior separately from the target behavior.
+    - Include explicit non-goals, rollback boundary, and user-data-loss risk.
+    - Name any first-run, restore, HealthKit, server, or watchOS impact.
+  specs:
+    - Use normative SHALL or MUST requirements and exactly #### Scenario headings.
+    - Cover offline, retry, restore, fresh-install, device-loss, and rollback scenarios when relevant.
+    - Label implementation status as active, foundation-only, partial, or not implemented when documenting an existing system.
+    - Never claim a feature is shipped merely because its type, flag, endpoint, or unit tests exist.
+  design:
+    - Include a current-state evidence table with code or test paths for migrated legacy plans.
+    - Document data ownership, delegate ownership, actor boundaries, migration order, rollback, and failure recovery.
+    - Record rejected alternatives and preserve material historical decisions from superseded design documents.
+  tasks:
+    - Each implementation task must name concrete files, tests, and acceptance evidence.
+    - Keep implementation, rollout, and production-enablement tasks separate.
+    - Do not defer all testing to a final task; add or update tests with every code task.
+    - Require medical-data-accuracy-reviewer for HealthKit, ingestion, arbitration, baseline, OCR, CPAP, EMAY, Polar, SpO2, or CNS data-path changes.
+    - Require swift-pre-pr-reviewer before pushing substantive Swift changes.
+
+operations:
+  apply:
+    guidance:
+      - Preserve user changes and stage files by explicit path only.
+      - Re-read the active change status before each implementation group.
+      - Keep plan status current in the same change as implementation progress.
+  archive:
+    guidance:
+      - Archive only after tests, rollback evidence, and implementation-status notes are current.
+      - Summarize shipped behavior, deferred work, and any production flag state.

@@ -1,20 +1,22 @@
 # AnxietyWatch: Redesign Proposal
 
+> **Historical input only.** The authoritative current requirements and remaining redesign work are in `openspec/specs/` and `openspec/changes/complete-redesign-v3-migration/`. This document is retained temporarily for conversion review and must not be used as current implementation status.
+
 Revision history: v3 — negotiated with W1 (Claude) and shell (Qwen3-Coder) reviewers over four rounds. Original single-model draft archived by git.
 
-Based on the deep dive into the `AnxietyWatch` codebase, the app does an impressive job wrangling disparate hardware (EMAY, Polar, Apple Watch) and complex physiological logic (CNS depression detection). However, the current architecture carries several systemic risks—primarily around data persistence, concurrency, and synchronization. 
+Based on the deep dive into the `AnxietyWatch` codebase, the app does an impressive job wrangling disparate hardware (EMAY, Polar, Apple Watch) and complex physiological logic (CNS depression detection). However, the current architecture carries several systemic risks—primarily around data persistence, concurrency, and synchronization.
 
 If I were to redesign this application from the ground up, here are the core architectural changes I would make and why.
 
 ## 1. Separate Time-Series Data from SwiftData (STORAGE)
 **What:** Move all high-frequency sensor data (`QuantityHealthSample`, `AccelSpectrogram`, `DerivedBreathingRate`, `HRVReading`) out of SwiftData.
-**Why:** SwiftData (and Core Data beneath it) is an Object-Relational Mapper designed for graph data. It is notoriously inefficient for massive, flat time-series datasets. 
+**Why:** SwiftData (and Core Data beneath it) is an Object-Relational Mapper designed for graph data. It is notoriously inefficient for massive, flat time-series datasets.
 
 **Implementation Details:**
 * **Engine:** GRDB-wrapped SQLite (system SQLite, WAL mode, `synchronous=NORMAL`).
 * **Concurrency:** Single writer using a GRDB `DatabaseQueue` (not `DatabasePool`). On WKExtension background transitions, we execute an explicit `sqlite3_close_v2`.
 * **Schema:** The `samples` table will use `PRIMARY KEY(source, type, timestamp) WITHOUT ROWID`. There is no `TEXT id` column. This provides natural deduplication, temporal clustering, and avoids expensive UUID string comparisons.
-* **HLC Columns:** Three separate columns: `hlc_physical INTEGER`, `hlc_logical INTEGER`, and `node_id BLOB`. (W1 correctly vetoed a packed INTEGER to avoid bit-63 sign flip foot-guns). 
+* **HLC Columns:** Three separate columns: `hlc_physical INTEGER`, `hlc_logical INTEGER`, and `node_id BLOB`. (W1 correctly vetoed a packed INTEGER to avoid bit-63 sign flip foot-guns).
 * **Indexing:** A covering index accelerates sync reads: `CREATE INDEX idx_samples_hlc ON samples(node_id, hlc_physical, hlc_logical)`.
 * **Tombstones:** A sibling table `sample_tombstones` tracks evictions and deletions: `(source, type, ts_start, ts_end, hlc_physical, hlc_logical, node_id, dropped_row_count, reason ENUM('memory_panic','corruption','manual','retention','unacked_overflow')) PRIMARY KEY(source, type, ts_start, hlc_physical, hlc_logical, node_id) WITHOUT ROWID`. A separate index is used here: `CREATE INDEX idx_sample_tombstones_hlc ON sample_tombstones(node_id, hlc_physical, hlc_logical)`. The `data_gap` rows are written exclusively to this table.
 * **HealthKit Boundaries:** HealthKit remains the canonical source of truth for Apple Watch HR/HRV. The TSDB is exclusively for BLE-native streams and app-internal derived data.
@@ -37,7 +39,7 @@ If I were to redesign this application from the ground up, here are the core arc
 * **Un-ACKed Overflow Override:** Un-ACKed rows are protected from ordinary LRU eviction. The `unacked_overflow` override applies only when ALL of the following hold: (1) DB size ≥ 250 MB after ordinary eviction of ACKed rows to 200 MB has already run; (2) the 225 MB out-of-schedule high-priority sync attempt has failed or timed out; (3) raw un-ACKed samples have been synchronously downsampled to 1-minute rollups; and (4) no `unacked_overflow` event for the same `(source, type)` has fired in the preceding 60 minutes. When triggered, the override evicts oldest un-ACKed raw samples for the chosen `(source, type)` down to 200 MB total DB size, emits a `sample_tombstones` row with `reason='unacked_overflow'` covering the evicted range, and preserves the 1-minute rollups so the resulting server-visible gap is coarse-grained rather than total. Per-event loss is capped at 6 hours of raw samples; successive evictions mint fresh tombstones. When two or more chunked evictions fire back-to-back within a rolling 4-hour window we emit a distinct `sync.unacked_overflow.chunked_burst` OSLog fault and metric — a signal that the cap is doing real work and the underlying outage is severe. Any `unacked_overflow` event surfaces immediately in the diagnostics screen ("backend unreachable — coarse data retained") and fires a `sync.unacked_overflow.fired` metric (sustained firing across the fleet is a P1 incident).
 
 ## 3. Move Hardware & BLE Logic Off the `@MainActor` (BLE / ACTORS)
-**What:** Decouple `EMAYRealtimeService`, `PolarHRMService`, and `PhoneConnectivityManager` from `@MainActor`. 
+**What:** Decouple `EMAYRealtimeService`, `PolarHRMService`, and `PhoneConnectivityManager` from `@MainActor`.
 **Why:** Nonisolated BLE delegate callbacks jumping to the Main Thread cause UI stutter.
 
 **Implementation Details:**
@@ -61,7 +63,7 @@ If I were to redesign this application from the ground up, here are the core arc
 **Why:** Mapping huge arrays of JSON strings drains watch battery and memory.
 
 **Implementation Details:**
-* **Format:** Packed binary row format (protobuf or custom Swift binary) matching the TSDB `(source, type, timestamp)` PK for O(1) deduplication on the receiving end. 
+* **Format:** Packed binary row format (protobuf or custom Swift binary) matching the TSDB `(source, type, timestamp)` PK for O(1) deduplication on the receiving end.
 * **Compression:** Exclusively relies on Apple `Compression.framework` / Apple Archive. No custom compression algorithms to avoid App Review risk.
 * **Transport Mapping:**
     * `updateApplicationContext`: Shared metadata, latest settings, and status (LWW).
@@ -75,7 +77,7 @@ This redesign uses a phased, unbundled rollout so individual layers can be rolle
 * **Phase 1 (Compute):** Ship §3 + §4 (Actors and Pure Pipeline). No disk changes. Ships first. Phase 1 dark-ships data gap handling behind a runtime flag `pipeline.gapEventsEnabled` (default `false`). The pipeline gap logic is fully implemented and tested (synthetic TestClock fixtures in CI), but the events are not emitted by the storage layer until Phase 2A.
 * **Phase 2A (Local Storage):** Ship SQLite for local storage only. WCSession continues to emit legacy JSON DTOs, but they are now sourced from SQLite reads instead of SwiftData. Flips `pipeline.gapEventsEnabled` to `true` (rollback reverts to `false`).
 * **Phase 2B (Wire Format):** Ship the Binary WCSession format behind a feature flag. If toggled off, it reverts to JSON payloads.
-* **Phase 2C (Delta Sync):** Delta-sync backend endpoints ship alongside the legacy REST API. Feature flag OFF by default. The server runs in shadow-mode for 2 weeks before client flag flips. 
+* **Phase 2C (Delta Sync):** Delta-sync backend endpoints ship alongside the legacy REST API. Feature flag OFF by default. The server runs in shadow-mode for 2 weeks before client flag flips.
     * **Sunset Criteria:** Legacy REST is sunset ONLY after server meets SLOs (P95 latency, cursor correctness under fuzz, 30 days stable) — NOT calendar-driven.
     * **Rollback:** If endpoint P95 > 2s, cursor divergence occurs in shadow-compare, or the backend slips > 4 weeks, Phase 2C reverts. Delta stays dark behind a flag, while 2A and 2B remain shipped.
 * **Data Migration:** High-frequency (200 Hz) streams are NOT dual-written. A one-time idempotent backfill moves SwiftData into SQLite. The backfill state is transactionally persisted in a dedicated `_backfill_progress` SQLite table `(source, type, last_ts PRIMARY KEY)` to ensure memory-pressure evictions do not corrupt the resume point. Low-frequency tables dual-write for 1 minor version with count-parity telemetry. During this dual-write window, the UI strictly reads from SwiftData (the proven path) while shadow-writing to SQLite. High-frequency reads route exclusively to SQLite.
@@ -85,10 +87,10 @@ This redesign uses a phased, unbundled rollout so individual layers can be rolle
 ## Testing, Observability & Ops
 * **Memory Limits:** The app enforces a strict peak memory budget on watchOS. Pre-commit tests use `XCTMemoryMetric` with mocked 200 Hz streams for 10 simulated minutes, asserting < 15 MB above baseline. In TestFlight, MetricKit `MXAppRunTimeMetric.peakMemoryUsage` tracks real-world limits. If P95 > 50 MB, the release is blocked.
 * **Pipeline Fixtures:** Deterministic testing uses BLE loss/staleness fixtures and a `TestClock` HLC rig.
-* **Telemetry:** We use `OSLog` + `os_signpost` to trace BLE parse latency, background-refresh budget consumption, and transfer file attempts. 
+* **Telemetry:** We use `OSLog` + `os_signpost` to trace BLE parse latency, background-refresh budget consumption, and transfer file attempts.
 * **Sync Health:** HLC drift metrics, quarantine events, and `DatabaseManager` circuit breaker trips are piped to ops dashboards.
 
-## Target Metrics 
+## Target Metrics
 *(Note: Must be captured as baselines prior to Phase 1)*
 * **Peak Memory:** < 50 MB on watchOS.
 * **Battery Drain:** < 5% per hour of continuous BLE monitoring.
