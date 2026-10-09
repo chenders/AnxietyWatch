@@ -2,8 +2,6 @@ import Foundation
 
 nonisolated enum CNSAlarmChannel: Sendable {
     case watchHaptic
-    case criticalNotification
-    case timeSensitiveNotification
     case standardNotification
     case foregroundAudio
     case inAppBanner
@@ -12,20 +10,11 @@ nonisolated enum CNSAlarmChannel: Sendable {
 nonisolated struct CNSAlarmChannelPolicy {
     nonisolated static func channels(
         tier: CNSAlertTier,
-        criticalGranted: Bool,
-        timeSensitiveGranted: Bool,
         appActive: Bool
     ) -> Set<CNSAlarmChannel> {
         guard tier == .klaxon else { return [] }
 
-        var channels: Set<CNSAlarmChannel> = [.watchHaptic]
-        if criticalGranted {
-            channels.insert(.criticalNotification)
-        } else if timeSensitiveGranted {
-            channels.insert(.timeSensitiveNotification)
-        } else {
-            channels.insert(.standardNotification)
-        }
+        var channels: Set<CNSAlarmChannel> = [.watchHaptic, .standardNotification]
         if appActive {
             channels.insert(.foregroundAudio)
             channels.insert(.inAppBanner)

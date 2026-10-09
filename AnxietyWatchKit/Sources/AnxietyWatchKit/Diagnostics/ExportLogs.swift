@@ -324,11 +324,9 @@ public struct ExportLogs: Sendable {
             let dstCapacity = srcSize + (srcSize / 6) + 32
             var dst = Data(count: dstCapacity)
 
-            let compressedSize = dst.withUnsafeMutableBytes { dstRaw -> Int in
-                let dstPtr = dstRaw.bindMemory(to: UInt8.self)
-                guard let dstBase = dstPtr.baseAddress else { return 0 }
+            let compressedSize = dst.withUnsafeMutableBytes { (dstRaw: UnsafeMutableRawBufferPointer) -> Int in
                 var scratch = Data(count: dstCapacity)
-                let n = scratch.withUnsafeMutableBytes { scratchRaw -> Int in
+                let n = scratch.withUnsafeMutableBytes { (scratchRaw: UnsafeMutableRawBufferPointer) -> Int in
                     let p = scratchRaw.bindMemory(to: UInt8.self)
                     return compression_encode_buffer(
                         p.baseAddress!, scratchRaw.count,
@@ -342,7 +340,7 @@ public struct ExportLogs: Sendable {
                 guard n > 6 else { return 0 }
                 let rawLen = n - 6
                 guard rawLen > 0, rawLen <= dstCapacity else { return 0 }
-                _ = scratch.copyBytes(to: dstRaw, from: 2..<(2 + rawLen))
+                scratch.copyBytes(to: dstRaw, from: 2..<(2 + rawLen))
                 return rawLen
             }
 

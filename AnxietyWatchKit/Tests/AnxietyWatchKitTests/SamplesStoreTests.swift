@@ -258,7 +258,7 @@ final class SamplesStoreTests: XCTestCase {
             ))
         }
         
-        try await samplesStore.insert(rows)
+        _ = try await samplesStore.insert(rows)
         
         // Verify initial count
         let initialCount = try await samplesStore.count()

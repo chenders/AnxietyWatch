@@ -62,8 +62,9 @@ enum CNSMonitoringConstants {
     /// watchdog again, and it fires ~90s after the last successful tick —
     /// the one notification path that does NOT depend on the tick loop
     /// still running. Cancelled on every `endSession`/disarm. Robust
-    /// BLE-event-driven background monitoring and Critical Alerts are Phase
-    /// 3 scope (§15).
+    /// BLE-event-driven background monitoring remains later scope (§15).
+    /// The watchdog uses ordinary alert/sound permission and a standard
+    /// notification so it does not require an elevated notification capability.
     static let deadMansSwitchInterval: TimeInterval = 90
     /// `UNTimeIntervalNotificationTrigger` requires a positive delay.
     static let minimumNotificationDelay: TimeInterval = 1

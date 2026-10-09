@@ -3,8 +3,7 @@
 The HTTP send is mocked via an injected transport seam — no real APNs endpoint is
 contacted in CI. Tests assert:
 
-* payload shape — Time-Sensitive interruption level (no critical sound dict) vs the
-  ``{"critical": 1, ...}`` sound dict on a Critical Alert;
+* payload shape — standard notification sound with no elevated interruption level;
 * request construction — correct host, headers (``apns-priority: 10``,
   ``apns-push-type: alert``, ``authorization: bearer <jwt>``, topic);
 * one ``send`` call produces exactly one push;
@@ -72,33 +71,19 @@ class _RecordingTransport:
         )
 
 
-# (1) build_payload(critical=False) -> Time-Sensitive, no critical sound dict.
-def test_build_payload_non_critical_is_time_sensitive():
-    payload = apns.build_payload(apns.KIND_BACKSTOP, critical=False)
+# (1) build_payload() -> standard notification, no elevated interruption level.
+def test_build_payload_is_standard_notification():
+    payload = apns.build_payload(apns.KIND_BACKSTOP)
     aps = payload["aps"]
-    assert aps["interruption-level"] == "time-sensitive"
-    # A Time-Sensitive push carries a plain sound string, never the critical dict.
+    assert "interruption-level" not in aps
     assert not isinstance(aps["sound"], dict)
     assert aps["alert"]["title"]
     assert aps["alert"]["body"]
 
 
-# (2) build_payload(critical=True) -> aps.sound is the {"critical": 1, ...} dict.
-def test_build_payload_critical_has_critical_sound_dict():
-    payload = apns.build_payload(apns.KIND_BACKSTOP, critical=True)
-    aps = payload["aps"]
-    sound = aps["sound"]
-    assert isinstance(sound, dict)
-    assert sound["critical"] == 1
-    assert sound["name"]
-    assert isinstance(sound["volume"], float)
-    assert 0.0 <= sound["volume"] <= 1.0
-    assert aps["interruption-level"] == "critical"
-
-
 def test_build_payload_kinds_have_distinct_copy():
-    backstop = apns.build_payload(apns.KIND_BACKSTOP, critical=False)
-    heartbeat = apns.build_payload(apns.KIND_HEARTBEAT, critical=False)
+    backstop = apns.build_payload(apns.KIND_BACKSTOP)
+    heartbeat = apns.build_payload(apns.KIND_HEARTBEAT)
     # A desaturation backstop and a "monitoring may have stopped" heartbeat must
     # not read identically — they mean different things to the person reading them.
     assert backstop["aps"]["alert"]["body"] != heartbeat["aps"]["alert"]["body"]
@@ -107,10 +92,10 @@ def test_build_payload_kinds_have_distinct_copy():
 # (3) send() constructs the correct host + headers against a MOCK (no network).
 def test_send_posts_to_sandbox_host_with_expected_headers(config):
     transport = _RecordingTransport()
-    payload = apns.build_payload(apns.KIND_BACKSTOP, critical=False)
+    payload = apns.build_payload(apns.KIND_BACKSTOP)
 
     result = apns.send(
-        FICTIONAL_TOKEN, payload, critical=False, config=config, transport=transport
+        FICTIONAL_TOKEN, payload, config=config, transport=transport
     )
 
     assert result.ok
@@ -164,8 +149,7 @@ def test_one_send_produces_exactly_one_push(config):
 
     apns.send(
         FICTIONAL_TOKEN,
-        apns.build_payload(apns.KIND_BACKSTOP, critical=True),
-        critical=True,
+        apns.build_payload(apns.KIND_BACKSTOP),
         config=config,
         transport=transport,
     )

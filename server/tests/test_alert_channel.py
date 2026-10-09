@@ -30,13 +30,13 @@ SUSTAIN = int(backstop.SUSTAIN_SECONDS)
 
 
 class _Recorder:
-    """Injectable push seam: records (kind, session_id, critical) per call."""
+    """Injectable push seam: records ``(kind, session_id)`` per call."""
 
     def __init__(self):
         self.calls = []
 
-    def __call__(self, db, kind, session_id, *, critical=False):
-        self.calls.append((kind, session_id, critical))
+    def __call__(self, db, kind, session_id):
+        self.calls.append((kind, session_id))
         return 1
 
     def kinds(self):
@@ -92,7 +92,11 @@ def test_sustained_low_raises_exactly_one_push(app, _clean_tables):  # noqa: F81
     with app.app_context():
         db = app.get_db()
         now = REF + timedelta(seconds=SUSTAIN)
-        append_samples(db, "sess-low", _low_run("sess-low", 0, SUSTAIN), now, push=push)
+        result = append_samples(db, "sess-low", _low_run("sess-low", 0, SUSTAIN), now, push=push)
+        assert result["alert_apns_accepted"] is True
+        assert result["apns_accepted_devices"] == 1
+        assert "alert_delivered" not in result
+        assert "delivered_devices" not in result
         # A second append while still sustained-low must NOT re-push (idempotent).
         more = [(REF + timedelta(seconds=SUSTAIN + 1), backstop.SPO2_CHANNEL, LOW)]
         append_samples(db, "sess-low", more, REF + timedelta(seconds=SUSTAIN + 1), push=push)
@@ -209,22 +213,22 @@ def test_push_token_registration_dedups(app, _clean_tables):  # noqa: F811
             assert cur.fetchone()[0] == 1
 
 
-# --- delivery-gated idempotency + failure visibility ----------------------
+# --- acceptance-gated idempotency + failure visibility --------------------
 
 
 class _FailingPush:
-    """Push seam that never reaches a device (delivered to no one -> returns 0)."""
+    """Push seam that APNs accepts for no token (returns 0)."""
 
     def __init__(self):
         self.calls = 0
 
-    def __call__(self, db, kind, session_id, *, critical=False):
+    def __call__(self, db, kind, session_id):
         self.calls += 1
         return 0
 
 
-def test_failed_delivery_is_not_recorded_and_retries(app, _clean_tables):  # noqa: F811
-    """A raise that delivers to no device must NOT write the alert_event ledger
+def test_failed_acceptance_is_not_recorded_and_retries(app, _clean_tables):  # noqa: F811
+    """A raise that APNs accepts for no token must NOT write the alert_event ledger
     row, so it stays retryable on the next append rather than being silently
     marked 'alerted' (the core own-failure-visible invariant)."""
     push = _FailingPush()
@@ -235,7 +239,7 @@ def test_failed_delivery_is_not_recorded_and_retries(app, _clean_tables):  # noq
         more = [(REF + timedelta(seconds=SUSTAIN + 1), backstop.SPO2_CHANNEL, LOW)]
         append_samples(db, "sess-fail", more, REF + timedelta(seconds=SUSTAIN + 1), push=push)
 
-        # Pushed on BOTH appends (undelivered -> retried), and no ledger row exists.
+        # Pushed on BOTH appends (not accepted -> retried), and no ledger row exists.
         assert push.calls == 2
         with db.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM alert_event WHERE session_id = %s AND kind = %s",
@@ -245,7 +249,7 @@ def test_failed_delivery_is_not_recorded_and_retries(app, _clean_tables):  # noq
 
 def test_dead_token_pruned_on_apns_410(app, _clean_tables, monkeypatch):  # noqa: F811
     """push_alert prunes a token APNs reports permanently dead (410) and returns
-    0 (delivered to no one)."""
+    0 (accepted for no token)."""
     monkeypatch.setenv("APNS_AUTH_KEY", "fictional-not-a-real-key")
     monkeypatch.setenv("APNS_KEY_ID", "KEY1234567")
     monkeypatch.setenv("APNS_TEAM_ID", "TEAM123456")
@@ -263,8 +267,8 @@ def test_dead_token_pruned_on_apns_410(app, _clean_tables, monkeypatch):  # noqa
                         ("dead-fictional-token", "sandbox"))
         db.commit()
 
-        sent = alert_channel.push_alert(db, alert_channel.KIND_BACKSTOP, "sess-x")
-        assert sent == 0
+        accepted_count = alert_channel.push_alert(db, alert_channel.KIND_BACKSTOP, "sess-x")
+        assert accepted_count == 0
         with db.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM device_push_token WHERE token = %s",
                         ("dead-fictional-token",))
@@ -281,7 +285,8 @@ def test_health_surfaces_dark_channel(app, _clean_tables):  # noqa: F811
         data = client.get("/api/alert-channel/health", headers=auth_header()).get_json()
         assert data["apns_configured"] is False
         assert data["registered_tokens"] == 0
-        assert data["last_delivered_alert_utc"] is None
+        assert data["last_apns_accepted_alert_utc"] is None
+        assert "last_delivered_alert_utc" not in data
 
         client.post("/api/alert-channel/push-token", headers=auth_header(),
                     json={"token": "fictional-device-token", "env": "sandbox"})
@@ -375,7 +380,7 @@ def test_samples_rejects_invalid_json(app, _clean_tables):  # noqa: F811
 def test_disarm_clears_session_and_prevents_heartbeat(app, _clean_tables):  # noqa: F811
     """Disarm drops the session's buffer (only), so a subsequent sweep finds no
     candidate and the no-data heartbeat can't false-fire for a clean stop. The
-    alert_event delivery ledger is intentionally preserved."""
+    alert_event APNs-acceptance ledger is intentionally preserved."""
     push = _Recorder()
     with app.app_context():
         db = app.get_db()

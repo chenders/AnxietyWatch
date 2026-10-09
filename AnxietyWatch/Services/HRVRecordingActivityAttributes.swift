@@ -37,7 +37,7 @@ import Foundation
 ///   value that genuinely needs cross-process updates) plus a small
 ///   `statusText` and `isLive` flag so the widget can render the
 ///   right visual style without re-deriving from numerics.
-struct HRVRecordingActivityAttributes: ActivityAttributes {
+nonisolated struct HRVRecordingActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
         /// Most recent HR in BPM, nil while the sensor is warming up
         /// (or during the connecting phase before any HR has streamed).

@@ -146,16 +146,13 @@ final class DependencyContainerTests: XCTestCase {
     // MARK: - Injectability
 
     func testCustomClocksAreUsed() {
-        var wallCalls = 0
-        var monoCalls = 0
-
         let container = DependencyContainer(
             dbURL: dbURL,
             cursorFileURL: cursorURL,
             nodeID: nodeID,
             endpoint: MockSyncEndpoint(),
-            now: { wallCalls += 1; return 1000 },
-            monotonicNow: { monoCalls += 1; return 2000 }
+            now: { 1000 },
+            monotonicNow: { 2000 }
         )
 
         // The HLC and ClockSuspectGate are constructed with the closures.
@@ -195,7 +192,7 @@ final class DependencyContainerTests: XCTestCase {
     // MARK: - Marker file creation
 
     func testCheckpointMarkerURLIsCreated() {
-        let container = DependencyContainer(
+        _ = DependencyContainer(
             dbURL: dbURL,
             cursorFileURL: cursorURL,
             nodeID: nodeID,

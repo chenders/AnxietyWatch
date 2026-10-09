@@ -147,20 +147,20 @@ final class AlertChannelUploader: AlertChannelUploading {
     }
 
     /// Server channel-health snapshot. `Decodable` from GET /health; the raw
-    /// last-delivered timestamp is a string so decoding never fails on null.
+    /// last-accepted timestamp is a string so decoding never fails on null.
     struct ChannelHealth: Decodable, Sendable, Equatable {
         let apnsConfigured: Bool
         let registeredTokens: Int
-        let lastDeliveredAlertUTC: String?
+        let lastAPNsAcceptedAlertUTC: String?
 
         enum CodingKeys: String, CodingKey {
             case apnsConfigured = "apns_configured"
             case registeredTokens = "registered_tokens"
-            case lastDeliveredAlertUTC = "last_delivered_alert_utc"
+            case lastAPNsAcceptedAlertUTC = "last_apns_accepted_alert_utc"
         }
 
-        var lastDeliveredAlert: Date? {
-            guard let raw = lastDeliveredAlertUTC else { return nil }
+        var lastAPNsAcceptedAlert: Date? {
+            guard let raw = lastAPNsAcceptedAlertUTC else { return nil }
             return AlertChannelUploader.iso8601Fractional.date(from: raw)
                 ?? AlertChannelUploader.iso8601Plain.date(from: raw)
         }
