@@ -110,7 +110,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "839563752F6D2DF3002DA90A"
             BuildableName = "AnxietyWatchWidgetsExtension.appex"
-            BlueprintName = "AnxietyWatchWidgetsExtension"
             ReferencedContainer = "container:AnxietyWatch.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
