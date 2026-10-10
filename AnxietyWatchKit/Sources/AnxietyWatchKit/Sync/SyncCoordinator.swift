@@ -150,10 +150,11 @@ public actor SyncCoordinator {
 
     // MARK: - Bootstrap
 
-    /// Reads persisted cursors from disk, registers all types from
-    /// `registeredSyncableTypes`, and wires the DatabaseManager
-    /// PostRecoveryHook to `fullRestore()` (Spec §1.6 step 6).
-    /// Periodic scheduling is a later task.
+    /// Reads persisted cursors from disk and registers all types from
+    /// `registeredSyncableTypes`. Corruption recovery wiring belongs to
+    /// `CorruptionRecoveryCoordinator`, which calls `fullRestore()` as one
+    /// stage of the complete recovery sequence. Periodic scheduling is a
+    /// later task.
     public func bootstrap() async throws {
         if let persisted = try cursorStore.load() {
             pullCursors = persisted.pull
@@ -162,15 +163,6 @@ public actor SyncCoordinator {
 
         for type in Self.registeredSyncableTypes {
             await type.registerForSync(registry)
-        }
-
-        await deps.database.setPostRecoveryHook { [weak self] error in
-            guard error == nil, let self else { return }
-            do {
-                try await self.fullRestore()
-            } catch {
-                Log.sync.error("fullRestore after corruption recovery failed: \(error)")
-            }
         }
     }
 
@@ -196,9 +188,9 @@ public actor SyncCoordinator {
         )
     }
 
-    /// Full restore from server (called by the DatabaseManager
-    /// PostRecoveryHook after corruption recovery per Spec §1.6): resets the
-    /// pull cursors to "from the beginning" and DRAINS the server — looping
+    /// Full restore from server (called by `CorruptionRecoveryCoordinator`
+    /// after database replacement per Spec §1.6): resets the pull cursors to
+    /// "from the beginning" and DRAINS the server — looping
     /// until a page applies zero rows AND the cursor makes no progress. A
     /// single page would leave the post-recovery DB permanently partial.
     /// The iteration cap guards against infinite spins when only quarantined

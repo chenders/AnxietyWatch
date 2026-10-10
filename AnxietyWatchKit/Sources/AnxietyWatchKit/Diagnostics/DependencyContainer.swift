@@ -36,6 +36,7 @@ public struct DependencyContainer: Sendable {
     public let hlc: HLC
     public let clockSuspect: ClockSuspectGate
     public let syncCoordinator: SyncCoordinator
+    public let corruptionRecovery: CorruptionRecoveryCoordinator
     public let panicProtocol: PanicProtocol
 
     // MARK: - Transport
@@ -65,6 +66,9 @@ public struct DependencyContainer: Sendable {
     ///   - cursorFileURL: Full path to `sync_cursor.json` (same directory).
     ///   - nodeID: 16 raw bytes from Keychain (§2.1). Unique per device.
     ///   - endpoint: Server sync endpoint.
+    ///   - rederiveHealthKit: App-owned authoritative HealthKit backfill. The
+    ///     default is empty while SQLite reads remain disabled; Phase 2A must
+    ///     inject its production backfill before enabling SQLite authority.
     ///   - session: WCSession wrapper. Defaults to `WCSession.default`.
     ///   - now: Injectable wall clock (for tests).
     ///   - monotonicNow: Injectable monotonic clock (for tests).
@@ -74,6 +78,7 @@ public struct DependencyContainer: Sendable {
         nodeID: Data,
         endpoint: SyncEndpoint,
         session: WCSessionProtocol? = nil,
+        rederiveHealthKit: @escaping @Sendable () async throws -> Void = {},
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) },
         monotonicNow: @escaping @Sendable () -> Int64 = { HLC.defaultMonotonic() }
     ) {
@@ -114,7 +119,14 @@ public struct DependencyContainer: Sendable {
             endpoint: endpoint,
             cursorFileURL: cursorFileURL
         )
-        syncCoordinator = SyncCoordinator(dependencies: syncDeps)
+        let sync = SyncCoordinator(dependencies: syncDeps)
+        syncCoordinator = sync
+        corruptionRecovery = CorruptionRecoveryCoordinator(
+            database: db,
+            nodeID: nodeID,
+            restoreFromServer: { try await sync.fullRestore() },
+            rederiveHealthKit: rederiveHealthKit
+        )
 
         let panicDeps = PanicProtocol.Dependencies(
             database: db,
@@ -150,9 +162,15 @@ public struct DependencyContainer: Sendable {
     // MARK: - Bootstrap
 
     /// Call once after construction. Registers `@Syncable` types, loads
-    /// persisted cursors, and registers the corruption-recovery hook.
+    /// persisted cursors, installs the corruption-recovery owner, and opens a
+    /// fully migrated database.
     public func bootstrap() async throws {
+        await database.setSchemaMigrator { db in
+            try MigrationRunner.migrate(db)
+        }
         try await syncCoordinator.bootstrap()
+        await corruptionRecovery.bootstrap()
+        try await database.open()
     }
 
     /// Registers HLC UDFs on the database. Must be called before any

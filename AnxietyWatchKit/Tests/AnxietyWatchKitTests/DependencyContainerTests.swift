@@ -64,6 +64,7 @@ final class DependencyContainerTests: XCTestCase {
         XCTAssertNotNil(container.hlc)
         XCTAssertNotNil(container.clockSuspect)
         XCTAssertNotNil(container.syncCoordinator)
+        XCTAssertNotNil(container.corruptionRecovery)
         XCTAssertNotNil(container.panicProtocol)
         XCTAssertNotNil(container.transport)
         XCTAssertNotNil(container.syncEngine)
