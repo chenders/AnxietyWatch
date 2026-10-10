@@ -3,7 +3,6 @@
 import os
 from logging.config import fileConfig
 
-import psycopg2
 from alembic import context
 from sqlalchemy import create_engine
 
@@ -24,9 +23,12 @@ target_metadata = None
 def get_url():
     """Read database URL from environment, falling back to alembic.ini."""
     url = os.environ.get("DATABASE_URL")
-    if url:
-        return url
-    url = config.get_main_option("sqlalchemy.url", "")
+    if not url:
+        url = config.get_main_option("sqlalchemy.url", "")
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+psycopg2://", 1)
     if url:
         return url
     raise RuntimeError(
@@ -49,11 +51,7 @@ def run_migrations_offline():
 
 def run_migrations_online():
     """Run migrations against a live database."""
-    # SQLAlchemy's default PostgreSQL driver can change between releases.
-    # The server intentionally installs and uses psycopg2, so pass that module
-    # explicitly instead of letting an unqualified postgresql:// URL select a
-    # driver that is not part of the deployment environment.
-    engine = create_engine(get_url(), module=psycopg2)
+    engine = create_engine(get_url())
     with engine.connect() as connection:
         context.configure(
             connection=connection,

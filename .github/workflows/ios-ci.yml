@@ -14,6 +14,8 @@ concurrency:
 jobs:
   test:
     runs-on: [self-hosted, macOS, xcode]
+    env:
+      CI_DERIVED_DATA_PATH: ${{ runner.temp }}/DerivedData-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v7
 
@@ -31,13 +33,12 @@ jobs:
           echo "Available iOS simulator runtimes:"
           xcrun simctl list runtimes | grep iOS || true
 
-      # CI builds use a per-run DerivedData under RUNNER_TEMP (see the
-      # xcodebuild steps below) instead of the runner user's shared
+      # CI builds use a run-and-attempt-specific DerivedData under RUNNER_TEMP
+      # (see CI_DERIVED_DATA_PATH above) instead of the runner user's shared
       # ~/Library/.../DerivedData: stale incremental state there produced a
       # bogus single-arch "AnxietyEntry not Identifiable" compile failure on
-      # PR #185 in files the PR never touched. RUNNER_TEMP is wiped between
-      # runs, so every build is deterministic at the cost of no incremental
-      # reuse across runs.
+      # PR #185 in files the PR never touched. The unique suffix also prevents
+      # cancellation cleanup from deleting a replacement run's package clone.
 
       - name: Find simulator destination
         id: dest
@@ -98,7 +99,7 @@ jobs:
           xcodebuild test \
             -scheme AnxietyWatch \
             -destination "platform=iOS Simulator,name=$SIM_NAME" \
-            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -derivedDataPath "$CI_DERIVED_DATA_PATH" \
             -enableCodeCoverage YES \
             -resultBundlePath TestResults.xcresult 2>&1 | tee "$RUNNER_TEMP/ios-test.log"
           if grep -E '(^|:) warning:' "$RUNNER_TEMP/ios-test.log"; then
@@ -120,7 +121,7 @@ jobs:
           xcodebuild build \
             -scheme "AnxietyWatch Watch App" \
             -destination 'generic/platform=watchOS Simulator' \
-            -derivedDataPath "$RUNNER_TEMP/DerivedData" 2>&1 | tee "$RUNNER_TEMP/watch-build.log"
+            -derivedDataPath "$CI_DERIVED_DATA_PATH" 2>&1 | tee "$RUNNER_TEMP/watch-build.log"
           if grep -E '(^|:) warning:' "$RUNNER_TEMP/watch-build.log"; then
             echo "::error::Compiler warnings are not permitted"
             exit 1
