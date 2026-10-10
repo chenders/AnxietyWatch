@@ -14,10 +14,11 @@ concurrency:
 jobs:
   test:
     runs-on: [self-hosted, macOS, xcode]
-    env:
-      CI_DERIVED_DATA_PATH: ${{ runner.temp }}/DerivedData-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v7
+
+      - name: Set isolated build path
+        run: echo "CI_DERIVED_DATA_PATH=$RUNNER_TEMP/DerivedData-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
 
       # Launchd doesn't inherit your interactive shell PATH, so Homebrew tools
       # (swiftlint, xcbeautify, etc.) won't be found unless we add the prefix.
