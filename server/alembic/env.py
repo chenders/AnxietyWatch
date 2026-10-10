@@ -3,6 +3,7 @@
 import os
 from logging.config import fileConfig
 
+import psycopg2
 from alembic import context
 from sqlalchemy import create_engine
 
@@ -48,7 +49,11 @@ def run_migrations_offline():
 
 def run_migrations_online():
     """Run migrations against a live database."""
-    engine = create_engine(get_url())
+    # SQLAlchemy's default PostgreSQL driver can change between releases.
+    # The server intentionally installs and uses psycopg2, so pass that module
+    # explicitly instead of letting an unqualified postgresql:// URL select a
+    # driver that is not part of the deployment environment.
+    engine = create_engine(get_url(), module=psycopg2)
     with engine.connect() as connection:
         context.configure(
             connection=connection,
