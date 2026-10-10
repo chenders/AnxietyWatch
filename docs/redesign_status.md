@@ -1,8 +1,10 @@
 # Redesign v3 — Implementation Status
 
+> **Historical input only; checklist is stale.** The reconciled T01–T40 ledger and authoritative remaining work are in `openspec/changes/complete-redesign-v3-migration/design.md`. This document is retained temporarily for conversion review and must not be used to decide what is implemented or shipped.
+
 Branch: `redesign/v3-implementation`
 Plan:  `Docs/redesign_plan.md`
-Spec:  `Docs/redesign_spec.md`
+Spec:  migrated to `openspec/` (the former `docs/redesign_spec.md` was removed after strict validation)
 
 ## Model roles
 - **AUTHOR-Swift** = Qwen3-Coder (pane `shell`, w1:p5)
