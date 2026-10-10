@@ -118,7 +118,7 @@ struct ShakeResponderRepresentable: UIViewControllerRepresentable {
 
 /// DEBUG-build-only screen-capture pipeline. Shake the device → full-length
 /// PNG of the current screen lands in Photos. See
-/// `docs/superpowers/specs/2026-05-13-debug-screen-capture-design.md`.
+/// `docs/plans/completed/superpowers/specs/2026-05-13-debug-screen-capture-design.md`.
 ///
 /// This entire file is wrapped in `#if DEBUG`, so release builds contain
 /// none of this file's symbols or capture code (verified by `nm` on the

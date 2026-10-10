@@ -5,11 +5,12 @@ This directory is the source of truth for behavior specifications and planned ch
 ## Layout
 
 - `config.yaml` — project context, artifact rules, and apply/archive guidance.
+- `PORTFOLIO.md` — priority-ordered master list of every active plan, its origin, benefit, completion outcome, dependencies, and resume path.
 - `specs/` — canonical current behavior. Status labels distinguish active, foundation-only, partial, and not-implemented behavior.
 - `changes/` — proposed changes and implementation planning.
 - `changes/archive/` — completed changes after their deltas have been merged into canonical specs.
 
-The redesign-v3 baseline is split into seven capabilities under `specs/`. Remaining redesign work is in `changes/complete-redesign-v3-migration/`. Its `design.md` contains the reconciled T01–T40 implementation ledger and traceability from the removed `docs/redesign_spec.md`. The operational branch/worktree and implementation runbook is `docs/FINAL_REDESIGN_v3_WORK`.
+Start with `PORTFOLIO.md` when choosing or resuming work. The redesign-v3 baseline is split into seven capabilities under `specs/`. Remaining redesign work is in `changes/complete-redesign-v3-migration/`. Its `design.md` contains the reconciled T01–T40 implementation ledger and traceability from the removed `docs/redesign_spec.md`; its operational detail is in `RUNBOOK.md` in the same change.
 
 ## Workflow
 
@@ -20,6 +21,22 @@ openspec list --specs
 openspec status --change complete-redesign-v3-migration
 openspec validate --all --strict
 ```
+
+The repository's shared validator also checks local Markdown targets and runs its focused tests:
+
+```sh
+scripts/validate-openspec.sh
+```
+
+Enable the tracked pre-push hook once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+If the checkout already uses a custom `core.hooksPath`, preserve that configuration and invoke
+`scripts/validate-openspec.sh` from its existing pre-push hook instead. Pull requests that change
+OpenSpec or the validator run the same script in GitHub Actions as the non-bypassable backstop.
 
 Do not implement an in-flight change until its proposal, spec deltas, design, and tasks are reviewed. When behavior ships, update implementation evidence and rollout state before archiving the change.
 

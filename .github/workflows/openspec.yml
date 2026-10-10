@@ -1,0 +1,39 @@
+name: OpenSpec validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - openspec/**
+      - scripts/check_openspec_links.py
+      - scripts/tests/test_check_openspec_links.py
+      - scripts/validate-openspec.sh
+      - .githooks/pre-push
+      - .github/workflows/openspec.yml
+  pull_request:
+    paths:
+      - openspec/**
+      - scripts/check_openspec_links.py
+      - scripts/tests/test_check_openspec_links.py
+      - scripts/validate-openspec.sh
+      - .githooks/pre-push
+      - .github/workflows/openspec.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install pinned OpenSpec CLI
+        run: npm install --global @fission-ai/openspec@1.14.1
+      - name: Run shared OpenSpec validator
+        run: scripts/validate-openspec.sh
