@@ -28,7 +28,7 @@ struct CNSMonitoringView: View {
         .navigationTitle("CNS Monitoring")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            permission = await CNSCriticalAlertPermission().currentStatus()
+            permission = await CNSNotificationPermission().currentStatus()
             channelHealth = await AlertChannelUploader().fetchHealth()
         }
     }
@@ -120,10 +120,10 @@ struct CNSMonitoringView: View {
     private var permissionSection: some View {
         Section {
             LabeledContent("Status", value: CNSMonitoringViewHelpers.permissionStatusLabel(permission))
-            if let status = permission, status != .criticalGranted && status != .denied {
-                Button("Request Critical Alerts") {
+            if permission == .notDetermined {
+                Button("Allow Notifications") {
                     Task {
-                        permission = await CNSCriticalAlertPermission().requestIfNeeded()
+                        permission = await CNSNotificationPermission().requestIfNeeded()
                     }
                 }
             }
@@ -148,11 +148,11 @@ struct CNSMonitoringView: View {
                     apnsConfigured: health.apnsConfigured,
                     registeredTokens: health.registeredTokens,
                     permission: permission,
-                    lastDeliveredAlert: health.lastDeliveredAlert,
+                    lastAPNsAcceptedAlert: health.lastAPNsAcceptedAlert,
                     now: Date()
                 )
                 LabeledContent("Status", value: status.label)
-                    .foregroundColor(status.isHealthy ? .secondary : .orange)
+                    .foregroundColor(status.isReady ? .secondary : .orange)
             }
         } header: {
             Text("Server Backup Alert Channel")

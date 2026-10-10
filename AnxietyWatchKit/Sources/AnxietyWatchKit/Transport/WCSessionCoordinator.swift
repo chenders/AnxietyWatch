@@ -30,12 +30,13 @@ public enum WCSessionError: Error, Equatable {
 public actor WCSessionCoordinator: NSObject {
     
     /// WCSession uses `[String: Any]` dictionaries which contain non-Sendable
-    /// `Any` values — this is an inherent API limitation. Marked `@unchecked`
-    /// because all dictionary values we actually use (String, Int, Double,
-    /// Bool, Data) ARE Sendable; the `Any` is WCSession's framing drag.
+    /// `Any` values and an unannotated reply closure — both are inherent API
+    /// limitations. Marked `@unchecked` because all dictionary values we
+    /// actually use (String, Int, Double, Bool, Data) are Sendable, and
+    /// WatchConnectivity owns the thread-safe reply handler implementation.
     public struct IncomingMessage: @unchecked Sendable {
         public let payload: [String: Any]
-        public let replyHandler: @Sendable ([String: Any]) -> Void
+        public let replyHandler: ([String: Any]) -> Void
     }
     
     nonisolated(unsafe) private let session: WCSessionProtocol
@@ -45,7 +46,10 @@ public actor WCSessionCoordinator: NSObject {
     private var activationContinuations: [CheckedContinuation<Void, Error>] = []
     
     public let messages: AsyncStream<IncomingMessage>
-    public let userInfos: AsyncStream<[String: Any]>
+    /// Immutable after initialization. The stream is safe to iterate from the
+    /// sync actor; `unsafe` is required only because its `[String: Any]`
+    /// element type cannot express the primitive-only WCSession contract.
+    public nonisolated(unsafe) let userInfos: AsyncStream<[String: Any]>
 
     deinit {
         messageContinuation?.finish()
@@ -161,8 +165,12 @@ public actor WCSessionCoordinator: NSObject {
         activationContinuations.removeAll()
     }
     
-    internal func receiveMessage(_ message: [String: Any], replyHandler: @escaping @Sendable ([String: Any]) -> Void) {
-        messageContinuation?.yield(IncomingMessage(payload: message, replyHandler: replyHandler))
+    internal func receiveMessage(_ message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
+        receiveMessage(IncomingMessage(payload: message, replyHandler: replyHandler))
+    }
+
+    private func receiveMessage(_ message: IncomingMessage) {
+        messageContinuation?.yield(message)
     }
     
     internal func receiveUserInfo(_ userInfo: [String: Any]) {
@@ -192,8 +200,9 @@ extension WCSessionCoordinator: WCSessionDelegate {
 #endif
     
     public nonisolated func session(_ session: WCSession, didReceiveMessage message: [String : Any], replyHandler: @escaping ([String : Any]) -> Void) {
+        let incoming = IncomingMessage(payload: message, replyHandler: replyHandler)
         Task {
-            await self.receiveMessage(message, replyHandler: replyHandler)
+            await self.receiveMessage(incoming)
         }
     }
     

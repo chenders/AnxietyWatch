@@ -142,7 +142,7 @@ final class WCSessionCoordinatorTests: XCTestCase {
         let coordinator = WCSessionCoordinator(session: mock)
         var received = false
         let task = Task {
-            for await info in await coordinator.userInfos {
+            for await _ in coordinator.userInfos {
                 received = true
                 break
             }

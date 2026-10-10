@@ -42,7 +42,7 @@ nonisolated struct SourcedSleepStageEvent: Sendable, Equatable {
 
 /// Abstraction over HealthKit queries. HealthKitManager conforms to this;
 /// tests can inject a MockHealthKitDataSource instead.
-protocol HealthKitDataSource: Sendable {
+nonisolated protocol HealthKitDataSource: Sendable {
     /// True when the app has never presented the HealthKit read-authorization
     /// sheet (`HKAuthorizationRequestStatus.shouldRequest`). While true, every
     /// read errors with HKError code 5 (authorizationNotDetermined), which the

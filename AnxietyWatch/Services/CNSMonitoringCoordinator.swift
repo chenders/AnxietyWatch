@@ -181,7 +181,7 @@ final class CNSMonitoringCoordinator {
     /// toggle. Optional/`nil` default: tests that don't care about EMAY
     /// teardown (most of them) never have to supply one.
     private let emayStopHook: (() -> Void)?
-    private let criticalPermissionRequest: () -> Void
+    private let notificationPermissionRequest: () -> Void
     private let watchdogScheduler: (Date) -> Void
     private let alarmPresentation: (CNSAlertTier) -> Void
     private let pipelineFactory: @MainActor (Bool) -> any CNSDetectionProcessing
@@ -255,7 +255,7 @@ final class CNSMonitoringCoordinator {
         enableTickLoop: Bool = true,
         emayStartHook: @escaping () -> Void = {},
         emayStopHook: (() -> Void)? = nil,
-        criticalPermissionRequest: @escaping () -> Void = {},
+        notificationPermissionRequest: @escaping () -> Void = {},
         watchdogScheduler: ((Date) -> Void)? = nil,
         alarmPresentation: @escaping (CNSAlertTier) -> Void = { _ in },
         pipelineFactory: @escaping @MainActor (Bool) -> any CNSDetectionProcessing = {
@@ -274,7 +274,7 @@ final class CNSMonitoringCoordinator {
         self.enableTickLoop = enableTickLoop
         self.emayStartHook = emayStartHook
         self.emayStopHook = emayStopHook
-        self.criticalPermissionRequest = criticalPermissionRequest
+        self.notificationPermissionRequest = notificationPermissionRequest
         self.watchdogScheduler = watchdogScheduler ?? { fireDate in
             notificationPoster.schedule(
                 identifier: CNSMonitoringConstants.deadMansSwitchNotificationID,
@@ -325,46 +325,25 @@ final class CNSMonitoringCoordinator {
                 guard let emayService, !emayService.continuousModeEnabled else { return }
                 emayService.stop()
             },
-            criticalPermissionRequest: {
-                Task { _ = await CNSCriticalAlertPermission().requestIfNeeded() }
+            notificationPermissionRequest: {
+                Task { _ = await CNSNotificationPermission().requestIfNeeded() }
             },
             watchdogScheduler: { fireDate in
-                // Never leave the watchdog unarmed while the asynchronous
-                // permission lookup runs. The presenter replaces this request
-                // under the same stable identifier with Critical/Time-Sensitive
-                // content as soon as settings arrive.
-                UNUserNotificationCenterPoster().schedule(
-                    identifier: CNSMonitoringConstants.deadMansSwitchNotificationID,
-                    title: "CNS monitoring may have stopped",
-                    body: "Monitoring may have been interrupted. Reopen AnxietyWatch to check its status.",
-                    at: fireDate
-                )
-                Task {
-                    let permission = await CNSCriticalAlertPermission().currentStatus()
-                    await MainActor.run {
-                        CNSAlarmPresenter(
-                            notify: UserNotificationPoster(),
-                            haptic: PhoneWatchHapticSender(),
-                            audio: ForegroundAlarmAudioPlayer()
-                        ).scheduleMonitoringStopped(permission: permission, at: fireDate)
-                    }
-                }
+                CNSAlarmPresenter(
+                    notify: UserNotificationPoster(),
+                    haptic: PhoneWatchHapticSender(),
+                    audio: ForegroundAlarmAudioPlayer()
+                ).scheduleMonitoringStopped(at: fireDate)
             },
             alarmPresentation: { tier in
-                Task {
-                    let permission = await CNSCriticalAlertPermission().currentStatus()
-                    await MainActor.run {
-                        CNSAlarmPresenter(
-                            notify: UserNotificationPoster(),
-                            haptic: PhoneWatchHapticSender(),
-                            audio: ForegroundAlarmAudioPlayer()
-                        ).present(
-                            tier: tier,
-                            permission: permission,
-                            appActive: UIApplication.shared.applicationState == .active
-                        )
-                    }
-                }
+                CNSAlarmPresenter(
+                    notify: UserNotificationPoster(),
+                    haptic: PhoneWatchHapticSender(),
+                    audio: ForegroundAlarmAudioPlayer()
+                ).present(
+                    tier: tier,
+                    appActive: UIApplication.shared.applicationState == .active
+                )
             }
         )
         emayService.onLiveSample = { [weak self] reading in
@@ -385,7 +364,7 @@ final class CNSMonitoringCoordinator {
     // MARK: - Public control surface
 
     func armManually(companionPresent: Bool) {
-        criticalPermissionRequest()
+        notificationPermissionRequest()
         let now = self.now()
         if isMonitoring {
             activeTriggers.insert(.manual)
@@ -402,7 +381,7 @@ final class CNSMonitoringCoordinator {
     /// default-to-alone rule doesn't apply — a pre-arm companion marking
     /// carries into the session instead of silently snapping back to alone.
     func armAdHoc() {
-        criticalPermissionRequest()
+        notificationPermissionRequest()
         let now = self.now()
         if isMonitoring {
             activeTriggers.insert(.adHoc)
@@ -451,7 +430,7 @@ final class CNSMonitoringCoordinator {
     /// evaluated per-tick in `evaluateDoseWindowExpiry`, not here.
     func doseLogged(_ dose: MedicationDose) {
         guard let drugClass = classify(dose) else { return }
-        criticalPermissionRequest()
+        notificationPermissionRequest()
         let now = self.now()
 
         var doses = loadPersistedDoses(at: now)
@@ -498,7 +477,7 @@ final class CNSMonitoringCoordinator {
         cachedDoses = nil
         let doses = loadPersistedDoses(at: now)
         guard refreshDoseWindowExpiry(doses: doses, at: now) != nil else { return }
-        criticalPermissionRequest()
+        notificationPermissionRequest()
         activeTriggers = [.doseWindow]
         startNewSession(companionPresent: false, at: now)
     }

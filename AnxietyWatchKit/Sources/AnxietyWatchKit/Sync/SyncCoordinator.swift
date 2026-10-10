@@ -238,7 +238,7 @@ public actor SyncCoordinator {
 
         // Advance the local clock from the server's HLC (bounded merge). A
         // drifted server clock is not fatal to the pull itself.
-        try? await deps.hlc.observe(response.serverHLC)
+        _ = try? await deps.hlc.observe(response.serverHLC)
 
         // Phase 1 — observe every incoming row's HLC and partition into
         // apply/quarantine. NOTE: rows are later persisted with the INCOMING
@@ -443,7 +443,7 @@ public actor SyncCoordinator {
         )
 
         let response = try await deps.endpoint.push(payload: payload)
-        try? await deps.hlc.observe(response.serverHLC)
+        _ = try? await deps.hlc.observe(response.serverHLC)
 
         // Cursor advances ONLY here — on the server's ACK — and never past
         // what we actually sent: a misbehaving server must not be able to

@@ -9,10 +9,8 @@ kinds are pushed by the server:
 * :data:`KIND_HEARTBEAT` — an armed session's live upload stopped, so monitoring
   may have stopped (the dead-man's-switch that survives the phone being dead).
 
-Delivery ships as a **Time-Sensitive** high-priority push today (breaks Focus,
-respects the mute switch, needs no Apple approval) and upgrades to a **Critical
-Alert** once sub-project A's entitlement lands — flip ``critical=True`` per call
-(spec §3 / §5). Priority is always ``10``.
+Delivery ships as a standard high-priority notification. It does not request an
+elevated interruption level or a Critical Alert sound. Priority is always ``10``.
 
 Security (repo Sensitive Data Rules + plan Global Constraints):
     * Every credential — the ``.p8`` auth key, key id, team id, topic, and the
@@ -51,16 +49,9 @@ DEVICE_PATH = "/3/device/"
 PRIORITY_IMMEDIATE = 10
 PUSH_TYPE_ALERT = "alert"
 
-# Interruption levels: Time-Sensitive today; Critical once A's entitlement lands.
-INTERRUPTION_TIME_SENSITIVE = "time-sensitive"
-INTERRUPTION_CRITICAL = "critical"
-
-# Non-critical pushes play the standard alert sound; Critical Alerts require the
-# {"critical": 1, ...} sound dict with an explicit volume (0.0-1.0).
+# Standard pushes play the default alert sound and respect the user's notification
+# settings, Focus, and mute configuration.
 DEFAULT_SOUND = "default"
-# "default" is guaranteed present; swap for a bundled klaxon sound file if desired.
-CRITICAL_SOUND_NAME = "default"
-CRITICAL_SOUND_VOLUME = 1.0  # life-safety backstop -> full volume
 
 # --- Alert kinds ------------------------------------------------------------
 KIND_BACKSTOP = "backstop"
@@ -179,32 +170,19 @@ def _load_auth_key(env) -> bytes:
     )
 
 
-def build_payload(kind: str, critical: bool = False) -> dict:
+def build_payload(kind: str) -> dict:
     """Build the APNs payload dict for an alert of ``kind``.
 
-    When ``critical`` is False the payload is a **Time-Sensitive** alert
-    (``aps.interruption-level == "time-sensitive"``) with a plain sound string.
-    When ``critical`` is True it is a **Critical Alert**: ``aps.sound`` becomes
-    the ``{"critical": 1, "name": <sound>, "volume": <float>}`` dict that plays
-    bypassing the mute switch and Focus (requires the Critical Alerts
-    entitlement — sub-project A).
+    The payload intentionally omits ``aps.interruption-level`` and uses a plain
+    sound string so it requires no elevated notification capability.
     """
     title, body = _ALERT_TEXT.get(kind, _DEFAULT_ALERT_TEXT)
-    # dict[str, object]: the value types are heterogeneous (a nested alert dict,
-    # then a str or the critical-sound dict, then an interruption-level str), so
-    # the container is annotated wide rather than inferred to the first entry.
-    aps: dict[str, object] = {"alert": {"title": title, "body": body}}
-    if critical:
-        aps["sound"] = {
-            "critical": 1,
-            "name": CRITICAL_SOUND_NAME,
-            "volume": CRITICAL_SOUND_VOLUME,
+    return {
+        "aps": {
+            "alert": {"title": title, "body": body},
+            "sound": DEFAULT_SOUND,
         }
-        aps["interruption-level"] = INTERRUPTION_CRITICAL
-    else:
-        aps["sound"] = DEFAULT_SOUND
-        aps["interruption-level"] = INTERRUPTION_TIME_SENSITIVE
-    return {"aps": aps}
+    }
 
 
 def _b64url(data: bytes) -> str:
@@ -260,8 +238,8 @@ def _default_transport(url, headers, body):
     )
 
 
-def send(token, payload, *, critical=False, config=None, use_sandbox=None,
-         transport=None, issued_at=None) -> ApnsResult:
+def send(token, payload, *, config=None, use_sandbox=None, transport=None,
+         issued_at=None) -> ApnsResult:
     """Send one APNs push for ``payload`` to ``token``.
 
     Builds a fresh provider JWT from the ``.p8`` key, targets the correct APNs
@@ -270,10 +248,8 @@ def send(token, payload, *, critical=False, config=None, use_sandbox=None,
     callable ``(url, headers, body) -> ApnsTransportResponse``) so it is mockable;
     when omitted it defaults to :func:`_default_transport`.
 
-    ``critical`` selects the Critical-Alert delivery headers; it should match the
-    ``critical`` used to build ``payload``. Idempotency (one push per alert event)
-    is the caller's responsibility (``alert_event``); this function performs
-    exactly one send per call.
+    Idempotency (one push per alert event) is the caller's responsibility
+    (``alert_event``); this function performs exactly one send per call.
 
     A non-2xx APNs status is logged (metadata only) and returned as
     ``ApnsResult(ok=False, ...)`` rather than raised — a redundant channel must
@@ -295,9 +271,8 @@ def send(token, payload, *, critical=False, config=None, use_sandbox=None,
 
     # Log only non-identifying metadata: never the token, JWT, or key material.
     logger.info(
-        "APNs push: host=%s critical=%s token_present=%s token_len=%d body_bytes=%d",
+        "APNs push: host=%s token_present=%s token_len=%d body_bytes=%d",
         host,
-        critical,
         bool(token),
         len(token) if token else 0,
         len(body),

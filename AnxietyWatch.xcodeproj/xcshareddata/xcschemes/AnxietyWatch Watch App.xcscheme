@@ -60,7 +60,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8335360C2F6D0BFF00B45286"
             BuildableName = "AnxietyWatch Watch App.app"
-            BlueprintName = "AnxietyWatch Watch App"
             ReferencedContainer = "container:AnxietyWatch.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -77,7 +76,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8335360C2F6D0BFF00B45286"
             BuildableName = "AnxietyWatch Watch App.app"
-            BlueprintName = "AnxietyWatch Watch App"
             ReferencedContainer = "container:AnxietyWatch.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

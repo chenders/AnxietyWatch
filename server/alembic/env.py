@@ -23,9 +23,12 @@ target_metadata = None
 def get_url():
     """Read database URL from environment, falling back to alembic.ini."""
     url = os.environ.get("DATABASE_URL")
-    if url:
-        return url
-    url = config.get_main_option("sqlalchemy.url", "")
+    if not url:
+        url = config.get_main_option("sqlalchemy.url", "")
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+psycopg2://", 1)
     if url:
         return url
     raise RuntimeError(

@@ -13,9 +13,9 @@ Flow (design §4):
                     └──────────── APNs push (once per event) ───────────┘
 
 Two independent raises, both idempotent per ``(session_id, kind)`` via the
-``alert_event`` ledger. **Idempotency gates on delivery, not attempt**: a row is
-written only after APNs accepts the push for at least one device, so a failed
-delivery (no tokens, missing config, rejection, network error) stays retryable
+``alert_event`` ledger. **Idempotency gates on APNs acceptance, not attempt**: a
+row is written only after APNs accepts the push for at least one token, so a failed
+attempt (no tokens, missing config, rejection, network error) stays retryable
 rather than being silently marked "alerted" (design §5, own-failure-visible).
 
 * **Backstop** — evaluated on every append over a *recent* (``ts_utc``-bounded)
@@ -35,7 +35,7 @@ rather than being silently marked "alerted" (design §5, own-failure-visible).
   inert because nothing uploads. See ``HEARTBEAT_ACTIVE_LOOKBACK_SECONDS``.
 
 Channel health (``GET /health``) surfaces whether APNs is configured, how many
-device tokens are registered, and when an alert was last delivered — so the app
+device tokens are registered, and when APNs last accepted an alert — so the app
 can detect a dark channel (design §5). Credentials come from env only; tokens,
 keys, and JWTs are never logged (only kind + session id + counts).
 """
@@ -87,10 +87,6 @@ HEARTBEAT_TIMEOUT_SECONDS = 120.0
 # this heuristic; the window is generous so a genuinely-armed phone that dies
 # is still caught even if a sweep is delayed.
 HEARTBEAT_ACTIVE_LOOKBACK_SECONDS = 12 * 3600.0
-
-# Ship Time-Sensitive pushes until sub-project A's Critical Alerts entitlement
-# lands (design §3 / §8); flip to True once it does.
-PUSH_CRITICAL = False
 
 # APNs device tokens are ~64 hex chars (32 bytes); cap generously so an
 # authenticated client can't bloat the registry with an oversized token.
@@ -178,14 +174,14 @@ def _registered_tokens(db):
         return cur.fetchall()
 
 
-def push_alert(db, kind, session_id, *, critical=False):
+def push_alert(db, kind, session_id):
     """Deliver one APNs push of ``kind`` to every registered device.
 
     Returns the number of devices APNs accepted (0 if none). Never raises: a
     missing token registry or missing APNs config is logged (own-failure-visible)
     and returns 0; a per-device send error is logged and skipped so one bad token
     can't shadow a working one; a token APNs reports permanently dead (410/400)
-    is pruned. A return of 0 means "delivered to no one" — callers MUST NOT treat
+    is pruned. A return of 0 means "accepted for no token" — callers MUST NOT treat
     that as success.
     """
     tokens = _registered_tokens(db)
@@ -200,19 +196,19 @@ def push_alert(db, kind, session_id, *, critical=False):
                        kind, session_id)
         return 0
 
-    payload = apns.build_payload(kind, critical=critical)
-    sent = 0
+    payload = apns.build_payload(kind)
+    accepted_count = 0
     dead = []
     for token, env in tokens:
         try:
-            result = apns.send(token, payload, critical=critical, config=config, use_sandbox=(env == "sandbox"))
+            result = apns.send(token, payload, config=config, use_sandbox=(env == "sandbox"))
         except Exception as exc:
             # A malformed key, network error, or missing HTTP/2 client must not
-            # abort delivery to the remaining devices.
+            # abort attempts for the remaining tokens.
             logger.warning("alert-channel: APNs send failed for one device (%s)", type(exc).__name__)
             continue
         if result.ok:
-            sent += 1
+            accepted_count += 1
         elif result.status in _DEAD_TOKEN_STATUSES:
             dead.append(token)
 
@@ -221,37 +217,37 @@ def push_alert(db, kind, session_id, *, critical=False):
             cur.execute("DELETE FROM device_push_token WHERE token = ANY(%s)", (dead,))
         db.commit()
         logger.info("alert-channel: pruned %d dead device token(s)", len(dead))
-    return sent
+    return accepted_count
 
 
 def _maybe_raise(db, session_id, kind, now, push):
-    """Idempotently deliver + record ``kind`` for ``session_id``.
+    """Idempotently send + record APNs acceptance for ``kind`` and ``session_id``.
 
-    Returns ``(delivered, sent)``. DELIVERY-GATED: the push is attempted BEFORE
+    Returns ``(accepted, accepted_count)``. ACCEPTANCE-GATED: the push is attempted BEFORE
     any ``alert_event`` row is written, so a crash mid-push (or a push that
-    reaches no device) leaves no row — the alert stays retryable and ``/health``
-    never reports an undelivered alert as delivered. The success write uses
+    APNs accepts for no token) leaves no row — the alert stays retryable and
+    ``/health`` never reports a failed attempt as accepted. The success write uses
     ``INSERT ... ON CONFLICT DO NOTHING`` against the UNIQUE(session_id, kind)
     index so a concurrent caller can't create a duplicate row. The only residue
     of a rare same-(session, kind) race is a duplicate push, which is acceptable
-    for a redundant channel and far preferable to a claim-before-delivery scheme
+    for a redundant channel and far preferable to a claim-before-acceptance scheme
     whose crash window could silently suppress a heartbeat.
     """
     with db.cursor() as cur:
         cur.execute("SELECT 1 FROM alert_event WHERE session_id = %s AND kind = %s LIMIT 1", (session_id, kind))
         if cur.fetchone():
-            return (False, 0)  # already delivered for this event
+            return (False, 0)  # APNs already accepted this event
 
     try:
-        sent = push(db, kind, session_id, critical=PUSH_CRITICAL)
+        accepted_count = push(db, kind, session_id)
     except Exception as exc:  # pragma: no cover - push_alert already swallows
         logger.warning("alert-channel push raised for %s: %s", kind, type(exc).__name__)
-        sent = 0
+        accepted_count = 0
 
-    if not sent:
-        # Delivered to no device: record nothing, so the alert stays retryable
+    if not accepted_count:
+        # Accepted for no token: record nothing, so the alert stays retryable
         # and /health surfaces the dark channel. Own failure must be visible.
-        logger.warning("alert-channel: %s for session=%s not delivered to any device; will retry",
+        logger.warning("alert-channel: %s for session=%s not accepted by APNs; will retry",
                        kind, session_id)
         return (False, 0)
 
@@ -262,7 +258,7 @@ def _maybe_raise(db, session_id, kind, now, push):
             (session_id, kind, now),
         )
     db.commit()
-    return (True, sent)
+    return (True, accepted_count)
 
 
 # --- Core logic (clock-injected, test-callable) -----------------------------
@@ -304,8 +300,8 @@ def append_samples(db, session_id, samples, now, push=None):
     result = {
         "buffered": len(samples),
         "backstop_raised": False,
-        "alert_delivered": False,
-        "delivered_devices": 0,
+        "alert_apns_accepted": False,
+        "apns_accepted_devices": 0,
         "last_ack_utc": now.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
 
@@ -342,9 +338,9 @@ def append_samples(db, session_id, samples, now, push=None):
         raised = any(backstop.evaluate(group, now).raised for group in by_source.values())
         result["backstop_raised"] = raised
         if raised:
-            delivered, sent = _maybe_raise(db, session_id, KIND_BACKSTOP, now, push)
-            result["alert_delivered"] = delivered
-            result["delivered_devices"] = sent
+            accepted, accepted_count = _maybe_raise(db, session_id, KIND_BACKSTOP, now, push)
+            result["alert_apns_accepted"] = accepted
+            result["apns_accepted_devices"] = accepted_count
     except Exception:
         # Clear any aborted transaction; the buffered batch is already committed.
         db.rollback()
@@ -359,8 +355,8 @@ def run_heartbeat_sweep(db, now, push=None):
     A session is a candidate when its most recent server-side ingest is older
     than ``HEARTBEAT_TIMEOUT_SECONDS`` but still within
     ``HEARTBEAT_ACTIVE_LOOKBACK_SECONDS``. Idempotent per session (gated on
-    delivery); cleared by the next append. Returns the list of session ids that
-    delivered an alert on this sweep.
+    APNs acceptance); cleared by the next append. Returns the list of session ids
+    whose alert APNs accepted on this sweep.
     """
     if push is None:
         push = push_alert
@@ -378,8 +374,8 @@ def run_heartbeat_sweep(db, now, push=None):
 
     raised = []
     for session_id in candidates:
-        delivered, _sent = _maybe_raise(db, session_id, KIND_HEARTBEAT, now, push)
-        if delivered:
+        accepted, _accepted_count = _maybe_raise(db, session_id, KIND_HEARTBEAT, now, push)
+        if accepted:
             raised.append(session_id)
     return raised
 
@@ -487,8 +483,8 @@ def post_disarm():
     """Mark a monitoring session ended (the client calls this on disarm) so the
     no-data heartbeat doesn't fire a false "monitoring stopped" alert for a clean
     stop. Drops ONLY the session's buffered samples (removing it from heartbeat
-    candidacy and bounding growth); the alert_event delivery ledger is preserved
-    so /health keeps reporting the session's last delivered alert."""
+    candidacy and bounding growth); the APNs-acceptance ledger is preserved
+    so /health keeps reporting when APNs last accepted an alert."""
     body = request.get_json(silent=True) or {}
     session_id = body.get("session_id")
     session_id = session_id.strip() if isinstance(session_id, str) else None
@@ -499,8 +495,8 @@ def post_disarm():
     with db.cursor() as cur:
         # Drop only the sample buffer: that removes the session from heartbeat
         # candidacy and bounds growth. Do NOT delete alert_event — those rows are
-        # the delivered-alert ledger /health reports (MAX ts_utc); wiping them
-        # would erase real delivery history for an ended session.
+        # the APNs-accepted ledger /health reports (MAX ts_utc); wiping them
+        # would erase real provider-acceptance history for an ended session.
         cur.execute("DELETE FROM session_sample_buffer WHERE session_id = %s", (session_id,))
     db.commit()
     return jsonify({"ok": True})
@@ -524,9 +520,9 @@ def post_heartbeat_sweep():
 @require_api_key
 def get_health():
     """Channel-health surface (design §5, own-failure-visible): whether APNs is
-    configured, how many device tokens are registered, and when an alert was
-    last *delivered* (alert_event rows are written only on successful delivery),
-    so the app can detect a dark channel. Never leaks secret material."""
+    configured, how many device tokens are registered, and when APNs last
+    accepted an alert request. Provider acceptance does not prove that the
+    device displayed it. Never leaks secret material."""
     db = get_db()
     apns_configured = True
     try:
@@ -547,5 +543,5 @@ def get_health():
     return jsonify({
         "apns_configured": apns_configured,
         "registered_tokens": token_count,
-        "last_delivered_alert_utc": last_alert_iso,
+        "last_apns_accepted_alert_utc": last_alert_iso,
     })

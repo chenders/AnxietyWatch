@@ -110,11 +110,7 @@ struct HRVSessionCardView: View {
     @ViewBuilder
     private func content(for state: PolarHRMState) -> some View {
         #if DEBUG && targetEnvironment(simulator)
-        let demoMode = Self.demoMode
-        #else
-        let demoMode = false
-        #endif
-        if demoMode {
+        if Self.demoMode {
             // When the app was launched with `-autoRestoreFromServer` the
             // simulator's BLE stack always reports `bluetoothUnsupported`,
             // but the imported SensorSession data is real — render the idle
@@ -127,21 +123,29 @@ struct HRVSessionCardView: View {
                 .foregroundStyle(.tertiary)
             idleContent()
         } else {
-            switch state.status {
-            case .recording, .connecting:
-                liveContent(for: state)
-            case .bluetoothOff:
-                inlineStatus(message: "Bluetooth is off. Enable it in iOS Settings to start a session.", color: .red)
-            case .bluetoothUnauthorized:
-                inlineStatus(message: "Allow Bluetooth permission in iOS Settings → Anxiety Watch.", color: .red)
-            case .bluetoothUnsupported:
-                inlineStatus(message: "Bluetooth not available on this device.", color: .secondary)
-            case .error(let message):
-                inlineStatus(message: message, color: .red)
-                startButton(label: "Retry Start")
-            default:
-                idleContent()
-            }
+            standardContent(for: state)
+        }
+        #else
+        standardContent(for: state)
+        #endif
+    }
+
+    @ViewBuilder
+    private func standardContent(for state: PolarHRMState) -> some View {
+        switch state.status {
+        case .recording, .connecting:
+            liveContent(for: state)
+        case .bluetoothOff:
+            inlineStatus(message: "Bluetooth is off. Enable it in iOS Settings to start a session.", color: .red)
+        case .bluetoothUnauthorized:
+            inlineStatus(message: "Allow Bluetooth permission in iOS Settings → Anxiety Watch.", color: .red)
+        case .bluetoothUnsupported:
+            inlineStatus(message: "Bluetooth not available on this device.", color: .secondary)
+        case .error(let message):
+            inlineStatus(message: message, color: .red)
+            startButton(label: "Retry Start")
+        default:
+            idleContent()
         }
     }
 

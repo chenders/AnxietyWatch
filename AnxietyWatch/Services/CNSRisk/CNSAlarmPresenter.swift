@@ -29,71 +29,47 @@ struct CNSAlarmPresenter {
         self.audio = audio
     }
 
-    func present(tier: CNSAlertTier, permission: CNSNotifyPermission, appActive: Bool) {
+    func present(tier: CNSAlertTier, appActive: Bool) {
         let channels = CNSAlarmChannelPolicy.channels(
             tier: tier,
-            criticalGranted: permission == .criticalGranted,
-            timeSensitiveGranted: permission == .timeSensitiveOnly,
             appActive: appActive
         )
         if channels.contains(.watchHaptic) {
             haptic.sendKlaxonHaptic()
         }
-        if channels.contains(.criticalNotification) {
-            notify.post(Self.notificationContent(interruptionLevel: .critical, criticalSound: true))
-        } else if channels.contains(.timeSensitiveNotification) {
-            notify.post(Self.notificationContent(interruptionLevel: .timeSensitive, criticalSound: false))
-        } else if channels.contains(.standardNotification) {
-            notify.post(Self.notificationContent(interruptionLevel: .active, criticalSound: false))
+        if channels.contains(.standardNotification) {
+            notify.post(Self.notificationContent(interruptionLevel: .active))
         }
         if channels.contains(.foregroundAudio) {
             audio.playKlaxon()
         }
     }
 
-    /// Arms the dead-man's switch with the loudest notification level the
-    /// user granted. When denied, the OS blocks notification delivery entirely;
-    /// the existing watch-first klaxon path remains independent.
-    func scheduleMonitoringStopped(permission: CNSNotifyPermission, at fireDate: Date) {
-        let level: UNNotificationInterruptionLevel
-        let criticalSound: Bool
-        switch permission {
-        case .criticalGranted:
-            level = .critical
-            criticalSound = true
-        case .timeSensitiveOnly:
-            level = .timeSensitive
-            criticalSound = false
-        case .standardOnly, .notDetermined, .denied:
-            level = .active
-            criticalSound = false
-        }
-        notify.schedule(Self.monitoringStoppedContent(
-            interruptionLevel: level, criticalSound: criticalSound
-        ), at: fireDate)
+    /// Arms the dead-man's switch with a standard notification. When denied,
+    /// the OS blocks delivery entirely; the watch-first path remains independent.
+    func scheduleMonitoringStopped(at fireDate: Date) {
+        notify.schedule(Self.monitoringStoppedContent(interruptionLevel: .active), at: fireDate)
     }
 
     private static func notificationContent(
-        interruptionLevel: UNNotificationInterruptionLevel,
-        criticalSound: Bool
+        interruptionLevel: UNNotificationInterruptionLevel
     ) -> UNNotificationContent {
         let content = UNMutableNotificationContent()
         content.title = "CNS Depression Warning"
         content.body = "Wake up and check your breathing and oxygen level now."
         content.interruptionLevel = interruptionLevel
-        content.sound = criticalSound ? .defaultCritical : .default
+        content.sound = .default
         return content
     }
 
     private static func monitoringStoppedContent(
-        interruptionLevel: UNNotificationInterruptionLevel,
-        criticalSound: Bool
+        interruptionLevel: UNNotificationInterruptionLevel
     ) -> UNNotificationContent {
         let content = UNMutableNotificationContent()
         content.title = "CNS monitoring may have stopped"
         content.body = "Monitoring may have been interrupted. Reopen AnxietyWatch to check its status."
         content.interruptionLevel = interruptionLevel
-        content.sound = criticalSound ? .defaultCritical : .default
+        content.sound = .default
         return content
     }
 }
