@@ -29,7 +29,7 @@ Every finding goes through a **3-lens verify** (correctness lens, does-it-reprod
 
 ## Done when
 
-Loop dry, register PR'd (`fable5/phase-2-audit`), and the owner has done a triage pass (approve/defer/reject per finding) recorded directly in `FINDINGS.md`.
+Loop dry, register PR'd (`fable5/phase-2-audit`), and the project maintainer has done a triage pass (approve/defer/reject per finding) recorded directly in `FINDINGS.md`.
 
 ## Implementation notes (post-merge)
 

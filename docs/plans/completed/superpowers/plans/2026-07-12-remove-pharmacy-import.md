@@ -8,7 +8,7 @@
 
 **Tech Stack:** Swift 5.9+/SwiftUI/SwiftData (iOS), Swift Testing, Flask + SQLAlchemy + Alembic + pytest (server).
 
-## Decisions (confirmed with the owner, 2026-07-11)
+## Decisions (confirmed with the project maintainer, 2026-07-11)
 
 1. **Keep the OCR label scanner** (`PrescriptionLabelScanner`, `PrescriptionScannerView`, "Scan Label" button) — it is a manual-entry aid, untouched by this plan.
 2. **Full field cleanup** — drop the 12 import-only fields from the SwiftData model AND the server table: `prescriberName`, `ndcCode`, `rxStatus`, `lastFillDate`, `importSource`, `walgreensRxId`, `directions`, `daysSupply`, `patientPay`, `planPay`, `dosageForm`, `drugType`.

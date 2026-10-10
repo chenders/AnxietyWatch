@@ -1,6 +1,6 @@
 # Phase 5 — UI/UX modernization
 
-**Goal:** evaluate the entire UI/UX — iOS app, watch app, widgets — against current Apple HIG and iOS 18/26-era SwiftUI design practice, and propose improvements ranging from polish to whole-screen overhauls where a real argument exists. Register-first: nothing gets rebuilt until the owner triages the proposals.
+**Goal:** evaluate the entire UI/UX — iOS app, watch app, widgets — against current Apple HIG and iOS 18/26-era SwiftUI design practice, and propose improvements ranging from polish to whole-screen overhauls where a real argument exists. Register-first: nothing gets rebuilt until the project maintainer triages the proposals.
 
 ## Method
 
@@ -12,7 +12,7 @@
    - **Visual design** — typography scale consistency, spacing rhythm, color semantics (ChartPalette vs. ad-hoc accents), per-screen hierarchy.
    - **Interaction cost** — taps/scrolls for the core loops: log an anxiety entry, check last night's data, log a med dose, start an HRV session.
 3. **Verdict per screen:** `fine` / `polish` / `redesign`, each with rationale. An overhaul proposal must argue which user goal is served better — "looks dated" doesn't qualify. Known seed: the watch `QuickLogView` wastes screen space and needs larger buttons (from memory).
-4. **Prototype before committing.** Top redesign candidates get HTML/artifact mockups or a throwaway branch prototype for the owner to react to before real implementation. Use the `frontend-design` skill for direction; `chart-ux-auditor` guards any Trends changes.
+4. **Prototype before committing.** Top redesign candidates get HTML/artifact mockups or a throwaway branch prototype for maintainer review before real implementation. Use the `frontend-design` skill for direction; `chart-ux-auditor` guards any Trends changes.
 5. **Output:** `UI_UX_PROPOSALS.md` (screen-by-screen verdict table + proposals). Approved work ships in batched PRs with before/after screenshots in the description (screenshots PII-reviewed per repo rules — the restore tool's demo data is real health data; prefer synthetic-looking captures or verify values are unremarkable).
 
 ## Done when

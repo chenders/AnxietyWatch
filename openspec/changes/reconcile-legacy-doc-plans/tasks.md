@@ -14,7 +14,7 @@
 ## 3. Create the coherent OpenSpec portfolio
 
 - [x] 3.1 Create focused changes for clinical respiratory safety, physiological experience, device-capability decisions, engineering quality, and public-project readiness; verify each has proposal, specs, design, tasks, evidence, rollback, and resume context.
-- [x] 3.2 Preserve `complete-redesign-v3-migration` as the owner of its coupled storage/watch/sync/diagnostics rollout and remove duplicate ownership from new plans; verify overlap rules are explicit in `openspec/PORTFOLIO.md`.
+- [x] 3.2 Preserve `complete-redesign-v3-migration` as the authoritative plan for its coupled storage/watch/sync/diagnostics rollout and remove duplicate responsibility from new plans; verify overlap rules are explicit in `openspec/PORTFOLIO.md`.
 - [x] 3.3 Add the priority-ordered `openspec/PORTFOLIO.md` master list with origin, current state, benefit, completion outcome, boundaries, dependencies, and resume links for every active plan.
 
 ## 4. Verify and report

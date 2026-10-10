@@ -8,7 +8,7 @@
 
 **Tech Stack:** Swift 5.9+/SwiftUI/SwiftData, Swift Testing, Observation framework; no new dependencies.
 
-## Scope Decisions (made autonomously 2026-07-12 while the owner was unavailable — REVIEW THESE FIRST)
+## Scope Decisions (made autonomously 2026-07-12 while the project maintainer was unavailable — REVIEW THESE FIRST)
 
 1. **Adapters thread `perfusionIndex`/`isArtifact`, not confidence** — the Phase 1 `CNSSignalSample` type governs; spec §10's "confidence" is derived downstream by `CNSSeverityScorer` (spec-vs-type mismatch resolved in favor of shipped code).
 2. **Auto-sleep detection is OUT of Phase 2** — §14.3 forbids it as a gating condition (may only add coverage); the "arm the monitor?" nudge is deferred to Phase 3 with the rest of the notification/UI surface. Default triggers shipped here: manual toggle + post-dose windows (§14.3's stated default).

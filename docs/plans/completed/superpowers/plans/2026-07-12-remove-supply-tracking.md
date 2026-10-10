@@ -8,7 +8,7 @@
 
 **Tech Stack:** Swift 5.9+/SwiftUI/SwiftData (iOS), Swift Testing, Flask + SQLAlchemy + Alembic + pytest (server).
 
-## Decisions (confirmed with the owner, 2026-07-12)
+## Decisions (confirmed with the project maintainer, 2026-07-12)
 
 1. Remove supply tracking entirely — nothing computes expiration or remaining supply anywhere.
 2. `quantity` and `refillsRemaining` are dropped too (not kept as informational fields). The OCR label scanner stops parsing them.

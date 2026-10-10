@@ -26,7 +26,7 @@ Reconnect/retry with backoff, session watchdogs, ingest-time data-integrity chec
 
 ### 4. Physical-device test protocol
 
-BLE and overnight behavior can't be simulated — define a concrete protocol with the owner in the loop: N instrumented test nights (Polar + Watch + EMAY simultaneously), induced-dropout tests (walk out of range, battery pull), and a scorecard of data captured vs. expected.
+BLE and overnight behavior can't be simulated — define a concrete protocol with the device user involved: N instrumented test nights (Polar + Watch + EMAY simultaneously), induced-dropout tests (walk out of range, battery pull), and a scorecard of data captured vs. expected.
 
 ### 5. Register + implementation
 

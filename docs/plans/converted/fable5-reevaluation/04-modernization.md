@@ -1,6 +1,6 @@
 # Phase 4 — Best-practices modernization
 
-**Goal:** bring code, dependencies, methods/practices, and the instruction/tooling layer up to current best practice. Register-first here too: a modernization-proposals doc, the owner triages, then batches.
+**Goal:** bring code, dependencies, methods/practices, and the instruction/tooling layer up to current best practice. Register-first here too: a modernization-proposals doc, the project maintainer triages, then batches.
 
 ## 4a. Swift/iOS currency
 
