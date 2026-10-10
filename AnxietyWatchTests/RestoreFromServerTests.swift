@@ -1,4 +1,5 @@
 import Foundation
+import AnxietyWatchKit
 import SwiftData
 import Testing
 
@@ -12,6 +13,34 @@ import Testing
 /// `datetime.isoformat()` strings. All values are fictional per CLAUDE.md.
 @MainActor
 struct RestoreFromServerTests {
+
+    @Test("restore manifest names compile-bound importer functions")
+    func restoreManifestBindsRealImporters() {
+        #expect(
+            Set(RestoreManifest.production.importerIDs)
+                == SyncService.compiledRestoreImporterIDs
+        )
+    }
+
+    @Test("restore manifest entities are dispatched by the production restore path")
+    func restoreManifestBindsProductionDispatch() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("AnxietyWatch/Services/RestoreFromServer.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let regex = try NSRegularExpression(
+            pattern: #"json\["([^"]+)"\] as\? \[\[String: Any\]\]"#
+        )
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        let dispatched: Set<String> = Set(regex.matches(in: source, range: range).compactMap { match in
+            guard let keyRange = Range(match.range(at: 1), in: source) else { return nil }
+            return String(source[keyRange])
+        })
+        let manifestEntities = Set(RestoreManifest.production.serverQueries)
+
+        #expect(dispatched == manifestEntities)
+    }
 
     /// Parse an ISO-8601 instant (server `TIMESTAMPTZ` shape, no fractional
     /// seconds) for exact-timestamp assertions.

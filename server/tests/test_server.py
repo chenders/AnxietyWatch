@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+from pathlib import Path
 import re
 
 import psycopg2
@@ -52,6 +53,18 @@ def app(_init_db):
 @pytest.fixture()
 def client(app):
     return app.test_client()
+
+
+def test_restore_manifest_server_queries_are_real_route_entities(app):
+    """Bind every Swift manifest query name to the dict used by /api/data."""
+    manifest_path = (
+        Path(__file__).resolve().parents[2]
+        / "AnxietyWatchKit/Sources/AnxietyWatchKit/Sync/RestoreManifest.swift"
+    )
+    manifest_source = manifest_path.read_text(encoding="utf-8")
+    manifest_queries = set(re.findall(r'serverQuery:\s*"([^"]+)"', manifest_source))
+
+    assert manifest_queries == set(app.extensions["restore_entity_queries"])
 
 
 @pytest.fixture(autouse=True)

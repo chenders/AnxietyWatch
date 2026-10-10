@@ -1357,6 +1357,10 @@ def create_app(test_config=None):
         "sleepStageEvents": ("sleep_stage_events", "start_time", "start_time"),
         "quantityHealthSamples": ("quantity_health_samples", "timestamp", "timestamp"),
     }
+    # Expose the actual route registry for the cross-layer restore-manifest
+    # test. This is the same dictionary consumed by /api/data, not a duplicate
+    # list that could remain green after a route is removed.
+    app.extensions["restore_entity_queries"] = frozenset(ENTITY_QUERIES)
 
     # Entities too large to inline in the bulk /api/data payload. They sync UP
     # like everything else, but a restore must pull them DOWN page-by-page from

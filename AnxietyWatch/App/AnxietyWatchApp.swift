@@ -322,6 +322,7 @@ struct AnxietyWatchApp: App {
             try await container.bootstrap()
         } catch {
             Log.sync.error("Kit bootstrap failed: \(error)")
+            return
         }
 
         // Start the transport message loop for P2P sync.

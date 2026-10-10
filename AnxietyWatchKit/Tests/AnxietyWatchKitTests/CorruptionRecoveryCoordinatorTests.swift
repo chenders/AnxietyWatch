@@ -139,6 +139,86 @@ struct CorruptionRecoveryCoordinatorTests {
 
         #expect(await coordinator.currentState == .failed(stage: .serverRestore))
     }
+
+    @Test("automatic database recovery propagates restore failure")
+    func automaticRecoveryFailsClosed() async throws {
+        let fixture = try RecoveryFixture()
+        defer { fixture.remove() }
+
+        let database = DatabaseManager(url: fixture.databaseURL)
+        let coordinator = CorruptionRecoveryCoordinator(
+            database: database,
+            nodeID: Data(repeating: 0xDA, count: 16),
+            restoreFromServer: { throw RecoveryFixtureError.restoreFailed },
+            rederiveHealthKit: { Issue.record("HealthKit must not run after restore failure") }
+        )
+        await coordinator.bootstrap()
+        try await database.open()
+
+        await #expect(throws: CorruptionRecoveryCoordinator.RecoveryError.restorationFailed) {
+            try await database.forceCorruptionRecovery()
+        }
+
+        #expect(await coordinator.currentState == .failed(stage: .serverRestore))
+    }
+
+    @Test("failed restoration remains pending and resumes after process relaunch")
+    func failedRecoveryResumesAfterRelaunch() async throws {
+        let fixture = try RecoveryFixture()
+        defer { fixture.remove() }
+
+        let firstDatabase = DatabaseManager(url: fixture.databaseURL)
+        await firstDatabase.setSchemaMigrator { db in
+            try db.execute(sql: "CREATE TABLE IF NOT EXISTS restored (source TEXT PRIMARY KEY)")
+        }
+        let firstCoordinator = CorruptionRecoveryCoordinator(
+            database: firstDatabase,
+            nodeID: Data(repeating: 0xEB, count: 16),
+            restoreFromServer: { throw RecoveryFixtureError.restoreFailed },
+            rederiveHealthKit: { Issue.record("HealthKit must not run after restore failure") }
+        )
+        await firstCoordinator.bootstrap()
+        try await firstDatabase.open()
+
+        await #expect(throws: CorruptionRecoveryCoordinator.RecoveryError.restorationFailed) {
+            try await firstDatabase.forceCorruptionRecovery()
+        }
+        await firstDatabase.close()
+
+        let callbacks = RecoveryCallbackRecorder()
+        let relaunchedDatabase = DatabaseManager(url: fixture.databaseURL)
+        await relaunchedDatabase.setSchemaMigrator { db in
+            try db.execute(sql: "CREATE TABLE IF NOT EXISTS restored (source TEXT PRIMARY KEY)")
+        }
+        let relaunchedCoordinator = CorruptionRecoveryCoordinator(
+            database: relaunchedDatabase,
+            nodeID: Data(repeating: 0xEB, count: 16),
+            restoreFromServer: { await callbacks.record("server") },
+            rederiveHealthKit: { await callbacks.record("healthkit") }
+        )
+        await relaunchedCoordinator.bootstrap()
+        try await relaunchedDatabase.open()
+        try await relaunchedDatabase.resumePendingRecoveryIfNeeded()
+
+        #expect(await callbacks.values == ["server", "healthkit"])
+        #expect(await relaunchedCoordinator.currentState == .recovered)
+        await relaunchedDatabase.close()
+
+        let finalDatabase = DatabaseManager(url: fixture.databaseURL)
+        let finalCallbacks = RecoveryCallbackRecorder()
+        let finalCoordinator = CorruptionRecoveryCoordinator(
+            database: finalDatabase,
+            nodeID: Data(repeating: 0xEB, count: 16),
+            restoreFromServer: { await finalCallbacks.record("server") },
+            rederiveHealthKit: { await finalCallbacks.record("healthkit") }
+        )
+        await finalCoordinator.bootstrap()
+        try await finalDatabase.open()
+        try await finalDatabase.resumePendingRecoveryIfNeeded()
+
+        #expect(await finalCallbacks.values.isEmpty)
+        await finalDatabase.close()
+    }
 }
 
 private struct RecoveryFixture {

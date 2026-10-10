@@ -101,6 +101,38 @@ struct SyncServiceTests {
 
     // MARK: - lastSyncDate persistence
 
+    @Test("incremental payload includes historical clinical labs discovered after the cursor")
+    @MainActor
+    func incrementalPayloadIncludesHistoricalClinicalLabs() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+
+        let cursor = Date(timeIntervalSince1970: 1_720_000_000)
+        UserDefaults.standard.set(cursor, forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        context.insert(ClinicalLabResult(
+            loincCode: "99999-9",
+            testName: "Fictional historical result",
+            value: 1.0,
+            unit: "unit",
+            effectiveDate: cursor.addingTimeInterval(-86_400),
+            healthKitSampleUUID: "00000000-0000-0000-0000-000000000099"
+        ))
+        try context.save()
+
+        let data = try SyncService().buildPayload(
+            from: context,
+            upperBound: cursor.addingTimeInterval(60)
+        )
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let rows = try #require(json["clinicalLabResults"] as? [[String: Any]])
+
+        #expect(rows.count == 1)
+        #expect(rows.first?["healthKitSampleUUID"] as? String == "00000000-0000-0000-0000-000000000099")
+    }
+
     @Test("lastSyncDate persists through UserDefaults across instances")
     func lastSyncDateRoundTrip() {
         let restore = saveSyncDefaults()

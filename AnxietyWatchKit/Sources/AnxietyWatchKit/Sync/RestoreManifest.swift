@@ -37,6 +37,14 @@ public struct RestoreManifest: Sendable, Equatable {
         entities.filter(\.uploads).map(\.table).sorted()
     }
 
+    public var serverQueries: [String] {
+        entities.compactMap(\.serverQuery).sorted()
+    }
+
+    public var importerIDs: [String] {
+        entities.compactMap(\.importerID).sorted()
+    }
+
     public var missingRoundTrips: [String] {
         entities
             .filter { descriptor in

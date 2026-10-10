@@ -68,8 +68,8 @@ public struct DependencyContainer: Sendable {
     ///   - endpoint: Server sync endpoint.
     ///   - featureFlags: Injectable redesign rollout decisions.
     ///   - rederiveHealthKit: App-owned authoritative HealthKit backfill. The
-    ///     default is empty while SQLite reads remain disabled; Phase 2A must
-    ///     inject its production backfill before enabling SQLite authority.
+    ///     default fails closed while SQLite reads remain disabled; Phase 2A
+    ///     must inject its production backfill before enabling SQLite authority.
     ///   - session: WCSession wrapper. Defaults to `WCSession.default`.
     ///   - now: Injectable wall clock (for tests).
     ///   - monotonicNow: Injectable monotonic clock (for tests).
@@ -80,7 +80,9 @@ public struct DependencyContainer: Sendable {
         endpoint: SyncEndpoint,
         session: WCSessionProtocol? = nil,
         featureFlags: any FeatureFlagProvider = Feature.defaultProvider,
-        rederiveHealthKit: @escaping @Sendable () async throws -> Void = {},
+        rederiveHealthKit: @escaping @Sendable () async throws -> Void = {
+            throw CorruptionRecoveryCoordinator.RecoveryError.healthKitRederivationUnavailable
+        },
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) },
         monotonicNow: @escaping @Sendable () -> Int64 = { HLC.defaultMonotonic() }
     ) {
@@ -174,6 +176,7 @@ public struct DependencyContainer: Sendable {
         try await syncCoordinator.bootstrap()
         await corruptionRecovery.bootstrap()
         try await database.open()
+        try await database.resumePendingRecoveryIfNeeded()
     }
 
     /// Registers HLC UDFs on the database. Must be called before any

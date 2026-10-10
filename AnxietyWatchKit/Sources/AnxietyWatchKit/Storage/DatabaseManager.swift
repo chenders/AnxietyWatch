@@ -14,7 +14,7 @@ public actor DatabaseManager {
     /// and HealthKit rederivation (Spec §1.6 step 6). The Error argument is nil
     /// on success, or the underlying error if the migrator itself threw (in
     /// which case restoration must not be attempted).
-    public typealias PostRecoveryHook = @Sendable (Error?) async -> Void
+    public typealias PostRecoveryHook = @Sendable (Error?) async throws -> Void
 
     /// URL to the database file
     private let url: URL
@@ -54,6 +54,13 @@ public actor DatabaseManager {
     /// Checkpoint in progress marker file name
     private var checkpointInProgressMarker: URL {
         url.deletingLastPathComponent().appendingPathComponent(".checkpoint-in-progress-\(url.lastPathComponent)")
+    }
+
+    /// Durable proof that file replacement has started but server restoration
+    /// and HealthKit rederivation have not both completed. This lives beside
+    /// SQLite so deleting DB/WAL/SHM cannot erase it.
+    private var recoveryPendingMarker: URL {
+        url.deletingLastPathComponent().appendingPathComponent(".recovery-pending-\(url.lastPathComponent)")
     }
 
     /// Kept outside SQLite so replacing the corrupt database cannot erase the
@@ -127,6 +134,30 @@ public actor DatabaseManager {
     /// dependency-free: the Sync layer registers itself here at bootstrap.
     public func setPostRecoveryHook(_ hook: @escaping PostRecoveryHook) async {
         self.postRecoveryHook = hook
+    }
+
+    /// Resumes restoration left incomplete by a prior process. Call only after
+    /// the schema is open and the post-recovery hook has been installed.
+    public func resumePendingRecoveryIfNeeded() async throws {
+        guard FileManager.default.fileExists(atPath: recoveryPendingMarker.path) else { return }
+
+        guard let hook = postRecoveryHook else {
+            // DatabaseManager can be used standalone in storage tests and tools.
+            // With no higher-level restoration contract registered, replacement
+            // itself is the complete recovery operation.
+            try FileManager.default.removeItem(at: recoveryPendingMarker)
+            return
+        }
+
+        corruptionEventContinuation.yield(CorruptionEvent(timestamp: now(), phase: .restoreStarted))
+        do {
+            try await hook(nil)
+            try FileManager.default.removeItem(at: recoveryPendingMarker)
+        } catch {
+            corruptionEventContinuation.yield(CorruptionEvent(timestamp: now(), phase: Self.failedPhase(error)))
+            Log.storage.fault("Post-replacement restoration failed: \(error)")
+            throw error
+        }
     }
     
     /// Builds a GRDB `Configuration` whose `prepareDatabase` closure applies the
@@ -379,6 +410,11 @@ public actor DatabaseManager {
     public func recoverFromCorruption() async throws {
         // Check circuit breaker
         try checkCorruptionCircuitBreaker()
+
+        // Write this before deleting any database file. It is cleared only by
+        // resumePendingRecoveryIfNeeded after every higher-level recovery stage
+        // succeeds, so a crash or thrown restore resumes on the next launch.
+        try Data("pending".utf8).write(to: recoveryPendingMarker, options: .atomic)
         
         let timestamp = now()
         
@@ -417,13 +453,6 @@ public actor DatabaseManager {
             }
             Log.storage.info("Database corruption recovery completed")
             
-            // Kick the end-to-end recovery hook (Spec §1.6 step 6) OFF the
-            // writer queue: plain await in actor context lets the coordinator
-            // freely hop to restore and rederivation actors.
-            if let hook = postRecoveryHook {
-                corruptionEventContinuation.yield(CorruptionEvent(timestamp: now(), phase: .restoreStarted))
-                await hook(nil)
-            }
         } catch {
             // Notify about failed recovery
             corruptionEventContinuation.yield(CorruptionEvent(timestamp: now(), phase: Self.failedPhase(error)))
@@ -431,10 +460,14 @@ public actor DatabaseManager {
             // Inform the hook that recovery did NOT produce a usable DB (e.g.
             // the migrator threw). Restore must not be attempted in this case.
             if let hook = postRecoveryHook {
-                await hook(error)
+                try? await hook(error)
             }
             throw error
         }
+
+        // Run (or resume) the end-to-end contract. Failure leaves the durable
+        // marker in place and propagates, preventing startup on a partial store.
+        try await resumePendingRecoveryIfNeeded()
     }
     
     /// Checks if the corruption circuit breaker should trip

@@ -26,6 +26,7 @@ public actor CorruptionRecoveryCoordinator {
 
     public enum RecoveryError: Error, Sendable, Equatable {
         case restorationFailed
+        case healthKitRederivationUnavailable
     }
 
     public typealias RecoveryOperation = @Sendable () async throws -> Void
@@ -68,7 +69,7 @@ public actor CorruptionRecoveryCoordinator {
     /// Calling it more than once is harmless; `DatabaseManager` keeps one hook.
     public func bootstrap() async {
         await database.setPostRecoveryHook { [weak self] databaseError in
-            await self?.completeRecovery(after: databaseError)
+            try await self?.completeRecovery(after: databaseError)
         }
     }
 
@@ -102,7 +103,7 @@ public actor CorruptionRecoveryCoordinator {
         try await recover()
     }
 
-    private func completeRecovery(after databaseError: Error?) async {
+    private func completeRecovery(after databaseError: Error?) async throws {
         if databaseError != nil {
             restorationFailed = true
             publish(.failed(stage: .databaseReplacement))
@@ -127,6 +128,10 @@ public actor CorruptionRecoveryCoordinator {
             default:
                 publish(.failed(stage: .databaseReplacement))
             }
+            if let recoveryError = error as? RecoveryError {
+                throw recoveryError
+            }
+            throw RecoveryError.restorationFailed
         }
     }
 

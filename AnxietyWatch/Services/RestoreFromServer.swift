@@ -1647,4 +1647,41 @@ extension SyncService {
         }
         return n
     }
+
+    /// Compile-bound importer inventory used by the cross-layer completeness
+    /// gate. Each entry references the real function symbol, so deleting or
+    /// renaming an importer is a compile failure rather than a stale string
+    /// continuing to make the manifest test pass.
+    @MainActor
+    static var compiledRestoreImporterIDs: Set<String> {
+        [
+            restoreImporterID("importAnxietyEntries", SyncService.importAnxietyEntries),
+            restoreImporterID("importMedDefinitions", SyncService.importMedDefinitions),
+            restoreImporterID("importMedDoses", SyncService.importMedDoses),
+            restoreImporterID("importCPAPSessions", SyncService.importCPAPSessions),
+            restoreImporterID("importHealthSnapshots", SyncService.importHealthSnapshots),
+            restoreImporterID("importBarometricReadings", SyncService.importBarometricReadings),
+            restoreImporterID("importClinicalLabResults", SyncService.importClinicalLabResults),
+            restoreImporterID("importPharmacies", SyncService.importPharmacies),
+            restoreImporterID("importPrescriptions", SyncService.importPrescriptions),
+            restoreImporterID("importPharmacyCallLogs", SyncService.importPharmacyCallLogs),
+            restoreImporterID("importSensorSessions", SyncService.importSensorSessions),
+            restoreImporterID("importHRVReadings", SyncService.importHRVReadings),
+            restoreImporterID("importAccelSpectrograms", SyncService.importAccelSpectrograms),
+            restoreImporterID("importDerivedBreathingRates", SyncService.importDerivedBreathingRates),
+            restoreImporterID("importSongs", SyncService.importSongs),
+            restoreImporterID("importSongOccurrences", SyncService.importSongOccurrences),
+            restoreImporterID("importSleepStageEvents", SyncService.importSleepStageEvents),
+            restoreImporterID("restorePagedQuantitySamples", SyncService.restorePagedQuantitySamples),
+        ]
+    }
+
+    @MainActor
+    private static func restoreImporterID<Importer>(
+        _ id: String,
+        _ importer: Importer
+    ) -> String {
+        _ = importer
+        return id
+    }
 }

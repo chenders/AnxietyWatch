@@ -104,6 +104,9 @@ public actor SyncCoordinator {
         /// fullRestore() exceeded its iteration safety cap without the server
         /// draining — e.g. every page re-quarantines and the cursor stalls.
         case restoreDidNotTerminate
+        /// A complete restore cannot claim success while any server row is
+        /// quarantined for clock drift and therefore absent locally.
+        case restoreContainsQuarantinedRows(count: Int)
     }
 
     public struct SyncOnceResult: Sendable, Equatable {
@@ -197,12 +200,19 @@ public actor SyncCoordinator {
     /// rows remain and every page re-quarantines without cursor progress.
     public func fullRestore() async throws {
         pullCursors = TableCursors()
+        // Persist the reset before the first network request. If the request or
+        // process dies immediately, relaunch still resumes from the beginning
+        // instead of loading the pre-corruption cursor and skipping history.
+        try cursorStore.save(.init(pull: pullCursors, push: pushCursors))
         var priorCursor = pullCursors
         var totalApplied = 0
         let maxIterations = 10_000
 
         for _ in 0..<maxIterations {
             let counts = try await runPull(cursor: pullCursors)
+            if counts.quarantined > 0 {
+                throw SyncCoordinatorError.restoreContainsQuarantinedRows(count: counts.quarantined)
+            }
             let applied = counts.samples + counts.tombstones + counts.syncLog
             totalApplied += applied
 
@@ -223,6 +233,7 @@ public actor SyncCoordinator {
         let samples: Int
         let tombstones: Int
         let syncLog: Int
+        let quarantined: Int
     }
 
     private func runPull(cursor: TableCursors) async throws -> PullCounts {
@@ -389,7 +400,8 @@ public actor SyncCoordinator {
         return PullCounts(
             samples: applySamples.count,
             tombstones: applyTombstones.count,
-            syncLog: applySyncLog.count
+            syncLog: applySyncLog.count,
+            quarantined: quarantineRows.count
         )
     }
 
