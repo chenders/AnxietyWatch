@@ -2,7 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+# Derive from the script location, not Git's hook-time environment. In a
+# linked worktree, `git rev-parse` can inherit GIT_PREFIX and resolve this
+# directory itself as the root while pre-push is running.
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$REPO_ROOT"
 
