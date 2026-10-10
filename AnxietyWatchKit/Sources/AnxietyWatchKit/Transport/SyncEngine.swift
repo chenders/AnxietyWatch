@@ -235,7 +235,7 @@ public actor SyncEngine {
             _ = try? await hlc.observe(stamp)
         }
 
-        try await database.writer { db in
+        _ = try await database.writer { db in
             try SamplesStore.upsertHLCLatest(samples, in: db)
         }
 

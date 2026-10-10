@@ -2,21 +2,23 @@ import UserNotifications
 
 protocol NotificationSettingsShape {
     nonisolated var authorizationStatus: UNAuthorizationStatus { get }
-    nonisolated var criticalAlertSetting: UNNotificationSetting { get }
-    nonisolated var timeSensitiveSetting: UNNotificationSetting { get }
+    nonisolated var alertSetting: UNNotificationSetting { get }
+    nonisolated var soundSetting: UNNotificationSetting { get }
+    nonisolated var scheduledDeliverySetting: UNNotificationSetting { get }
 }
 
 extension UNNotificationSettings: NotificationSettingsShape {}
 
 nonisolated enum CNSNotifyPermission: Equatable, Sendable {
-    case criticalGranted
-    case timeSensitiveOnly
-    case standardOnly
+    case standard
+    case limited
     case notDetermined
     case denied
 }
 
-actor CNSCriticalAlertPermission {
+actor CNSNotificationPermission {
+    nonisolated static let authorizationOptions: UNAuthorizationOptions = [.alert, .sound]
+
     private let center: UNUserNotificationCenter
 
     init(center: UNUserNotificationCenter = .current()) {
@@ -26,16 +28,16 @@ actor CNSCriticalAlertPermission {
     nonisolated static func map(_ settings: some NotificationSettingsShape) -> CNSNotifyPermission {
         guard settings.authorizationStatus != .denied else { return .denied }
         guard settings.authorizationStatus != .notDetermined else { return .notDetermined }
-        if settings.criticalAlertSetting == .enabled {
-            return .criticalGranted
-        }
-        if settings.timeSensitiveSetting == .enabled {
-            return .timeSensitiveOnly
+        if settings.authorizationStatus == .authorized,
+           settings.alertSetting == .enabled,
+           settings.soundSetting == .enabled,
+           settings.scheduledDeliverySetting != .enabled {
+            return .standard
         }
         if settings.authorizationStatus == .authorized
             || settings.authorizationStatus == .provisional
             || settings.authorizationStatus == .ephemeral {
-            return .standardOnly
+            return .limited
         }
         // Any future status the SDK may add — treat with maximal paranoia.
         return .notDetermined
@@ -45,7 +47,7 @@ actor CNSCriticalAlertPermission {
     func requestIfNeeded() async -> CNSNotifyPermission {
         var settings = await center.notificationSettings()
         if settings.authorizationStatus == .notDetermined {
-            _ = try? await center.requestAuthorization(options: [.alert, .sound, .criticalAlert])
+            _ = try? await center.requestAuthorization(options: Self.authorizationOptions)
             settings = await center.notificationSettings()
         }
         return Self.map(settings)

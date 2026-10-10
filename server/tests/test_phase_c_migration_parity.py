@@ -35,6 +35,15 @@ MIGRATION_FILES = [
 ]
 
 
+def _psycopg2_url(url):
+    """Select the PostgreSQL driver installed by the server requirements."""
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+psycopg2://", 1)
+    return url
+
+
 def _load_migration(path):
     """Import a migration module by path (it is not on the import path)."""
     spec = importlib.util.spec_from_file_location("phase_c_migration_under_test", path)
@@ -86,7 +95,7 @@ def parity_engine(_init_db):  # noqa: F811  (pytest fixture injection shadows th
     Depends on ``_init_db`` (session-scoped) so the schema.sql-built ``public``
     tables the test diffs against are present.
     """
-    engine = create_engine(DATABASE_URL)
+    engine = create_engine(_psycopg2_url(DATABASE_URL))
     try:
         with engine.begin() as conn:
             conn.execute(text(f"DROP SCHEMA IF EXISTS {PARITY_SCHEMA} CASCADE"))

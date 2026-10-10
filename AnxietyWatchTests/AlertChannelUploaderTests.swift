@@ -74,14 +74,14 @@ struct AlertChannelUploaderTests {
 
     @Test func channelHealthParsesFractionalPlainAndNullTimestamps() throws {
         func decode(_ ts: String) throws -> AlertChannelUploader.ChannelHealth {
-            let json = "{\"apns_configured\":true,\"registered_tokens\":1,\"last_delivered_alert_utc\":\(ts)}"
+            let json = "{\"apns_configured\":true,\"registered_tokens\":1,\"last_apns_accepted_alert_utc\":\(ts)}"
             return try JSONDecoder().decode(AlertChannelUploader.ChannelHealth.self, from: Data(json.utf8))
         }
         // Fractional seconds are what the server actually emits
         // (datetime.isoformat()); a bare ISO8601DateFormatter returns nil here —
         // this guards that regression.
-        #expect(try decode("\"2026-07-21T07:50:35.395109Z\"").lastDeliveredAlert != nil)
-        #expect(try decode("\"2026-07-21T07:50:35Z\"").lastDeliveredAlert != nil)
-        #expect(try decode("null").lastDeliveredAlert == nil)
+        #expect(try decode("\"2026-07-21T07:50:35.395109Z\"").lastAPNsAcceptedAlert != nil)
+        #expect(try decode("\"2026-07-21T07:50:35Z\"").lastAPNsAcceptedAlert != nil)
+        #expect(try decode("null").lastAPNsAcceptedAlert == nil)
     }
 }

@@ -15,26 +15,26 @@ private final class MockSyncEndpoint: SyncEndpoint, @unchecked Sendable {
     let serverHLC = HLCStamped(physical: 1, logical: 0, nodeID: Data(repeating: 0x5E, count: 16))
 
     func pull(cursor: TableCursors, maxBatchBytes: Int) async throws -> SyncPullResponse {
-        lock.lock()
-        defer { lock.unlock() }
-        pullCalls.append((cursor, maxBatchBytes))
-        if pullResponses.isEmpty {
-            return SyncPullResponse(
-                samples: [], sampleTombstones: [], syncLog: [],
-                nextCursor: cursor, serverHLC: serverHLC
-            )
+        lock.withLock {
+            pullCalls.append((cursor, maxBatchBytes))
+            if pullResponses.isEmpty {
+                return SyncPullResponse(
+                    samples: [], sampleTombstones: [], syncLog: [],
+                    nextCursor: cursor, serverHLC: serverHLC
+                )
+            }
+            return pullResponses.removeFirst()
         }
-        return pullResponses.removeFirst()
     }
 
     func push(payload: SyncPushPayload) async throws -> SyncPushResponse {
-        lock.lock()
-        defer { lock.unlock() }
-        pushCalls.append(payload)
-        guard let pushResponse else {
-            throw SyncEndpointError.permanent("no scripted push response")
+        try lock.withLock {
+            pushCalls.append(payload)
+            guard let pushResponse else {
+                throw SyncEndpointError.permanent("no scripted push response")
+            }
+            return pushResponse
         }
-        return pushResponse
     }
 }
 

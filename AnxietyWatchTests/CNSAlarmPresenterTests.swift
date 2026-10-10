@@ -5,22 +5,6 @@ import UserNotifications
 
 @MainActor
 struct CNSAlarmPresenterTests {
-    @Test("Critical permission posts one critical notification and one watch haptic")
-    func criticalPresentation() {
-        let notification = NotificationPostingSpy()
-        let haptic = WatchHapticSpy()
-        let audio = AlarmAudioSpy()
-        let presenter = CNSAlarmPresenter(notify: notification, haptic: haptic, audio: audio)
-
-        presenter.present(tier: .klaxon, permission: .criticalGranted, appActive: false)
-
-        #expect(notification.contents.count == 1)
-        #expect(notification.contents[0].interruptionLevel == .critical)
-        #expect(notification.contents[0].sound != nil)
-        #expect(haptic.sendCount == 1)
-        #expect(audio.playCount == 0)
-    }
-
     @Test("Klaxon buffer is a hi-pulse / gap / lo-pulse / gap cycle that alternates per pulse, not per sample")
     func klaxonBufferHasTwoToneStructure() throws {
         let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1))
@@ -52,19 +36,6 @@ struct CNSAlarmPresenterTests {
         #expect(abs(samples[loStart + pulse + gap / 2]) < 0.001)
     }
 
-    @Test("Time-Sensitive permission uses fallback notification")
-    func timeSensitivePresentation() {
-        let notification = NotificationPostingSpy()
-        let haptic = WatchHapticSpy()
-        let presenter = CNSAlarmPresenter(notify: notification, haptic: haptic, audio: AlarmAudioSpy())
-
-        presenter.present(tier: .klaxon, permission: .timeSensitiveOnly, appActive: false)
-
-        #expect(notification.contents.count == 1)
-        #expect(notification.contents[0].interruptionLevel == .timeSensitive)
-        #expect(haptic.sendCount == 1)
-    }
-
     @Test("Standard permission still posts an active fallback notification")
     func standardFallbackPresentation() {
         let notification = NotificationPostingSpy()
@@ -73,7 +44,7 @@ struct CNSAlarmPresenterTests {
             notify: notification, haptic: haptic, audio: AlarmAudioSpy()
         )
 
-        presenter.present(tier: .klaxon, permission: .standardOnly, appActive: false)
+        presenter.present(tier: .klaxon, appActive: false)
 
         #expect(notification.contents.count == 1)
         #expect(notification.contents[0].interruptionLevel == .active)
@@ -81,45 +52,27 @@ struct CNSAlarmPresenterTests {
         #expect(haptic.sendCount == 1)
     }
 
-    @Test("Watchdog uses the highest available scheduled interruption level")
-    func watchdogPresentation() {
-        let notification = NotificationPostingSpy()
-        let presenter = CNSAlarmPresenter(
-            notify: notification, haptic: WatchHapticSpy(), audio: AlarmAudioSpy()
-        )
-        let fireDate = Date(timeIntervalSince1970: 1_750_000_090)
-
-        presenter.scheduleMonitoringStopped(permission: .criticalGranted, at: fireDate)
-
-        #expect(notification.scheduled.count == 1)
-        #expect(notification.scheduled[0].content.interruptionLevel == .critical)
-        #expect(notification.scheduled[0].content.sound != nil)
-        #expect(notification.scheduled[0].fireDate == fireDate)
-    }
-
-    @Test("Watchdog falls back to Time-Sensitive rather than stopping silently")
+    @Test("Watchdog uses a standard notification")
     func watchdogFallback() {
         let notification = NotificationPostingSpy()
         let presenter = CNSAlarmPresenter(
             notify: notification, haptic: WatchHapticSpy(), audio: AlarmAudioSpy()
         )
 
-        presenter.scheduleMonitoringStopped(
-            permission: .timeSensitiveOnly, at: Date(timeIntervalSince1970: 1_750_000_090)
-        )
+        presenter.scheduleMonitoringStopped(at: Date(timeIntervalSince1970: 1_750_000_090))
 
         #expect(notification.scheduled.count == 1)
-        #expect(notification.scheduled[0].content.interruptionLevel == .timeSensitive)
+        #expect(notification.scheduled[0].content.interruptionLevel == .active)
     }
 
-    @Test("Denied notification permission remains watch-first and plays foreground audio")
+    @Test("Active klaxon remains watch-first and plays foreground audio")
     func deniedForegroundPresentation() {
         let notification = NotificationPostingSpy()
         let haptic = WatchHapticSpy()
         let audio = AlarmAudioSpy()
         let presenter = CNSAlarmPresenter(notify: notification, haptic: haptic, audio: audio)
 
-        presenter.present(tier: .klaxon, permission: .denied, appActive: true)
+        presenter.present(tier: .klaxon, appActive: true)
 
         #expect(notification.contents.count == 1)
         #expect(notification.contents[0].interruptionLevel == .active)

@@ -121,16 +121,15 @@ final class LiveActivityCoordinator {
     /// SwiftUI `Observation` framework re-arming pattern. The
     /// `onChange` callback **fires off-main** on the thread that
     /// mutated the observed property — we re-hop to `@MainActor` via
-    /// the `Task` body. `[weak self]` is only needed on that Task
-    /// (long-lived); the outer `apply` / `onChange` closures are
-    /// short-lived one-shots that the framework discards after the
-    /// notification fires.
+    /// the `Task` body. Both escaping closures capture `self` weakly so
+    /// observation re-arming cannot keep the coordinator alive after its
+    /// owner releases it.
     private func startObserving() {
         withObservationTracking {
             _ = polarService.state.status
             _ = polarService.state.currentHR
             _ = polarService.state.sessionStarted
-        } onChange: {
+        } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.respond(to: self.polarService.state)

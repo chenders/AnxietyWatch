@@ -100,7 +100,7 @@ final class CorruptionBroadcasterTests: XCTestCase {
         do {
             let (stream, _) = await b.subscribe()
             // Start (and immediately end) an iterator so the stream is terminated.
-            var iter = stream.makeAsyncIterator()
+            let iter = stream.makeAsyncIterator()
             _ = iter // silence unused warning
         }
 

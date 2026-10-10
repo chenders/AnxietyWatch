@@ -2,57 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<!-- The sync server is SELF-HOSTED and its address is entered by the user
-		     at runtime (Settings → Server Sync). The app therefore cannot know the
-		     host at build time, which makes a domain-scoped NSExceptionDomains
-		     entry impossible in principle.
-
-		     NSAllowsLocalNetworking alone is NOT sufficient: it did not exempt a
-		     plain-http:// connection to a private IP (192.168.x.x), which failed
-		     with "App Transport Security policy requires the use of a secure
-		     connection" and blocked the restore on a fresh install.
-
-		     NSAllowsLocalNetworking is now REDUNDANT — NSAllowsArbitraryLoads
-		     disables ATS globally and subsumes it. It is kept only to document
-		     intent (LAN-scoped access is what we actually want) and as a landing
-		     pad if arbitrary loads is ever narrowed. Do not read it as a working
-		     fallback: removing NSAllowsArbitraryLoads alone would NOT preserve
-		     plain-http to a private IP — that is the exact configuration that
-		     failed. -->
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Anxiety Watch connects to a self-hosted sync server on your local network to back up your health data.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Anxiety Watch uses the camera to photograph prescription labels for automatic data entry.</string>
-	<key>NSHealthShareUsageDescription</key>
-	<string>Anxiety Watch reads health data to track anxiety patterns and correlate physiological signals with your journal entries.</string>
-	<key>NSMotionUsageDescription</key>
-	<string>Anxiety Watch uses barometric pressure data to correlate atmospheric changes with anxiety patterns.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Anxiety Watch saves screenshots to your Photos library so you can review long scrollable views in a single image.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Anxiety Watch lets you select an existing photo of a prescription label when the camera isn't available, such as in the iOS Simulator.</string>
-	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Anxiety Watch reads beat-to-beat heart-rate intervals from a paired Polar H10 chest strap to compute high-fidelity HRV during stress check-ins.</string>
-	<key>NSSupportsLiveActivities</key>
-	<true/>
-	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<false/>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.groundeffectsoftware.AnxietyWatch.refresh</string>
-	</array>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>fetch</string>
-		<string>health-update</string>
-		<string>bluetooth-central</string>
 	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>
@@ -69,11 +21,31 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- The sync server is self-hosted and its address is entered at runtime,
+		     so a domain-scoped exception cannot be known at build time.
+
+		     NSAllowsLocalNetworking alone did not exempt plain HTTP to a private
+		     IP and blocked fresh-install restore. NSAllowsArbitraryLoads is therefore
+		     required for the user-configured server; the local-network key documents
+		     the intended scope but is not a functional fallback. -->
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>OuraClientID</key>
 	<string>$(OURA_CLIENT_ID)</string>
 	<key>OuraClientSecret</key>
 	<string>$(OURA_CLIENT_SECRET)</string>
 	<key>OuraRedirectURI</key>
 	<string>$(OURA_REDIRECT_URI)</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>health-update</string>
+		<string>bluetooth-central</string>
+	</array>
 </dict>
 </plist>

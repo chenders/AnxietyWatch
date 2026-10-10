@@ -4,12 +4,12 @@ import WatchKit
 import os
 import AnxietyWatchKit
 
-// MARK: - WKExtensionDelegate (lifecycle)
+// MARK: - WKApplicationDelegate (lifecycle)
 
 /// Handles watchOS lifecycle events that the SwiftUI `App` scene-phase
 /// observer cannot: `applicationWillResignActive`→close, background-refresh
 /// task budget, and extended-runtime invalidation.
-final class WatchAppDelegate: NSObject, WKExtensionDelegate {
+final class WatchAppDelegate: NSObject, WKApplicationDelegate {
 
     /// Captured during bootstrap so the delegate can drive the close flow
     /// (Spec §1.1) without threading a reference through the SwiftUI hierarchy.
@@ -47,7 +47,7 @@ final class WatchAppDelegate: NSObject, WKExtensionDelegate {
 
 @main
 struct AnxietyWatchApp: App {
-    @WKExtensionDelegateAdaptor(WatchAppDelegate.self) var extensionDelegate
+    @WKApplicationDelegateAdaptor(WatchAppDelegate.self) var extensionDelegate
 
     private let log = Logger(subsystem: "AnxietyWatch", category: "WatchApp")
 
@@ -176,7 +176,7 @@ struct AnxietyWatchApp: App {
         // migration to AnxietyWatchKit's WCSessionCoordinator is complete.
 
         // Schedule background refresh (Spec §6.1).
-        WKExtension.shared().scheduleBackgroundRefresh(
+        WKApplication.shared().scheduleBackgroundRefresh(
             withPreferredDate: Date().addingTimeInterval(15 * 60),
             userInfo: nil
         ) { error in
