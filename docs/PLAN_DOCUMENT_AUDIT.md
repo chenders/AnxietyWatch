@@ -141,6 +141,7 @@ The exact converted AS11 and Ultra paths are:
 - Optional Oura/Ultra ideas are decision work first. Existing code does not automatically authorize production support.
 - Removed pharmacy and supply features were not revived. Old proposals to write to HealthKit were not carried forward because HealthKit remains read-only unless a separate project-level ownership decision changes that rule.
 - Historical archived documents remain unedited where possible, including old commands and old paths. Current instructions always point to OpenSpec.
+- Local and hosted OpenSpec enforcement use the same repository-owned validator. The tracked Git pre-push hook is enabled once per clone, while path-filtered GitHub Actions remains the pull-request backstop.
 
 ## Limitations
 
@@ -154,6 +155,8 @@ The exact converted AS11 and Ultra paths are:
 Completed on 2026-10-09:
 
 - `openspec validate --all --strict`: 14 items passed, 0 failed.
+- `scripts/validate-openspec.sh`: 4 focused document-check tests passed, all 14 OpenSpec items passed strict validation, and local targets/headings passed across 46 OpenSpec Markdown files.
+- Failure-path probes: a missing local Markdown target and an OpenSpec requirement without a scenario both returned nonzero. The added heading lint also rejects malformed `Requirement` and `Scenario` headings that OpenSpec 1.14.1 otherwise reports informationally and ignores.
 - `git diff --check`: passed.
 - Live stale-path scan: no references remained to the moved plan locations outside the intentionally verbatim completed/converted archives.
 - Markdown local-target check across OpenSpec, this audit, and the redesign runbook: passed.

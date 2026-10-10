@@ -21,6 +21,7 @@
 
 - [x] 4.1 Create `docs/PLAN_DOCUMENT_AUDIT.md` with method, exact archive inventory, evidence, conversion mapping, retained references, limitations, and the resulting portfolio.
 - [x] 4.2 Run `openspec validate --all --strict`, `git diff --check`, stale-path scans, and Markdown target checks; resolve every failure and record the final result in the audit.
+- [x] 4.3 Add one shared OpenSpec validator with focused unit and failure-path tests, a tracked pre-push hook with documented one-time activation, and a path-filtered GitHub Actions check pinned to the known-working CLI version; verify both local and CI entry points invoke the same script and invalid OpenSpec or broken local links return nonzero.
 
 ## Workflow follow-up
 

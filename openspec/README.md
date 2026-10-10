@@ -22,6 +22,22 @@ openspec status --change complete-redesign-v3-migration
 openspec validate --all --strict
 ```
 
+The repository's shared validator also checks local Markdown targets and runs its focused tests:
+
+```sh
+scripts/validate-openspec.sh
+```
+
+Enable the tracked pre-push hook once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+If the checkout already uses a custom `core.hooksPath`, preserve that configuration and invoke
+`scripts/validate-openspec.sh` from its existing pre-push hook instead. Pull requests that change
+OpenSpec or the validator run the same script in GitHub Actions as the non-bypassable backstop.
+
 Do not implement an in-flight change until its proposal, spec deltas, design, and tasks are reviewed. When behavior ships, update implementation evidence and rollout state before archiving the change.
 
 Project-local integrations were generated for Codex (`.agents/skills`), Claude (`.claude`), GitHub Copilot (`.github`), and Pi (`.pi`). Some developer-specific tool directories are intentionally excluded from Git but remain available in a configured checkout.

@@ -13,6 +13,7 @@ Observed current behavior is that completed features are represented by source, 
 - Add a repository audit report recording classification evidence, moved paths, merged implementation evidence, exclusions, and unresolved work.
 - Create focused OpenSpec changes for clinical respiratory safety, physiological experience, optional device capabilities, engineering quality, and public-project readiness.
 - Add an OpenSpec portfolio index that explains scope, dependencies, source documents, and overlap boundaries for every active change.
+- Add a repository-owned OpenSpec validator, an installable Git pre-push hook, and a GitHub Actions check that invoke the same validation path before invalid planning artifacts can merge.
 - Keep `complete-redesign-v3-migration` authoritative for storage, restore-manifest, delegate ownership, causal sync, diagnostics, and staged retirement work already in its scope; this change MUST reference rather than duplicate those tasks.
 - **BREAKING:** None. This proposal reorganizes documentation and plans future work; it does not enable a data path, change a clinical threshold, or alter production behavior.
 
@@ -28,8 +29,8 @@ None. Feature and quality behavior is intentionally owned by separate focused ch
 
 ## Impact
 
-The impact is documentation-only: `docs/plans/completed/`, `docs/plans/converted/`, moved legacy files, an audit report in `docs/`, `openspec/PORTFOLIO.md`, and the focused OpenSpec changes created by this conversion.
+The impact is documentation and repository validation tooling: `docs/plans/completed/`, `docs/plans/converted/`, moved legacy files, an audit report in `docs/`, `openspec/PORTFOLIO.md`, the focused OpenSpec changes created by this conversion, and shared local/CI validation files. Application and server runtime behavior remain unchanged.
 
-No production data is migrated by this change, so its rollback boundary is the documentation commit. Later implementation involving HealthKit, server restore, sensor ingestion, watchOS, or CNS behavior requires its own tests, rollout boundary, medical review, and rollback evidence. The principal future data-loss risks are dropped restore/sync rows and incomplete sensor archives; those remain governed by `complete-redesign-v3-migration` and are not weakened here.
+No production data is migrated by this change, so its rollback boundary is the documentation and validation-tooling commit. Later implementation involving HealthKit, server restore, sensor ingestion, watchOS, or CNS behavior requires its own tests, rollout boundary, medical review, and rollback evidence. The principal future data-loss risks are dropped restore/sync rows and incomplete sensor archives; those remain governed by `complete-redesign-v3-migration` and are not weakened here.
 
 Non-goals are implementing any recovered task now, enabling optional BLE or remote data collection, changing clinical thresholds without review, reviving removed pharmacy/supply features, or treating aspirational roadmap ideas as approved product commitments.

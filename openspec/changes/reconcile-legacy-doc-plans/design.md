@@ -67,6 +67,12 @@ Ultra/watch, location, predictive modeling, HealthKit writes, and optional Oura 
 
 HealthKit remains the source of truth and is read-only. App-level `Services/CNSRisk` remains the clinical side-effect owner. `complete-redesign-v3-migration` owns SQLite migration, symmetric restore, WCSession consolidation, delta sync, diagnostics wiring, and retirement. This change links those tasks rather than duplicating them.
 
+### 7. Use one validator for local and hosted enforcement
+
+The repository keeps the executable OpenSpec checks in one shared script. That script runs its own focused unit tests, `openspec validate --all --strict`, and a local Markdown-target scan across `openspec/`. A tracked `.githooks/pre-push` delegates to the shared script; contributors enable it once with `git config core.hooksPath .githooks`. GitHub Actions invokes the same script for pull requests that change OpenSpec or its validator, using the repository's known-working `@fission-ai/openspec` version rather than an unpinned latest release.
+
+**Alternative considered:** duplicate validation commands in the hook and workflow. Rejected because the two gates could silently drift and accept different content.
+
 ## Risks / Trade-offs
 
 - **A plan is classified complete although a later regression exists** -> Record completion as historical scope, then track the regression by stable finding or a new OpenSpec task.
@@ -75,13 +81,16 @@ HealthKit remains the source of truth and is read-only. App-level `Services/CNSR
 - **Speculative ideas look approved** -> Put product/privacy/clinical decision tasks before implementation and state that not-implemented roadmap items are not commitments.
 - **Overlap with redesign-v3 causes duplicate edits** -> Every implementation task checks both active changes and cites the authoritative task instead of copying it.
 - **Medical behavior is changed from old prose without review** -> Require `medical-data-accuracy-reviewer`, focused tests, and explicit clinical-review evidence for every CNS, HealthKit, CPAP, Polar, EMAY, SpO2, RR, or apnea task.
+- **Tracked Git hooks are not enabled automatically by cloning** -> Document the one-time `core.hooksPath` command, configure the current checkout, and retain pull-request CI as the authoritative non-bypassable backstop.
+- **Local and CI OpenSpec versions diverge** -> Pin CI to the repository's known-working CLI release and make the shared validator print the detected local version for diagnosis.
 
 ## Migration Plan
 
 1. Create this OpenSpec change and capture remaining requirements and tasks.
 2. Move completed plans/designs into the completed archive and partial/superseded instructions into the converted archive.
 3. Update references whose historical target moved and add `docs/PLAN_DOCUMENT_AUDIT.md`.
-4. Run strict OpenSpec validation, Markdown/link/path scans, and verify that no original instruction file exists in two locations.
-5. Implement future task groups only through their focused OpenSpec change and dependency order in `openspec/PORTFOLIO.md`.
+4. Add the shared validator, its focused tests, the tracked pre-push hook, activation documentation, and the path-filtered GitHub Actions check.
+5. Run strict OpenSpec validation, Markdown/link/path scans, validator failure-path tests, and verify that no original instruction file exists in two locations.
+6. Implement future task groups only through their focused OpenSpec change and dependency order in `openspec/PORTFOLIO.md`.
 
 Rollback is a documentation-only revert restoring the prior paths and removing this change. No database, HealthKit, server, watch, or user-data migration occurs during conversion.

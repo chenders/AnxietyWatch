@@ -40,3 +40,18 @@ The repository SHALL contain a human-readable audit mapping every moved or retai
 #### Scenario: Contributor encounters an archived plan
 - **WHEN** a contributor needs to know why the document moved
 - **THEN** the audit report identifies whether it completed, converted, or remained active and where current work is tracked
+
+### Requirement: Shared OpenSpec validation gate
+The repository SHALL provide one shared validator that runs strict OpenSpec validation, validator tests, and local Markdown-target checks from both an installable Git pre-push hook and GitHub pull-request CI.
+
+#### Scenario: Installed pre-push validation rejects invalid OpenSpec
+- **WHEN** a contributor attempts to push while the tracked Git hook is enabled and an OpenSpec artifact is invalid or contains a missing local Markdown target
+- **THEN** the shared validator exits nonzero and the push is stopped
+
+#### Scenario: Pull request bypasses or lacks the local hook
+- **WHEN** a pull request changes OpenSpec artifacts or the validation implementation
+- **THEN** GitHub Actions installs the pinned OpenSpec CLI and runs the same shared validator as a required-style failing check
+
+#### Scenario: Fresh clone has not enabled tracked hooks
+- **WHEN** a contributor prepares a new checkout
+- **THEN** repository documentation provides the one-time `core.hooksPath` command and explains that CI remains the non-bypassable backstop
