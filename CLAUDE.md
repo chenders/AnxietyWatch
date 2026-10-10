@@ -273,7 +273,7 @@ The `chartYScale(domain:)` + `.nan` pitfall is intentionally NOT a Semgrep rule 
 
 ## Common pitfalls (catch these before pushing)
 
-These are the recurring categories that have driven ~33% of recent commits into Copilot review rounds. Check the diff against these before opening a PR. See `docs/plans/claude-code-setup-improvements.md` for the full diagnostic and the rationale behind each item.
+These are the recurring categories that have driven ~33% of recent commits into Copilot review rounds. Check the diff against these before opening a PR. See `docs/plans/converted/claude-code-setup-improvements.md` for the historical diagnostic; remaining provider-neutral workflow work is tracked by `openspec/changes/complete-engineering-quality-program/`.
 
 - **Source-label / constant drift:** Outside `#Predicate` / `@Query` macros, use the typed constant (`PolarHRMService.sourceLabel`), not the literal `"polar_h10"`. String literals are only acceptable where the macro can't capture types.
 - **`@Query` scope:** Any new `@Query` on `HRVReading`, `BarometricReading`, or another unbounded table must filter by `source` *and* bound by date. Don't fetch the whole table to filter in-memory.

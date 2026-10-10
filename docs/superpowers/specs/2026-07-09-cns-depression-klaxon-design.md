@@ -206,7 +206,7 @@ Different physiology, different alarm job: **alone** → the only rescuer is the
 
 ## 15. Phase 2 implementation notes (2026-07-12)
 
-Phase 2 (`docs/superpowers/plans/2026-07-12-klaxon-phase2-monitoring.md`) built the monitoring layer this design depends on: drug classification, the §14.1 dose-window gate, sensor adapters, the §7 device-state matrix, `CNSMonitoringCoordinator`'s 1 Hz tick loop, and a minimal arm/status Settings surface. Condensed record of the plan's autonomous scope decisions (full rationale in the plan doc):
+Phase 2 (`docs/plans/completed/superpowers/plans/2026-07-12-klaxon-phase2-monitoring.md`) built the monitoring layer this design depends on: drug classification, the §14.1 dose-window gate, sensor adapters, the §7 device-state matrix, `CNSMonitoringCoordinator`'s 1 Hz tick loop, and a minimal arm/status Settings surface. Condensed record of the plan's autonomous scope decisions (full rationale in the plan doc):
 
 1. **Adapters thread `perfusionIndex`/`isArtifact`, not "confidence"** — `CNSSignalSample`'s shipped shape governs over §10's wording; `CNSSeverityScorer` derives confidence downstream.
 2. **Auto-sleep detection stays OUT of Phase 2** (§14.3 forbids it as a gating condition). Default triggers shipped: manual toggle + post-dose windows.

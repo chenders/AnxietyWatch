@@ -2,7 +2,7 @@
 
 ## Context
 
-Redesign v3 was negotiated over multiple review rounds and partially implemented across the shared package, both app targets, and the server. Merge commit `720609a` brought most package components and some app integration to `main`, but `docs/redesign_status.md` stopped reflecting the tree: many tasks still appear unchecked even though their files and tests exist. Conversely, file existence was sometimes treated as shipment even when the runtime flag was unused or a legacy service still owned the production path.
+Redesign v3 was negotiated over multiple review rounds and partially implemented across the shared package, both app targets, and the server. Merge commit `720609a` brought most package components and some app integration to `main`, but the now-archived `docs/plans/converted/redesign/redesign_status.md` stopped reflecting the tree: many tasks still appear unchecked even though their files and tests exist. Conversely, file existence was sometimes treated as shipment even when the runtime flag was unused or a legacy service still owned the production path.
 
 This document preserves the material content of the superseded redesign specification and plan, reconciles the historical task record against the merged tree, and defines how to finish the migration. The capability contracts live in `openspec/specs/`; the deltas for remaining work live beside this document. Exact old wording remains recoverable in Git history after `docs/redesign_spec.md` is removed.
 
@@ -89,7 +89,7 @@ Time-series samples and tombstones bypass `_sync_log` and use per-table, per-nod
 
 ### 6. OpenSpec replaces the old redesign documents as authority
 
-Canonical current behavior lives in `openspec/specs`. Remaining behavior changes live in `openspec/changes/complete-redesign-v3-migration`. The old monolithic spec is deleted after strict validation and coverage checks. `docs/redesign_plan.md` and `docs/redesign_status.md` remain temporarily as explicitly historical inputs until the user reviews this conversion; they are not authoritative and should be removed or replaced with a pointer when the implementation task plan is approved.
+Canonical current behavior lives in `openspec/specs`. Remaining behavior changes live in `openspec/changes/complete-redesign-v3-migration`. The old monolithic spec was deleted after strict validation and coverage checks. `docs/plans/converted/redesign/redesign_plan.md` and `docs/plans/converted/redesign/redesign_status.md` are preserved as historical inputs only and are not authoritative.
 
 ## Preserved Technical Design
 

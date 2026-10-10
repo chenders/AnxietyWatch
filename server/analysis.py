@@ -281,7 +281,7 @@ def _device_display_name(bundle_id: str) -> str:
 
 
 # The verbatim reliability + absence-vs-zero instruction block from the spec at
-# `docs/superpowers/specs/2026-05-05-cgm-spo2-provenance-design.md`. The exact
+# `docs/plans/completed/superpowers/specs/2026-05-05-cgm-spo2-provenance-design.md`. The exact
 # phrasing matters — Claude reads "absence is not zero" most reliably when the
 # clinical examples are concrete.
 RELIABILITY_AND_ABSENCE_INSTRUCTIONS = (

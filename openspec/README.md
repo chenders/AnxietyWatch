@@ -5,11 +5,12 @@ This directory is the source of truth for behavior specifications and planned ch
 ## Layout
 
 - `config.yaml` — project context, artifact rules, and apply/archive guidance.
+- `PORTFOLIO.md` — priority-ordered master list of every active plan, its origin, benefit, completion outcome, dependencies, and resume path.
 - `specs/` — canonical current behavior. Status labels distinguish active, foundation-only, partial, and not-implemented behavior.
 - `changes/` — proposed changes and implementation planning.
 - `changes/archive/` — completed changes after their deltas have been merged into canonical specs.
 
-The redesign-v3 baseline is split into seven capabilities under `specs/`. Remaining redesign work is in `changes/complete-redesign-v3-migration/`. Its `design.md` contains the reconciled T01–T40 implementation ledger and traceability from the removed `docs/redesign_spec.md`. The operational branch/worktree and implementation runbook is `docs/FINAL_REDESIGN_v3_WORK`.
+Start with `PORTFOLIO.md` when choosing or resuming work. The redesign-v3 baseline is split into seven capabilities under `specs/`. Remaining redesign work is in `changes/complete-redesign-v3-migration/`. Its `design.md` contains the reconciled T01–T40 implementation ledger and traceability from the removed `docs/redesign_spec.md`; its operational detail is in `RUNBOOK.md` in the same change.
 
 ## Workflow
 

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Reliability tier for a daily aggregate, based on writing-source identity and sample density.
-/// See `docs/superpowers/specs/2026-05-05-cgm-spo2-provenance-design.md` for thresholds.
+/// See `docs/plans/completed/superpowers/specs/2026-05-05-cgm-spo2-provenance-design.md` for thresholds.
 enum Reliability: String, Codable {
     case high
     case medium

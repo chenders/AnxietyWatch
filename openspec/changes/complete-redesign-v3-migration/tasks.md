@@ -1,6 +1,6 @@
 # Tasks
 
-Detailed file ownership, branch/worktree commands, interfaces, test cases, rollout gates, and the definition of done are in `docs/FINAL_REDESIGN_v3_WORK`. This checklist is the OpenSpec progress tracker; update it and implementation notes with every merged PR.
+Detailed file ownership, branch/worktree commands, interfaces, test cases, rollout gates, and the definition of done are in `RUNBOOK.md` in this change. This checklist is the OpenSpec progress tracker; update it and implementation notes with every merged PR.
 
 ## 1. Documentation and Clean Baseline
 
@@ -8,7 +8,7 @@ Detailed file ownership, branch/worktree commands, interfaces, test cases, rollo
 - [x] 1.2 Create seven canonical capability specs and seven remaining-work deltas and verify `openspec validate --all --strict` reports zero failures
 - [x] 1.3 Reconcile T01–T40 plus T06a–T06d against source/tests and map all 23 legacy-spec sections in `design.md`
 - [x] 1.4 Remove `docs/redesign_spec.md`, mark the old plan/status historical, and verify all material requirements remain traceable through OpenSpec and Git history
-- [x] 1.5 Create `docs/FINAL_REDESIGN_v3_WORK` with public-safe branch/worktree state, PR order, concrete files, tests, reviewers, rollout gates, and definition of done
+- [x] 1.5 Create the redesign runbook (now `RUNBOOK.md` in this change) with public-safe branch/worktree state, PR order, concrete files, tests, reviewers, rollout gates, and definition of done
 - [x] 1.6 Commit, push, review, and merge `docs/openspec-redesign-v3`; verify the documentation worktree is clean before removing only that worktree
 - [x] 1.7 Review, test, commit, rebase, push, and merge `fix/anxietywatch-build-repair`; verify package and XcodeBuildMCP suites pass with zero warnings, Debug builds/install/launch on the connected test iPhone after Xcode signing is configured, and required reviewers have no blocking findings
   - 2026-10-09: removed all elevated notification capabilities and runtime requests from both the app and redundant server APNs channel in favor of standard alert/sound notifications; notification readiness now fails closed for disabled alerts/sounds or scheduled delivery, and channel history reports APNs acceptance without claiming device presentation. 1,548 app tests and 534 server tests pass, with clean server lint. Automatic signing now builds successfully, and the app installs and launches on the connected test iPhone.

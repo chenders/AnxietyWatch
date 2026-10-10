@@ -188,7 +188,7 @@ See [REQUIREMENTS.md](REQUIREMENTS.md) for the full data model and specification
 
 Behavior specifications and active engineering changes are maintained in [`openspec/`](openspec/README.md). Canonical current behavior lives under `openspec/specs/`; proposed changes, designs, implementation status, and task plans live under `openspec/changes/`.
 
-For the redesign-v3 branch/worktree sequence and end-to-end completion checklist, start with [`docs/FINAL_REDESIGN_v3_WORK`](docs/FINAL_REDESIGN_v3_WORK).
+For all active work, start with the priority-ordered [`openspec/PORTFOLIO.md`](openspec/PORTFOLIO.md). The redesign-v3 branch/worktree sequence and end-to-end checklist are in its [`RUNBOOK.md`](openspec/changes/complete-redesign-v3-migration/RUNBOOK.md).
 
 Validate the complete specification set with `openspec validate --all --strict` before implementing or archiving a change.
 
@@ -222,7 +222,7 @@ In **debug builds only**, shake the device to save a full-length PNG of the curr
 
 **Permission prompt:** The first shake prompts for Photos write access. If denied, re-prompt via Settings → AnxietyWatch → Photos.
 
-Design spec: [`docs/superpowers/specs/2026-05-13-debug-screen-capture-design.md`](docs/superpowers/specs/2026-05-13-debug-screen-capture-design.md).
+Historical design spec: [`docs/plans/completed/superpowers/specs/2026-05-13-debug-screen-capture-design.md`](docs/plans/completed/superpowers/specs/2026-05-13-debug-screen-capture-design.md).
 
 ---
 
@@ -253,7 +253,7 @@ If you live with anxiety and this approach resonates with you, I'd especially va
 - **SwiftUI `#Preview` blocks** — a few exist for the most-used views; most views still need them
 - **Accessibility** — Dynamic Type support, VoiceOver grouping, contrast fixes
 - **Server features** — Python/Flask, lower barrier if you're not a Swift developer
-- **Bug reports and UI/UX suggestions** via [issues](../../issues)
+- **Bug reports and UI/UX suggestions** via [issues](https://github.com/chenders/AnxietyWatch/issues)
 
 **Before proposing features:** This project has an opinionated design philosophy — it is an anxiety tool, not a general health dashboard. Please read [PROJECT_FUTURE_PLAN.md](PROJECT_FUTURE_PLAN.md) (especially "The Central Tension") to understand what it is and isn't trying to be.
 

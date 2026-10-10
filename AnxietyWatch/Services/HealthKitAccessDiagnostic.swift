@@ -11,7 +11,7 @@ import HealthKit
 /// `backfillIfNeeded`, Rebuild All History — takes the reduced pass and reads
 /// nothing. iOS Settings still shows "Health Data — On", so the failure is
 /// invisible. This has frozen ingestion in production twice (2026-07-13,
-/// 2026-07-18). See `docs/superpowers/specs/2026-07-18-healthkit-access-diagnostic-design.md`.
+/// 2026-07-18). See `docs/plans/completed/superpowers/specs/2026-07-18-healthkit-access-diagnostic-design.md`.
 enum HealthKitAccessState: Sendable, Equatable {
     /// Reads are returning data — everything is healthy.
     case receiving
