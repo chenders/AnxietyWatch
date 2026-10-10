@@ -112,17 +112,17 @@ final class DatabaseManagerTests: XCTestCase {
         let dbManager = DatabaseManager(url: dbURL)
         try await dbManager.open()
 
-        // Three consecutive recoveries succeed; the fourth trips the breaker.
+        // Two consecutive recoveries succeed; the third trips the breaker.
         // Do NOT call acknowledgeCorruptionCircuit between attempts — that resets
         // the counter and hides the trip.
-        for i in 0..<3 {
+        for i in 0..<2 {
             try await dbManager.forceCorruptionRecovery()
             _ = i
         }
 
         do {
             try await dbManager.forceCorruptionRecovery()
-            XCTFail("Should have thrown corruptionThresholdExceeded on 4th attempt")
+            XCTFail("Should have thrown corruptionThresholdExceeded on 3rd attempt")
         } catch DatabaseManager.DatabaseError.corruptionThresholdExceeded {
             // Expected.
         } catch {

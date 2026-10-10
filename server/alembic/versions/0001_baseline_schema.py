@@ -72,6 +72,7 @@ def downgrade():
     op.execute("DROP TABLE IF EXISTS accel_spectrograms CASCADE")
     op.execute("DROP TABLE IF EXISTS sleep_stage_events CASCADE")
     op.execute("DROP TABLE IF EXISTS quantity_health_samples CASCADE")
+    op.execute("DROP TABLE IF EXISTS clinical_lab_results CASCADE")
     op.execute("DROP TABLE IF EXISTS barometric_readings CASCADE")
     op.execute("DROP TABLE IF EXISTS health_snapshots CASCADE")
     op.execute("DROP TABLE IF EXISTS cpap_sessions CASCADE")

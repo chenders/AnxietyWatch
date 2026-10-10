@@ -30,11 +30,12 @@ public struct PipelineStep {
     ///   - state: current pipeline state.
     ///   - event: sensor sample, tick, or data gap.
     /// - Returns: (newState, commands) where commands is the deterministic
-    ///   list of alerts to emit for this step. The CNSMonitoringCoordinator
-    ///   (T27) is the only impure interpreter.
+    ///   list of presentation suggestions for this step. The package
+    ///   coordinator publishes state only and never fires clinical effects.
     public static func step(
         _ state: PipelineState,
-        _ event: SensorEvent
+        _ event: SensorEvent,
+        gapEventsEnabled: Bool = false
     ) -> (PipelineState, [AlertCommand]) {
         var state = state
         var commands: [AlertCommand] = []
@@ -75,10 +76,9 @@ public struct PipelineStep {
                       escalationMessage: "Sustained high movement (\(magnitude))")
 
         case .dataGap(let range):
-            // Phase 1 gate (§4.3): gap events are compiled but dark by
-            // default. The branch becomes active when the remote-config
-            // flag is set to true (Phase 2+).
-            guard Feature.pipelineGapEventsEnabled else { break }
+            // Phase 1 gate (§4.3): the impure coordinator resolves its
+            // injectable provider and passes the value into this pure step.
+            guard gapEventsEnabled else { break }
             // Drop ring contents covered by the gap — they describe a window
             // that no longer has trustworthy continuity.
             state.hrRing.removeAll { range.contains($0.tMs) }

@@ -2,7 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+# Derive from the script location, not Git's hook-time environment. In a
+# linked worktree, `git rev-parse` can inherit GIT_PREFIX and resolve this
+# directory itself as the root while pre-push is running.
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$REPO_ROOT"
 
@@ -17,6 +20,8 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 echo "OpenSpec CLI: $(openspec --version)"
-python3 -m unittest discover -s scripts/tests -p 'test_check_openspec_links.py' -v
+# Run the focused module directly. Python 3.13 rejects discovery roots that
+# are not importable packages; scripts/tests intentionally has no __init__.py.
+python3 scripts/tests/test_check_openspec_links.py -v
 openspec validate --all --strict
 python3 scripts/check_openspec_links.py openspec

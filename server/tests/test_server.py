@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import os
+from pathlib import Path
 import re
 
 import psycopg2
@@ -54,6 +55,18 @@ def client(app):
     return app.test_client()
 
 
+def test_restore_manifest_server_queries_are_real_route_entities(app):
+    """Bind every Swift manifest query name to the dict used by /api/data."""
+    manifest_path = (
+        Path(__file__).resolve().parents[2]
+        / "AnxietyWatchKit/Sources/AnxietyWatchKit/Sync/RestoreManifest.swift"
+    )
+    manifest_source = manifest_path.read_text(encoding="utf-8")
+    manifest_queries = set(re.findall(r'serverQuery:\s*"([^"]+)"', manifest_source))
+
+    assert manifest_queries == set(app.extensions["restore_entity_queries"])
+
+
 @pytest.fixture(autouse=True)
 def _preserve_credential_env():
     """Snapshot + restore the credential env vars around every test (F-088).
@@ -83,6 +96,7 @@ def _clean_tables(app):
         cur.execute(
             "TRUNCATE anxiety_entries, health_snapshots, medication_definitions, "
             "medication_doses, cpap_sessions, barometric_readings, correlations, "
+            "clinical_lab_results, "
             "analyses, api_keys, sync_log, therapy_sessions, settings, "
             "patient_profile, psychiatrist_profile, conflicts, analysis_jobs, "
             "pharmacies, prescriptions, pharmacy_call_logs, as11_therapy_session, as11_stream_sample, "
@@ -1363,6 +1377,78 @@ def test_get_data_exports_restore_entities(client):
         resp = client.get(f"/api/data/{entity}", headers=auth_header())
         assert resp.status_code == 200, entity
         assert len(resp.get_json()[entity]) == expected_count, entity
+
+
+def test_clinical_lab_results_round_trip(client):
+    """A lab result sent by iOS must persist and return with stable identity."""
+    lab_id = "11111111-2222-4333-8444-555555555555"
+    sample_uuid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    payload = {
+        "clinicalLabResults": [{
+            "id": lab_id,
+            "healthKitSampleUUID": sample_uuid,
+            "effectiveDate": "2025-03-20T10:00:00Z",
+            "loincCode": "99999-9",
+            "testName": "Fictional Test Marker",
+            "value": 12.5,
+            "unit": "test-unit",
+            "referenceRangeLow": 10.0,
+            "referenceRangeHigh": 15.0,
+            "interpretation": "N",
+            "sourceName": "Test Health System",
+        }],
+    }
+
+    sync_response = client.post("/api/sync", json=payload, headers=auth_header())
+    assert sync_response.status_code == 200
+    assert sync_response.get_json()["counts"]["clinical_lab_results"] == 1
+
+    restore_response = client.get(
+        "/api/data/clinicalLabResults", headers=auth_header()
+    )
+    assert restore_response.status_code == 200
+    rows = restore_response.get_json()["clinicalLabResults"]
+    assert len(rows) == 1
+    assert rows[0]["id"] == lab_id
+    assert rows[0]["health_kit_sample_uuid"] == sample_uuid
+    assert rows[0]["loinc_code"] == "99999-9"
+    assert rows[0]["value"] == 12.5
+
+    # Replaying the same HealthKit sample with a different app-row id updates
+    # clinical values but keeps the first server identity stable.
+    replay = dict(payload)
+    replay["clinicalLabResults"] = [dict(payload["clinicalLabResults"][0])]
+    replay["clinicalLabResults"][0]["id"] = "99999999-8888-4777-8666-555555555555"
+    replay["clinicalLabResults"][0]["value"] = 13.0
+    replay_response = client.post("/api/sync", json=replay, headers=auth_header())
+    assert replay_response.status_code == 200
+
+    replayed_rows = client.get(
+        "/api/data/clinicalLabResults", headers=auth_header()
+    ).get_json()["clinicalLabResults"]
+    assert len(replayed_rows) == 1
+    assert replayed_rows[0]["id"] == lab_id
+    assert replayed_rows[0]["value"] == 13.0
+
+
+def test_legacy_clinical_lab_result_without_identity_does_not_break_sync(client):
+    """Older app builds sent lab fields but lacked the two restore identities."""
+    response = client.post(
+        "/api/sync",
+        json={
+            "clinicalLabResults": [{
+                "effectiveDate": "2025-03-20T10:00:00Z",
+                "loincCode": "99999-9",
+                "testName": "Fictional Test Marker",
+                "value": 12.5,
+                "unit": "test-unit",
+            }],
+        },
+        headers=auth_header(),
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["counts"]["clinical_lab_results"] == 0
 
 
 def test_get_data_drops_bytea_columns_from_json(client):

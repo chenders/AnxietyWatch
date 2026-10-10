@@ -37,6 +37,7 @@ final class ClinicalLabResult {
     var healthKitSampleUUID: String
 
     init(
+        id: UUID = UUID(),
         loincCode: String,
         testName: String,
         value: Double,
@@ -48,7 +49,7 @@ final class ClinicalLabResult {
         sourceName: String? = nil,
         healthKitSampleUUID: String
     ) {
-        self.id = UUID()
+        self.id = id
         self.loincCode = loincCode
         self.testName = testName
         self.value = value

@@ -716,7 +716,8 @@ final class SyncService {
             let isFullSync = since == nil
             let jsonData = try DataExporter.exportJSON(
                 from: context, start: since, end: upperBound,
-                omitHealthSnapshots: !isFullSync
+                omitHealthSnapshots: !isFullSync,
+                includeAllClinicalLabResults: true
             )
             guard let parsed = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
                 return jsonData

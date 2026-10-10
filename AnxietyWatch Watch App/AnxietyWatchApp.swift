@@ -168,6 +168,7 @@ struct AnxietyWatchApp: App {
             try await container.bootstrap()
         } catch {
             Log.sync.error("Watch kit bootstrap failed: \(error)")
+            return
         }
 
         // P2P transport loop is NOT started on watchOS during Phase 2A —

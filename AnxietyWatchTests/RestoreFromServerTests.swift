@@ -1,4 +1,5 @@
 import Foundation
+import AnxietyWatchKit
 import SwiftData
 import Testing
 
@@ -12,6 +13,34 @@ import Testing
 /// `datetime.isoformat()` strings. All values are fictional per CLAUDE.md.
 @MainActor
 struct RestoreFromServerTests {
+
+    @Test("restore manifest names compile-bound importer functions")
+    func restoreManifestBindsRealImporters() {
+        #expect(
+            Set(RestoreManifest.production.importerIDs)
+                == SyncService.compiledRestoreImporterIDs
+        )
+    }
+
+    @Test("restore manifest entities are dispatched by the production restore path")
+    func restoreManifestBindsProductionDispatch() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("AnxietyWatch/Services/RestoreFromServer.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let regex = try NSRegularExpression(
+            pattern: #"json\["([^"]+)"\] as\? \[\[String: Any\]\]"#
+        )
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        let dispatched: Set<String> = Set(regex.matches(in: source, range: range).compactMap { match in
+            guard let keyRange = Range(match.range(at: 1), in: source) else { return nil }
+            return String(source[keyRange])
+        })
+        let manifestEntities = Set(RestoreManifest.production.serverQueries)
+
+        #expect(dispatched == manifestEntities)
+    }
 
     /// Parse an ISO-8601 instant (server `TIMESTAMPTZ` shape, no fractional
     /// seconds) for exact-timestamp assertions.
@@ -123,6 +152,47 @@ struct RestoreFromServerTests {
                 "the restored definition carries the server's explicit classification")
         #expect(byName["Vitamin D"]?.cnsDepressantClass == nil,
                 "a pre-0013 row restores as unclassified, never a fabricated class")
+    }
+
+    // MARK: - Clinical lab results
+
+    @Test("clinical lab restore preserves server identity and skips an existing HealthKit sample")
+    func clinicalLabResultsRestorePreservesIdentityAndDedupes() throws {
+        let container = try TestHelpers.makeFullContainer()
+        let context = ModelContext(container)
+        let serverID = "11111111-2222-4333-8444-555555555555"
+        let sampleUUID = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+        let rows: [[String: Any]] = [[
+            "id": serverID,
+            "health_kit_sample_uuid": sampleUUID,
+            "effective_date": "2025-03-20T10:00:00+00:00",
+            "loinc_code": "99999-9",
+            "test_name": "Fictional Test Marker",
+            "value": 12.5,
+            "unit": "test-unit",
+            "reference_range_low": 10.0,
+            "reference_range_high": 15.0,
+            "interpretation": "N",
+            "source_name": "Test Health System",
+        ]]
+
+        let first = try SyncService.importClinicalLabResults(rows, shift: 0, into: context)
+        let second = try SyncService.importClinicalLabResults(rows, shift: 0, into: context)
+
+        #expect(first == 1)
+        #expect(second == 0)
+        let restored = try #require(context.fetch(FetchDescriptor<ClinicalLabResult>()).first)
+        #expect(restored.id == UUID(uuidString: serverID))
+        #expect(restored.healthKitSampleUUID == sampleUUID)
+        #expect(restored.effectiveDate == Self.instant("2025-03-20T10:00:00+00:00"))
+        #expect(restored.loincCode == "99999-9")
+        #expect(restored.testName == "Fictional Test Marker")
+        #expect(restored.value == 12.5)
+        #expect(restored.unit == "test-unit")
+        #expect(restored.referenceRangeLow == 10.0)
+        #expect(restored.referenceRangeHigh == 15.0)
+        #expect(restored.interpretation == "N")
+        #expect(restored.sourceName == "Test Health System")
     }
 
     // MARK: - Sensor sessions
@@ -528,7 +598,7 @@ struct RestoreFromServerTests {
         #expect(!SyncService.restoreGuardTablesAreEmpty(context))
     }
 
-    @Test("guard rejects each counted table independently — all 13 guarded tables")
+    @Test("guard rejects each counted table independently — all ordinary guarded tables")
     func guardCountsEveryMajorTable() throws {
         // One container per table: the guard must trip on ANY of them alone.
         func rejects(_ insert: (ModelContext) -> Void) throws -> Bool {
@@ -603,6 +673,13 @@ struct RestoreFromServerTests {
         // "not actually fresh" signal the guard exists to detect.
         #expect(try rejects { ctx in
             ctx.insert(PharmacyCallLog(timestamp: when, pharmacyName: "Test Pharmacy #12345"))
+        })
+        #expect(try rejects { ctx in
+            ctx.insert(ClinicalLabResult(
+                loincCode: "99999-9", testName: "Fictional Test Marker", value: 12.5,
+                unit: "test-unit", effectiveDate: when,
+                healthKitSampleUUID: "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+            ))
         })
     }
 

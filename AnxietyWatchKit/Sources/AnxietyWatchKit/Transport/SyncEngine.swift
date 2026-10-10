@@ -12,6 +12,7 @@ public actor SyncEngine {
     private let database: DatabaseManager
     private let hlc: HLC
     private let transport: WCSessionCoordinator
+    private let featureFlags: any FeatureFlagProvider
     private let samplesStore: SamplesStore
     private let tombstonesStore: SampleTombstonesStore
 
@@ -27,11 +28,13 @@ public actor SyncEngine {
     public init(
         database: DatabaseManager,
         hlc: HLC,
-        transport: WCSessionCoordinator
+        transport: WCSessionCoordinator,
+        featureFlags: any FeatureFlagProvider = Feature.defaultProvider
     ) {
         self.database = database
         self.hlc = hlc
         self.transport = transport
+        self.featureFlags = featureFlags
         self.samplesStore = SamplesStore(database: database)
         self.tombstonesStore = SampleTombstonesStore(database: database)
     }
@@ -141,7 +144,7 @@ public actor SyncEngine {
             )
 
             if !samples.isEmpty {
-                let recordsData = try encodeSamples(samples)
+                let recordsData = try await encodeSamples(samples)
                 var pushCursor = localPushCursor
                 for row in samples {
                     pushCursor.advance(
@@ -182,7 +185,7 @@ public actor SyncEngine {
                     lc: watermark.logical,
                     limit: limit
                 )
-                let recordsData = try encodeSamples(samples)
+                let recordsData = try await encodeSamples(samples)
                 let nodeID = await nodeIDString()
                 let batch = SyncMessage.batch(nodeID: nodeID, cursor: localPushCursor, recordsData: recordsData)
                 let batchDict = try SyncMessageCodec.encode(batch)
@@ -224,7 +227,7 @@ public actor SyncEngine {
     // MARK: - Batch apply
 
     private func applyBatch(recordsData: Data, cursor: SyncCursor) async throws {
-        let samples = try decodeSamples(recordsData)
+        let samples = try await decodeSamples(recordsData)
 
         for row in samples {
             let stamp = HLCStamped(
@@ -252,15 +255,15 @@ public actor SyncEngine {
 
     // MARK: - Helpers
 
-    private func encodeSamples(_ samples: [SampleRow]) throws -> Data {
-        if Feature.wcBinaryFormatEnabled {
+    internal func encodeSamples(_ samples: [SampleRow]) async throws -> Data {
+        if await Feature.isEnabled(.wcBinaryFormat, using: featureFlags) {
             return try BinaryCodec.encodeSamplePayload(samples)
         }
         return try JSONEncoder().encode(samples)
     }
 
-    private func decodeSamples(_ data: Data) throws -> [SampleRow] {
-        if Feature.wcBinaryFormatEnabled {
+    internal func decodeSamples(_ data: Data) async throws -> [SampleRow] {
+        if await Feature.isEnabled(.wcBinaryFormat, using: featureFlags) {
             return try BinaryCodec.decodeSamplePayload(data)
         }
         return try JSONDecoder().decode([SampleRow].self, from: data)

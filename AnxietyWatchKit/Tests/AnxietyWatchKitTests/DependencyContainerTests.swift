@@ -64,6 +64,7 @@ final class DependencyContainerTests: XCTestCase {
         XCTAssertNotNil(container.hlc)
         XCTAssertNotNil(container.clockSuspect)
         XCTAssertNotNil(container.syncCoordinator)
+        XCTAssertNotNil(container.corruptionRecovery)
         XCTAssertNotNil(container.panicProtocol)
         XCTAssertNotNil(container.transport)
         XCTAssertNotNil(container.syncEngine)
@@ -115,6 +116,26 @@ final class DependencyContainerTests: XCTestCase {
         try await container.registerUDFs()
         try await container.bootstrap()
         // No error thrown = success
+    }
+
+    func testDefaultHealthKitRederivationFailsClosedDuringRecovery() async throws {
+        let container = DependencyContainer(
+            dbURL: dbURL,
+            cursorFileURL: cursorURL,
+            nodeID: nodeID,
+            endpoint: MockSyncEndpoint()
+        )
+        try await container.registerUDFs()
+        try await container.bootstrap()
+
+        do {
+            try await container.database.forceCorruptionRecovery()
+            XCTFail("Recovery must not report success without a production HealthKit rederivation hook")
+        } catch let error as CorruptionRecoveryCoordinator.RecoveryError {
+            XCTAssertEqual(error, .healthKitRederivationUnavailable)
+        }
+        let state = await container.corruptionRecovery.currentState
+        XCTAssertEqual(state, .failed(stage: .healthKitRederivation))
     }
 
     // MARK: - Shutdown

@@ -45,8 +45,9 @@ public enum AlertTier: String, Sendable, Codable, Equatable {
     case critical
 }
 
-/// Output alphabet: deterministic commands for the (impure) coordinator to
-/// interpret (T27). The pure core never touches notification/haptic APIs.
+/// Output alphabet: deterministic presentation suggestions from the pure
+/// calculation core. AnxietyWatchKit never interprets these as user-facing
+/// effects; the app-level CNSRisk system is the sole clinical effect owner.
 public enum AlertCommand: Sendable, Equatable {
     case notify(tier: AlertTier, message: String)
     case haptic(pattern: HapticPattern)

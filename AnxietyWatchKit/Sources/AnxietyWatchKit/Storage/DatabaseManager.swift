@@ -10,11 +10,11 @@ public actor DatabaseManager {
     public typealias SchemaMigrator = @Sendable (Database) throws -> Void
 
     /// Called after a corruption recovery has completed (fresh empty DB + schema
-    /// applied). Intended for the SyncCoordinator to kick full-restore-from-server
-    /// (Spec §1.6 step 6). The Error argument is nil on success, or the underlying
-    /// error if the migrator itself threw (in which case restore should NOT be
-    /// attempted).
-    public typealias PostRecoveryHook = @Sendable (Error?) async -> Void
+    /// applied). `CorruptionRecoveryCoordinator` uses it to run server restore
+    /// and HealthKit rederivation (Spec §1.6 step 6). The Error argument is nil
+    /// on success, or the underlying error if the migrator itself threw (in
+    /// which case restoration must not be attempted).
+    public typealias PostRecoveryHook = @Sendable (Error?) async throws -> Void
 
     /// URL to the database file
     private let url: URL
@@ -29,8 +29,8 @@ public actor DatabaseManager {
     /// after recovery the fresh DB must get its schema back before anyone reads it).
     private var schemaMigrator: SchemaMigrator?
     
-    /// Hook invoked after a corruption recovery completes (SyncCoordinator.fullRestore
-    /// plumbing, T18). Invoked OFF the writer queue so it can call other actors.
+    /// Hook invoked after a corruption recovery completes. Invoked OFF the
+    /// writer queue so the recovery coordinator can call other actors.
     private var postRecoveryHook: PostRecoveryHook?
     
     /// AsyncStream for corruption events
@@ -38,6 +38,10 @@ public actor DatabaseManager {
     
     /// Tracks corruption events for circuit breaker
     private var corruptionEventTimestamps: [Date] = []
+    private var loadedCorruptionHistory = false
+
+    /// Injectable clock used by both event timestamps and the rolling breaker.
+    private let now: @Sendable () -> Date
     
     /// UserDefaults key for clean shutdown flag
     private static let cleanShutdownKey = "com.anxietywatch.kit.storage.cleanShutdown"
@@ -51,9 +55,22 @@ public actor DatabaseManager {
     private var checkpointInProgressMarker: URL {
         url.deletingLastPathComponent().appendingPathComponent(".checkpoint-in-progress-\(url.lastPathComponent)")
     }
+
+    /// Durable proof that file replacement has started but server restoration
+    /// and HealthKit rederivation have not both completed. This lives beside
+    /// SQLite so deleting DB/WAL/SHM cannot erase it.
+    private var recoveryPendingMarker: URL {
+        url.deletingLastPathComponent().appendingPathComponent(".recovery-pending-\(url.lastPathComponent)")
+    }
+
+    /// Kept outside SQLite so replacing the corrupt database cannot erase the
+    /// rolling breaker and relaunching the app cannot bypass it.
+    private var corruptionHistoryURL: URL {
+        url.deletingLastPathComponent().appendingPathComponent(".corruption-history-\(url.lastPathComponent).json")
+    }
     
     /// Database errors
-    public enum DatabaseError: Error, Sendable {
+    public enum DatabaseError: Error, Sendable, Equatable {
         case notOpen
         case corruptionThresholdExceeded
         case integrityCheckFailed(String)
@@ -97,8 +114,12 @@ public actor DatabaseManager {
     
     /// Creates a new DatabaseManager
     /// - Parameter url: The URL to the database file
-    public init(url: URL) {
+    public init(
+        url: URL,
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.url = url
+        self.now = now
     }
     
     /// Sets the schema migrator, applied at the end of every successful open()
@@ -113,6 +134,30 @@ public actor DatabaseManager {
     /// dependency-free: the Sync layer registers itself here at bootstrap.
     public func setPostRecoveryHook(_ hook: @escaping PostRecoveryHook) async {
         self.postRecoveryHook = hook
+    }
+
+    /// Resumes restoration left incomplete by a prior process. Call only after
+    /// the schema is open and the post-recovery hook has been installed.
+    public func resumePendingRecoveryIfNeeded() async throws {
+        guard FileManager.default.fileExists(atPath: recoveryPendingMarker.path) else { return }
+
+        guard let hook = postRecoveryHook else {
+            // DatabaseManager can be used standalone in storage tests and tools.
+            // With no higher-level restoration contract registered, replacement
+            // itself is the complete recovery operation.
+            try FileManager.default.removeItem(at: recoveryPendingMarker)
+            return
+        }
+
+        corruptionEventContinuation.yield(CorruptionEvent(timestamp: now(), phase: .restoreStarted))
+        do {
+            try await hook(nil)
+            try FileManager.default.removeItem(at: recoveryPendingMarker)
+        } catch {
+            corruptionEventContinuation.yield(CorruptionEvent(timestamp: now(), phase: Self.failedPhase(error)))
+            Log.storage.fault("Post-replacement restoration failed: \(error)")
+            throw error
+        }
     }
     
     /// Builds a GRDB `Configuration` whose `prepareDatabase` closure applies the
@@ -365,8 +410,13 @@ public actor DatabaseManager {
     public func recoverFromCorruption() async throws {
         // Check circuit breaker
         try checkCorruptionCircuitBreaker()
+
+        // Write this before deleting any database file. It is cleared only by
+        // resumePendingRecoveryIfNeeded after every higher-level recovery stage
+        // succeeds, so a crash or thrown restore resumes on the next launch.
+        try Data("pending".utf8).write(to: recoveryPendingMarker, options: .atomic)
         
-        let timestamp = Date()
+        let timestamp = now()
         
         // Notify about corruption detection
         corruptionEventContinuation.yield(CorruptionEvent(timestamp: timestamp, phase: .detected))
@@ -397,47 +447,48 @@ public actor DatabaseManager {
             try await open()
             
             // Notify about successful recovery
-            corruptionEventContinuation.yield(CorruptionEvent(timestamp: Date(), phase: .recovered))
+            corruptionEventContinuation.yield(CorruptionEvent(timestamp: now(), phase: .recovered))
             if schemaMigrator != nil {
-                corruptionEventContinuation.yield(CorruptionEvent(timestamp: Date(), phase: .schemaReapplied))
+                corruptionEventContinuation.yield(CorruptionEvent(timestamp: now(), phase: .schemaReapplied))
             }
             Log.storage.info("Database corruption recovery completed")
             
-            // Kick the post-recovery hook (SyncCoordinator.fullRestore, Spec §1.6
-            // step 6) OFF the writer queue: plain await in actor context so the
-            // hook can freely hop to other actors.
-            if let hook = postRecoveryHook {
-                corruptionEventContinuation.yield(CorruptionEvent(timestamp: Date(), phase: .restoreStarted))
-                await hook(nil)
-            }
         } catch {
             // Notify about failed recovery
-            corruptionEventContinuation.yield(CorruptionEvent(timestamp: Date(), phase: Self.failedPhase(error)))
+            corruptionEventContinuation.yield(CorruptionEvent(timestamp: now(), phase: Self.failedPhase(error)))
             Log.storage.fault("Database corruption recovery failed: \(error)")
             // Inform the hook that recovery did NOT produce a usable DB (e.g.
             // the migrator threw). Restore must not be attempted in this case.
             if let hook = postRecoveryHook {
-                await hook(error)
+                try? await hook(error)
             }
             throw error
         }
+
+        // Run (or resume) the end-to-end contract. Failure leaves the durable
+        // marker in place and propagates, preventing startup on a partial store.
+        try await resumePendingRecoveryIfNeeded()
     }
     
     /// Checks if the corruption circuit breaker should trip
     private func checkCorruptionCircuitBreaker() throws {
-        let now = Date()
-        let twentyFourHoursAgo = now.addingTimeInterval(-24 * 60 * 60)
+        loadCorruptionHistoryIfNeeded()
+
+        let currentTime = now()
+        let twentyFourHoursAgo = currentTime.addingTimeInterval(-24 * 60 * 60)
         
         // Remove old events
         corruptionEventTimestamps.removeAll { $0 < twentyFourHoursAgo }
         
         // Add current event
-        corruptionEventTimestamps.append(now)
+        corruptionEventTimestamps.append(currentTime)
+        persistCorruptionHistory()
         
-        // Check if we've exceeded the threshold
-        if corruptionEventTimestamps.count > 3 {
+        // The third confirmed event stops automatic replacement. The first two
+        // may recover automatically; a third requires explicit user action.
+        if corruptionEventTimestamps.count >= 3 {
             // Emit event before breaker throw
-            corruptionEventContinuation.yield(CorruptionEvent(timestamp: Date(), phase: Self.failedPhase(DatabaseError.corruptionThresholdExceeded)))
+            corruptionEventContinuation.yield(CorruptionEvent(timestamp: currentTime, phase: Self.failedPhase(DatabaseError.corruptionThresholdExceeded)))
             Log.storage.fault("Corruption circuit breaker tripped")
             throw DatabaseError.corruptionThresholdExceeded
         }
@@ -446,7 +497,39 @@ public actor DatabaseManager {
     /// Acknowledges the corruption circuit breaker, allowing further operations
     public func acknowledgeCorruptionCircuit() {
         corruptionEventTimestamps.removeAll()
+        loadedCorruptionHistory = true
+        try? FileManager.default.removeItem(at: corruptionHistoryURL)
         Log.storage.info("Corruption circuit breaker acknowledged")
+    }
+
+    private func loadCorruptionHistoryIfNeeded() {
+        guard !loadedCorruptionHistory else { return }
+        loadedCorruptionHistory = true
+
+        do {
+            let data = try Data(contentsOf: corruptionHistoryURL)
+            let timestamps = try JSONDecoder().decode([TimeInterval].self, from: data)
+            corruptionEventTimestamps = timestamps.map(Date.init(timeIntervalSince1970:))
+        } catch CocoaError.fileReadNoSuchFile {
+            corruptionEventTimestamps = []
+        } catch {
+            // A malformed guard file must not strand the store. Start a new
+            // bounded history and replace the malformed file on this event.
+            corruptionEventTimestamps = []
+            Log.storage.error("Could not read corruption circuit history; replacing it")
+        }
+    }
+
+    private func persistCorruptionHistory() {
+        do {
+            let timestamps = corruptionEventTimestamps.map(\.timeIntervalSince1970)
+            let data = try JSONEncoder().encode(timestamps)
+            try data.write(to: corruptionHistoryURL, options: .atomic)
+        } catch {
+            // Keep the in-process guard active even if the external guard file
+            // cannot be updated. Diagnostics intentionally omit file paths.
+            Log.storage.error("Could not persist corruption circuit history")
+        }
     }
     
     /// Forces corruption recovery for testing purposes

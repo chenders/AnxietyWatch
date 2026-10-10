@@ -8,6 +8,7 @@ private final class MockSyncEndpoint: SyncEndpoint, @unchecked Sendable {
     private let lock = NSLock()
 
     var pullResponses: [SyncPullResponse] = []
+    var pullError: Error?
     private(set) var pullCalls: [(cursor: TableCursors, maxBatchBytes: Int)] = []
     var pushResponse: SyncPushResponse?
     private(set) var pushCalls: [SyncPushPayload] = []
@@ -15,8 +16,9 @@ private final class MockSyncEndpoint: SyncEndpoint, @unchecked Sendable {
     let serverHLC = HLCStamped(physical: 1, logical: 0, nodeID: Data(repeating: 0x5E, count: 16))
 
     func pull(cursor: TableCursors, maxBatchBytes: Int) async throws -> SyncPullResponse {
-        lock.withLock {
+        try lock.withLock {
             pullCalls.append((cursor, maxBatchBytes))
+            if let pullError { throw pullError }
             if pullResponses.isEmpty {
                 return SyncPullResponse(
                     samples: [], sampleTombstones: [], syncLog: [],
@@ -415,6 +417,43 @@ final class SyncCoordinatorTests: XCTestCase {
 
         let persisted = try XCTUnwrap(loadCursorFile())
         XCTAssertEqual(persisted.pull.samples.watermark(for: peerNode).physical, 300)
+    }
+
+    func testFullRestoreFailsWhenRowsAreQuarantined() async throws {
+        endpoint.pullResponses = [pullResponse(samples: [
+            makeSample(pt: wall + 86_400_001, lc: 0, timestamp: 1),
+        ])]
+
+        try await coordinator.bootstrap()
+
+        do {
+            try await coordinator.fullRestore()
+            XCTFail("Expected quarantine-only restore page to fail closed")
+        } catch let error as SyncCoordinator.SyncCoordinatorError {
+            XCTAssertEqual(error, .restoreContainsQuarantinedRows(count: 1))
+        }
+    }
+
+    func testFullRestorePersistsResetCursorBeforeNetworkRequest() async throws {
+        endpoint.pullResponses = [pullResponse(samples: [
+            makeSample(pt: 500_000, lc: 0, timestamp: 1),
+        ])]
+        try await coordinator.bootstrap()
+        _ = try await coordinator.syncOnce()
+        XCTAssertEqual(
+            try XCTUnwrap(loadCursorFile()).pull.samples.watermark(for: peerNode).physical,
+            500_000
+        )
+
+        endpoint.pullError = SyncEndpointError.permanent("fictional offline failure")
+        do {
+            try await coordinator.fullRestore()
+            XCTFail("Expected the first restore request to fail")
+        } catch {
+            // Expected. The durable cursor reset is the behavior under test.
+        }
+
+        XCTAssertEqual(try XCTUnwrap(loadCursorFile()).pull, TableCursors())
     }
 
     func testPullOfUnregisteredTableIsIgnoredWithWarning() async throws {

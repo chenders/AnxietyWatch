@@ -262,6 +262,9 @@ def create_app(test_config=None):
                 cur, data.get("derivedBreathingRates", []),
             )
             counts["barometric_readings"] = _upsert_barometric_readings(cur, data.get("barometricReadings", []))
+            counts["clinical_lab_results"] = _upsert_clinical_lab_results(
+                cur, data.get("clinicalLabResults", []),
+            )
             counts["pharmacies"] = _upsert_pharmacies(cur, data.get("pharmacies", []))
             counts["prescriptions"] = _upsert_prescriptions(cur, data.get("prescriptions", []))
             counts["pharmacy_call_logs"] = _upsert_pharmacy_call_logs(cur, data.get("pharmacyCallLogs", []))
@@ -753,6 +756,52 @@ def create_app(test_config=None):
             rows,
         )
         return len(samples)
+
+    def _upsert_clinical_lab_results(cur, results):
+        """Persist sparse HealthKit clinical records for device restore."""
+        identified = [
+            result for result in results
+            if result.get("id") and result.get("healthKitSampleUUID")
+        ]
+        skipped = len(results) - len(identified)
+        if skipped:
+            # Count only: clinical fields and source names are private health data.
+            app.logger.warning(
+                "Skipping %s legacy clinical lab result(s) without restore identity",
+                skipped,
+            )
+        if not identified:
+            return 0
+        rows = [
+            (
+                result["id"], result["healthKitSampleUUID"],
+                result["effectiveDate"], result["loincCode"],
+                result["testName"], result["value"], result["unit"],
+                result.get("referenceRangeLow"), result.get("referenceRangeHigh"),
+                result.get("interpretation"), result.get("sourceName"),
+            )
+            for result in identified
+        ]
+        psycopg2.extras.execute_values(
+            cur,
+            """INSERT INTO clinical_lab_results (
+                   id, health_kit_sample_uuid, effective_date, loinc_code,
+                   test_name, value, unit, reference_range_low,
+                   reference_range_high, interpretation, source_name)
+               VALUES %s
+               ON CONFLICT (health_kit_sample_uuid) DO UPDATE SET
+                   effective_date = EXCLUDED.effective_date,
+                   loinc_code = EXCLUDED.loinc_code,
+                   test_name = EXCLUDED.test_name,
+                   value = EXCLUDED.value,
+                   unit = EXCLUDED.unit,
+                   reference_range_low = EXCLUDED.reference_range_low,
+                   reference_range_high = EXCLUDED.reference_range_high,
+                   interpretation = EXCLUDED.interpretation,
+                   source_name = EXCLUDED.source_name""",
+            rows,
+        )
+        return len(identified)
 
     def _upsert_sleep_stage_events(cur, events):
         """Upsert per-event HealthKit sleep stage rows (id = HKSample.uuid).
@@ -1295,6 +1344,7 @@ def create_app(test_config=None):
         "cpapSessions": ("cpap_sessions", "date", "date"),
         "healthSnapshots": ("health_snapshots", "date", "date"),
         "barometricReadings": ("barometric_readings", "timestamp", "timestamp"),
+        "clinicalLabResults": ("clinical_lab_results", "effective_date", "effective_date"),
         "pharmacies": ("pharmacies", None, "name"),
         "prescriptions": ("prescriptions", None, "date_filled"),
         "pharmacyCallLogs": ("pharmacy_call_logs", "timestamp", "timestamp"),
@@ -1307,6 +1357,10 @@ def create_app(test_config=None):
         "sleepStageEvents": ("sleep_stage_events", "start_time", "start_time"),
         "quantityHealthSamples": ("quantity_health_samples", "timestamp", "timestamp"),
     }
+    # Expose the actual route registry for the cross-layer restore-manifest
+    # test. This is the same dictionary consumed by /api/data, not a duplicate
+    # list that could remain green after a route is removed.
+    app.extensions["restore_entity_queries"] = frozenset(ENTITY_QUERIES)
 
     # Entities too large to inline in the bulk /api/data payload. They sync UP
     # like everything else, but a restore must pull them DOWN page-by-page from

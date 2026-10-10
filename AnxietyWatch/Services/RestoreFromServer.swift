@@ -310,6 +310,9 @@ extension SyncService {
         if let rows = json["barometricReadings"] as? [[String: Any]] {
             report["barometricReadings"] = try Self.importBarometricReadings(rows, shift: shift, into: modelContext)
         }
+        if let rows = json["clinicalLabResults"] as? [[String: Any]] {
+            report["clinicalLabResults"] = try Self.importClinicalLabResults(rows, shift: shift, into: modelContext)
+        }
         if let rows = json["pharmacies"] as? [[String: Any]] {
             report["pharmacies"] = try Self.importPharmacies(rows, into: modelContext)
         }
@@ -593,6 +596,7 @@ extension SyncService {
         check(SensorSession.self, "SensorSession")
         check(HRVReading.self, "HRVReading")
         check(BarometricReading.self, "BarometricReading")
+        check(ClinicalLabResult.self, "ClinicalLabResult")
         check(AccelSpectrogram.self, "AccelSpectrogram")
         check(DerivedBreathingRate.self, "DerivedBreathingRate")
         check(MedicationDose.self, "MedicationDose")
@@ -695,6 +699,52 @@ extension SyncService {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
         return calendar.date(from: DateComponents(year: y, month: m, day: d))
+    }
+
+    /// HealthKit clinical records use the source sample UUID as their natural
+    /// deduplication key. Preserve the server's app-row UUID as well so a fresh
+    /// device does not mint a second identity for the same restored result.
+    static func importClinicalLabResults(
+        _ rows: [[String: Any]],
+        shift: TimeInterval,
+        into ctx: ModelContext
+    ) throws -> Int {
+        var seen = try existingKeys(ClinicalLabResult.self, in: ctx) {
+            $0.healthKitSampleUUID
+        }
+        var imported = 0
+
+        for row in rows {
+            guard let idString = row["id"] as? String,
+                  let id = UUID(uuidString: idString),
+                  let sampleUUID = row["health_kit_sample_uuid"] as? String,
+                  !sampleUUID.isEmpty,
+                  let effectiveDate = parseDate(row["effective_date"])?.addingTimeInterval(shift),
+                  let loincCode = row["loinc_code"] as? String,
+                  let testName = row["test_name"] as? String,
+                  let value = row["value"] as? Double,
+                  let unit = row["unit"] as? String else {
+                continue
+            }
+            guard seen.insert(sampleUUID).inserted else { continue }
+
+            ctx.insert(ClinicalLabResult(
+                id: id,
+                loincCode: loincCode,
+                testName: testName,
+                value: value,
+                unit: unit,
+                effectiveDate: effectiveDate,
+                referenceRangeLow: row["reference_range_low"] as? Double,
+                referenceRangeHigh: row["reference_range_high"] as? Double,
+                interpretation: row["interpretation"] as? String,
+                sourceName: row["source_name"] as? String,
+                healthKitSampleUUID: sampleUUID
+            ))
+            imported += 1
+        }
+
+        return imported
     }
 
     /// Name-keyed. See `importPharmacies` for why this is a seen-set rather than a
@@ -1596,5 +1646,42 @@ extension SyncService {
             n += 1
         }
         return n
+    }
+
+    /// Compile-bound importer inventory used by the cross-layer completeness
+    /// gate. Each entry references the real function symbol, so deleting or
+    /// renaming an importer is a compile failure rather than a stale string
+    /// continuing to make the manifest test pass.
+    @MainActor
+    static var compiledRestoreImporterIDs: Set<String> {
+        [
+            restoreImporterID("importAnxietyEntries", SyncService.importAnxietyEntries),
+            restoreImporterID("importMedDefinitions", SyncService.importMedDefinitions),
+            restoreImporterID("importMedDoses", SyncService.importMedDoses),
+            restoreImporterID("importCPAPSessions", SyncService.importCPAPSessions),
+            restoreImporterID("importHealthSnapshots", SyncService.importHealthSnapshots),
+            restoreImporterID("importBarometricReadings", SyncService.importBarometricReadings),
+            restoreImporterID("importClinicalLabResults", SyncService.importClinicalLabResults),
+            restoreImporterID("importPharmacies", SyncService.importPharmacies),
+            restoreImporterID("importPrescriptions", SyncService.importPrescriptions),
+            restoreImporterID("importPharmacyCallLogs", SyncService.importPharmacyCallLogs),
+            restoreImporterID("importSensorSessions", SyncService.importSensorSessions),
+            restoreImporterID("importHRVReadings", SyncService.importHRVReadings),
+            restoreImporterID("importAccelSpectrograms", SyncService.importAccelSpectrograms),
+            restoreImporterID("importDerivedBreathingRates", SyncService.importDerivedBreathingRates),
+            restoreImporterID("importSongs", SyncService.importSongs),
+            restoreImporterID("importSongOccurrences", SyncService.importSongOccurrences),
+            restoreImporterID("importSleepStageEvents", SyncService.importSleepStageEvents),
+            restoreImporterID("restorePagedQuantitySamples", SyncService.restorePagedQuantitySamples),
+        ]
+    }
+
+    @MainActor
+    private static func restoreImporterID<Importer>(
+        _ id: String,
+        _ importer: Importer
+    ) -> String {
+        _ = importer
+        return id
     }
 }

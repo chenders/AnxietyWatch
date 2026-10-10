@@ -44,10 +44,17 @@ nonisolated enum DataExporter {
     /// because it overwrites the key anyway via
     /// `SyncService.fetchUnsyncedHealthSnapshots`; the snapshot fetch +
     /// encoding would otherwise be wasted main-actor work on every sync.
+    /// `includeAllClinicalLabResults`: sync-only escape from the ordinary date
+    /// window. A HealthKit clinical record can be discovered today with an
+    /// effective date years before the upload cursor, so date-windowing labs
+    /// would permanently omit it from incremental sync. File exports retain
+    /// their requested date range by leaving this false.
     static func exportJSON(from context: ModelContext, start: Date? = nil, end: Date? = nil,
-                           omitHealthSnapshots: Bool = false) throws -> Data {
+                           omitHealthSnapshots: Bool = false,
+                           includeAllClinicalLabResults: Bool = false) throws -> Data {
         let bundle = try buildBundle(from: context, start: start, end: end,
-                                     omitHealthSnapshots: omitHealthSnapshots)
+                                     omitHealthSnapshots: omitHealthSnapshots,
+                                     includeAllClinicalLabResults: includeAllClinicalLabResults)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try encoder.encode(bundle)
@@ -57,7 +64,13 @@ nonisolated enum DataExporter {
 
     /// Returns array of (filename, csvData) pairs — one per entity type.
     static func exportCSV(from context: ModelContext, start: Date? = nil, end: Date? = nil) throws -> [(String, Data)] {
-        let bundle = try buildBundle(from: context, start: start, end: end, omitHealthSnapshots: false)
+        let bundle = try buildBundle(
+            from: context,
+            start: start,
+            end: end,
+            omitHealthSnapshots: false,
+            includeAllClinicalLabResults: false
+        )
         var files: [(String, Data)] = []
 
         // Anxiety entries
@@ -177,8 +190,13 @@ nonisolated enum DataExporter {
 
     // MARK: - Private
 
-    private static func buildBundle(from context: ModelContext, start: Date?, end: Date?,
-                                    omitHealthSnapshots: Bool) throws -> ExportBundle {
+    private static func buildBundle(
+        from context: ModelContext,
+        start: Date?,
+        end: Date?,
+        omitHealthSnapshots: Bool,
+        includeAllClinicalLabResults: Bool
+    ) throws -> ExportBundle {
         // Push the half-open [start, end) range into each time-series fetch so
         // SwiftData bounds the rows in SQLite instead of materializing whole
         // tables (the unbounded per-minute BarometricReading was the worst
@@ -217,9 +235,15 @@ nonisolated enum DataExporter {
         let barometric = try context.fetch(FetchDescriptor<BarometricReading>(
             predicate: #Predicate { $0.timestamp >= lo && $0.timestamp < hi },
             sortBy: [SortDescriptor(\.timestamp)]))
-        let labResults = try context.fetch(FetchDescriptor<ClinicalLabResult>(
-            predicate: #Predicate { $0.effectiveDate >= lo && $0.effectiveDate < hi },
-            sortBy: [SortDescriptor(\.effectiveDate)]))
+        let labResults: [ClinicalLabResult]
+        if includeAllClinicalLabResults {
+            labResults = try context.fetch(FetchDescriptor<ClinicalLabResult>(
+                sortBy: [SortDescriptor(\.effectiveDate)]))
+        } else {
+            labResults = try context.fetch(FetchDescriptor<ClinicalLabResult>(
+                predicate: #Predicate { $0.effectiveDate >= lo && $0.effectiveDate < hi },
+                sortBy: [SortDescriptor(\.effectiveDate)]))
+        }
         let pharmacies: [Pharmacy] = (try? context.fetch(FetchDescriptor<Pharmacy>(sortBy: [SortDescriptor(\.name)]))) ?? []
         let prescriptionsAll: [Prescription] = (try? context.fetch(FetchDescriptor<Prescription>(
             predicate: #Predicate { $0.dateFilled >= lo && $0.dateFilled < hi },
@@ -304,8 +328,12 @@ nonisolated enum DataExporter {
                 BarometricReadingDTO(timestamp: isoFormatter.string(from: b.timestamp),
                                      pressureKPa: b.pressureKPa, relativeAltitudeM: b.relativeAltitudeM)
             },
-            clinicalLabResults: labResults.filter { inRange($0.effectiveDate) }.map { r in
+            clinicalLabResults: labResults.filter {
+                includeAllClinicalLabResults || inRange($0.effectiveDate)
+            }.map { r in
                 ClinicalLabResultDTO(
+                    id: r.id.uuidString,
+                    healthKitSampleUUID: r.healthKitSampleUUID,
                     effectiveDate: isoFormatter.string(from: r.effectiveDate),
                     loincCode: r.loincCode, testName: r.testName,
                     value: r.value, unit: r.unit,
@@ -419,6 +447,7 @@ nonisolated enum DataExporter {
         let timestamp: String; let pressureKPa: Double; let relativeAltitudeM: Double
     }
     struct ClinicalLabResultDTO: Codable {
+        let id: String; let healthKitSampleUUID: String
         let effectiveDate: String; let loincCode: String; let testName: String
         let value: Double; let unit: String
         let referenceRangeLow: Double?; let referenceRangeHigh: Double?
