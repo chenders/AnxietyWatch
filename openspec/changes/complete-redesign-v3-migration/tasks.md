@@ -19,7 +19,8 @@ Detailed file ownership, branch/worktree commands, interfaces, test cases, rollo
 
 ## 2. Ownership, Recovery, and Controls
 
-- [ ] 2.1 Add `WCSessionDelegateRouter` plus startup ownership tests and verify all service activation leaves one effective delegate per target without changing production ownership yet
+- [x] 2.1 Add `WCSessionDelegateRouter` plus startup ownership tests and verify all service activation leaves one effective delegate per target without changing production ownership yet
+  - 2026-10-10: Implemented and tested the package router with serialized, duplicate-safe handler registration, deterministic callback fan-out, single-reply gating, and iPhone/watch startup ownership tests. The focused package suite passes 4 tests. Production startup remains deliberately unchanged, so the router is not yet wired or authoritative; callback inventory and cutover remain in task 4.3.
 - [ ] 2.2 Add `RestoreManifest` and a completeness test that fails with exact names whenever an uploaded table lacks server persistence or a restore importer
 - [ ] 2.3 Implement `CorruptionRecoveryCoordinator` and verify DB/sidecar replacement, stable node identity, schema recreation, full restore, recovery UI state, and the three-events-in-24-hours circuit breaker
 - [ ] 2.4 Replace static redesign flag access with an injectable provider and verify bundled defaults keep SQLite reads and delta sync disabled while both flag values are tested at each production reader
