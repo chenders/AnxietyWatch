@@ -5,6 +5,16 @@ import UserNotifications
 
 @MainActor
 struct CNSAlarmPresenterTests {
+    @Test("App CNSRisk presenter is the sole clinical side-effect owner")
+    func explicitSideEffectOwnership() {
+        #expect(CNSAlarmPresenter.clinicalSideEffectOwner == .appCNSRisk)
+        #expect(CNSAlarmPresenter.ownedClinicalSideEffects == [
+            .standardNotification,
+            .watchHaptic,
+            .foregroundAudio,
+        ])
+    }
+
     @Test("Klaxon buffer is a hi-pulse / gap / lo-pulse / gap cycle that alternates per pulse, not per sample")
     func klaxonBufferHasTwoToneStructure() throws {
         let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1))

@@ -33,23 +33,19 @@ struct FeatureFlagProviderTests {
 
     @Test("gap production reader honors disabled and enabled providers")
     func gapReaderUsesInjectedProvider() async {
-        let disabledEffects = FlagEffectRecorder()
         let disabled = CNSMonitoringCoordinator(
             router: SensorRouter(polar: nil, emay: nil, healthKit: nil),
-            handlers: disabledEffects.handlers,
             featureFlags: FixedFeatureFlagProvider(enabled: [])
         )
         await disabled.process(.dataGap(range: 0...(10 * 60 * 1_000)))
-        #expect(await disabledEffects.notifications.isEmpty)
+        #expect(await disabled.currentPipelineState.lastGapEndMs == nil)
 
-        let enabledEffects = FlagEffectRecorder()
         let enabled = CNSMonitoringCoordinator(
             router: SensorRouter(polar: nil, emay: nil, healthKit: nil),
-            handlers: enabledEffects.handlers,
             featureFlags: FixedFeatureFlagProvider(enabled: [.pipelineGapEvents])
         )
         await enabled.process(.dataGap(range: 0...(10 * 60 * 1_000)))
-        #expect(await enabledEffects.notifications == ["Monitoring gap: 10 min without data"])
+        #expect(await enabled.currentPipelineState.lastGapEndMs == 10 * 60 * 1_000)
     }
 
     @Test("binary transport production reader honors disabled and enabled providers")
@@ -102,21 +98,5 @@ private struct FixedFeatureFlagProvider: FeatureFlagProvider {
 
     func isEnabled(_ flag: RedesignFeature) async -> Bool {
         enabled.contains(flag)
-    }
-}
-
-private actor FlagEffectRecorder {
-    private(set) var notifications: [String] = []
-
-    nonisolated var handlers: CNSMonitoringCoordinator.EffectHandlers {
-        CNSMonitoringCoordinator.EffectHandlers(
-            notify: { [weak self] _, message in await self?.record(message) },
-            haptic: { _ in },
-            watchMessage: { _ in }
-        )
-    }
-
-    private func record(_ message: String) {
-        notifications.append(message)
     }
 }

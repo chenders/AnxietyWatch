@@ -1,6 +1,10 @@
 import AVFAudio
 import UserNotifications
 
+enum CNSClinicalSideEffectOwner: Sendable, Equatable {
+    case appCNSRisk
+}
+
 @MainActor
 protocol NotificationPosting {
     func post(_ content: UNNotificationContent)
@@ -19,6 +23,15 @@ protocol AlarmAudioPlaying {
 
 @MainActor
 struct CNSAlarmPresenter {
+    /// Binding ownership contract: the app-level CNSRisk subsystem is the
+    /// only code allowed to turn detection state into clinical user effects.
+    static let clinicalSideEffectOwner: CNSClinicalSideEffectOwner = .appCNSRisk
+    static let ownedClinicalSideEffects: Set<CNSAlarmChannel> = [
+        .standardNotification,
+        .watchHaptic,
+        .foregroundAudio,
+    ]
+
     private let notify: any NotificationPosting
     private let haptic: any WatchHapticSending
     private let audio: any AlarmAudioPlaying

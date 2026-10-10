@@ -183,6 +183,9 @@ final class CNSMonitoringCoordinator {
     private let emayStopHook: (() -> Void)?
     private let notificationPermissionRequest: () -> Void
     private let watchdogScheduler: (Date) -> Void
+    /// Sole clinical escalation effect seam. Production always routes this to
+    /// `Services/CNSRisk/CNSAlarmPresenter`; the package pipeline cannot inject
+    /// or fire notifications, haptics, audio, or watch messages.
     private let alarmPresentation: (CNSAlertTier) -> Void
     private let pipelineFactory: @MainActor (Bool) -> any CNSDetectionProcessing
 

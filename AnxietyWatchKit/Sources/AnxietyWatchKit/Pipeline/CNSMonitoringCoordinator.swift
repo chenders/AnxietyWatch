@@ -1,58 +1,28 @@
 import Foundation
 
-/// The ONLY impure boundary in the Pipeline layer (Spec §4.2).
+/// Monitoring-state coordinator for the package pipeline (Spec §4.2).
 /// - Owns the pipeline state var and mutates it after each step.
 /// - Consumes SensorRouter.outbound; converts to SensorEvent; steps + fuses.
-/// - Interprets AlertCommand values by calling injected effect handlers.
+/// - Publishes tier/fusion snapshots for presentation and diagnostics.
 ///
-/// This file is EXEMPT from the Pipeline purity lint (see
-/// testPipelineHasNoImpureReferences) — everything else in Pipeline/ stays
-/// pure. Real side effects (UNUserNotificationCenter, WKInterfaceDevice /
-/// CoreHaptics, WCSession) are wired by app-layer EffectHandlers; this actor
-/// never references those APIs directly, so it stays testable from SPM.
+/// CLINICAL SIDE-EFFECT BOUNDARY: this package type deliberately has no
+/// notification, haptic, audio, or watch-message injection surface. The
+/// app-level `Services/CNSRisk/CNSAlarmPresenter` is the sole owner of those
+/// effects. Package `AlertCommand` values are pure calculation outputs; this
+/// coordinator discards them and publishes monitoring state only.
 public actor CNSMonitoringCoordinator {
-
-    public struct EffectHandlers: Sendable {
-        public let notify: @Sendable (_ tier: AlertTier, _ message: String) async -> Void
-        public let haptic: @Sendable (_ pattern: AlertCommand.HapticPattern) async -> Void
-        public let watchMessage: @Sendable (_ text: String) async -> Void
-
-        public init(
-            notify: @escaping @Sendable (AlertTier, String) async -> Void,
-            haptic: @escaping @Sendable (AlertCommand.HapticPattern) async -> Void,
-            watchMessage: @escaping @Sendable (String) async -> Void
-        ) {
-            self.notify = notify
-            self.haptic = haptic
-            self.watchMessage = watchMessage
-        }
-
-        /// A no-op handler set (for tests that don't need to observe effects).
-        public static var noOp: EffectHandlers {
-            EffectHandlers(
-                notify: { _, _ in },
-                haptic: { _ in },
-                watchMessage: { _ in }
-            )
-        }
-    }
-
     private let router: SensorRouter
-    private let handlers: EffectHandlers
     private let featureFlags: any FeatureFlagProvider
     private var state: PipelineState
     private var lastFusion: CNSFusionEngine.FusionScore
     private var runningTask: Task<Void, Never>?
-    private var throttledTask: Task<Void, Never>?
 
     public init(
         router: SensorRouter,
         initialState: PipelineState = PipelineState(),
-        handlers: EffectHandlers = .noOp,
         featureFlags: any FeatureFlagProvider = Feature.defaultProvider
     ) {
         self.router = router
-        self.handlers = handlers
         self.featureFlags = featureFlags
         self.state = initialState
         self.lastFusion = CNSFusionEngine.fuse(initialState)
@@ -81,8 +51,6 @@ public actor CNSMonitoringCoordinator {
     public func stop() async {
         runningTask?.cancel()
         runningTask = nil
-        throttledTask?.cancel()
-        throttledTask = nil
     }
 
     // MARK: - Snapshot readers (ViewModel / diagnostics)
@@ -93,6 +61,10 @@ public actor CNSMonitoringCoordinator {
 
     public var currentFusionScore: CNSFusionEngine.FusionScore {
         lastFusion
+    }
+
+    internal var currentPipelineState: PipelineState {
+        state
     }
 
     public var isRunning: Bool {
@@ -128,15 +100,11 @@ public actor CNSMonitoringCoordinator {
             gapEventsEnabled: gapEventsEnabled
         )
         let fusion = CNSFusionEngine.fuse(steppedState)
-        let (fusedState, allCommands) = PipelineStep.applyFusion(
+        let (fusedState, _) = PipelineStep.applyFusion(
             steppedState, stepCommands, fusion: fusion, tMs: Self.eventTMs(event))
 
         state = fusedState
         lastFusion = fusion
-
-        for command in allCommands {
-            await interpret(command)
-        }
     }
 
     /// AnySensorSample → SensorEvent. Returns nil for samples the pipeline
@@ -178,19 +146,6 @@ public actor CNSMonitoringCoordinator {
         case .accel(let tMs, _): return tMs
         case .dataGap(let range): return range.upperBound
         case .tick(let tMs): return tMs
-        }
-    }
-
-    // MARK: - Command interpretation (the impure edge)
-
-    private func interpret(_ command: AlertCommand) async {
-        switch command {
-        case .notify(let tier, let message):
-            await handlers.notify(tier, message)
-        case .haptic(let pattern):
-            await handlers.haptic(pattern)
-        case .watchMessage(let text):
-            await handlers.watchMessage(text)
         }
     }
 }

@@ -30,8 +30,8 @@ public struct PipelineStep {
     ///   - state: current pipeline state.
     ///   - event: sensor sample, tick, or data gap.
     /// - Returns: (newState, commands) where commands is the deterministic
-    ///   list of alerts to emit for this step. The CNSMonitoringCoordinator
-    ///   (T27) is the only impure interpreter.
+    ///   list of presentation suggestions for this step. The package
+    ///   coordinator publishes state only and never fires clinical effects.
     public static func step(
         _ state: PipelineState,
         _ event: SensorEvent,
