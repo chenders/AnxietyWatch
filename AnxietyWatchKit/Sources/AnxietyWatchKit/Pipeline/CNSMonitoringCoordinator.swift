@@ -39,6 +39,7 @@ public actor CNSMonitoringCoordinator {
 
     private let router: SensorRouter
     private let handlers: EffectHandlers
+    private let featureFlags: any FeatureFlagProvider
     private var state: PipelineState
     private var lastFusion: CNSFusionEngine.FusionScore
     private var runningTask: Task<Void, Never>?
@@ -47,10 +48,12 @@ public actor CNSMonitoringCoordinator {
     public init(
         router: SensorRouter,
         initialState: PipelineState = PipelineState(),
-        handlers: EffectHandlers = .noOp
+        handlers: EffectHandlers = .noOp,
+        featureFlags: any FeatureFlagProvider = Feature.defaultProvider
     ) {
         self.router = router
         self.handlers = handlers
+        self.featureFlags = featureFlags
         self.state = initialState
         self.lastFusion = CNSFusionEngine.fuse(initialState)
     }
@@ -106,7 +109,24 @@ public actor CNSMonitoringCoordinator {
             return
         }
 
-        let (steppedState, stepCommands) = PipelineStep.step(state, event)
+        await process(event)
+    }
+
+    /// Event-level production decision point. Kept internal so focused tests
+    /// can prove both values without manufacturing a sensor transport frame.
+    internal func process(_ event: SensorEvent) async {
+        let gapEventsEnabled: Bool
+        if case .dataGap = event {
+            gapEventsEnabled = await Feature.isEnabled(.pipelineGapEvents, using: featureFlags)
+        } else {
+            gapEventsEnabled = false
+        }
+
+        let (steppedState, stepCommands) = PipelineStep.step(
+            state,
+            event,
+            gapEventsEnabled: gapEventsEnabled
+        )
         let fusion = CNSFusionEngine.fuse(steppedState)
         let (fusedState, allCommands) = PipelineStep.applyFusion(
             steppedState, stepCommands, fusion: fusion, tMs: Self.eventTMs(event))

@@ -2,17 +2,6 @@ import XCTest
 @testable import AnxietyWatchKit
 
 final class PipelineStepTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
-        // Enable data-gap events for tests (§4.3 Phase 1 gate).
-        UserDefaults.standard.set(true, forKey: "pipeline.gapEventsEnabled")
-    }
-
-    override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: "pipeline.gapEventsEnabled")
-        super.tearDown()
-    }
-
     private func makeState() -> PipelineState {
         PipelineState()
     }
@@ -193,13 +182,13 @@ final class PipelineStepTests: XCTestCase {
     func testDataGapEmitsInfoOnlyOverFiveMinutes() {
         // 3-minute gap → no command.
         let (afterShort, shortCommands) = PipelineStep.step(
-            makeState(), .dataGap(range: 0...(3 * 60 * 1_000)))
+            makeState(), .dataGap(range: 0...(3 * 60 * 1_000)), gapEventsEnabled: true)
         XCTAssertTrue(shortCommands.isEmpty)
         XCTAssertEqual(afterShort.lastGapEndMs, 3 * 60 * 1_000)
 
         // 10-minute gap → advisory notify (no .info tier exists).
         let (afterLong, longCommands) = PipelineStep.step(
-            makeState(), .dataGap(range: 0...(10 * 60 * 1_000)))
+            makeState(), .dataGap(range: 0...(10 * 60 * 1_000)), gapEventsEnabled: true)
         XCTAssertEqual(longCommands, [.notify(tier: .advisory, message: "Monitoring gap: 10 min without data")])
         XCTAssertEqual(afterLong.lastGapEndMs, 10 * 60 * 1_000)
     }
@@ -210,7 +199,8 @@ final class PipelineStepTests: XCTestCase {
         (state, _) = PipelineStep.step(state, .hr(tMs: 50_000, bpm: 71))
 
         // Gap covering only the first sample.
-        let (after, _) = PipelineStep.step(state, .dataGap(range: 0...10_000))
+        let (after, _) = PipelineStep.step(
+            state, .dataGap(range: 0...10_000), gapEventsEnabled: true)
         XCTAssertEqual(after.hrRing.elements.map(\.tMs), [50_000])
     }
 

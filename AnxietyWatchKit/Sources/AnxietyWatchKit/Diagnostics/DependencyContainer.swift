@@ -66,6 +66,7 @@ public struct DependencyContainer: Sendable {
     ///   - cursorFileURL: Full path to `sync_cursor.json` (same directory).
     ///   - nodeID: 16 raw bytes from Keychain (§2.1). Unique per device.
     ///   - endpoint: Server sync endpoint.
+    ///   - featureFlags: Injectable redesign rollout decisions.
     ///   - rederiveHealthKit: App-owned authoritative HealthKit backfill. The
     ///     default is empty while SQLite reads remain disabled; Phase 2A must
     ///     inject its production backfill before enabling SQLite authority.
@@ -78,6 +79,7 @@ public struct DependencyContainer: Sendable {
         nodeID: Data,
         endpoint: SyncEndpoint,
         session: WCSessionProtocol? = nil,
+        featureFlags: any FeatureFlagProvider = Feature.defaultProvider,
         rederiveHealthKit: @escaping @Sendable () async throws -> Void = {},
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) },
         monotonicNow: @escaping @Sendable () -> Int64 = { HLC.defaultMonotonic() }
@@ -146,7 +148,8 @@ public struct DependencyContainer: Sendable {
         syncEngine = SyncEngine(
             database: db,
             hlc: clock,
-            transport: wcsCoordinator
+            transport: wcsCoordinator,
+            featureFlags: featureFlags
         )
 
         // 5. Compaction
