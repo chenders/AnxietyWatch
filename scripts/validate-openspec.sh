@@ -17,6 +17,8 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 echo "OpenSpec CLI: $(openspec --version)"
-python3 -m unittest discover -s scripts/tests -p 'test_check_openspec_links.py' -v
+# Run the focused module directly. Python 3.13 rejects discovery roots that
+# are not importable packages; scripts/tests intentionally has no __init__.py.
+python3 scripts/tests/test_check_openspec_links.py -v
 openspec validate --all --strict
 python3 scripts/check_openspec_links.py openspec
