@@ -110,6 +110,7 @@ The order below is preserved as the plan created before integration. Execution u
 - The primary checkout is now clean on repaired `main`. Documentation PR #51 remains the only baseline PR to merge before redesign implementation begins.
 - At the owner's request, the repository ruleset no longer requires Copilot code review. Deletion protection, non-fast-forward protection, required signatures, and the existing pull-request policy remain active. The already-used public signing key was registered with GitHub so the repair commits validate without history rewriting; the private key never left the machine.
 - After PR #51 merges, remove only `.worktrees/openspec-redesign-v3`, update tasks 1.6 and 1.8 in a small status-only PR, validate OpenSpec strictly, and return the primary checkout to clean updated `main`.
+- PR #51 subsequently merged as `fae7eb5`; the clean documentation worktree and its merged local branch were removed, the primary checkout was updated to clean `main`, and `openspec validate --all --strict` passed all 8 items. The status-only baseline-finalization PR records these completed gates.
 
 ## 2. Branch and PR Sequence
 
@@ -759,4 +760,4 @@ Redesign v3 is complete only when all statements below are true:
 
 ## 14. Immediate Next Action
 
-Validate and merge documentation PR #51 from `.worktrees/openspec-redesign-v3`, now based on repaired `main`. Then remove only that clean documentation worktree and use a status-only PR to mark baseline tasks 1.6 and 1.8 complete. Do not begin redesign implementation until that clean-baseline finalization is merged.
+Merge the status-only baseline-finalization PR, return the primary checkout to clean updated `main`, and begin PR 3 from a new `codex/redesign-v3-prerequisites` worktree. PR 3 starts with tasks 2.1–2.6: delegate ownership tests, restore-manifest completeness, corruption recovery, injectable feature controls, and explicit CNS side-effect ownership. Do not combine later storage, transport, sync, or diagnostics phases into that prerequisites PR.
