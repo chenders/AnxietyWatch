@@ -116,6 +116,26 @@ CREATE TABLE IF NOT EXISTS barometric_readings (
     relative_altitude_m DOUBLE PRECISION NOT NULL
 );
 
+-- Sparse HealthKit clinical-record results. The app-row UUID is preserved for
+-- restore identity; the HealthKit sample UUID is the natural replay key.
+CREATE TABLE IF NOT EXISTS clinical_lab_results (
+    id                      UUID PRIMARY KEY,
+    health_kit_sample_uuid  TEXT NOT NULL UNIQUE,
+    effective_date          TIMESTAMPTZ NOT NULL,
+    loinc_code              TEXT NOT NULL,
+    test_name               TEXT NOT NULL,
+    value                   DOUBLE PRECISION NOT NULL,
+    unit                    TEXT NOT NULL,
+    reference_range_low     DOUBLE PRECISION,
+    reference_range_high    DOUBLE PRECISION,
+    interpretation          TEXT,
+    source_name             TEXT,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_clinical_lab_results_effective_date
+    ON clinical_lab_results (effective_date DESC);
+
 -- Per-sample mirror of HealthKit HKQuantitySample rows for clinically-
 -- meaningful metrics (HR, HRV, glucose, SpO2, BP, body/wrist temp, etc.).
 -- The `id` PK is the iOS UUID (= HKSample.uuid), so upsert by id is the
@@ -645,5 +665,4 @@ CREATE TABLE IF NOT EXISTS alert_event (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_event_session_kind
     ON alert_event (session_id, kind);
-
 

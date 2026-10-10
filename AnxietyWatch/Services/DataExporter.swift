@@ -306,6 +306,8 @@ nonisolated enum DataExporter {
             },
             clinicalLabResults: labResults.filter { inRange($0.effectiveDate) }.map { r in
                 ClinicalLabResultDTO(
+                    id: r.id.uuidString,
+                    healthKitSampleUUID: r.healthKitSampleUUID,
                     effectiveDate: isoFormatter.string(from: r.effectiveDate),
                     loincCode: r.loincCode, testName: r.testName,
                     value: r.value, unit: r.unit,
@@ -419,6 +421,7 @@ nonisolated enum DataExporter {
         let timestamp: String; let pressureKPa: Double; let relativeAltitudeM: Double
     }
     struct ClinicalLabResultDTO: Codable {
+        let id: String; let healthKitSampleUUID: String
         let effectiveDate: String; let loincCode: String; let testName: String
         let value: Double; let unit: String
         let referenceRangeLow: Double?; let referenceRangeHigh: Double?

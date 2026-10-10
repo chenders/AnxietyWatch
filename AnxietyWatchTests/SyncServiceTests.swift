@@ -1,4 +1,5 @@
 import Foundation
+import AnxietyWatchKit
 import SwiftData
 import Testing
 
@@ -23,6 +24,25 @@ struct SyncServiceTests {
     }
 
     // MARK: - isConfigured
+
+    @Test("restore manifest exactly matches array entities in a full sync payload")
+    @MainActor
+    func restoreManifestMatchesPayloadEntities() throws {
+        let restore = saveSyncDefaults()
+        defer { restore() }
+        UserDefaults.standard.removeObject(forKey: "lastSyncDate")
+
+        let container = try TestHelpers.makeFullContainer()
+        let payload = try SyncService().buildPayload(from: ModelContext(container))
+        let json = try #require(
+            JSONSerialization.jsonObject(with: payload) as? [String: Any]
+        )
+        let payloadEntities = Set(json.compactMap { key, value in
+            value is [Any] ? key : nil
+        })
+
+        #expect(payloadEntities == Set(RestoreManifest.production.uploadedTables))
+    }
 
     @Test("Not configured when both URL and key are empty")
     func notConfiguredEmpty() {
@@ -435,7 +455,7 @@ struct SyncServiceTests {
             "medicationDoses",
             "cpapSessions",
             "barometricReadings",
-            "labResults",
+            "clinicalLabResults",
             "pharmacies",
             "prescriptions",
             "pharmacyCallLogs",

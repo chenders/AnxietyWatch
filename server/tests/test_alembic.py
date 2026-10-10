@@ -161,6 +161,7 @@ class TestFullMigrationChain:
         assert "songs" in tables
         # 0004 — per-sample provenance tables and JSONB column
         assert "quantity_health_samples" in tables
+        assert "clinical_lab_results" in tables
         assert "sleep_stage_events" in tables
         assert "data_quality" in _column_names("health_snapshots")
         # 0005 — Polar H10 sensor_sessions + hrv_readings
