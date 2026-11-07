@@ -5,9 +5,10 @@ githubCopilot:
 context: |
   AnxietyWatch is a SwiftUI iOS/watchOS health application with a local
   AnxietyWatchKit Swift package. The legacy app uses SwiftData and bespoke
-  services; redesign v3 adds GRDB/SQLite storage, actor-isolated sensor
-  ingestion, a deterministic CNS pipeline, HLC delta sync, and binary
-  WatchConnectivity in staged phases.
+  services; redesign v3 adds GRDB/SQLite storage, actor-isolated non-alert
+  sensor ingestion and vitals presentation, HLC delta sync, and binary
+  WatchConnectivity in staged phases. CNS-depression detection and klaxon
+  alarming are owned by AnxietyWatch2 and must not be reintroduced here.
 
   HealthKit is the source of truth for HealthKit-owned physiological data.
   A personal server is a mirror and must never silently become the only copy.
@@ -48,7 +49,7 @@ rules:
     - Each implementation task must name concrete files, tests, and acceptance evidence.
     - Keep implementation, rollout, and production-enablement tasks separate.
     - Do not defer all testing to a final task; add or update tests with every code task.
-    - Require medical-data-accuracy-reviewer for HealthKit, ingestion, arbitration, baseline, OCR, CPAP, EMAY, Polar, SpO2, or CNS data-path changes.
+    - Require medical-data-accuracy-reviewer for HealthKit, ingestion, arbitration, baseline, OCR, CPAP, EMAY, Polar, SpO2, or other physiological data-path changes.
     - Require swift-pre-pr-reviewer before pushing substantive Swift changes.
 
 operations:

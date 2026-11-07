@@ -9,7 +9,6 @@ struct SettingsView: View {
     @State private var showRebuildConfirmation = false
 #if DEBUG
     @State private var demoOuraPresented = false
-    @State private var demoCNSPresented = false
 #endif
 
     var body: some View {
@@ -31,20 +30,12 @@ struct SettingsView: View {
                     } label: {
                         Label("Devices", systemImage: "dot.radiowaves.left.and.right")
                     }
-                    NavigationLink {
-                        CNSMonitoringView()
-                    } label: {
-                        Label("CNS Monitoring", systemImage: "waveform.path.ecg.rectangle")
-                    }
                 } header: {
                     Text("Data Sources")
                 } footer: {
                     Text(
                         "Anxiety Watch reads from these sources to correlate symptoms with physiological signals. "
-                            + "It never writes back. CNS Monitoring arms an overnight respiratory-depression watch "
-                            + "after a benzodiazepine/opioid dose or on demand; arming it auto-starts the EMAY "
-                            + "oximeter session without touching your EMAY continuous-streaming toggle above. "
-                            + "Phase 2 detects and discloses; loud alerting (klaxon/haptics) lands in Phase 3."
+                            + "It never writes back."
                     )
                 }
 
@@ -129,21 +120,13 @@ struct SettingsView: View {
             .navigationDestination(isPresented: $demoOuraPresented) {
                 OuraSettingsView()
             }
-            .navigationDestination(isPresented: $demoCNSPresented) {
-                CNSMonitoringDemoView()
-            }
             .task {
                 let arguments = ProcessInfo.processInfo.arguments
-                guard arguments.contains("-demoOuraSequence")
-                        || arguments.contains("-demoCNSSequence") else { return }
+                guard arguments.contains("-demoOuraSequence") else { return }
                 // Let Settings remain visible long enough to establish where
                 // the feature lives before following the matching visible row.
                 try? await Task.sleep(for: .seconds(3))
-                if arguments.contains("-demoCNSSequence") {
-                    demoCNSPresented = true
-                } else {
-                    demoOuraPresented = true
-                }
+                demoOuraPresented = true
             }
 #endif
         }

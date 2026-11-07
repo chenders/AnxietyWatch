@@ -34,7 +34,7 @@ public actor PolarActor {
         continuation.yield(sample)
     }
 
-    /// The consumer surface — CNS pipeline / UI ViewModel reads from this.
+    /// The consumer surface — `SensorRouter` and UI presentation read from this.
     public var outboundHR: AsyncStream<HRSample> { 
         return stream
     }

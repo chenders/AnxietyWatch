@@ -6,8 +6,8 @@ import Foundation
 ///
 /// Throttled snapshots (Spec §3.2, §3.4): call `throttled(rate:)` to get a
 /// per-consumer AsyncStream<ViewModelSnapshot> throttled to at most `rate` Hz.
-/// The coordinator installs itself via `setCoordinatorSnapshotProvider(_:)`
-/// to inject alertTier and fusionScore into each snapshot.
+/// The router derives ordinary `normal`/`idle` presentation state directly
+/// from the same source-idle calculation used by each snapshot.
 public actor SensorRouter {
 
     public enum AnySensorSample: Sendable, Equatable {
@@ -81,7 +81,6 @@ public actor SensorRouter {
     private let (stream, continuation): (AsyncStream<AnySensorSample>, AsyncStream<AnySensorSample>.Continuation)
 
     // Snapshot broadcast
-    private var coordinatorSnapshotProvider: (@Sendable () async -> (tier: AlertTier, fusion: Double)?)?
     private struct SnapshotSubscriber {
         let continuation: AsyncStream<ViewModelSnapshot>.Continuation
         let minimumInterval: Duration
@@ -92,6 +91,10 @@ public actor SensorRouter {
     private var latestHR: Int?
     private var latestSpO2: Int?
     private var latestHRV: Double?
+    private var latestPolarFrameAt: Double?
+    private var latestEMAYFrameAt: Double?
+    private var latestHealthKitFrameAt: Double?
+    private var latestOuraFrameAt: Double?
 
     // MARK: - Init
 
@@ -146,15 +149,6 @@ public actor SensorRouter {
         await publishSnapshot(for: sample)
     }
 
-    // MARK: - Coordinator wiring
-
-    /// Installs the pipeline-state reader used when constructing UI snapshots.
-    public func setCoordinatorSnapshotProvider(
-        _ provider: (@Sendable () async -> (tier: AlertTier, fusion: Double)?)?
-    ) {
-        coordinatorSnapshotProvider = provider
-    }
-
     // MARK: - Throttled snapshot stream (Spec §3.2, §3.4)
 
     /// Returns a per-consumer broadcast stream of ViewModelSnapshot, emitted at
@@ -178,16 +172,15 @@ public actor SensorRouter {
         continuation.onTermination = { [weak self] _ in
             Task { await self?.removeSnapshotSubscriber(id) }
         }
-        let pipeline = await coordinatorSnapshotProvider?()
         // Ensure bridging is running so upstream samples reach publishSnapshot.
         await startBridging()
+        let idle = await isIdle(now: Date().timeIntervalSince1970)
         continuation.yield(ViewModelSnapshot(
             latestHR: latestHR,
             latestSpO2: latestSpO2,
             latestHRV: latestHRV,
-            alertTier: pipeline?.tier ?? .normal,
-            isIdle: await isIdle(now: Date().timeIntervalSince1970),
-            fusionScore: pipeline?.fusion ?? 0
+            vitalsStatus: idle ? .idle : .normal,
+            isIdle: idle
         ))
         return stream
     }
@@ -200,29 +193,32 @@ public actor SensorRouter {
         switch sample {
         case .polar(let hr):
             latestHR = hr.heartRate
+            latestPolarFrameAt = hr.timestamp
         case .emay(let oxygen):
             latestSpO2 = oxygen.spo2Percent
             if let pulse = oxygen.pulseRate { latestHR = pulse }
+            latestEMAYFrameAt = oxygen.timestamp
         case .healthkit(let hk):
             switch hk.quantityType {
             case .heartRate:            latestHR = Int(hk.value)
             case .heartRateVariability:  latestHRV = hk.value
             case .respiratoryRate:       break
             }
+            latestHealthKitFrameAt = hk.timestamp
         case .oura(let ibi):
             latestHR = Int(ibi.instantHR.rounded())
             latestHRV = Double(ibi.ibiMs)
+            latestOuraFrameAt = ibi.timestamp
         }
 
         let now = ContinuousClock.now
-        let pipeline = await coordinatorSnapshotProvider?()
+        let idle = await isIdle(now: sample.timestamp)
         let snapshot = ViewModelSnapshot(
             latestHR: latestHR,
             latestSpO2: latestSpO2,
             latestHRV: latestHRV,
-            alertTier: pipeline?.tier ?? .normal,
-            isIdle: await isIdle(now: sample.timestamp),
-            fusionScore: pipeline?.fusion ?? 0
+            vitalsStatus: idle ? .idle : .normal,
+            isIdle: idle
         )
 
         for id in snapshotSubscribers.keys {
@@ -249,9 +245,50 @@ public actor SensorRouter {
     // MARK: - Idle detection
 
     public func isIdle(now: Double) async -> Bool {
-        if let polar, await !polar.isIdle(now: now, idleAfterSeconds: bleIdleAfterSeconds) { return false }
-        if let emay,  await !emay.isIdle(now: now, idleAfterSeconds: bleIdleAfterSeconds)  { return false }
-        if let healthKit, await !healthKit.isIdle(now: now, idleAfterSeconds: hkIdleAfterSeconds) { return false }
+        if let polar {
+            if let actorFrameAt = await polar.lastFrameAtTimestamp,
+               !SourceIdleState(sourceName: "Polar", lastFrameAt: actorFrameAt)
+                .isIdle(now: now, idleAfterSeconds: bleIdleAfterSeconds) {
+                return false
+            }
+        }
+        if let latestPolarFrameAt,
+           !SourceIdleState(sourceName: "Polar", lastFrameAt: latestPolarFrameAt)
+            .isIdle(now: now, idleAfterSeconds: bleIdleAfterSeconds) {
+            return false
+        }
+
+        if let emay {
+            if let actorFrameAt = await emay.lastFrameAtTimestamp,
+               !SourceIdleState(sourceName: "EMAY", lastFrameAt: actorFrameAt)
+                .isIdle(now: now, idleAfterSeconds: bleIdleAfterSeconds) {
+                return false
+            }
+        }
+        if let latestEMAYFrameAt,
+           !SourceIdleState(sourceName: "EMAY", lastFrameAt: latestEMAYFrameAt)
+            .isIdle(now: now, idleAfterSeconds: bleIdleAfterSeconds) {
+            return false
+        }
+
+        if let healthKit {
+            if let actorFrameAt = await healthKit.lastFrameAt,
+               !SourceIdleState(sourceName: "HealthKit", lastFrameAt: actorFrameAt)
+                .isIdle(now: now, idleAfterSeconds: hkIdleAfterSeconds) {
+                return false
+            }
+        }
+        if let latestHealthKitFrameAt,
+           !SourceIdleState(sourceName: "HealthKit", lastFrameAt: latestHealthKitFrameAt)
+            .isIdle(now: now, idleAfterSeconds: hkIdleAfterSeconds) {
+            return false
+        }
+
+        if let latestOuraFrameAt,
+           !SourceIdleState(sourceName: "Oura", lastFrameAt: latestOuraFrameAt)
+            .isIdle(now: now, idleAfterSeconds: bleIdleAfterSeconds) {
+            return false
+        }
         return true
     }
 

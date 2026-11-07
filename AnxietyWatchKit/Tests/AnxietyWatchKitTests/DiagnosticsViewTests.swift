@@ -7,11 +7,8 @@ final class DiagnosticsViewTests: XCTestCase {
 
     func testDefaultSnapshotHasSaneDefaults() {
         let s = DiagnosticsSnapshot()
-        XCTAssertEqual(s.pipeline.currentTier, .normal)
-        XCTAssertEqual(s.pipeline.fusionOverall, 0.0)
-        XCTAssertEqual(s.pipeline.ringCounts.hr, 0)
+        XCTAssertEqual(s.pipeline.vitalsStatus, .idle)
         XCTAssertFalse(s.pipeline.isRunning)
-        XCTAssertNil(s.pipeline.lastGapEndMs)
         XCTAssertTrue(s.syncCursors.perNode.isEmpty)
         XCTAssertTrue(s.sources.isEmpty)
         XCTAssertFalse(s.system.clockSuspect)
@@ -22,15 +19,7 @@ final class DiagnosticsViewTests: XCTestCase {
         let nodeID = Data(repeating: 0xAB, count: 16)
         let s = DiagnosticsSnapshot(
             capturedAt: Date(timeIntervalSince1970: 1_720_000_000),
-            pipeline: .init(
-                currentTier: .warning,
-                fusionOverall: 0.45,
-                fusionContributions: .init(hr: 0.6, hrv: 0.2, spo2: 0.8, accel: 0.3, breath: 0.0),
-                ringCounts: .init(hr: 95, spo2: 42, hrv: 30, accel: 150),
-                isRunning: true,
-                lastGapEndMs: 1_720_000_000_000,
-                thresholds: CNSThresholds()
-            ),
+            pipeline: .init(vitalsStatus: .normal, isRunning: true),
             syncCursors: .init(perNode: [
                 .init(nodeID: nodeID, pullSamplesHLC: 1_720_000_000_000,
                       pushSamplesHLC: 1_719_999_000_000,
@@ -50,13 +39,8 @@ final class DiagnosticsViewTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(s.pipeline.currentTier, .warning)
-        XCTAssertEqual(s.pipeline.fusionOverall, 0.45)
-        XCTAssertEqual(s.pipeline.fusionContributions.hr, 0.6)
-        XCTAssertEqual(s.pipeline.fusionContributions.spo2, 0.8)
-        XCTAssertEqual(s.pipeline.ringCounts.accel, 150)
+        XCTAssertEqual(s.pipeline.vitalsStatus, .normal)
         XCTAssertTrue(s.pipeline.isRunning)
-        XCTAssertEqual(s.pipeline.lastGapEndMs, 1_720_000_000_000)
         XCTAssertEqual(s.syncCursors.perNode.count, 1)
         XCTAssertEqual(s.syncCursors.perNode.first?.pullSamplesHLC, 1_720_000_000_000)
         XCTAssertEqual(s.sources.count, 2)
@@ -92,15 +76,7 @@ final class DiagnosticsViewTests: XCTestCase {
                            0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10])
         let original = DiagnosticsSnapshot(
             capturedAt: Date(timeIntervalSince1970: 1_700_000_000),
-            pipeline: .init(
-                currentTier: .advisory,
-                fusionOverall: 0.33,
-                fusionContributions: .init(hr: 0.5, hrv: 0.1, spo2: 0.6, accel: 0.0, breath: 0.1),
-                ringCounts: .init(hr: 60, spo2: 30, hrv: 15, accel: 0),
-                isRunning: true,
-                lastGapEndMs: nil,
-                thresholds: CNSThresholds()
-            ),
+            pipeline: .init(vitalsStatus: .normal, isRunning: true),
             syncCursors: .init(perNode: [
                 .init(nodeID: nodeID, pullSamplesHLC: 1_700_000_000_000,
                       pushSamplesHLC: 1_700_000_001_000,
@@ -123,9 +99,8 @@ final class DiagnosticsViewTests: XCTestCase {
         let data = try encoder.encode(original)
         let decoded = try JSONDecoder().decode(DiagnosticsSnapshot.self, from: data)
 
-        XCTAssertEqual(decoded.pipeline.currentTier, original.pipeline.currentTier)
-        XCTAssertEqual(decoded.pipeline.fusionOverall, original.pipeline.fusionOverall)
-        XCTAssertEqual(decoded.pipeline.ringCounts.hr, original.pipeline.ringCounts.hr)
+        XCTAssertEqual(decoded.pipeline.vitalsStatus, original.pipeline.vitalsStatus)
+        XCTAssertEqual(decoded.pipeline.isRunning, original.pipeline.isRunning)
         XCTAssertEqual(decoded.syncCursors.perNode.count, original.syncCursors.perNode.count)
         XCTAssertEqual(decoded.syncCursors.perNode.first?.nodeIDSuffix, "0F10")
         XCTAssertEqual(decoded.syncCursors.perNode.first?.pullSamplesHLC, 1_700_000_000_000)
@@ -138,7 +113,7 @@ final class DiagnosticsViewTests: XCTestCase {
         let original = DiagnosticsSnapshot()
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(DiagnosticsSnapshot.self, from: data)
-        XCTAssertEqual(decoded.pipeline.currentTier, .normal)
+        XCTAssertEqual(decoded.pipeline.vitalsStatus, .idle)
         XCTAssertTrue(decoded.syncCursors.perNode.isEmpty)
     }
 
@@ -157,17 +132,6 @@ final class DiagnosticsViewTests: XCTestCase {
         // Sort should be stable by construction order
         XCTAssertEqual(s.syncCursors.perNode[0].nodeIDSuffix, "AAAA")
         XCTAssertEqual(s.syncCursors.perNode[1].nodeIDSuffix, "BBBB")
-    }
-
-    // MARK: - Fusion contributions zero
-
-    func testFusionContributionsAllZero() {
-        let fc = DiagnosticsSnapshot.FusionContributions()
-        XCTAssertEqual(fc.hr, 0)
-        XCTAssertEqual(fc.hrv, 0)
-        XCTAssertEqual(fc.spo2, 0)
-        XCTAssertEqual(fc.accel, 0)
-        XCTAssertEqual(fc.breath, 0)
     }
 
     // MARK: - Source state idle vs active

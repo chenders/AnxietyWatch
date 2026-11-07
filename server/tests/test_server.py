@@ -245,12 +245,10 @@ def test_sync_all_entity_types(client):
             {"timestamp": "2025-03-20T10:00:00Z", "severity": 5, "notes": "", "tags": []},
         ],
         "medicationDefinitions": [
-            # New-client shape: carries the explicit CNS-depressant
-            # classification (0013 column).
+            # A retired client may still send the old classification key. The
+            # server accepts the payload but intentionally ignores the value.
             {"name": "Lorazepam", "defaultDoseMg": 0.5, "category": "benzodiazepine",
-             "isActive": True, "cnsDepressantClass": "benzodiazepine"},
-            # Old-client shape: key absent entirely — must still 200 and land
-            # as NULL via the .get default, never a KeyError.
+             "isActive": True, "cnsDepressantClass": "legacy-value"},
             {"name": "Melatonin", "defaultDoseMg": 3.0, "category": "supplement", "isActive": True},
         ],
         "medicationDoses": [
@@ -291,16 +289,11 @@ def test_sync_all_entity_types(client):
     assert counts["health_snapshots"] == 1
     assert counts["barometric_readings"] == 1
 
-    # cns_depressant_class round-trips through /api/data (SELECT * — no
-    # ENTITY_SELECT_COLS override for medicationDefinitions), so a device
-    # restore gets the explicit classification back; the old-client row
-    # reads NULL, not a fabricated class.
     defs = client.get(
         "/api/data/medicationDefinitions", headers=auth_header()
     ).get_json()["medicationDefinitions"]
-    by_name = {d["name"]: d for d in defs}
-    assert by_name["Lorazepam"]["cns_depressant_class"] == "benzodiazepine"
-    assert by_name["Melatonin"]["cns_depressant_class"] is None
+    assert {d["name"] for d in defs} == {"Lorazepam", "Melatonin"}
+    assert all("cns_depressant_class" not in d for d in defs)
 
 
 def _sync_med_def(client, med_def):
@@ -313,51 +306,23 @@ def _sync_med_def(client, med_def):
     assert resp.status_code == 200
 
 
-def _get_med_def_cns_class(client, name):
-    defs = client.get(
+def test_sync_med_def_ignores_retired_cns_classification(client):
+    _sync_med_def(client, {"name": "Test Medication", "defaultDoseMg": 10.0,
+                           "category": "test", "isActive": True,
+                           "cnsDepressantClass": "legacy-value"})
+
+    definitions = client.get(
         "/api/data/medicationDefinitions", headers=auth_header()
     ).get_json()["medicationDefinitions"]
-    return {d["name"]: d for d in defs}[name]["cns_depressant_class"]
+    definition = {item["name"]: item for item in definitions}["Test Medication"]
+    assert "cns_depressant_class" not in definition
 
 
-def test_sync_med_def_null_never_clobbers_stored_classification(client):
-    """Fail-safe conflict semantics (COALESCE): an incoming NULL — an old
-    client omitting the cnsDepressantClass key, or a new client whose nil
-    encodes as an absent key — must never clobber a stored explicit
-    classification. Under-monitoring is the failure class this guards."""
-    _sync_med_def(client, {"name": "Oxycodone ER 10mg", "defaultDoseMg": 10.0,
-                           "category": "opioid", "isActive": True,
-                           "cnsDepressantClass": "opioidER"})
-    # Old-shape re-sync of the same definition: key absent entirely.
-    _sync_med_def(client, {"name": "Oxycodone ER 10mg", "defaultDoseMg": 10.0,
-                           "category": "opioid", "isActive": True})
-    assert _get_med_def_cns_class(client, "Oxycodone ER 10mg") == "opioidER", (
-        "a NULL from an old client must not clobber the stored classification"
+def test_retired_alert_channel_routes_are_not_registered(app):
+    assert not any(
+        rule.rule.startswith("/api/alert-channel/")
+        for rule in app.url_map.iter_rules()
     )
-
-
-def test_sync_med_def_value_fills_stored_null(client):
-    """A stored NULL (row created by an old client) takes the first explicit
-    classification a new client syncs up."""
-    _sync_med_def(client, {"name": "Lorazepam", "defaultDoseMg": 0.5,
-                           "category": "benzodiazepine", "isActive": True})
-    assert _get_med_def_cns_class(client, "Lorazepam") is None
-    _sync_med_def(client, {"name": "Lorazepam", "defaultDoseMg": 0.5,
-                           "category": "benzodiazepine", "isActive": True,
-                           "cnsDepressantClass": "benzodiazepine"})
-    assert _get_med_def_cns_class(client, "Lorazepam") == "benzodiazepine"
-
-
-def test_sync_med_def_new_value_overwrites_old_value(client):
-    """Non-NULL always wins: a re-classification (user corrects the picker)
-    propagates normally — COALESCE only shields against NULL."""
-    _sync_med_def(client, {"name": "Tramadol 50mg", "defaultDoseMg": 50.0,
-                           "category": "opioid", "isActive": True,
-                           "cnsDepressantClass": "opioidIR"})
-    _sync_med_def(client, {"name": "Tramadol 50mg", "defaultDoseMg": 50.0,
-                           "category": "opioid", "isActive": True,
-                           "cnsDepressantClass": "opioidER"})
-    assert _get_med_def_cns_class(client, "Tramadol 50mg") == "opioidER"
 
 
 def test_sync_barometric_readings_batched_and_idempotent(client, app):

@@ -26,12 +26,12 @@ Pair the generalist `swift-pre-pr-reviewer` with these narrower agents on PRs to
 
 - **`swiftui-render-pitfall-detector`** — SwiftUI / SwiftData / Charts changes. Targets four iOS-26 main-thread-hang patterns (compound `#Predicate`, `NavigationLink` + `@Query`, `chartYScale(domain:)` + `.nan`, `@Observable` at WindowGroup scope).
 - **`chart-ux-auditor`** — `AnxietyWatch/Views/Trends/` changes. Maps color tokens to series semantics; optionally screenshots via XcodeBuildMCP.
-- **`medical-data-accuracy-reviewer`** — `Services/` changes touching HealthKit, CPAP, Polar, EMAY, FHIR labs, OCR, or CNSRisk. Unit mismatches, timezone, source-discriminator, OCR validation, baseline math. **Required (not just recommended) for `Services/CNSRisk/`.**
+- **`medical-data-accuracy-reviewer`** — `Services/` changes touching HealthKit, CPAP, Polar, EMAY, FHIR labs, or OCR. Unit mismatches, timezone, source-discriminator, OCR validation, baseline math.
 - **`process-walkthrough`** — single-file walkthrough generator (Mermaid + lay prose). Use to populate `docs/research/` for opaque processes (sync drain loop, clock-reset detection, baseline calculation).
 
-## CNS Detection Engine
+## CNS / klaxon product boundary
 
-`AnxietyWatch/Services/CNSRisk/` is the physiological detection half of the CNS-depression early-warning Klaxon (Phase 1: detection-only, no alarm UI yet — see `docs/superpowers/specs/2026-07-09-cns-depression-klaxon-design.md`). Pipeline: `CNSQualityGate` → `CNSSeverityScorer` → `CNSFusionEngine` → `CNSAlertTierMachine`, composed by `CNSDetectionPipeline` (the only entry point later phases should call). Every tunable lives in `CNSThresholds` — never re-type a literal. Invariants: indeterminate ≠ safe ≠ dangerous; severity ramps scale their floor with the personalized onset (never clamp onset to a fixed floor); escalation and clearing both require observed, primary-informed (SpO₂/RR) evidence; invalid data contributes nothing. `medical-data-accuracy-reviewer` is required (not just recommended) on every PR touching this directory.
+This repository does **not** own CNS-depression detection or klaxon alarming. That product line is superseded by AnxietyWatch2. Do not reintroduce `Services/CNSRisk/`, on-device tier engines, or clinical klaxon UI without a new OpenSpec change that explicitly reverses [`remove-cns-klaxon`](openspec/changes/remove-cns-klaxon/). Historical designs under `docs/plans/completed/` and `docs/superpowers/specs/` are archive-only.
 
 ### Slash commands
 

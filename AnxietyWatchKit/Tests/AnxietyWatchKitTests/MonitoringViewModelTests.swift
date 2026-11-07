@@ -40,22 +40,18 @@ struct MonitoringViewModelTests {
         viewModel.stop()
     }
 
-    @Test("Coordinator tier propagates through router snapshots")
-    func viewModelTierPropagation() async throws {
+    @Test("Router activity status propagates through snapshots")
+    func viewModelStatusPropagation() async throws {
         let polar = PolarActor()
         let router = SensorRouter(polar: polar, emay: nil, healthKit: nil)
-        await router.setCoordinatorSnapshotProvider {
-            (tier: .critical, fusion: 0.91)
-        }
         let viewModel = MonitoringViewModel(router: router)
         viewModel.start()
         try await Task.sleep(for: .milliseconds(110))
 
         await polar.ingest(.init(timestamp: 100, heartRate: 60, rrIntervals: []))
 
-        try await waitUntil { viewModel.alertTier == .critical }
-        #expect(viewModel.alertTier == .critical)
-        #expect(viewModel.fusionScore == 0.91)
+        try await waitUntil { viewModel.vitalsStatus == .normal }
+        #expect(viewModel.vitalsStatus == .normal)
         viewModel.stop()
     }
 
@@ -71,9 +67,8 @@ struct MonitoringViewModelTests {
             latestHR: 72,
             latestSpO2: 98,
             latestHRV: 44.5,
-            alertTier: .advisory,
-            isIdle: false,
-            fusionScore: 0.42
+            vitalsStatus: .normal,
+            isIdle: false
         )
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(ViewModelSnapshot.self, from: data)

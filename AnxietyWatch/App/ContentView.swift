@@ -84,7 +84,7 @@ struct ContentView: View {
         .task {
             let arguments = ProcessInfo.processInfo.arguments
             guard arguments.contains("-demoOuraSequence")
-                    || arguments.contains("-demoCNSSequence") else { return }
+                    else { return }
             // Begin on the app's home Dashboard before visibly moving to the
             // Settings tab. The remaining route is driven by each destination.
             try? await Task.sleep(for: .seconds(4))

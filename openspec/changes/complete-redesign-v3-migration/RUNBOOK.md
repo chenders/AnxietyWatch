@@ -19,12 +19,12 @@
 - Every table that syncs up must have server persistence and a tested restore/down path before production enablement.
 - A compiled type, passing unit tests, app wiring, and production authority are four distinct statuses.
 - Exactly one effective `WCSession.default.delegate` may exist in each process.
-- The app-level `Services/CNSRisk` engine remains authoritative for clinical alert decisions. The package pipeline may supply monitoring/presentation state but must not duplicate notifications, haptics, or watch messages.
+- CNS-depression detection, risk tiers, and klaxon alarming are outside this repository and owned by AnxietyWatch2. This redesign may retain non-alert sensor routing and vitals presentation only.
 - Invalid and indeterminate physiological data contributes nothing and is never treated as safe.
 - Fresh-install, restore, authorization, migration, and corruption flows require tests that begin from a genuinely empty installation/store.
 - No new third-party remote-config dependency is introduced. Phase controls use bundled safe defaults plus an injectable local provider; TestFlight/build cohorts gate rollout until a separately specified self-hosted control is justified.
 - All new or changed code lands with focused tests, zero compiler warnings, and updated OpenSpec implementation notes.
-- Before pushing substantive Swift work, run `swift-pre-pr-reviewer`. Add `medical-data-accuracy-reviewer` for HealthKit, Polar, EMAY, SpO2, ingestion, arbitration, restore, or CNS data-path changes. Add `swiftui-render-pitfall-detector` for SwiftUI/SwiftData render changes.
+- Before pushing substantive Swift work, run `swift-pre-pr-reviewer`. Add `medical-data-accuracy-reviewer` for HealthKit, Polar, EMAY, SpO2, ingestion, arbitration, restore, or other physiological data-path changes. Add `swiftui-render-pitfall-detector` for SwiftUI/SwiftData render changes.
 - The repository is public: use fictional test data and do not commit personal paths, credentials, health records, screenshots, captures, or tool/session artifacts.
 
 ## Review Focus
@@ -52,6 +52,8 @@ Read these in order before doing any redesign work:
 `docs/plans/converted/redesign/redesign_plan.md` and `docs/plans/converted/redesign/redesign_status.md` are historical inputs only. Their stale checkboxes do not override OpenSpec or this runbook. The deleted `docs/redesign_spec.md` remains available through Git history.
 
 ### Current branch/worktree state at plan creation
+
+> Historical snapshot only. CNS/klaxon files named in this baseline were subsequently retired by `remove-cns-klaxon`; do not restore them or reuse the commands below to stage them.
 
 Base commit for `main`, `origin/main`, the documentation branch, and the compiler-repair branch: `7e7bf67`.
 
@@ -225,7 +227,7 @@ Use the `xcodebuildmcp` skill, then call `session_show_defaults` once and `test_
 
 Expected: the iOS/watch-linked suite passes with zero failures and zero warnings.
 
-The Apple developer account and a private-key-backed Apple Development certificate are now available. Debug and Release both use `AnxietyWatch/AnxietyWatch.entitlements` with automatic signing. The repair removes the restricted Critical Alerts entitlement, elevated interruption levels/sounds, and runtime authorization request from the app, and removes elevated interruption levels and Critical Alert payload support from the redundant server APNs channel. Both now use only ordinary alert/sound notifications. Notification readiness fails closed when alerts or sounds are disabled or Scheduled Delivery is enabled, and channel history reports APNs provider acceptance without claiming that the device presented the notification. On 2026-10-09 the app target passed 1,548 tests, the server passed 534 tests with clean flake8, the signed device build succeeded, and the app installed and launched on the connected test iPhone. Physical-device signing/install is no longer a blocker.
+The Apple developer account and a private-key-backed Apple Development certificate are now available. Debug and Release both use `AnxietyWatch/AnxietyWatch.entitlements` with automatic signing. Historically, the repair first downgraded a redundant clinical-alert path to ordinary notifications; `remove-cns-klaxon` later removed that app/server alarm path entirely. On 2026-10-09 the app target passed 1,548 tests, the server passed 534 tests with clean flake8, the signed device build succeeded, and the app installed and launched on the connected test iPhone. Physical-device signing/install is no longer a blocker.
 
 Xcode 27 still emits its own `appintentsmetadataprocessor` warning for the app target because the app intentionally does not link AppIntents. Xcode's warning-filter and disable switches were both verified and still emit a warning. Do not add a fake AppIntents dependency solely to hide this toolchain diagnostic; app source/compiler diagnostics remain clean, and the zero-warning gate should continue to reject actionable project diagnostics.
 
@@ -413,9 +415,9 @@ Test database close, sidecar replacement, stable node identity, schema recreatio
 
 `Feature` becomes a compatibility facade over `FeatureFlagProvider`. Bundled/default behavior remains false for SQLite reads and delta sync. Every flag read logs only the flag name and boolean value. Add enabled/disabled tests for every production decision point that exists.
 
-- [ ] **Step 6.6: Declare CNS side-effect ownership in code and tests**
+- [ ] **Step 6.6: Enforce the CNS/klaxon retirement boundary in code and tests**
 
-Document and test that the app-level `Services/CNSRisk` coordinator owns clinical notifications/haptics. The package pipeline may publish monitoring state but cannot independently fire the same user-facing effect.
+Verify that AnxietyWatch contains no CNS detection, tier/fusion engine, clinical notification/haptic/audio interpreter, or watch-alert surface. The package may publish only non-alert sensor and ordinary `normal`/`idle` presentation state; AnxietyWatch2 owns the retired product line.
 
 - [ ] **Step 6.7: Verify and review PR 3**
 
@@ -749,7 +751,7 @@ Redesign v3 is complete only when all statements below are true:
 
 - [ ] Primary checkout is clean on updated `main`; no redesign or compiler-repair work exists only as an uncommitted worktree.
 - [ ] OpenSpec proposal, specs, design, tasks, implementation notes, and archive state validate strictly.
-- [ ] Package and app-level CNS responsibilities are explicit and do not duplicate clinical side effects.
+- [ ] AnxietyWatch contains no CNS detection, tier/fusion engine, or klaxon side effects; non-alert sensor routing remains available and the AnxietyWatch2 ownership boundary is explicit.
 - [ ] SQLite migration resumes after interruption, proves parity, supports rollback, and passes genuinely fresh-install recovery.
 - [ ] Corruption recovery preserves node identity, restores all recoverable data, and stops retry thrash after three events in 24 hours.
 - [ ] Every sync-up table has server persistence and a tested restore/down path with stable IDs and no re-upload loop.
@@ -757,10 +759,10 @@ Redesign v3 is complete only when all statements below are true:
 - [ ] Binary transfer negotiates versions, falls back, survives lost ACKs, and does not advance cursors early.
 - [ ] Delta sync completes its shadow and adoption gates with zero cursor divergence and propagated tombstones.
 - [ ] Diagnostics and redacted export are reachable from Settings; MetricKit/signposts and release metrics are operational.
-- [ ] Watch memory, battery, alert-latency, overflow, and corruption gates meet the thresholds in the canonical specs.
+- [ ] Watch memory, battery, urgent-sync latency, overflow, and corruption gates meet the thresholds in the canonical specs.
 - [ ] Legacy SwiftData, JSON transport, and REST paths are retired only where replacement evidence permits.
 - [ ] All Swift, server, and OpenSpec checks pass with zero warnings or failures, and required reviewers have no blocking findings.
 
 ## 14. Immediate Next Action
 
-Merge the status-only baseline-finalization PR, return the primary checkout to clean updated `main`, and begin PR 3 from a new `codex/redesign-v3-prerequisites` worktree. PR 3 starts with tasks 2.1–2.6: delegate ownership tests, restore-manifest completeness, corruption recovery, injectable feature controls, and explicit CNS side-effect ownership. Do not combine later storage, transport, sync, or diagnostics phases into that prerequisites PR.
+Merge the status-only baseline-finalization PR, return the primary checkout to clean updated `main`, and begin PR 3 from a new `codex/redesign-v3-prerequisites` worktree. PR 3 starts with tasks 2.1–2.6: delegate ownership tests, restore-manifest completeness, corruption recovery, injectable feature controls, and enforcement of the CNS/klaxon retirement boundary. Do not combine later storage, transport, sync, or diagnostics phases into that prerequisites PR.

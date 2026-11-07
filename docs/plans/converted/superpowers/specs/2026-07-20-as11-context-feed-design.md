@@ -1,3 +1,6 @@
+> **HISTORICAL ONLY — superseded.** On-device CNS-depression klaxon product work was retired from this repository (`openspec/changes/remove-cns-klaxon/`). AnxietyWatch2 owns the superseding system. Do not treat this document as an implementation instruction for AnxietyWatch.
+
+
 # AS11 Context Feed — Server WebSocket Push + On-Device Ingest
 
 **Status:** Design (approved architecture, 2026-07-20). Sub-project **B** of the CNS-klaxon

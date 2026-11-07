@@ -1,3 +1,6 @@
+> **HISTORICAL ONLY — superseded.** On-device CNS-depression klaxon product work was retired from this repository (`openspec/changes/remove-cns-klaxon/`). AnxietyWatch2 owns the superseding system. Do not treat this document as an implementation instruction for AnxietyWatch.
+
+
 # Independent Respiratory-Rate / Apnea Fast Escalation — Klaxon Plan
 
 **Status:** Proposed — not started. Next CNS-klaxon PR after the timing re-work (#35).

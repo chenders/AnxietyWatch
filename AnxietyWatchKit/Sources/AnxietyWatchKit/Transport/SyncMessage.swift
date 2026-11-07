@@ -10,8 +10,8 @@ import Foundation
 /// - `.ping` / `.pong` ride `sendMessage` (interactive, low latency).
 /// - `.fetch` / `.batch` ride `sendMessage` for cursor negotiation or small
 ///   batches, or `transferFile` for large historical time-series.
-/// - `.urgent` rides `updateApplicationContext` for LWW alerting or
-///   `sendMessage` for CNS critical alerts needing <2 s P95.
+/// - `.urgent` rides `updateApplicationContext` or `sendMessage` as an
+///   operational hint that high-priority sync work is waiting.
 public enum SyncMessage: Codable, Sendable, Equatable {
 
     /// A ping to negotiate sync state. Sent interactively.
@@ -28,8 +28,8 @@ public enum SyncMessage: Codable, Sendable, Equatable {
     /// decode it, avoiding a deserialize/re-serialize round-trip.
     case batch(nodeID: String, cursor: SyncCursor, recordsData: Data)
 
-    /// Notification that urgent data (e.g. panic or high-risk CNS event)
-    /// is waiting. Used via `updateApplicationContext` or interactive message.
+    /// Notification that urgent operational data (for example panic-recovery
+    /// state) is waiting. Used via application context or interactive message.
     case urgent(nodeID: String, latestHLC: HLCStamped)
 }
 

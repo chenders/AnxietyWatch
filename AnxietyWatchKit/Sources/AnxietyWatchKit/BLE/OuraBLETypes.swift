@@ -2,8 +2,8 @@ import Foundation
 
 // MARK: - Oura BLE sample types
 
-/// Samples emitted by `OuraBLEActor` and consumed by `SensorRouter` /
-/// CNS pipeline. Each type maps to a measurement tag in the BLE protocol.
+/// Samples emitted by `OuraBLEActor` and consumed by `SensorRouter`.
+/// Each type maps to a measurement tag in the BLE protocol.
 /// All types are `Sendable` + `Equatable` for safe actor crossing and
 /// test assertions.
 

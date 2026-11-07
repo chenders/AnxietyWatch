@@ -16,8 +16,8 @@ public struct SampleTombstoneRow: Sendable, Equatable {
     public let droppedRowCount: Int64
     public let reason: Reason
 
-    /// Distinguishes eviction sources so the diagnostics UI and CNS pipeline can
-    /// react appropriately. Matches the CHECK-constrained enum on the table.
+    /// Distinguishes eviction sources for diagnostics and recovery behavior.
+    /// Matches the CHECK-constrained enum on the table.
     public enum Reason: String, Sendable, Codable, CaseIterable {
         case memoryPanic = "memory_panic"
         case corruption
@@ -172,8 +172,7 @@ public actor SampleTombstonesStore {
     // MARK: - Range queries
 
     /// Returns tombstones whose covered range intersects `[from, to]` for a given
-    /// (source, type). Used by the CNS pipeline to decide whether a query window
-    /// contains an eviction gap.
+    /// (source, type), allowing storage and diagnostics to identify eviction gaps.
     public func fetchOverlapping(source: Int32,
                                  type: Int32,
                                  from ts0: Double,

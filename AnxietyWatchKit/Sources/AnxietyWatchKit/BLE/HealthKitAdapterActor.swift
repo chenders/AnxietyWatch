@@ -4,10 +4,9 @@ import Foundation
 /// stream shape BLE actors use (Spec §3.3). In production a
 /// HKAnchoredObjectQuery callback calls `ingest(_:)`; tests inject directly.
 ///
-/// Per Spec §3.3: empty HK query results DO NOT emit data_gap events — the
-/// pipeline handles HK staleness via its internal ring-buffer timestamps.
-/// Ops note: Watch off-wrist looks identical to steady-state from this
-/// actor's perspective.
+/// Per Spec §3.3: empty HK query results do not synthesize samples. The
+/// router derives ordinary idle presentation state from the last sample time.
+/// Watch off-wrist looks identical to steady-state from this actor's perspective.
 ///
 /// Type safety: `HKSample.QuantityType` is a closed enum of exactly the
 /// HK-owned kinds (Spec §1.7), so data flowing through this adapter can never
@@ -53,13 +52,13 @@ public actor HealthKitAdapterActor {
 
     /// The producer surface — the future HKAnchoredObjectQuery driver writes
     /// into this. Tests inject samples the same way. An empty HK result batch
-    /// simply never calls this (no data_gap emission per Spec §3.3).
+    /// simply never calls this.
     public func ingest(_ sample: HKSample) async {
         _lastFrameAt = sample.timestamp
         continuation.yield(sample)
     }
 
-    /// The consumer surface — SensorRouter / CNS pipeline reads from this.
+    /// The consumer surface — `SensorRouter` reads from this.
     public var outboundHK: AsyncStream<HKSample> {
         stream
     }

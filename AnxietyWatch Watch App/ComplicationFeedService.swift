@@ -22,8 +22,7 @@ public actor ComplicationFeedService {
                 let state = ComplicationState(
                     latestHR: snapshot.latestHR,
                     latestSpO2: snapshot.latestSpO2,
-                    alertTier: snapshot.alertTier.rawValue,
-                    fusionScore: snapshot.fusionScore,
+                    vitalsStatus: snapshot.vitalsStatus.rawValue,
                     lastUpdate: Date()
                 )
                 

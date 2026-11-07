@@ -1,15 +1,13 @@
 import SwiftData
 import SwiftUI
 
-/// Live SpO₂ / pulse readout from the EMAY SleepO2 oximeter over BLE.
+/// Live SpO² / pulse readout from the EMAY SleepO2 oximeter over BLE.
 /// Consumes the app-scoped `EMAYRealtimeService` (injected in
 /// `AnxietyWatchApp` — the device supports one central connection, so the
 /// service must have exactly one owner). Session lifecycle: starts on
 /// appear; stops on disappear ONLY when continuous streaming is off —
 /// in continuous mode the session outlives this screen (and the app's
-/// foreground lifetime). This is the verification surface for the real-time
-/// source the CNS-depression early-warning monitor will consume; it is NOT
-/// a medical device.
+/// foreground lifetime). This screen is NOT a medical device.
 struct EMAYLiveView: View {
     @Environment(EMAYRealtimeService.self) private var service
 
@@ -74,7 +72,7 @@ struct EMAYLiveView: View {
                 }
             } footer: {
                 Text("Put a finger on the sensor; values stream about once a second while connected. "
-                    + "This is an early-warning data source, not a medical device — don't rely on it for diagnosis.")
+                    + "This is an oximetry data source, not a medical device — don’t rely on it for diagnosis.")
             }
 
             Section {

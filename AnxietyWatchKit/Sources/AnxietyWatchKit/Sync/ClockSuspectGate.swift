@@ -2,7 +2,7 @@ import Foundation
 
 /// Observes wall-clock vs boot-anchored-monotonic divergence continuously.
 /// Sets `clockSuspect = true` after sustained drift; clears after sustained
-/// return to bounds. Consumers (SyncCoordinator, CNSFusionEngine) read
+/// return to bounds. Consumers (SyncCoordinator and related gates) read
 /// `isSuspect` synchronously via the actor.
 ///
 /// Semantics (Spec §2.2):

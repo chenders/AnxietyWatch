@@ -31,23 +31,6 @@ struct FeatureFlagProviderTests {
         }
     }
 
-    @Test("gap production reader honors disabled and enabled providers")
-    func gapReaderUsesInjectedProvider() async {
-        let disabled = CNSMonitoringCoordinator(
-            router: SensorRouter(polar: nil, emay: nil, healthKit: nil),
-            featureFlags: FixedFeatureFlagProvider(enabled: [])
-        )
-        await disabled.process(.dataGap(range: 0...(10 * 60 * 1_000)))
-        #expect(await disabled.currentPipelineState.lastGapEndMs == nil)
-
-        let enabled = CNSMonitoringCoordinator(
-            router: SensorRouter(polar: nil, emay: nil, healthKit: nil),
-            featureFlags: FixedFeatureFlagProvider(enabled: [.pipelineGapEvents])
-        )
-        await enabled.process(.dataGap(range: 0...(10 * 60 * 1_000)))
-        #expect(await enabled.currentPipelineState.lastGapEndMs == 10 * 60 * 1_000)
-    }
-
     @Test("binary transport production reader honors disabled and enabled providers")
     func binaryReaderUsesInjectedProvider() async throws {
         let directory = FileManager.default.temporaryDirectory

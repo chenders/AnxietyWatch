@@ -10,7 +10,6 @@ public struct DashboardMonitoringCard: View {
 
     public var body: some View {
         HStack(spacing: 16) {
-            // Vitals Section
             VStack(alignment: .leading, spacing: 12) {
                 vitalRow(
                     icon: "heart.fill",
@@ -30,7 +29,6 @@ public struct DashboardMonitoringCard: View {
 
             Divider()
 
-            // Tier and Fusion section
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("STATUS")
@@ -39,23 +37,25 @@ public struct DashboardMonitoringCard: View {
 
                     Spacer()
 
-                    tierBadge(tier: monitor.alertTier, isIdle: monitor.isIdle)
+                    Text(verbatim: monitor.isIdle ? "IDLE" : "LIVE")
+                        .font(.caption2.bold())
+                        .foregroundStyle(monitor.isIdle ? Color.secondary : Color.green)
                 }
 
-                VStack(alignment: .leading, spacing: 6) {
+                if let hrv = monitor.latestHRV, !monitor.isIdle {
                     HStack {
-                        Text("RISK SCORE")
+                        Text("HRV")
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Text("\(Int(monitor.fusionScore * 100))%")
+                        Text("\(Int(hrv.rounded())) ms")
                             .font(.caption.bold())
                             .contentTransition(.numericText())
                     }
-
-                    ProgressView(value: monitor.fusionScore, total: 1.0)
-                        .tint(progressColor(for: monitor.fusionScore))
-                        .animation(.spring(response: 0.3), value: monitor.fusionScore)
+                } else {
+                    Text("Live vitals from connected sensors")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -93,20 +93,5 @@ public struct DashboardMonitoringCard: View {
             }
         }
         .animation(.default, value: value)
-    }
-
-    @ViewBuilder
-    private func tierBadge(tier: AlertTier, isIdle: Bool) -> some View {
-        Text(verbatim: isIdle ? "IDLE" : String(describing: tier))
-            .font(.caption2.bold())
-            .foregroundStyle(.gray)
-    }
-
-    private func progressColor(for score: Double) -> Color {
-        if monitor.isIdle { return .gray.opacity(0.5) }
-        if score < 0.3 { return .green }
-        if score < 0.7 { return .yellow }
-        if score < 0.9 { return .orange }
-        return .red
     }
 }

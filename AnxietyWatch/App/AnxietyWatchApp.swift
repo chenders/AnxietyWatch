@@ -16,33 +16,9 @@ struct AnxietyWatchApp: App {
     /// Notification delegate — must be stored as a property to stay alive.
     private let notificationDelegate = NotificationDelegate()
 
-    // MARK: - SwiftData (existing, Phase 2A dual-write until cutover)
+    // MARK: - SwiftData (versioned schema with CNS-removal migration)
 
     var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            AnxietyEntry.self,
-            MedicationDefinition.self,
-            MedicationDose.self,
-            CPAPSession.self,
-            BarometricReading.self,
-            HealthSnapshot.self,
-            ClinicalLabResult.self,
-            Pharmacy.self,
-            Prescription.self,
-            PharmacyCallLog.self,
-            HealthSample.self,
-            PhysiologicalCorrelation.self,
-            Song.self,
-            SongOccurrence.self,
-            SensorSession.self,
-            HRVReading.self,
-            AccelSpectrogram.self,
-            DerivedBreathingRate.self,
-            QuantityHealthSample.self,
-            SleepStageEvent.self,
-            MonitoringSession.self,
-            CNSRiskSampleRecord.self,
-        ])
         let appSupport: URL
         do {
             appSupport = try FileManager.default.url(
@@ -54,9 +30,8 @@ struct AnxietyWatchApp: App {
         }
         AnxietyWatchApp.excludeFromBackup(appSupport)
         let storeURL = appSupport.appendingPathComponent("default.store")
-        let modelConfiguration = ModelConfiguration(schema: schema, url: storeURL)
         do {
-            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+            let container = try AnxietyWatchContainerFactory.makeContainer(storeURL: storeURL)
             for suffix in ["", "-wal", "-shm"] {
                 AnxietyWatchApp.excludeFromBackup(appSupport.appendingPathComponent("default.store\(suffix)"))
             }
@@ -80,11 +55,11 @@ struct AnxietyWatchApp: App {
 
     /// Constructed once at launch. Held as app-scoped state for the process
     /// lifetime. Provides the SQLite database, HLC, sync engine, and
-    /// transport layer. BLE adapters and the CNS pipeline are wired separately
-    /// because they depend on platform entitlements.
+    /// transport layer. BLE adapters and the live-vitals pipeline are wired separately
+    /// because they depend on platform entitlements. Live vitals only — no clinical klaxon.
     @State private var kit: DependencyContainer?
 
-    /// v3 pipeline service: BLE actors → SensorRouter → CNS coordinator → ViewModel.
+    /// v3 pipeline service: BLE actors → SensorRouter → live vitals ViewModel.
     @StateObject private var pipelineService = KitPipelineService()
 
     // MARK: - Existing services (during Phase 2A dual-write)
@@ -93,7 +68,6 @@ struct AnxietyWatchApp: App {
     @State private var demoDeviceSession: FullAppDemoDeviceSession
     @State private var polarService: PolarHRMService
     @State private var emayService: EMAYRealtimeService
-    @State private var monitoringCoordinator: CNSMonitoringCoordinator
     @State private var recordingPresentation = RecordingPresentationCoordinator()
     @State private var liveActivityCoordinator: LiveActivityCoordinator?
     @Environment(\.scenePhase) private var scenePhase
@@ -146,35 +120,7 @@ struct AnxietyWatchApp: App {
         )
         _emayService = State(initialValue: emay)
 
-        let as11URL = Self.as11WebSocketURL()
-        let as11Source = AS11WebSocketClient(baseURL: as11URL)
-        _monitoringCoordinator = State(initialValue: CNSMonitoringCoordinator(
-            modelContext: ModelContext(sharedModelContainer),
-            emayService: emay,
-            polarService: polar,
-            as11Source: as11Source
-        ))
-
         UNUserNotificationCenter.current().delegate = notificationDelegate
-    }
-
-    private static func as11WebSocketURL() -> URL {
-        let configured = UserDefaults.standard.string(forKey: "syncServerURL") ?? ""
-        guard var components = URLComponents(string: configured),
-              components.host != nil else {
-            return URL(string: "wss://sync.anxietywatch.com/api/cpap/as11/ws")!
-        }
-        // Map to a WebSocket scheme without clobbering an explicit ws://
-        // (local/dev): http→ws, https/anything-else→wss, ws/wss preserved.
-        switch components.scheme {
-        case "http": components.scheme = "ws"
-        case "ws", "wss": break
-        default: components.scheme = "wss"
-        }
-        components.path = "/api/cpap/as11/ws"
-        components.query = nil
-        components.fragment = nil
-        return components.url ?? URL(string: "wss://sync.anxietywatch.com/api/cpap/as11/ws")!
     }
 
     // MARK: - Body
@@ -185,7 +131,6 @@ struct AnxietyWatchApp: App {
                 .environment(polarService)
                 .environment(emayService)
                 .environment(demoDeviceSession)
-                .environment(monitoringCoordinator)
                 .environment(recordingPresentation)
                 .environmentObject(pipelineService)
                 .overlay(alignment: .bottom) {
@@ -210,13 +155,11 @@ struct AnxietyWatchApp: App {
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
-                        monitoringCoordinator.sceneDidBecomeActive()
                         checkPendingFollowUp()
                         checkPendingRandomCheckIn()
                     }
                     // Spec §1.1 close flow: checkpoint + close on background.
                     if newPhase == .background {
-                        monitoringCoordinator.sceneDidEnterBackground()
                         saveCleanShutdownFlag()
                         Task {
                             await pipelineService.stop()
@@ -363,7 +306,6 @@ struct AnxietyWatchApp: App {
         if !demoDeviceSession.isEnabled {
             polarService.recoverInFlightSessionIfNeeded()
             emayService.startIfContinuousModeEnabled()
-            monitoringCoordinator.handleLaunch()
         }
 
         let context = ModelContext(sharedModelContainer)
