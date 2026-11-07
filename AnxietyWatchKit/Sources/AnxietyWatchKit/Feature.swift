@@ -17,9 +17,5 @@ public enum Feature {
         return enabled
     }
 
-    /// §3.4 Oura BLE: enable Oura Ring 5 BLE IBI streaming.
-    /// Requires user-provided 16-byte key extraction. Default: false.
-    public static var ouraBLEEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "oura.bleEnabled")
-    }
+
 }

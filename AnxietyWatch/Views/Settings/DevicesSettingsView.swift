@@ -19,11 +19,6 @@ struct DevicesSettingsView: View {
                 } label: {
                     Label("EMAY Oximeter (Live)", systemImage: "lungs.fill")
                 }
-                NavigationLink {
-                    OuraSettingsView()
-                } label: {
-                    Label("Oura Ring", systemImage: "circle.hexagongrid.fill")
-                }
             } footer: {
                 Text("Manage your connected hardware devices and their settings.")
             }

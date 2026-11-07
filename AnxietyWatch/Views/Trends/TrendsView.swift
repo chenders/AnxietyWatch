@@ -427,7 +427,6 @@ struct TrendsView: View {
                         )
                     } else {
                         AnxietySeverityChart(entries: entries, dateRange: dateRange)
-                        OuraTrendsSection(start: ws.start, end: ws.end)
                         // HRV cards grouped together. SDNN trend now overlays
                         // Polar overnight aggregates onto the existing HK line;
                         // RMSSD and HF Power are Polar-only sibling cards in
