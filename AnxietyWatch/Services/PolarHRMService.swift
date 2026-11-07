@@ -72,7 +72,7 @@ final class PolarHRMService: NSObject {
     private let demoSession: FullAppDemoDeviceSession?
     private let log = Logger(subsystem: "AnxietyWatch", category: "PolarHRM")
 
-    /// Optional live-sample tap for Phase 2's `CNSMonitoringCoordinator`.
+    /// Optional live-sample tap for live vitals consumers.
     /// Invoked on the main actor with the same `(hrBpm, arrivalTime)` used to
     /// update `state.currentHR`, immediately after that update, whenever a
     /// live HR packet arrives. `nil` by default and completely inert when

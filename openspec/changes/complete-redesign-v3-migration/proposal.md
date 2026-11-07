@@ -22,7 +22,7 @@ None. The current capability baseline was bootstrapped from the already-merged r
 
 ### Modified Capabilities
 
-- `sensor-processing`: finish coexistence decisions, gap activation, and target-specific integration evidence.
+- `sensor-processing`: finish non-alert sensor routing, gap activation, and target-specific integration evidence without reintroducing CNS detection or alarm behavior.
 - `time-series-storage`: add the resumable backfill, app read cutover, lifecycle orchestration, and complete corruption recovery.
 - `causal-sync`: complete low-frequency materialization, scheduling, round-trip restore, and shadow validation.
 - `watch-connectivity`: establish one delegate owner and finish resilient package transport on both targets.

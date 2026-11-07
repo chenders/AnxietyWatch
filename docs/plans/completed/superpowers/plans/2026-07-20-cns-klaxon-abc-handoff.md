@@ -1,3 +1,6 @@
+> **HISTORICAL ONLY — superseded.** On-device CNS-depression klaxon product work was retired from this repository (`openspec/changes/remove-cns-klaxon/`). AnxietyWatch2 owns the superseding system. Do not treat this document as an implementation instruction for AnxietyWatch.
+
+
 # CNS Klaxon Program — Execution Handoff (for a herdr/pi conductor)
 
 **Purpose:** hand this document to a herdr/pi conductor to organize and dole out the

@@ -3,7 +3,6 @@ import SwiftData
 
 struct MedicationsHubView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(CNSMonitoringCoordinator.self) private var monitoringCoordinator
     @Query(
         filter: #Predicate<MedicationDefinition> { $0.isActive },
         sort: \MedicationDefinition.name
@@ -176,7 +175,6 @@ struct MedicationsHubView: View {
                 medication: med
             )
             modelContext.insert(dose)
-            monitoringCoordinator.doseLogged(dose)
         }
     }
 
@@ -199,12 +197,5 @@ struct MedicationsHubView: View {
         MedicationsHubView()
     }
     .modelContainer(container)
-    .environment(CNSMonitoringCoordinator(
-        modelContext: ModelContext(container),
-        latestEMAYReading: { nil },
-        latestPolarHR: { nil },
-        latestPolarRMSSD: { nil },
-        notificationPoster: UNUserNotificationCenterPoster()
-    ))
 }
 #endif

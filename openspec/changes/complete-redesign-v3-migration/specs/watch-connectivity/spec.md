@@ -23,9 +23,9 @@ Historical transfer source files and cursors SHALL remain pending until receiver
 - **WHEN** the peer receives a file but terminates before durable ingest acknowledgment
 - **THEN** the sender retains or retries the transfer and does not advance its cursor
 
-### Requirement: Critical alert deduplication
-The immediate-message and queued-user-info paths SHALL share a stable alert identity so fallback cannot create duplicate user-facing alerts.
+### Requirement: Urgent sync hint deduplication
+The immediate-message and queued-user-info paths SHALL share a stable operational identity so fallback cannot process the same urgent sync hint twice.
 
 #### Scenario: Immediate delivery succeeds but reply is lost
-- **WHEN** the sender also queues fallback for the same alert identity
-- **THEN** the receiver presents the alert once
+- **WHEN** the sender also queues fallback for the same urgent sync identity
+- **THEN** the receiver processes the hint once without presenting a clinical alert

@@ -1,3 +1,6 @@
+> **HISTORICAL ONLY — superseded.** On-device CNS-depression klaxon product work was retired from this repository (`openspec/changes/remove-cns-klaxon/`). AnxietyWatch2 owns the superseding system. Do not treat this document as an implementation instruction for AnxietyWatch.
+
+
 # CNS-Depression Early-Warning Klaxon — Design Spec
 
 **Status:** Draft for review · **Date:** 2026-07-09

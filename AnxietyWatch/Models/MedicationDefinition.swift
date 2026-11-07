@@ -12,8 +12,9 @@ final class MedicationDefinition {
     /// When true, logging a dose opens an anxiety rating prompt + schedules a 30-min follow-up.
     /// Optional for migration — nil treated as false for existing medications.
     var promptAnxietyOnLog: Bool?
-    /// Raw CNSDepressantClass; nil = not a CNS depressant / unclassified.
-    var cnsDepressantClass: String?
+    /// Legacy nullable column retained only so existing SwiftData stores migrate safely.
+    /// Product logic, export, sync, and restore intentionally ignore it.
+    var cnsDepressantClass: String? = nil
     @Relationship(deleteRule: .nullify, inverse: \MedicationDose.medication)
     var doses: [MedicationDose]
     @Relationship(deleteRule: .nullify, inverse: \Prescription.medication)
@@ -24,8 +25,7 @@ final class MedicationDefinition {
         defaultDoseMg: Double,
         category: String = "",
         isActive: Bool = true,
-        promptAnxietyOnLog: Bool = false,
-        cnsDepressantClass: String? = nil
+        promptAnxietyOnLog: Bool = false
     ) {
         self.id = UUID()
         self.name = name
@@ -33,7 +33,6 @@ final class MedicationDefinition {
         self.category = category
         self.isActive = isActive
         self.promptAnxietyOnLog = promptAnxietyOnLog
-        self.cnsDepressantClass = cnsDepressantClass
         self.doses = []
         self.prescriptions = []
     }

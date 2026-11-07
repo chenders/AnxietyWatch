@@ -1,5 +1,12 @@
 # Proposal
 
+> **CANCELLED — do not implement.**
+>
+> This change is superseded by [`remove-cns-klaxon`](../remove-cns-klaxon/).
+> CNS-depression detection and klaxon product work no longer belongs in this
+> repository; AnxietyWatch2 owns the superseding system. Keep this directory
+> only as historical planning evidence until it is archived/removed.
+
 ## Why
 
 The CNS warning system exists, but the remaining respiratory-safety work is scattered across an unstarted RR/apnea proposal, deferred clinical-review notes, and incomplete AirSense 11 hardware validation. These items belong together because they all determine whether respiratory evidence can safely escalate, clear, or suppress a clinical warning.

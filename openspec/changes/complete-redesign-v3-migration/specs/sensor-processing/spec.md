@@ -2,15 +2,15 @@
 
 ## ADDED Requirements
 
-### Requirement: CNS ownership is explicit
-The application SHALL document and enforce whether the package pipeline replaces, feeds, or operates independently from the app-level CNSRisk engine. A sample MUST NOT create duplicate clinical side effects through both engines.
+### Requirement: Sensor processing remains non-alerting
+AnxietyWatch SHALL expose only ordinary sensor routing and `normal`/`idle` presentation state. CNS detection, risk fusion, alert tiers, and klaxon behavior belong to AnxietyWatch2.
 
-#### Scenario: Both engines are present at startup
-- **WHEN** the app constructs both CNS implementations
-- **THEN** one documented coordinator owns each notification, haptic, and watch-message side effect
+#### Scenario: Sensor activity changes
+- **WHEN** a subscribed source becomes active or idle
+- **THEN** the package updates presentation state without scheduling notifications, playing audio, producing haptics, or sending watch alert messages
 
 ### Requirement: Authoritative gaps enable gap processing
-The application SHALL enable package gap processing only after the active storage path emits transactional tombstones and the pipeline consumes their ranges without fabricating clinical danger.
+The application SHALL enable package gap processing only after the active storage path emits transactional tombstones and sensor/storage consumers process their ranges without creating risk scores or alerts.
 
 #### Scenario: Phase 2A gap validation passes
 - **WHEN** an evicted range produces a persisted, synced, and replayed tombstone in integration tests

@@ -156,9 +156,8 @@ struct SnapshotAggregator {
         // errors with code 5 (authorizationNotDetermined), which the query
         // layer coerces to nil — indistinguishable from "no data" — and the
         // unconditional HealthKit field assignments below would overwrite
-        // real (e.g. server-restored) values with nils. This is the asymmetry
-        // rule from the CNS engine applied here: "can't assess" must never be
-        // written down as "no data". The flag scopes the skip to the
+        // real (e.g. server-restored) values with nils. The data-integrity
+        // rule: "can't assess" must never be written down as "no data". The flag scopes the skip to the
         // HealthKit-derived block ONLY: CPAP, barometric, sensor-derived,
         // precedence, and dataQuality stitching read SwiftData, not
         // HealthKit, and must keep aggregating for a user whose

@@ -749,15 +749,8 @@ extension SyncService {
 
     /// Name-keyed. See `importPharmacies` for why this is a seen-set rather than a
     /// per-row predicate fetch (fail-open + O(rows) queries + no within-payload dedupe).
-    ///
-    /// `cns_depressant_class` (server migration 0013): the user's explicit
-    /// classification override — the source of truth that arms §14.1
-    /// dose-window monitoring — restored so a device migration can't
-    /// silently re-default an explicit opioidER (24 h) to a name-guessed
-    /// opioidIR (8 h) or nil (the under-monitoring failure direction). The
-    /// seen-set skip above also guarantees a restore NEVER nulls out an
-    /// explicit LOCAL value with a server nil: a definition already present
-    /// by name is never touched at all.
+    /// Legacy CNS classification columns, if present in an old server payload,
+    /// are intentionally ignored.
     ///
     /// `internal` (not `private`), matching `importMedDoses` et al., so the
     /// restore tests can drive it directly with server-shaped rows.
@@ -771,8 +764,7 @@ extension SyncService {
                 name: name,
                 defaultDoseMg: (row["default_dose_mg"] as? Double) ?? 0,
                 category: (row["category"] as? String) ?? "",
-                isActive: (row["is_active"] as? Bool) ?? true,
-                cnsDepressantClass: row["cns_depressant_class"] as? String
+                isActive: (row["is_active"] as? Bool) ?? true
             )
             ctx.insert(def)
             n += 1

@@ -1,3 +1,6 @@
+> **HISTORICAL ONLY — superseded.** On-device CNS-depression klaxon product work was retired from this repository (`openspec/changes/remove-cns-klaxon/`). AnxietyWatch2 owns the superseding system. Do not treat this document as an implementation instruction for AnxietyWatch.
+
+
 # CNS Klaxon Phase 3 (On-Device) — Robust Background Monitoring & Loud Alerting
 
 **Status:** Design (approved architecture, 2026-07-20). Sub-project **A** of the CNS-klaxon

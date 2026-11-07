@@ -45,7 +45,7 @@ The package transport is not the effective iPhone connectivity owner after start
 **Non-Goals:**
 
 - Enabling SQLite reads, binary watch transport, or delta sync as part of this documentation conversion.
-- Replacing the newer app-level `Services/CNSRisk` engine or conflating it with the package pipeline.
+- Reintroducing CNS-depression detection, tier engines, clinical alarm behavior, or klaxon UI retired by `remove-cns-klaxon`; that product boundary belongs to AnxietyWatch2.
 - Routing CPAP imports, demo data, Oura Cloud summaries, or every optional Oura BLE path through the live package router.
 - Removing legacy SwiftData, REST, or WatchConnectivity paths before replacement evidence exists.
 - Treating the redesign as a CRDT or using the SQLite session extension.
@@ -114,27 +114,26 @@ Canonical current behavior lives in `openspec/specs`. Remaining behavior changes
 - Each install stores a distinct 16-byte raw UUID at Keychain service `com.anxietywatch.hlc.node`, account `install`, accessible after first unlock on this device only, non-synchronizable.
 - HLC `now` uses the maximum of prior physical time, wall UTC milliseconds, and boot-anchored monotonic time; logical time increments when physical time does not.
 - Observed remote time more than 60 seconds ahead is bounded locally while the incoming remote stamp is preserved on the row. More than 24 hours ahead is quarantined.
-- Wall/monotonic divergence is sampled every 30 seconds. Five minutes beyond 60 seconds sets clock-suspect; 15 stable minutes clears it. Pulls continue, uploads pause, and cross-device fusion is suppressed while set.
+- Wall/monotonic divergence is sampled every 30 seconds. Five minutes beyond 60 seconds sets clock-suspect; 15 stable minutes clears it. Pulls continue while uploads pause; CNS cross-device fusion was retired and is no longer a rollout dependency.
 - Cursors are maps from node to `(physical,logical)` for samples, tombstones, and sync-log rows. Pagination performs indexed seeks per bounded node set and merges results by HLC.
 - `@Syncable` defaults to bidirectional, supports explicit up-only/down-only directions, rejects missing codecs and unsupported nested fields, and emits registry plus trigger data. A negative compile fixture protects the missing-downloader regression.
 - Panic states: ordinary acknowledged-row eviction starts at 200 MB; 225 MB triggers a 30-second urgent push; 250 MB after failure permits acknowledged eviction with tombstones; unacknowledged eviction uses the last-resort protocol.
 - Last-resort overflow requires prior ordinary eviction, failed urgent push, synchronous one-minute downsampling, and a 60-minute per-source/type quiet period. Each event covers at most six hours, inserts its tombstone and deletes rows atomically, retains rollups, shows an immediate banner, and emits both event and repeated-chunk metrics.
 - `/sync/pull` and `/sync/push` exchange versioned per-table cursors, rows, acknowledgments, and server HLC. Cursor format v2 mismatch returns 409 and falls back. Server tombstone persistence and peer propagation remain a hard gate.
 
-### Sensors and CNS processing
+### Sensors and non-alert vitals monitoring
 
 - Each hardware source owns a FIFO `AsyncStream` with newest-1,000 buffering, fed from its serial delegate queue and consumed by an actor.
 - `SensorRouter` fans in supported sources, defines idle as no subscribed-source frame for at least 60 seconds, and exposes approximately 10 Hz presentation snapshots.
 - HealthKit uses anchored queries with persisted anchors; empty batches emit nothing. Pipeline ring timestamps detect staleness, including off-wrist behavior.
 - SwiftUI reads synchronous `@MainActor @Observable` state and never performs awaited hardware reads in `body`.
-- The package pipeline is state-plus-event to state-plus-commands with all time injected. Its state contains bounded 60-second rings and remains small. No `Date()`, `DispatchTime.now()`, sleeping, notification centers, or singletons belong in the pure step.
-- The coordinator is the only package side-effect interpreter for notifications, haptics, and watch messages.
-- Data gaps reset affected ring coverage and set the last-gap marker. A gap alone does not raise a clinical alarm; an informational notice is allowed only for gaps over five minutes. The branch remains behind `pipeline.gapEventsEnabled` until authoritative storage emits gaps.
+- The package retains bounded ring-buffer bookkeeping and ordinary `normal`/`idle` presentation state only. It has no CNS fusion engine, alert-tier machine, notification, haptic, audio, or clinical-alarm interpreter.
+- Data gaps reset affected ring coverage and set the last-gap marker. They are storage/presentation facts only and cannot create a clinical alert. The branch remains behind `pipeline.gapEventsEnabled` until authoritative storage emits gaps.
 
 ### Phone-watch transport
 
 - Binary sample frames are versioned and length-prefixed. They preserve source, type, timestamp, value, extra data, HLC, node identity, and tombstone fields. Compression uses Apple platform facilities with zlib-compatible framing.
-- Application context carries latest status/settings and urgent-sync hints. Critical alerts try reachable `sendMessage` and fall back to FIFO `transferUserInfo`. Historical data uses disk-backed `transferFile` and receiver-side natural-key deduplication.
+- Application context carries latest status/settings and urgent-sync hints. Urgent sync hints may use reachable `sendMessage` with FIFO `transferUserInfo` fallback and stable deduplication; they are never clinical alerts. Historical data uses disk-backed `transferFile` and receiver-side natural-key deduplication.
 - Successful transfer deletes temporary files. Failure backs off from 15 minutes to four hours with ±20% jitter; a satisfied path may retry immediately. No file or cursor is discarded before acknowledgment.
 - After six consecutive sync failures the watch sends a lightweight `requires_urgent_sync` hint so the phone can pull.
 
@@ -178,7 +177,7 @@ Status is reconciled to the current tree. “Done” means the original componen
 | T11 | Done | `Storage/Compaction/CheckpointManager.swift` and tests; restart uses non-transactional checkpoint calls. |
 | T12 | Partial | Corruption classification and broadcast exist; replacement, user-visible recovery, circuit breaker, and full restore are not an end-to-end app flow. |
 | T13 | Done | `Sync/HLC.swift` and HLC tests include frozen-clock and drift branches. |
-| T14 | Done | `Sync/ClockSuspectGate.swift` and tests. Production upload/fusion call-site enforcement still belongs to rollout. |
+| T14 | Done | `Sync/ClockSuspectGate.swift` and tests. Production upload call-site enforcement still belongs to rollout; fusion enforcement was retired with the CNS product line. |
 | T15 | Done | `Sync/SyncCursor.swift` and snake-case wire-key regression tests. |
 | T16 | Done | `Syncable` macro, registry, generated trigger support, integration tests, and negative macro fixtures. |
 | T17 | Partial | `Sync/SyncCoordinator.swift` handles time-series/tombstone flows; comments defer low-frequency CRUD materialization and periodic scheduling. |
@@ -189,9 +188,9 @@ Status is reconciled to the current tree. “Done” means the original componen
 | T22 | Done | `BLE/HealthKitAdapterActor.swift` and tests; iPhone and watch integrations exist. |
 | T23 | Done | `BLE/SensorRouter.swift`, throttle tests, and app integrations. Optional Oura paths remain separately gated. |
 | T24 | Done | `Pipeline/PipelineState.swift`, `PipelineStep.swift`, ring buffer, and deterministic tests. |
-| T25 | Done | Package `Pipeline/CNSFusionEngine.swift` and tests. It is distinct from app-level `Services/CNSRisk/CNSFusionEngine.swift`. |
-| T26 | Done | Package `Pipeline/CNSAlertTierMachine.swift` and tests. |
-| T27 | Done | `Pipeline/CNSMonitoringCoordinator.swift` and tests; package side-effect scope must remain distinct from app CNSRisk. |
+| T25 | Retired | Historical package `Pipeline/CNSFusionEngine.swift` and tests were removed by `remove-cns-klaxon`; AnxietyWatch2 owns this product line. |
+| T26 | Retired | Historical package `Pipeline/CNSAlertTierMachine.swift` and tests were removed by `remove-cns-klaxon`. |
+| T27 | Retired/replaced | `Pipeline/CNSMonitoringCoordinator.swift` was replaced by non-alert `VitalsMonitoringCoordinator`; no clinical side-effect surface remains. |
 | T28 | Done | `Transport/BinaryCodec.swift`, message codec, and tests. |
 | T29 | Partial | `Transport/WCSessionCoordinator.swift` and tests exist, but legacy delegates remain authoritative and watch cutover is incomplete. |
 | T30 | Done | `Sync/RESTClient.swift` and endpoint types/tests through coordinator coverage. |
@@ -244,7 +243,7 @@ Status is reconciled to the current tree. “Done” means the original componen
 
 ## Risks / Trade-offs
 
-- **Two CNS implementations can be mistaken for one** → keep package and app-level CNSRisk diagrams, tests, and ownership separate.
+- **Historical CNS plans can accidentally revive a retired product line** → treat `remove-cns-klaxon` as the boundary; AnxietyWatch may retain sensor capture and vitals presentation but not detection, tiering, or alarm behavior.
 - **Dormant flags create false confidence** → require an exact production reader and two-value test before calling any flag a rollback control.
 - **WCSession activation order silently changes ownership** → assert one delegate owner and migrate callbacks before replacement startup.
 - **Backfill runs once and can rot** → test from a genuinely fresh install, at mid-batch termination, and after a bundle/store reset.
@@ -257,7 +256,7 @@ Status is reconciled to the current tree. “Done” means the original componen
 
 - The operator of the self-hosted server owns Phase 2C SLO and shadow-compare evidence. The repository supplies privacy-safe aggregate logs, tests, and diagnostics; it does not assume an external fleet dashboard.
 - No third-party remote-config dependency will be added. An injectable feature provider supplies bundled safe defaults and local/test overrides; TestFlight or build cohorts control rollout until a separate self-hosted control is justified.
-- The app-level `Services/CNSRisk` engine remains authoritative for clinical alert decisions. The package pipeline supplies monitoring and presentation state and must not duplicate notifications, haptics, or watch messages.
+- CNS-depression detection and klaxon alarming are retired from AnxietyWatch and owned by AnxietyWatch2. The package supplies non-alert sensor routing and ordinary vitals presentation only.
 - `AnxietyWatchWidgets` owns the read-only complication cache reader because it is the existing extension target. The reader never opens the time-series database.
 - An iOS 26 `#Predicate` radar may be linked as background but is not a design dependency or justification for the TSDB.
 
@@ -281,7 +280,7 @@ Status is reconciled to the current tree. “Done” means the original componen
 | 2.6 Unacknowledged overflow | `causal-sync` current spec and technical design |
 | 2.7 Server contract | `causal-sync` current and delta specs |
 | 3 BLE actors, router, HealthKit, UI observation | `sensor-processing` current spec and technical design |
-| 4 CNS pipeline, coordinator, data gaps | `sensor-processing` current and delta specs |
+| 4 Historical CNS pipeline; retained sensor routing and data gaps | `remove-cns-klaxon` plus `sensor-processing` current and delta specs |
 | 5 Binary codec, WC routing, transfer resilience, retry | `watch-connectivity`, `watch-runtime`, and their deltas |
 | 6 Watch background budget and complication cache | `watch-runtime` current and delta specs |
 | 7 Migration phases, cutover, flags, shadow mode | `migration-rollout` current and delta specs; Migration Plan |

@@ -19,9 +19,9 @@ final class ComplicationCacheWriterTests: XCTestCase {
     }
 
     func testDebounceCoalescesBursts() async throws {
-        let state1 = ComplicationState(alertTier: "Elevated", fusionScore: 0.5)
-        let state2 = ComplicationState(alertTier: "High", fusionScore: 0.8)
-        let state3 = ComplicationState(alertTier: "Severe", fusionScore: 1.0)
+        let state1 = ComplicationState(vitalsStatus: "idle")
+        let state2 = ComplicationState(vitalsStatus: "normal")
+        let state3 = ComplicationState(latestHR: 72, vitalsStatus: "normal")
 
         await writer.submit(state1)
         await writer.submit(state2)
@@ -36,8 +36,8 @@ final class ComplicationCacheWriterTests: XCTestCase {
 
         // Ensure only the final state (state3) was written out.
         XCTAssertEqual(decoded, state3)
-        XCTAssertEqual(decoded.alertTier, "Severe")
-        XCTAssertEqual(decoded.fusionScore, 1.0)
+        XCTAssertEqual(decoded.vitalsStatus, "normal")
+        XCTAssertEqual(decoded.latestHR, 72)
 
         // Ensure pending is cleared
         let pending = await writer.pendingState
@@ -59,7 +59,7 @@ final class ComplicationCacheWriterTests: XCTestCase {
     }
 
     func testAtomicWrite() async throws {
-        let state = ComplicationState(alertTier: "Normal", fusionScore: 0.1)
+        let state = ComplicationState(vitalsStatus: "normal")
 
         // Directly call flush to avoid waiting for debounce in this test
         await writer.submit(state)
@@ -74,11 +74,11 @@ final class ComplicationCacheWriterTests: XCTestCase {
 
         let data = try Data(contentsOf: plistURL)
         let decoded = try PropertyListDecoder().decode(ComplicationState.self, from: data)
-        XCTAssertEqual(decoded.alertTier, "Normal")
+        XCTAssertEqual(decoded.vitalsStatus, "normal")
     }
 
     func testFlushClearsPending() async throws {
-        let state = ComplicationState(alertTier: "Normal", fusionScore: 0.1)
+        let state = ComplicationState(vitalsStatus: "normal")
         await writer.submit(state)
 
         var pending = await writer.pendingState
@@ -109,7 +109,7 @@ final class ComplicationCacheWriterTests: XCTestCase {
         // the app + the whole app test suite on launch (KitPipelineService.start
         // -> ComplicationCacheWriter()).
         let fallbackWriter = ComplicationCacheWriter()   // must not trap
-        let state = ComplicationState(alertTier: "Normal", fusionScore: 0.1)
+        let state = ComplicationState(vitalsStatus: "normal")
         await fallbackWriter.submit(state)
         await fallbackWriter.flush()
         let pending = await fallbackWriter.pendingState

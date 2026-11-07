@@ -6,7 +6,7 @@ import AnxietyWatchKit
 
 /// Bridges the v3 AnxietyWatchKit pipeline into the iOS app target.
 ///
-/// Owns the BLE actors, SensorRouter, CNS pipeline, and ViewModel.
+/// Owns the BLE actors, SensorRouter, and live-vitals ViewModel.
 /// Coexists with legacy PolarHRMService/EMAYRealtimeService during the
 /// §7 phased rollout — the old services continue to drive existing
 /// recording/export features while this service feeds the new
@@ -37,7 +37,6 @@ public final class KitPipelineService: ObservableObject {
     private var emay: EMAYActor?
     private var healthKit: HealthKitAdapterActor?
     private var router: SensorRouter?
-    private var coordinator: PipelineCoordinator?
     private var complicationWriter: ComplicationCacheWriter?
     private var monitoringTask: Task<Void, Never>?
 
@@ -67,10 +66,7 @@ public final class KitPipelineService: ObservableObject {
         // and the throttled snapshot stream for the ViewModel.
         router = SensorRouter(polar: polar, emay: emay, healthKit: healthKit)
 
-        // ── Pipeline coordinator ──────────────────────────────────
         guard let router else { return }
-        coordinator = PipelineCoordinator(router: router)
-        await coordinator?.start()
 
         // ── Complication cache writer ─────────────────────────────
         // Runs on both iOS (for iPhone complications) and watchOS.
@@ -80,8 +76,8 @@ public final class KitPipelineService: ObservableObject {
 
         // ── Monitoring ViewModel ──────────────────────────────────
         // Subscribes to the throttled 10 Hz snapshot stream from the
-        // SensorRouter. The coordinator injects alertTier and fusion
-        // score into each snapshot via coordinatorSnapshotProvider.
+        // SensorRouter. The router derives non-alert normal/idle status from
+        // the same source activity used by the snapshot's idle flag.
         let vm = MonitoringViewModel(router: router)
         monitoring = vm
 
@@ -97,8 +93,7 @@ public final class KitPipelineService: ObservableObject {
                 let state = ComplicationState(
                     latestHR: snap.latestHR,
                     latestSpO2: snap.latestSpO2,
-                    alertTier: snap.alertTier.rawValue,
-                    fusionScore: snap.fusionScore,
+                    vitalsStatus: snap.vitalsStatus.rawValue,
                     lastUpdate: Date()
                 )
                 await self.complicationWriter?.submit(state)
@@ -117,9 +112,8 @@ public final class KitPipelineService: ObservableObject {
             latestHR: 72,
             latestSpO2: 98,
             latestHRV: 42.0,
-            alertTier: .normal,
-            isIdle: false,
-            fusionScore: 0.22
+            vitalsStatus: .normal,
+            isIdle: false
         ))
         isRunning = true
 #endif
@@ -132,14 +126,12 @@ public final class KitPipelineService: ObservableObject {
         monitoringTask?.cancel()
         monitoringTask = nil
 
-        await coordinator?.stop()
         await complicationWriter?.flush()
 
         polar = nil
         emay = nil
         healthKit = nil
         router = nil
-        coordinator = nil
         isRunning = false
 
         logger.info("KitPipelineService stopped")

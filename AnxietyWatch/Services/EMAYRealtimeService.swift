@@ -22,10 +22,9 @@ nonisolated struct EMAYReading: Equatable, Sendable {
 
     var hasSpO2: Bool { spo2 != nil }
     var hasPulse: Bool { pulseRate != nil }
-    /// True when *any* field is present. NOTE: a pulse-only reading (SpO₂
-    /// dropped as no-finger) is `isMeasuring == true` with no SpO₂ — an
-    /// SpO₂-driven consumer (e.g. the CNS-depression alarm) must gate on
-    /// `hasSpO2`, never on `isMeasuring`.
+    /// True when *any* field is present. NOTE: a pulse-only reading (SpO²
+    /// dropped as no-finger) is `isMeasuring == true` with no SpO² — an
+    /// SpO²-driven consumer must gate on `hasSpO2`, never on `isMeasuring`.
     var isMeasuring: Bool { spo2 != nil || pulseRate != nil }
 }
 
@@ -139,7 +138,7 @@ nonisolated struct EMAYLiveDownsampler {
     /// captured after a mid-minute jetsam relaunch reconnects). Nothing
     /// downstream can tell the two apart — `MinuteSample` carries no coverage
     /// count. Continuous mode makes tail-only minutes a nightly occurrence
-    /// rather than a rarity; if the CNS Klaxon ever needs coverage-weighted
+    /// rather than a rarity; if a future consumer needs coverage-weighted
     /// confidence, persist the per-minute sample count alongside the mean
     /// rather than lowering/raising this floor.
     static let minimumSamplesPerMinute = 10
@@ -318,9 +317,9 @@ final class EMAYRealtimeService: NSObject {
     /// detect a stalled stream. A consumer can also read
     /// `latestReading?.timestamp` for freshness.
     private(set) var lastReadingAt: Date?
-    /// Live packet tap used by CNS monitoring. State-restored CoreBluetooth
+    /// Live packet tap used by the router. State-restored CoreBluetooth
     /// notifications traverse the same delegate path, so background samples
-    /// reach the on-device detection pipeline without a wall-clock tick.
+    /// reach presentation consumers without a wall-clock tick.
     var onLiveSample: ((EMAYReading) -> Void)?
 
     @ObservationIgnored private var central: CBCentralManager!
@@ -801,7 +800,7 @@ extension EMAYRealtimeService: CBCentralManagerDelegate {
     ///
     /// The downsampler starts empty after a relaunch, so the minutes lost
     /// while the app was dead stay lost — a gap is a gap; continuity is
-    /// never fabricated across it (CNS asymmetry invariant).
+    /// never fabricated across it.
     nonisolated func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
         let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
         Task { @MainActor [weak self] in

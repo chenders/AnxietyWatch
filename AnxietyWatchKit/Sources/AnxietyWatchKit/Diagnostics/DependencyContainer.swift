@@ -17,9 +17,8 @@ import Foundation
 /// 5. Compaction: RetentionCompactor, IdleDownsampler, CheckpointManager
 ///
 /// Apps wire BLE adapters (PolarActor, EMAYActor, HealthKitAdapterActor) into
-/// a `SensorRouter` and attach it to `CNSMonitoringCoordinator` separately —
-/// they are not constructed here because they depend on platform-specific
-/// entitlements (HealthKit, Bluetooth).
+/// a `SensorRouter` separately; they are not constructed here because they
+/// depend on platform-specific entitlements (HealthKit, Bluetooth).
 public struct DependencyContainer: Sendable {
 
     // MARK: - Storage

@@ -27,8 +27,8 @@ CREATE TABLE IF NOT EXISTS medication_definitions (
     default_dose_mg DOUBLE PRECISION NOT NULL,
     category        TEXT NOT NULL DEFAULT '',
     is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    -- 0013: raw CNSDepressantClass rawValue from the app's explicit picker
-    -- (source of truth for dose-window monitoring); NULL = unclassified.
+    -- Legacy nullable column retained for migration-history compatibility.
+    -- Runtime sync no longer accepts or emits this value.
     cns_depressant_class TEXT
 );
 
@@ -617,19 +617,16 @@ CREATE TABLE IF NOT EXISTS as11_stream_sample (
 CREATE INDEX IF NOT EXISTS idx_as11_stream_sample_ts
     ON as11_stream_sample (ts_utc DESC);
 
--- Sub-project C: server redundant alert channel (backstop + heartbeat + push).
--- Buffer of SpO2/HR samples the app uploads during an armed BLE-active session;
--- the conservative backstop and the no-data heartbeat run over these rows.
+-- Legacy inert tables retained for migration-history compatibility after the
+-- redundant CNS alert channel was retired. Runtime routes no longer read or
+-- write these rows; removal requires a separate destructive migration.
 CREATE TABLE IF NOT EXISTS session_sample_buffer (
     id SERIAL PRIMARY KEY,
     session_id TEXT NOT NULL,
     ts_utc TIMESTAMPTZ NOT NULL,
     channel TEXT NOT NULL,
     value DOUBLE PRECISION NOT NULL,
-    -- Which sensor produced the sample (e.g. 'emay', 'as11'). The backstop
-    -- evaluates each source independently so a normal reading from one
-    -- concurrently-active SpO2 source can't reset (mask) a sustained low on
-    -- another. Nullable: an omitted source groups as a single stream.
+    -- Historical source discriminator retained with the inert table.
     source TEXT,
     ingest_ts_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -637,11 +634,11 @@ CREATE TABLE IF NOT EXISTS session_sample_buffer (
 CREATE INDEX IF NOT EXISTS idx_session_sample_buffer_session_ts
     ON session_sample_buffer (session_id, ts_utc DESC);
 
--- Supports the heartbeat sweep's per-session MAX(ingest_ts_utc) lookup.
+-- Historical index retained with the inert table.
 CREATE INDEX IF NOT EXISTS idx_session_sample_buffer_session_ingest
     ON session_sample_buffer (session_id, ingest_ts_utc DESC);
 
--- APNs device push tokens registered by the app (dedup on token).
+-- Historical APNs token table; no live route registers or consumes tokens.
 CREATE TABLE IF NOT EXISTS device_push_token (
     id SERIAL PRIMARY KEY,
     token TEXT NOT NULL UNIQUE,
@@ -649,13 +646,7 @@ CREATE TABLE IF NOT EXISTS device_push_token (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- At most one row per (session_id, kind) event. The push is delivery-gated:
--- the row is written (INSERT ... ON CONFLICT DO NOTHING) only AFTER a successful
--- push, so a crash mid-push leaves no row and the alert stays retryable. The
--- UNIQUE index keeps a concurrent append/sweep from creating a duplicate row;
--- exactly-once holds for the row, though a rare same-key race may still
--- double-push (acceptable for a redundant channel). The row is deleted when the
--- heartbeat clears on resume, so a later occurrence can re-fire.
+-- Historical alert-event table retained with the retired channel schema.
 CREATE TABLE IF NOT EXISTS alert_event (
     id SERIAL PRIMARY KEY,
     session_id TEXT NOT NULL,

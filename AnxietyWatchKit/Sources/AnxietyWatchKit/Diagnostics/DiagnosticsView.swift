@@ -12,53 +12,12 @@ public struct DiagnosticsSnapshot: Sendable, Equatable, Codable {
     // MARK: Pipeline
 
     public struct Pipeline: Sendable, Equatable, Codable {
-        public var currentTier: AlertTier
-        public var fusionOverall: Double
-        public var fusionContributions: FusionContributions
-        public var ringCounts: RingCounts
+        public var vitalsStatus: VitalsStatus
         public var isRunning: Bool
-        public var lastGapEndMs: Int64?
 
-        public var thresholds: CNSThresholds
-
-        public init(
-            currentTier: AlertTier = .normal,
-            fusionOverall: Double = 0,
-            fusionContributions: FusionContributions = .init(),
-            ringCounts: RingCounts = .init(),
-            isRunning: Bool = false,
-            lastGapEndMs: Int64? = nil,
-            thresholds: CNSThresholds = .init()
-        ) {
-            self.currentTier = currentTier
-            self.fusionOverall = fusionOverall
-            self.fusionContributions = fusionContributions
-            self.ringCounts = ringCounts
+        public init(vitalsStatus: VitalsStatus = .idle, isRunning: Bool = false) {
+            self.vitalsStatus = vitalsStatus
             self.isRunning = isRunning
-            self.lastGapEndMs = lastGapEndMs
-            self.thresholds = thresholds
-        }
-    }
-
-    public struct FusionContributions: Sendable, Equatable, Codable {
-        public var hr: Double          // 0…1
-        public var hrv: Double
-        public var spo2: Double
-        public var accel: Double
-        public var breath: Double
-
-        public init(hr: Double = 0, hrv: Double = 0, spo2: Double = 0,
-                    accel: Double = 0, breath: Double = 0) {
-            self.hr = hr; self.hrv = hrv; self.spo2 = spo2
-            self.accel = accel; self.breath = breath
-        }
-    }
-
-    public struct RingCounts: Sendable, Equatable, Codable {
-        public var hr: Int; public var spo2: Int; public var hrv: Int; public var accel: Int
-
-        public init(hr: Int = 0, spo2: Int = 0, hrv: Int = 0, accel: Int = 0) {
-            self.hr = hr; self.spo2 = spo2; self.hrv = hrv; self.accel = accel
         }
     }
 
@@ -176,8 +135,6 @@ public struct DiagnosticsView: View {
                 Divider().padding(.vertical, 4)
                 pipelineSection
                 Divider().padding(.vertical, 4)
-                fusionSection
-                Divider().padding(.vertical, 4)
                 syncCursorsSection
                 Divider().padding(.vertical, 4)
                 sourcesSection
@@ -215,54 +172,11 @@ public struct DiagnosticsView: View {
         DiagnosticSection(title: "Pipeline") {
             KeyValueRow("Status", snapshot.pipeline.isRunning ? "Running" : "Stopped")
                 .foregroundColor(snapshot.pipeline.isRunning ? .green : .secondary)
-            KeyValueRow("Alert tier", snapshot.pipeline.currentTier.displayName)
-                .foregroundColor(snapshot.pipeline.currentTier.displayColor)
-            if let gapMs = snapshot.pipeline.lastGapEndMs {
-                KeyValueRow("Last data gap end", "\(gapMs / 1000)s ago")
-                    .foregroundColor(.orange)
-            } else {
-                KeyValueRow("Last data gap", "none")
-                    .foregroundColor(.green)
-            }
-        }
-    }
-
-    // MARK: - Fusion score
-
-    @ViewBuilder
-    private var fusionSection: some View {
-        DiagnosticSection(title: "Fusion Score") {
-            HStack {
-                Text(String(format: "%.1f%%", snapshot.pipeline.fusionOverall * 100))
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-                    .foregroundColor(riskColor(snapshot.pipeline.fusionOverall))
-                Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    contributionRow("HR",  snapshot.pipeline.fusionContributions.hr)
-                    contributionRow("HRV", snapshot.pipeline.fusionContributions.hrv)
-                    contributionRow("SpO₂", snapshot.pipeline.fusionContributions.spo2)
-                    contributionRow("Accel", snapshot.pipeline.fusionContributions.accel)
-                    contributionRow("Breath", snapshot.pipeline.fusionContributions.breath)
-                }
-            }
-
-            Divider().padding(.vertical, 4)
-
-            Text("Ring buffer depths")
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .padding(.bottom, 2)
-
-            LazyVGrid(columns: [
-                GridItem(.flexible()), GridItem(.flexible()),
-                GridItem(.flexible()), GridItem(.flexible())
-            ], spacing: 8) {
-                ringCountTile("HR", snapshot.pipeline.ringCounts.hr, capacity: 120)
-                ringCountTile("SpO₂", snapshot.pipeline.ringCounts.spo2, capacity: 60)
-                ringCountTile("HRV", snapshot.pipeline.ringCounts.hrv, capacity: 60)
-                ringCountTile("Accel", snapshot.pipeline.ringCounts.accel, capacity: 200)
-            }
+            KeyValueRow("Vitals status", snapshot.pipeline.vitalsStatus.displayName)
+                .foregroundColor(snapshot.pipeline.vitalsStatus.displayColor)
+            Text("Presentation state only — not a clinical alert.")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
     }
 
@@ -375,46 +289,6 @@ public struct DiagnosticsView: View {
 
     // MARK: - Helpers
 
-    private func contributionRow(_ label: String, _ value: Double) -> some View {
-        HStack(spacing: 4) {
-            Text(label)
-                .font(.caption)
-                .foregroundColor(.secondary)
-            Text(String(format: "%.0f%%", value * 100))
-                .font(.caption)
-                .monospacedDigit()
-        }
-    }
-
-    @ViewBuilder
-    private func ringCountTile(_ label: String, _ count: Int, capacity: Int) -> some View {
-        VStack(spacing: 2) {
-            Text("\(count)")
-                .font(.headline)
-                .monospacedDigit()
-            Text(label)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            Text("/\(capacity)")
-                .font(.caption2)
-                .foregroundColor(.secondary.opacity(0.5))
-        }
-        .padding(6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.gray.opacity(0.12))
-        )
-    }
-
-    private func riskColor(_ score: Double) -> Color {
-        switch score {
-        case 0..<0.25: return .green
-        case 0.25..<0.50: return .yellow
-        case 0.50..<0.75: return .orange
-        default: return .red
-        }
-    }
-
     private func hlcDisplay(_ physical: Int64) -> String {
         if physical == 0 { return "—" }
         let date = Date(timeIntervalSince1970: Double(physical) / 1000.0)
@@ -469,24 +343,20 @@ private struct KeyValueRow: View {
     }
 }
 
-// MARK: - AlertTier display helpers
+// MARK: - VitalsStatus display helpers
 
-private extension AlertTier {
+private extension VitalsStatus {
     var displayName: String {
         switch self {
-        case .normal:   return "Normal"
-        case .advisory: return "Advisory"
-        case .warning:  return "Warning"
-        case .critical: return "Critical"
+        case .normal: return "Live"
+        case .idle: return "Idle"
         }
     }
 
     var displayColor: Color {
         switch self {
-        case .normal:   return .green
-        case .advisory: return .yellow
-        case .warning:  return .orange
-        case .critical: return .red
+        case .normal: return .green
+        case .idle: return .secondary
         }
     }
 }

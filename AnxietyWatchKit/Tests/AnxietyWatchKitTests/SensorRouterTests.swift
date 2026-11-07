@@ -133,6 +133,57 @@ final class SensorRouterTests: XCTestCase {
         XCTAssertFalse(isIdle2, "Should not be idle when attached upstream has recent activity")
     }
     
+    func testSnapshotStatusAndIdleFlagAlwaysAgree() async throws {
+        let router = SensorRouter(polar: nil, emay: nil, healthKit: nil)
+        let stream = await router.throttled(rate: 10)
+        var iterator = stream.makeAsyncIterator()
+
+        guard let initial = await iterator.next() else {
+            return XCTFail("Expected an initial snapshot")
+        }
+        XCTAssertEqual(initial.vitalsStatus, .idle)
+        XCTAssertTrue(initial.isIdle)
+
+        await router.push(.polar(.init(
+            timestamp: 1_000,
+            heartRate: 72,
+            rrIntervals: [830]
+        )))
+
+        guard let active = await iterator.next() else {
+            return XCTFail("Expected a snapshot after a sensor sample")
+        }
+        XCTAssertEqual(active.vitalsStatus, .normal)
+        XCTAssertFalse(active.isIdle)
+    }
+
+    func testIdleBoundariesUseSourceSpecificWindows() async throws {
+        let polarActor = PolarActor(bufferSize: 10)
+        let healthKitActor = HealthKitAdapterActor(bufferSize: 10)
+        let router = SensorRouter(
+            polar: polarActor,
+            emay: nil,
+            healthKit: healthKitActor,
+            idleAfterSeconds: 60
+        )
+
+        await polarActor.ingest(.init(timestamp: 100, heartRate: 70, rrIntervals: []))
+        let polarActive = await router.isIdle(now: 159.999)
+        let polarIdle = await router.isIdle(now: 160)
+        XCTAssertFalse(polarActive)
+        XCTAssertTrue(polarIdle)
+
+        await healthKitActor.ingest(.init(
+            timestamp: 200,
+            quantityType: .heartRate,
+            value: 70
+        ))
+        let healthKitActive = await router.isIdle(now: 499.999)
+        let healthKitIdle = await router.isIdle(now: 500)
+        XCTAssertFalse(healthKitActive)
+        XCTAssertTrue(healthKitIdle)
+    }
+
     func testStorageCoordinatesCovered() async throws {
         // Test Polar coordinates
         let polarSample = SensorRouter.AnySensorSample.polar(

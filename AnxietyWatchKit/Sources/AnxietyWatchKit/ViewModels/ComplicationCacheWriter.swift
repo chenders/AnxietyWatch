@@ -5,21 +5,18 @@ import os
 public struct ComplicationState: Sendable, Codable, Equatable {
     public var latestHR: Int?
     public var latestSpO2: Int?
-    public var alertTier: String
-    public var fusionScore: Double
+    public var vitalsStatus: String
     public var lastUpdate: Date?
 
     public init(
         latestHR: Int? = nil,
         latestSpO2: Int? = nil,
-        alertTier: String,
-        fusionScore: Double,
+        vitalsStatus: String,
         lastUpdate: Date? = nil
     ) {
         self.latestHR = latestHR
         self.latestSpO2 = latestSpO2
-        self.alertTier = alertTier
-        self.fusionScore = fusionScore
+        self.vitalsStatus = vitalsStatus
         self.lastUpdate = lastUpdate
     }
 }

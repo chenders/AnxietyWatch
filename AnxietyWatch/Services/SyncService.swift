@@ -40,7 +40,7 @@ final class SyncService {
     // properties because the macro only instruments stored storage.
 
     /// UserDefaults keys for the server URL + API key. Exposed so other clients
-    /// of the same server (e.g. `AlertChannelUploader`) reference one source of
+    /// of the same server reference one source of
     /// truth instead of duplicating the raw string literals.
     static let serverURLDefaultsKey = "syncServerURL"
     static let apiKeyDefaultsKey = "syncApiKey"

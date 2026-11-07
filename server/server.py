@@ -69,10 +69,6 @@ def create_app(test_config=None):
     sock.init_app(app)
     app.register_blueprint(as11_bp)
 
-    # Register redundant alert-channel blueprint (sub-project C)
-    from api.alert_channel import alert_channel_bp
-    app.register_blueprint(alert_channel_bp)
-
     # -----------------------------------------------------------------------
     # Jinja2 template filters for Claude API text formatting
     # -----------------------------------------------------------------------
@@ -428,33 +424,19 @@ def create_app(test_config=None):
         return len(entries)
 
     def _upsert_medication_definitions(cur, defs):
-        # cnsDepressantClass (0013): the app's explicit CNS-depressant picker
-        # value — source of truth for dose-window monitoring. On conflict the
-        # column takes COALESCE(EXCLUDED..., stored): an incoming NULL — an
-        # old client omitting the key entirely, or a new client whose nil
-        # encodes as an absent key — never clobbers a stored explicit
-        # classification (the under-monitoring direction). Deliberate
-        # consequence: explicit UN-classification (user sets the picker back
-        # to None) does NOT propagate via sync — it stays local on the device
-        # that made it, and the stale server value only matters on a restore,
-        # where it errs toward MORE monitoring (fail-safe, §14.1). A non-NULL
-        # incoming value always wins, so re-classification propagates
-        # normally. The INSERT path is unchanged: brand-new rows take
-        # whatever the payload carries (NULL included).
+        # The nullable cns_depressant_class column remains only for historical
+        # schema compatibility. Runtime sync intentionally neither reads nor
+        # writes it after CNS monitoring was retired.
         for d in defs:
             cur.execute(
                 """INSERT INTO medication_definitions
-                       (name, default_dose_mg, category, is_active, cns_depressant_class)
-                   VALUES (%s, %s, %s, %s, %s)
+                       (name, default_dose_mg, category, is_active)
+                   VALUES (%s, %s, %s, %s)
                    ON CONFLICT (name) DO UPDATE SET
                        default_dose_mg = EXCLUDED.default_dose_mg,
                        category = EXCLUDED.category,
-                       is_active = EXCLUDED.is_active,
-                       cns_depressant_class = COALESCE(
-                           EXCLUDED.cns_depressant_class,
-                           medication_definitions.cns_depressant_class)""",
-                (d["name"], d["defaultDoseMg"], d.get("category", ""), d.get("isActive", True),
-                 d.get("cnsDepressantClass")),
+                       is_active = EXCLUDED.is_active""",
+                (d["name"], d["defaultDoseMg"], d.get("category", ""), d.get("isActive", True)),
             )
         return len(defs)
 
@@ -1400,6 +1382,7 @@ def create_app(test_config=None):
     # out (the binary lives at GET .../rr_archive), so selecting it out of
     # Postgres into Python is pure waste (F-058). Any entity absent here uses *.
     ENTITY_SELECT_COLS = {
+        "medicationDefinitions": "name, default_dose_mg, category, is_active",
         "sensorSessions": (
             "id, source, start_time, end_time, battery_at_start, "
             "interruption_count, summary_json, created_at"

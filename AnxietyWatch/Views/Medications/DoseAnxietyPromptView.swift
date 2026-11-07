@@ -7,7 +7,6 @@ import SwiftData
 struct DoseAnxietyPromptView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @Environment(CNSMonitoringCoordinator.self) private var monitoringCoordinator
 
     let medication: MedicationDefinition
     /// If non-nil, this is a follow-up for an existing dose (no PRN toggle, no dose creation).
@@ -98,7 +97,6 @@ struct DoseAnxietyPromptView: View {
                 medication: medication
             )
             modelContext.insert(dose)
-            monitoringCoordinator.doseLogged(dose)
         }
 
         let entry = AnxietyEntry(
@@ -132,7 +130,6 @@ struct DoseAnxietyPromptView: View {
             medication: medication
         )
         modelContext.insert(dose)
-        monitoringCoordinator.doseLogged(dose)
         dismiss()
     }
 
