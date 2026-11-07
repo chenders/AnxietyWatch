@@ -3,10 +3,17 @@ import SwiftUI
 
 struct TrendsView: View {
     @Environment(\.modelContext) private var modelContext
+    /// Deliberately still whole-table. Every consumer is a `.now`-anchored
+    /// `BaselineCalculator` window (see the `anchorDate: Date = .now` default
+    /// on `hrvBaseline`/`cpapAHIBaseline`/`barometricPressureBaseline`), not
+    /// the displayed page — scoping this to the visible window would silently
+    /// change the baselines the charts draw when the user pages back. It is
+    /// also one row per day, so it is ~1.4k rows after four years and is not
+    /// the fetch cost this type's `WindowedTrendTables` split targets.
     @Query(sort: \HealthSnapshot.date) private var allSnapshots: [HealthSnapshot]
-    @Query(sort: \AnxietyEntry.timestamp) private var allEntries: [AnxietyEntry]
-    @Query(sort: \CPAPSession.date) private var allCPAPSessions: [CPAPSession]
-    @Query(sort: \BarometricReading.timestamp) private var allBarometric: [BarometricReading]
+    // AnxietyEntry / CPAPSession / BarometricReading previously lived here as
+    // unbounded whole-table @Querys. They are now fetched window-scoped by
+    // `WindowedTrendTables` (below) — see that type's doc comment for why.
     // Source-filtered at the SwiftData layer so the per-minute HRVReading
     // table doesn't load non-Polar rows (and won't bloat the Trends tab as
     // future HRV writers start populating other source labels). String
@@ -168,6 +175,30 @@ struct TrendsView: View {
 
     var body: some View {
         let ws = windowState
+        // The three window-scoped tables are fetched by a child view whose
+        // `@Query`s are rebuilt from these dates on every window change —
+        // `@Query` can't read `@State` (timeRange/pageOffset/custom range),
+        // so the bounds have to arrive through an `init`.
+        WindowedTrendTables(windowStart: ws.start, windowEnd: ws.end) { allEntries, allCPAPSessions, allBarometric in
+            charts(
+                ws: ws,
+                allEntries: allEntries,
+                allCPAPSessions: allCPAPSessions,
+                allBarometric: allBarometric
+            )
+        }
+    }
+
+    /// Split out of `body` verbatim so the window-scoped fetch can wrap it.
+    /// `ws` is passed through as the same tuple `windowState` produces, so
+    /// every `ws.start` / `ws.end` / `ws.chartEnd` reference below is unchanged.
+    @ViewBuilder
+    private func charts(
+        ws: (start: Date, end: Date, chartEnd: Date),
+        allEntries: [AnxietyEntry],
+        allCPAPSessions: [CPAPSession],
+        allBarometric: [BarometricReading]
+    ) -> some View {
         let f = timeRange == .custom ? Self.windowDateTimeFormatter : Self.windowDateFormatter
         // A past 1-day page IS one calendar day — "Mar 23 – Mar 24" would
         // misread as a two-day window.
@@ -521,6 +552,76 @@ struct TrendsView: View {
         // where a yesterday whose sleep/resting HR landed late would
         // otherwise show a permanent hole.
         try? await aggregator.aggregateRecentDays(endingAt: .now)
+    }
+}
+
+/// Window-scoped fetch for the three Trends tables whose only consumer is the
+/// currently displayed window.
+///
+/// `TrendsView` previously held these as predicate-less whole-table `@Query`s
+/// and narrowed them in `body`. That is the shape CLAUDE.md prohibits ("Any
+/// new `@Query` on `HRVReading`, `BarometricReading`, or another unbounded
+/// table must filter by `source` *and* bound by date. Don't fetch the whole
+/// table to filter in-memory"), and the cost compounds: `@Query` invalidates
+/// per *model type*, so every insert into any of these tables re-ran a whole
+/// -table fetch plus sort on the main thread and re-evaluated all twelve chart
+/// cards. Overnight — the barometer captures up to every 15 min and the EMAY
+/// live stream writes ~2 rows/min — that becomes a continuous fetch/render
+/// loop. It is what iOS killed the app for three times in July 2026
+/// (`AnxietyWatch.cpu_resource_fatal`: ~48s CPU over ~50s, 91–96% average).
+///
+/// `@Query` cannot observe `@State`, so the bounds arrive through `init`;
+/// SwiftUI re-inits this view — and therefore rebuilds the queries — on every
+/// `TrendsView.body` evaluation. Paging back keeps working because the fetch
+/// follows the window rather than being pinned to a fixed cutoff.
+///
+/// Note that "re-inits on every body evaluation" is *not* the same as
+/// "re-fetches on every body evaluation": the current period's window is
+/// `.now`-anchored (`TrendWindow` sets `end = now`), so the raw bounds differ
+/// by microseconds each render, and `@Query` re-fetches whenever a captured
+/// predicate value changes. `TrendsFetchWindow` snaps both bounds outward to
+/// `boundGranularity` to collapse that into at most one re-fetch per minute —
+/// without it, a re-render driven by the still-whole-table queries would drag
+/// these three back into the very fetch loop this split exists to break.
+///
+/// All three predicates are **two-clause `Date`-only** windows. That shape is
+/// safe from the iOS 26 SwiftData ORDER BY hang, which targets captured
+/// non-primitive locals (`String`, `UUID`) — `CPAPDetailView` documents the
+/// same pattern. It is also why `TrendsView`'s three `source`-filtered queries
+/// are deliberately left whole-table: adding a `Date` clause beside their
+/// captured `String` would produce exactly the unsafe compound shape (F-030).
+///
+/// Each bound is a superset of the in-memory window filter that still runs in
+/// `TrendsView.charts(...)`, so the rendered result is unchanged.
+private struct WindowedTrendTables<Content: View>: View {
+    @Query private var entries: [AnxietyEntry]
+    @Query private var cpapSessions: [CPAPSession]
+    @Query private var barometric: [BarometricReading]
+
+    private let content: ([AnxietyEntry], [CPAPSession], [BarometricReading]) -> Content
+
+    init(
+        windowStart: Date,
+        windowEnd: Date,
+        @ViewBuilder content: @escaping ([AnxietyEntry], [CPAPSession], [BarometricReading]) -> Content
+    ) {
+        self.content = content
+        _entries = Query(
+            filter: TrendsFetchWindow.entries(windowStart: windowStart, windowEnd: windowEnd),
+            sort: \AnxietyEntry.timestamp
+        )
+        _cpapSessions = Query(
+            filter: TrendsFetchWindow.cpapSessions(windowStart: windowStart, windowEnd: windowEnd),
+            sort: \CPAPSession.date
+        )
+        _barometric = Query(
+            filter: TrendsFetchWindow.barometric(windowStart: windowStart, windowEnd: windowEnd),
+            sort: \BarometricReading.timestamp
+        )
+    }
+
+    var body: some View {
+        content(entries, cpapSessions, barometric)
     }
 }
 
