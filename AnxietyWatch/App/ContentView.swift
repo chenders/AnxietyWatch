@@ -17,8 +17,6 @@ struct ContentView: View {
 #if DEBUG
     @State private var demoSequence = DemoVideoSequence.shared
 #endif
-    private let screenshotOuraService = OuraService()
-
     init() {
         let args = ProcessInfo.processInfo.arguments
         let requested = args.firstIndex(of: "-screenshotTab").flatMap { index in
@@ -30,11 +28,7 @@ struct ContentView: View {
     @ViewBuilder
     var body: some View {
         let arguments = ProcessInfo.processInfo.arguments
-        if arguments.contains("-screenshotOuraData") {
-            NavigationStack {
-                OuraDataDashboardView(service: screenshotOuraService)
-            }
-        } else if arguments.contains("-screenshotLabResults") {
+        if arguments.contains("-screenshotLabResults") {
             NavigationStack {
                 LabResultsView()
             }
@@ -81,15 +75,7 @@ struct ContentView: View {
             HRVSessionLiveView(service: polarService)
         }
         #if DEBUG
-        .task {
-            let arguments = ProcessInfo.processInfo.arguments
-            guard arguments.contains("-demoOuraSequence")
-                    else { return }
-            // Begin on the app's home Dashboard before visibly moving to the
-            // Settings tab. The remaining route is driven by each destination.
-            try? await Task.sleep(for: .seconds(4))
-            selectedTab = .settings
-        }
+
         .task(id: demoSequence.labsViewed) {
             guard ProcessInfo.processInfo.arguments.contains("-demoLabsAndSongs"),
                   demoSequence.labsViewed else { return }

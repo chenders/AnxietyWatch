@@ -63,7 +63,7 @@ enum RestoreMigrationGate {
         // the production decision path testable for ordinary simulator runs.
         let arguments = ProcessInfo.processInfo.arguments
         let automatedDemoArguments = [
-            "-seedDemoData", "-screenshotOuraData", "-screenshotLabResults",
+            "-seedDemoData", "-screenshotLabResults",
             "-screenshotTab", "-demoSongs", "-demoLabsAndSongs"
         ]
         if automatedDemoArguments.contains(where: arguments.contains) {
